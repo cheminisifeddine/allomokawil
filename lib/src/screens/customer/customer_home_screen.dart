@@ -28,9 +28,14 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   late final Repository _repo;
   late Future<List<WorkerProfile>> _topWorkers;
 
+  bool _scopeReady = false;
+
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // AppScope is an InheritedWidget, so it cannot be read in initState.
+    if (_scopeReady) return;
+    _scopeReady = true;
     _repo = Repository(AppScope.of(context).api);
     _topWorkers = _repo.topWorkers();
   }
@@ -125,9 +130,14 @@ class _ExploreView extends StatelessWidget {
                         children: const [
                           Icon(Icons.search, color: Color(0xFF6E6E73)),
                           SizedBox(width: 10),
-                          Text('ابحث عن حرفي أو تخصص...',
-                              style: TextStyle(
-                                  color: Color(0xFF6E6E73), fontSize: 15)),
+                          // Must be flexible: a fixed-width Row overflows on
+                          // narrow screens.
+                          Expanded(
+                            child: Text('ابحث عن حرفي أو تخصص...',
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    color: Color(0xFF6E6E73), fontSize: 15)),
+                          ),
                         ],
                       ),
                     ),

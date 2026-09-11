@@ -233,7 +233,12 @@ class Repository {
 
   Future<int> unreadCount() async {
     final data = await _api.get('/api/unread');
-    return (data as num?)?.toInt() ?? 0;
+    // The backend answers {"unread": n}; accept a bare number too.
+    if (data is num) return data.toInt();
+    if (data is Map && data['unread'] is num) {
+      return (data['unread'] as num).toInt();
+    }
+    return 0;
   }
 
   // ---- Verification -----------------------------------------------------

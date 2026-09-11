@@ -54,7 +54,7 @@ class Project {
       description: json['description'] as String?,
       category: json['category'] as String,
       images: imgs,
-      wilaya: json['wilaya'] as String,
+      wilaya: (json['wilaya'] as String?) ?? '',
       commune: json['commune'] as String?,
       budgetMin: (json['budget_min'] as num?)?.toInt(),
       budgetMax: (json['budget_max'] as num?)?.toInt(),

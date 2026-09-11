@@ -33,7 +33,10 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _busy = true);
     try {
       await auth.login(phone: _phone.text.trim(), password: _password.text, rememberMe: _remember);
-      // RoleHome swaps in automatically once auth notifies.
+      // The root gate listens to AuthState: unwind to it so it swaps in RoleHome.
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
     } on Exception catch (e) {
       _toast(e.toString());
     } finally {

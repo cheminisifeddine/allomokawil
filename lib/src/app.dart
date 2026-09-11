@@ -43,16 +43,25 @@ class _RootGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!auth.isRestored) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-    if (!auth.isAuthenticated) {
-      return const Scaffold(body: _GateLanding());
-    }
-    // Route customer vs worker to their own home screens.
-    return RoleHome(role: auth.role);
+    // Listen to the session: a successful register/login flips this gate to the
+    // role-aware home with no manual navigation. Without this listener nothing
+    // rebuilds on AuthState.notifyListeners(), so the app stayed stuck on the
+    // auth screens after a successful sign-in.
+    return ListenableBuilder(
+      listenable: auth,
+      builder: (context, _) {
+        if (!auth.isRestored) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (!auth.isAuthenticated) {
+          return const Scaffold(body: _GateLanding());
+        }
+        // Route customer vs worker to their own home screens.
+        return RoleHome(role: auth.role);
+      },
+    );
   }
 }
 

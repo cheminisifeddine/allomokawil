@@ -58,7 +58,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
         password: pwd,
         role: widget.role,
       );
-      // If worker, nudge them to verification on next screen.
+      // Account created and the session persisted: unwind every auth screen so
+      // the root gate (which listens to AuthState) shows the role-aware home.
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
     } on Exception catch (e) {
       _toast(e.toString());
     } finally {

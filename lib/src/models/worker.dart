@@ -76,7 +76,7 @@ class WorkerProfile {
       responseTimeHours: (json['response_time_hours'] as num?)?.toInt(),
       coverImageUrl: json['cover_image_url'] as String?,
       avatarUrl: json['avatar_url'] as String?,
-      wilaya: json['wilaya'] as String?,
+      wilaya: (json['user_wilaya'] ?? json['wilaya']) as String?,
       commune: json['commune'] as String?,
     );
   }

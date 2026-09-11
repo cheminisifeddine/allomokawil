@@ -89,14 +89,17 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                             fontSize: 14, height: 1.6, color: Color(0xFF3A3A3C))),
                   ],
                   const SizedBox(height: 12),
-                  Row(
+                  // Wrap, not Row: two chips plus a budget label overflow the
+                  // available width on a phone.
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
                       if (project.budgetMin != null || project.budgetMax != null)
                         Chip(
                             label: Text(project.budgetLabel),
                             avatar:
                                 const Icon(Icons.payments_outlined, size: 18)),
-                      const SizedBox(width: 8),
                       Chip(label: Text(_urgencyLabel(project.urgency))),
                     ],
                   ),

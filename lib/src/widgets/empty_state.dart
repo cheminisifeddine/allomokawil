@@ -53,7 +53,12 @@ class LoadingList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A loading skeleton. A viewport (ListView) never overflows vertically,
+    // unlike a plain Column, and shrinkWrap lets it size to its content when a
+    // parent (e.g. a SliverToBoxAdapter) hands it unbounded height.
     return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.all(16),
       itemCount: count,
       itemBuilder: (_, __) => Container(

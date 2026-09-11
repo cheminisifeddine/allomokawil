@@ -25,9 +25,14 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
   late final Future<List<Review>> _reviews;
   late final Future<List<String>> _portfolio;
 
+  bool _scopeReady = false;
+
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // AppScope is an InheritedWidget, so it cannot be read in initState.
+    if (_scopeReady) return;
+    _scopeReady = true;
     _repo = Repository(AppScope.of(context).api);
     _profile = _repo.getWorker(widget.workerId);
     _reviews = _repo.workerReviews(widget.workerId);

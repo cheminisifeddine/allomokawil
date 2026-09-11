@@ -27,9 +27,14 @@ class _BrowseScreenState extends State<BrowseScreen> {
   String? _wilaya;
   Future<List<WorkerProfile>>? _future;
 
+  bool _scopeReady = false;
+
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // AppScope is an InheritedWidget, so it cannot be read in initState.
+    if (_scopeReady) return;
+    _scopeReady = true;
     _repo = Repository(AppScope.of(context).api);
     _category = widget.initialCategory;
     _future = _repo.searchWorkers(category: _category, wilaya: _wilaya);
