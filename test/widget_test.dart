@@ -8,7 +8,7 @@ import 'package:allomokawil/src/app.dart';
 
 void main() {
   testWidgets('app boots to the auth gate', (tester) async {
-    final api = ApiClient(baseUrl: 'http://localhost:8787');
+    final api = ApiClient(baseUrls: ['http://localhost:8787']);
     final auth = AuthState(api);
     await tester.pumpWidget(AppScope(api: api, auth: auth, child: const AlloMokawilApp()));
     await tester.pump();
