@@ -273,11 +273,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                 ),
                 const SizedBox(height: 6),
                 Container(
-                  decoration: BoxDecoration(
-                    color: AppTheme.surface,
-                    border: Border.all(color: AppTheme.line),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
+                  decoration: AppTheme.cardDecoration,
                   child: SwitchListTile.adaptive(
                     value: _available,
                     activeThumbColor: AppTheme.navy,
@@ -383,11 +379,10 @@ class _Notice extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppTheme.dangerWash,
-        border: Border.all(color: AppTheme.danger),
-        borderRadius: BorderRadius.circular(14),
+      padding: AppTheme.cardPad,
+      decoration: AppTheme.cardDecorationOf(
+        fill: AppTheme.dangerWash,
+        border: AppTheme.danger,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,

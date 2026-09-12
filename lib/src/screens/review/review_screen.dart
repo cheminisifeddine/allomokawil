@@ -75,8 +75,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                     textAlign: TextAlign.center, style: AppTheme.bodySoft),
                 const SizedBox(height: 18),
                 AppCard(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
+                  padding: AppTheme.cardPad,
                   child: Column(
                     children: [
                       _StarPicker(
@@ -89,7 +88,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                             horizontal: 16, vertical: 8),
                         decoration: BoxDecoration(
                           color: AppTheme.accentWash,
-                          borderRadius: BorderRadius.circular(999),
+                          borderRadius: BorderRadius.circular(AppTheme.rPill),
                         ),
                         child: Text(_label(_rating),
                             style: AppTheme.label.copyWith(

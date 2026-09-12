@@ -114,8 +114,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                           const SectionTitle('وصف المشروع',
                               icon: Icons.notes_rounded),
                           AppCard(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 14),
+                            padding: AppTheme.cardPad,
                             child: Text(project.description!,
                                 style: AppTheme.body),
                           ),
@@ -123,8 +122,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                         const SectionTitle('تفاصيل المشروع',
                             icon: Icons.fact_check_outlined),
                         AppCard(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 6),
+                          padding: AppTheme.cardPadRows,
                           child: Column(
                             children: [
                               InfoRow(
@@ -356,7 +354,7 @@ class _MetaChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: AppTheme.lineSoft,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(AppTheme.rPill),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -446,7 +444,7 @@ class _PhotosState extends State<_Photos> {
                   height: 7,
                   decoration: BoxDecoration(
                     color: i == _index ? AppTheme.accent : AppTheme.line,
-                    borderRadius: BorderRadius.circular(999),
+                    borderRadius: BorderRadius.circular(AppTheme.rPill),
                   ),
                 ),
             ],

@@ -8,15 +8,14 @@ import 'src/core/security/auth_state.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // The app is dark from the first frame, so the system bars must not paint
-  // light chrome around it: white-on-dark status icons, and the gesture bar in
-  // the canvas colour rather than the platform default.
+  // White canvas: the status bar sits on white, so it needs dark glyphs, and
+  // the gesture bar is white rather than the platform's translucent grey.
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-    statusBarBrightness: Brightness.dark,
-    systemNavigationBarColor: Color(0xFF0B0E13),
-    systemNavigationBarIconBrightness: Brightness.light,
+    statusBarIconBrightness: Brightness.dark,
+    statusBarBrightness: Brightness.light,
+    systemNavigationBarColor: Color(0xFFFFFFFF),
+    systemNavigationBarIconBrightness: Brightness.dark,
   ));
   final api = ApiClient();
   final auth = AuthState(api);

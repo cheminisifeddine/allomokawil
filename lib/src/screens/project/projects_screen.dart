@@ -275,14 +275,14 @@ class _TabPill extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(AppTheme.rPill),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
           height: 56,
           padding: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
             color: selected ? AppTheme.navy : AppTheme.surface,
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(AppTheme.rPill),
             border: Border.all(
               color: selected ? AppTheme.navy : AppTheme.line,
             ),
@@ -323,12 +323,8 @@ class _ProjectsSkeleton extends StatelessWidget {
       itemCount: count,
       itemBuilder: (_, __) => Container(
         margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(13),
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(AppTheme.rLg),
-          border: Border.all(color: AppTheme.line),
-        ),
+        padding: AppTheme.cardPad,
+        decoration: AppTheme.cardDecoration,
         child: Row(
           children: const [
             SkeletonBox(height: 76, width: 76, radius: AppTheme.rSm, color: SkeletonTone.base),

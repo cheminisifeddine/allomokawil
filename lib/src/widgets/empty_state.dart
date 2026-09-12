@@ -78,12 +78,8 @@ class LoadingList extends StatelessWidget {
       itemCount: count,
       itemBuilder: (_, __) => Container(
         margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(AppTheme.rLg),
-          border: Border.all(color: AppTheme.line),
-        ),
+        padding: AppTheme.cardPad,
+        decoration: AppTheme.cardDecoration,
         child: Row(
           children: [
             Container(
@@ -125,7 +121,7 @@ class _Bar extends StatelessWidget {
         height: height,
         decoration: BoxDecoration(
           color: SkeletonTone.base,
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(AppTheme.rXs),
         ),
       );
 }

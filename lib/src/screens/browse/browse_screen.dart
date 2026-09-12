@@ -314,14 +314,14 @@ class _FilterPill extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(AppTheme.rPill),
         onTap: onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
             color: selected ? AppTheme.navy : wash,
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(AppTheme.rPill),
             border: Border.all(
                 color: selected ? AppTheme.navy : AppTheme.line, width: 1.2),
           ),

@@ -61,7 +61,7 @@ class ClientStartCard extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
       child: AppCard(
         key: const Key('client-start-card'),
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+        padding: AppTheme.cardPad,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -81,7 +81,7 @@ class ClientStartCard extends StatelessWidget {
                       Text(
                         'ابدأ من هنا',
                         style: AppTheme.h2
-                            .copyWith(fontSize: 16, color: AppTheme.textPrimary),
+                            .copyWith(fontSize: 16, color: AppTheme.navy),
                       ),
                       const SizedBox(height: 3),
                       Text(
@@ -158,7 +158,7 @@ class _StepRow extends StatelessWidget {
                 style: AppTheme.caption.copyWith(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w800,
-                  color: first ? AppTheme.accent : AppTheme.textSecondary,
+                  color: first ? AppTheme.navy : AppTheme.textSecondary,
                 ),
               ),
             ),
@@ -173,7 +173,7 @@ class _StepRow extends StatelessWidget {
                     Icon(
                       step.icon,
                       size: 16,
-                      color: first ? AppTheme.accent : AppTheme.textMuted,
+                      color: first ? AppTheme.navy : AppTheme.textMuted,
                     ),
                     const SizedBox(width: 6),
                     Flexible(

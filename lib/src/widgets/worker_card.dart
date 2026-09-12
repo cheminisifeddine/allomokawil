@@ -216,7 +216,7 @@ class _Avatar extends StatelessWidget {
       height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: AppTheme.navySoft,
+        color: AppTheme.navy,
         shape: BoxShape.circle,
       ),
       child: Text(
@@ -243,7 +243,7 @@ class _MiniTag extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
         color: AppTheme.lineSoft,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(AppTheme.rPill),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -276,12 +276,8 @@ class _Pressable extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppTheme.rLg),
           onTap: onTap,
           child: Container(
-            padding: const EdgeInsets.all(13),
-            decoration: BoxDecoration(
-              color: AppTheme.surface,
-              borderRadius: BorderRadius.circular(AppTheme.rLg),
-              border: Border.all(color: AppTheme.line),
-            ),
+            padding: AppTheme.cardPad,
+            decoration: AppTheme.cardDecoration,
             child: child,
           ),
         ),

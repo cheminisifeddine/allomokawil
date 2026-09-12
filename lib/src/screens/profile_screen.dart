@@ -146,7 +146,7 @@ class _ProfileHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppCard(
-      padding: const EdgeInsets.all(18),
+      padding: AppTheme.cardPad,
       child: Row(
         children: [
           InitialAvatar(name: name, size: 64),

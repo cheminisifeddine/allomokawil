@@ -241,7 +241,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       const SizedBox(height: 16),
                     ],
                     AppCard(
-                      padding: const EdgeInsets.all(18),
+                      padding: AppTheme.cardPad,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -371,7 +371,7 @@ class _TopBar extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           ClipRRect(
-            borderRadius: BorderRadius.circular(9),
+            borderRadius: BorderRadius.circular(AppTheme.rSm),
             child: Image.asset(
               'assets/brand/icon.png',
               width: 30,
@@ -596,7 +596,7 @@ class _RememberRow extends StatelessWidget {
                 checkColor: AppTheme.navy,
                 side: const BorderSide(color: AppTheme.line, width: 1.6),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(6)),
+                    borderRadius: BorderRadius.circular(AppTheme.rXs)),
               ),
               const SizedBox(width: 4),
               Expanded(

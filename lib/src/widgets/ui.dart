@@ -38,7 +38,9 @@ class IconBubble extends StatelessWidget {
   }
 }
 
-/// White, rounded, hairline-bordered surface. The app's basic building block.
+/// The app's basic building block — one shape for every card, built from the
+/// single recipe in [AppTheme.cardDecorationOf] so no screen can invent its own
+/// radius, border, shadow or inner padding. Pinned by `card_recipe_test.dart`.
 class AppCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
@@ -50,21 +52,21 @@ class AppCard extends StatelessWidget {
   const AppCard({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(16),
+    this.padding = AppTheme.cardPad,
     this.onTap,
     this.color,
     this.borderColor,
-    this.radius = AppTheme.rLg,
+    this.radius = AppTheme.cardRadius,
   });
 
   @override
   Widget build(BuildContext context) {
     final box = Container(
       padding: padding,
-      decoration: BoxDecoration(
-        color: color ?? AppTheme.surface,
-        borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: borderColor ?? AppTheme.line),
+      decoration: AppTheme.cardDecorationOf(
+        fill: color,
+        border: borderColor,
+        radius: radius,
       ),
       child: child,
     );
@@ -261,7 +263,7 @@ class CategoryBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: wash,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(AppTheme.rPill),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -322,7 +324,7 @@ class SelectableTile extends StatelessWidget {
             color: selected ? AppTheme.accentWash : AppTheme.surface,
             borderRadius: BorderRadius.circular(AppTheme.rMd),
             border: Border.all(
-              color: selected ? AppTheme.accent : AppTheme.line,
+              color: selected ? AppTheme.navy : AppTheme.line,
               width: selected ? 2 : 1,
             ),
           ),
@@ -333,11 +335,11 @@ class SelectableTile extends StatelessWidget {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: selected ? AppTheme.accent : wash,
+                  color: selected ? AppTheme.navy : wash,
                   shape: BoxShape.circle,
                 ),
                 child: Icon(icon,
-                    size: 19, color: selected ? AppTheme.navy : tint),
+                    size: 19, color: selected ? AppTheme.onNavy : tint),
               ),
               const SizedBox(height: 6),
               // Flexible, not a fixed box: a two-line Arabic label must be able
@@ -352,7 +354,7 @@ class SelectableTile extends StatelessWidget {
                   style: AppTheme.label.copyWith(
                     fontSize: 12,
                     height: 1.25,
-                    color: selected ? AppTheme.accent : AppTheme.textPrimary,
+                    color: selected ? AppTheme.navy : AppTheme.textPrimary,
                   ),
                 ),
               ),
@@ -415,7 +417,7 @@ class StatusPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: wash,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(AppTheme.rPill),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -493,7 +495,7 @@ class InitialAvatar extends StatelessWidget {
       height: size,
       alignment: Alignment.center,
       decoration: const BoxDecoration(
-        color: AppTheme.navySoft,
+        color: AppTheme.navy,
         shape: BoxShape.circle,
       ),
       child: Text(
@@ -619,7 +621,7 @@ class InfoRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 9),
+      padding: const EdgeInsets.symmetric(vertical: AppTheme.s8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -628,7 +630,7 @@ class InfoRow extends StatelessWidget {
             height: 36,
             decoration: BoxDecoration(
               color: AppTheme.lineSoft,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(AppTheme.rSm),
             ),
             child: Icon(icon, size: 18, color: color),
           ),

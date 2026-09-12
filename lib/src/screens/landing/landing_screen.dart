@@ -11,9 +11,10 @@
 // two actions, "create an account" and "sign in", which open the one auth screen
 // where the role is chosen. Nothing else is asked on the way in.
 //
-// The hero art is drawn, not shipped: `_BlueprintArt` is original vector line art
-// (a blueprint grid, a house under a crane) painted with `CustomPainter`, so the
-// build carries no third-party image, icon pack or stock photo.
+// The hero is a warm white panel: cream wash, navy ink, the founder's mark on
+// its own cream tile, and one gold accent on the primary action. The earlier
+// painted blueprint scene (grid + house + crane) is gone — in a 104 dp band it
+// read as stray gold lines rather than as a drawing.
 import 'package:flutter/material.dart';
 
 import '../../core/l10n/strings.dart';
@@ -72,7 +73,7 @@ class LandingScreen extends StatelessWidget {
             const _CategoryStrip(),
             const SizedBox(height: 22),
             AppCard(
-              padding: const EdgeInsets.all(18),
+              padding: AppTheme.cardPad,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -147,29 +148,38 @@ class _Hero extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
-          colors: [AppTheme.navy, AppTheme.navyDeep],
+          colors: [Color(0xFFFFFCF6), AppTheme.accentWash],
         ),
         borderRadius: BorderRadius.circular(AppTheme.rXl),
-        boxShadow: AppTheme.softShadow,
+        border: Border.all(color: AppTheme.line),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.asset(
-                        'assets/brand/icon.png',
-                        width: 40,
-                        height: 40,
-                        fit: BoxFit.cover,
+                    // The mark is black-and-gold, so on the white canvas it
+                    // sits on a cream tile with a hairline. The old dark plate
+                    // and the glow were there to hide it on a dark panel.
+                    Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(AppTheme.rSm),
+                        border: Border.all(color: AppTheme.line),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(AppTheme.rSm),
+                        child: Image.asset(
+                          'assets/brand/icon.png',
+                          width: 44,
+                          height: 44,
+                          fit: BoxFit.cover,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -179,46 +189,39 @@ class _Hero extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTheme.h1
-                            .copyWith(color: AppTheme.onNavy, fontSize: 26),
+                            .copyWith(color: AppTheme.navy, fontSize: 26),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 16),
                 Text(
                   'كل خدمات البناء والتهيئة',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppTheme.h2
-                      .copyWith(color: AppTheme.onNavy, fontSize: 19),
+                      .copyWith(color: AppTheme.navy, fontSize: 19),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 6),
                 Text(
                   'من البحث عن مقاول موثوق إلى تسليم العمل.',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: AppTheme.body
-                      .copyWith(color: AppTheme.onNavyMuted, fontSize: 13.5),
+                  style: AppTheme.body.copyWith(
+                      color: AppTheme.textSecondary,
+                      fontSize: 13.5,
+                      height: 1.6),
                 ),
               ],
             ),
           ),
-          // The drawing gets its own band under the words. Behind them, the roof
-          // line crossed the tagline and the clipped crane read as a mistake.
-          const SizedBox(
-            height: 104,
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(16, 4, 16, 6),
-              child: CustomPaint(painter: _BlueprintArt(), size: Size.infinite),
-            ),
-          ),
+          // The three promises sit on their own white strip, which closes the
+          // panel and keeps the labels on one baseline.
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.07),
-              border: Border(
-                top: BorderSide(color: Colors.white.withValues(alpha: 0.10)),
-              ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: const BoxDecoration(
+              color: AppTheme.surface,
+              border: Border(top: BorderSide(color: AppTheme.line)),
             ),
             child: Row(
               children: const [
@@ -253,7 +256,7 @@ class _HeroStat extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Icon(icon, size: 20, color: AppTheme.accent),
+        Icon(icon, size: 20, color: AppTheme.accentDeep),
         const SizedBox(height: 6),
         Text(
           label,
@@ -261,7 +264,7 @@ class _HeroStat extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: AppTheme.caption
-              .copyWith(color: AppTheme.onNavy, fontSize: 11.5, height: 1.3),
+              .copyWith(color: AppTheme.navy, fontSize: 11.5, height: 1.3),
         ),
       ],
     );
@@ -278,7 +281,7 @@ class _TrustRow extends StatelessWidget {
       children: [
         Expanded(
           child: AppCard(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+            padding: AppTheme.cardPadRail,
             child: Column(
               children: [
                 const IconBubble(
@@ -308,7 +311,7 @@ class _TrustRow extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
           child: AppCard(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+            padding: AppTheme.cardPadRail,
             child: Column(
               children: [
                 const IconBubble(
@@ -338,7 +341,7 @@ class _TrustRow extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
           child: AppCard(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+            padding: AppTheme.cardPadRail,
             child: Column(
               children: [
                 const IconBubble(
@@ -391,7 +394,7 @@ class _Step extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.only(bottom: last ? 0 : 12),
       child: AppCard(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        padding: AppTheme.cardPad,
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -472,12 +475,8 @@ class _CategoryStrip extends StatelessWidget {
           final c = items[i];
           return Container(
             width: 92,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-            decoration: BoxDecoration(
-              color: AppTheme.surface,
-              borderRadius: BorderRadius.circular(AppTheme.rLg),
-              border: Border.all(color: AppTheme.line),
-            ),
+            padding: AppTheme.cardPadRail,
+            decoration: AppTheme.cardDecoration,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
@@ -527,104 +526,4 @@ class _TermsLine extends StatelessWidget {
       ],
     );
   }
-}
-
-/// Original blueprint-style line art for the hero: a millimetre grid, a house
-/// with a pitched roof and its openings, and a tower crane — the three shapes
-/// that say "construction" without a single borrowed pixel.
-class _BlueprintArt extends CustomPainter {
-  const _BlueprintArt();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final h = size.height;
-
-    // Warm glow behind the house so the navy does not read as flat.
-    final glowRect = Rect.fromCircle(
-      center: Offset(w * 0.26, h * 0.72),
-      radius: w * 0.36,
-    );
-    canvas.drawCircle(
-      glowRect.center,
-      glowRect.width / 2,
-      Paint()
-        ..shader = const RadialGradient(
-          colors: [Color(0x2EE8A33D), Color(0x00E8A33D)],
-        ).createShader(glowRect),
-    );
-
-    // Blueprint grid: the paper the drawing sits on.
-    final grid = Paint()
-      ..color = Colors.white.withValues(alpha: 0.05)
-      ..strokeWidth = 1;
-    for (double x = 0; x <= w; x += 18) {
-      canvas.drawLine(Offset(x, 0), Offset(x, h), grid);
-    }
-    for (double y = 0; y <= h; y += 18) {
-      canvas.drawLine(Offset(0, y), Offset(w, y), grid);
-    }
-
-    final ink = Paint()
-      ..color = AppTheme.accent.withValues(alpha: 0.95)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.1
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final faint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.30)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    // The ground the whole drawing stands on.
-    final groundY = h * 0.90;
-    canvas.drawLine(
-        Offset(w * 0.02, groundY), Offset(w * 0.98, groundY), faint);
-
-    // House: walls, then a roof whose eaves meet the wall tops exactly.
-    final wallTop = h * 0.52;
-    final left = w * 0.10;
-    final right = w * 0.46;
-    canvas.drawRect(Rect.fromLTRB(left, wallTop, right, groundY), ink);
-    canvas.drawPath(
-      Path()
-        ..moveTo(w * 0.05, wallTop)
-        ..lineTo((left + right) / 2, h * 0.16)
-        ..lineTo(w * 0.51, wallTop),
-      ink,
-    );
-    // Door and two windows, openings only.
-    canvas.drawRect(
-        Rect.fromLTRB(w * 0.24, h * 0.70, w * 0.32, groundY), faint);
-    canvas.drawRect(
-        Rect.fromLTRB(w * 0.14, h * 0.60, w * 0.20, h * 0.70), faint);
-    canvas.drawRect(
-        Rect.fromLTRB(w * 0.36, h * 0.60, w * 0.42, h * 0.70), faint);
-
-    // Tower crane: mast, jib, counterweight, hoist cable and the load.
-    final mastX = w * 0.80;
-    canvas.drawLine(Offset(mastX, groundY), Offset(mastX, h * 0.16), ink);
-    canvas.drawLine(
-        Offset(w * 0.66, h * 0.16), Offset(w * 0.94, h * 0.16), ink);
-    canvas.drawLine(Offset(mastX, h * 0.16), Offset(mastX, h * 0.06), ink);
-    canvas.drawRect(
-        Rect.fromLTRB(w * 0.87, h * 0.17, w * 0.94, h * 0.27), faint);
-    // Hoist cable and the block hanging from the jib.
-    canvas.drawLine(
-        Offset(w * 0.70, h * 0.16), Offset(w * 0.70, h * 0.48), faint);
-    canvas.drawRect(
-        Rect.fromLTRB(w * 0.665, h * 0.48, w * 0.735, h * 0.60), ink);
-    // Mast bracing: three closed rungs, never touching the ground line.
-    for (double y = h * 0.30; y < h * 0.84; y += h * 0.18) {
-      final next = y + h * 0.18;
-      canvas.drawLine(Offset(mastX - 5, y), Offset(mastX + 5, next), faint);
-      canvas.drawLine(Offset(mastX + 5, y), Offset(mastX - 5, next), faint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _BlueprintArt oldDelegate) => false;
 }

@@ -222,7 +222,7 @@ class _CoverHeader extends StatelessWidget {
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                   decoration: BoxDecoration(
                     color: AppTheme.surface,
-                    borderRadius: BorderRadius.circular(999),
+                    borderRadius: BorderRadius.circular(AppTheme.rPill),
                   ),
                   child: RatingStars(
                       rating: worker.avgRating,

@@ -137,7 +137,7 @@ class _ConversationTile extends StatelessWidget {
     final hasUnread = conv.unreadCount > 0;
     return AppCard(
       onTap: onTap,
-      padding: const EdgeInsets.all(13),
+      padding: AppTheme.cardPad,
       child: Row(
         children: [
           _Avatar(conv: conv),
@@ -185,7 +185,7 @@ class _ConversationTile extends StatelessWidget {
                   decoration: BoxDecoration(
                     // Accent is the app's single highlight colour.
                     color: AppTheme.accent,
-                    borderRadius: BorderRadius.circular(999),
+                    borderRadius: BorderRadius.circular(AppTheme.rPill),
                   ),
                   child: Text(
                     conv.unreadCount > 99 ? '99+' : '${conv.unreadCount}',

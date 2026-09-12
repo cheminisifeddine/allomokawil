@@ -484,7 +484,7 @@ class _HomeHeader extends StatelessWidget {
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                 decoration: BoxDecoration(
                   color: AppTheme.onNavy.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(999),
+                  borderRadius: BorderRadius.circular(AppTheme.rPill),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -627,7 +627,7 @@ class _NoProjectsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppCard(
-      padding: const EdgeInsets.fromLTRB(18, 22, 18, 22),
+      padding: AppTheme.cardPad,
       child: Column(
         children: [
           const IconBubble(
@@ -669,7 +669,7 @@ class _FirstRunProjectsHint extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppCard(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+      padding: AppTheme.cardPad,
       child: Row(
         children: [
           const Icon(Icons.folder_open_rounded,
@@ -705,12 +705,8 @@ class _WorkerStripSkeleton extends StatelessWidget {
         separatorBuilder: (_, __) => const SizedBox(width: 12),
         itemBuilder: (_, __) => Container(
           width: 172,
-          padding: const EdgeInsets.all(13),
-          decoration: BoxDecoration(
-            color: AppTheme.surface,
-            borderRadius: BorderRadius.circular(AppTheme.rLg),
-            border: Border.all(color: AppTheme.line),
-          ),
+          padding: AppTheme.cardPadRail,
+          decoration: AppTheme.cardDecoration,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: const [
@@ -750,12 +746,8 @@ class _ProjectStripSkeleton extends StatelessWidget {
           for (var i = 0; i < count; i++)
             Container(
               margin: EdgeInsets.only(bottom: i == count - 1 ? 0 : 12),
-              padding: const EdgeInsets.all(13),
-              decoration: BoxDecoration(
-                color: AppTheme.surface,
-                borderRadius: BorderRadius.circular(AppTheme.rLg),
-                border: Border.all(color: AppTheme.line),
-              ),
+              padding: AppTheme.cardPad,
+              decoration: AppTheme.cardDecoration,
               child: Row(
                 children: const [
                   SkeletonBox(height: 76, width: 76, radius: AppTheme.rSm, color: SkeletonTone.base),

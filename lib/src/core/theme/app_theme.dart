@@ -16,52 +16,156 @@ class AppTheme {
   AppTheme._();
 
   // ── Brand ──────────────────────────────────────────────────────────────
-  /// Deep ink. Plays two roles that both stay dark in the dark theme: it is a
-  /// *surface* (headers, heroes, snackbars) and the ink that sits **on gold**
-  /// (button labels, selected chips). Never use it as text on a card — that is
-  /// what `textPrimary` is for.
-  static const Color navy = Color(0xFF12161D);
-  static const Color navyDeep = Color(0xFF0B0E13);
-  static const Color navySoft = Color(0xFF1E242E);
+  /// Deep navy — brand, headers, the hero panel, and the primary text ink.
+  /// On the white canvas it is never a *background* for a card (that is
+  /// `surface`), only for the hero panel and for the ink that sits **on gold**.
+  static const Color navy = Color(0xFF16213E);
+  static const Color navyDeep = Color(0xFF0F1830);
+  static const Color navySoft = Color(0xFF243457);
 
   /// Warm gold — the single call-to-action colour (board palette).
-  static const Color accent = Color(0xFFF2B23E);
+  static const Color accent = Color(0xFFE8A33D);
   static const Color accentDeep = Color(0xFF9B6415);
-  static const Color accentWash = Color(0xFF2A2213);
+  static const Color accentWash = Color(0xFFFDF3E3);
 
-  // ── Neutrals — dark canvas from the approved board ─────────────────────
-  static const Color bg = Color(0xFF0B0E13);
-  static const Color surface = Color(0xFF141922);
-  static const Color surfaceAlt = Color(0xFF1A1F27);
-  static const Color line = Color(0xFF242A33);
-  static const Color lineSoft = Color(0xFF1B212A);
+  // ── Neutrals — white canvas ────────────────────────────────────────────
+  static const Color bg = Color(0xFFFFFFFF);
+  static const Color surface = Color(0xFFFFFFFF);
+  static const Color surfaceAlt = Color(0xFFF6F7F9);
+  static const Color line = Color(0xFFE8E8EC);
+  static const Color lineSoft = Color(0xFFF2F2F5);
 
   // ── Text ───────────────────────────────────────────────────────────────
-  static const Color textPrimary = Color(0xFFF5F6F8);
-  static const Color textSecondary = Color(0xFFC3C9D4);
-  static const Color textMuted = Color(0xFF9AA1AC);
+  static const Color textPrimary = Color(0xFF101828);
+  static const Color textSecondary = Color(0xFF475065);
+  static const Color textMuted = Color(0xFF6C707A);
   static const Color onNavy = Color(0xFFFFFFFF);
   static const Color onNavyMuted = Color(0xFFB9C2D6);
 
-  // ── Semantic — lifted for legibility on a dark canvas ──────────────────
-  static const Color success = Color(0xFF3FBF6F);
-  static const Color successWash = Color(0xFF10231A);
-  static const Color danger = Color(0xFFFF6B6B);
-  static const Color dangerWash = Color(0xFF2A1618);
-  static const Color info = Color(0xFF6BA8F5);
-  static const Color infoWash = Color(0xFF14202E);
-  static const Color star = Color(0xFFF2B23E);
+  // ── Semantic ───────────────────────────────────────────────────────────
+  static const Color success = Color(0xFF1B7E50);
+  static const Color successWash = Color(0xFFE7F5EE);
+  static const Color danger = Color(0xFFC33F39);
+  static const Color dangerWash = Color(0xFFFCEDEC);
+  static const Color info = Color(0xFF2C6FBB);
+  static const Color infoWash = Color(0xFFEAF2FB);
+  static const Color star = Color(0xFFF2B01E);
 
   // ── Geometry ───────────────────────────────────────────────────────────
+  /// Radii. A screen names a step; it never types a number.
+  static const double rXs = 6;
   static const double rSm = 12;
   static const double rMd = 16;
   static const double rLg = 20;
   static const double rXl = 28;
-  static const double gap = 16;
+
+  /// Fully rounded ends — pills, chips, badges, progress tracks.
+  static const double rPill = 999;
+
+  // ── Spacing — one 4 dp grid ────────────────────────────────────────────
+  /// Every gap and inset comes off this ladder. There is exactly one blessed
+  /// exception, [gutter], because it is a *screen margin*, not a component gap.
+  static const double s4 = 4;
+  static const double s8 = 8;
+  static const double s12 = 12;
+  static const double s16 = 16;
+  static const double s20 = 20;
+  static const double s24 = 24;
+  static const double s28 = 28;
+  static const double s32 = 32;
+
+  static const double gap = s16;
   static const double tapMin = 56;
 
-  static const EdgeInsets pagePad = EdgeInsets.fromLTRB(18, 8, 18, 28);
+  /// The page gutter. Deliberately 18 — it is the one value that is not a
+  /// component gap, so it lives alone and never gets reused as one.
+  static const double gutter = 18;
 
+  static const EdgeInsets pagePad =
+      EdgeInsets.fromLTRB(gutter, s8, gutter, s28);
+
+  // ── THE CARD RECIPE ────────────────────────────────────────────────────
+  //  One shape for every card in the app: fill, radius, hairline border,
+  //  inner padding — and no shadow. A screen builds cards through
+  //  [cardDecoration] / [AppCard] and never by hand; `test/card_recipe_test.dart`
+  //  fails the build if a screen writes its own surface+border BoxDecoration or
+  //  types a numeric radius. That drift (radius 14 here, 13 dp of inset there)
+  //  is exactly what this item exists to end.
+  static const Color cardFill = surface;
+  static const Color cardLine = line;
+  static const double cardLineWidth = 1;
+  static const double cardRadius = rLg;
+
+  /// Standard card inset.
+  static const EdgeInsets cardPad = EdgeInsets.all(s16);
+
+  /// Compact variant for tiles and 92-172 dp squares, where 16 dp of inset
+  /// would squeeze the label. On the grid, and still one token.
+  static const EdgeInsets cardPadRail = EdgeInsets.all(s12);
+
+  /// Rows card: children are full-width rows that carry their own dividers
+  /// (profile menu, verification list). Same horizontal inset as [cardPad],
+  /// half the vertical, because every row already has its own breathing room.
+  static const EdgeInsets cardPadRows =
+      EdgeInsets.symmetric(horizontal: s16, vertical: s8);
+
+  /// No shadow, on purpose: a drop shadow on a #0B0E13 canvas reads as a grey
+  /// smear, and the hairline [cardLine] border already does the separating.
+  /// The token exists so a screen cannot add "just a little" elevation.
+  static const List<BoxShadow> cardShadow = <BoxShadow>[];
+
+  static BoxDecoration get cardDecoration => cardDecorationOf();
+
+  /// The recipe with named overrides, for the few real cards that carry a
+  /// semantic tint (the danger banner, the chosen document). The shape stays
+  /// the recipe's shape; only the colours move.
+  static BoxDecoration cardDecorationOf({
+    Color? fill,
+    Color? border,
+    double? radius,
+    double? borderWidth,
+    List<BoxShadow>? shadow,
+  }) {
+    return BoxDecoration(
+      color: fill ?? cardFill,
+      borderRadius: BorderRadius.circular(radius ?? cardRadius),
+      border: Border.all(
+        color: border ?? cardLine,
+        width: borderWidth ?? cardLineWidth,
+      ),
+      boxShadow: shadow ?? cardShadow,
+    );
+  }
+
+  // ── THE FIELD RECIPE ───────────────────────────────────────────────────
+  //  Anything typed into — a TextField, and the tappable select tiles that
+  //  stand in for one — wears this shape, so a picker and a text field read as
+  //  the same control.
+  static const Color fieldFill = surfaceAlt;
+  static const Color fieldLine = line;
+  static const double fieldRadius = rMd;
+  static const double fieldLineWidth = 1;
+  static const EdgeInsets fieldPad =
+      EdgeInsets.symmetric(horizontal: s16, vertical: 18);
+
+  static BoxDecoration fieldDecorationOf({
+    Color? fill,
+    Color? border,
+    double? borderWidth,
+    double? radius,
+  }) {
+    return BoxDecoration(
+      color: fill ?? fieldFill,
+      borderRadius: BorderRadius.circular(radius ?? fieldRadius),
+      border: Border.all(
+        color: border ?? fieldLine,
+        width: borderWidth ?? fieldLineWidth,
+      ),
+    );
+  }
+
+  /// The one shadow left in the system: floating chrome (menus, sheets,
+  /// snackbars) may lift off the canvas. Cards may not.
   static List<BoxShadow> get softShadow => const [
         BoxShadow(
           color: Color(0x0F101828),
@@ -123,19 +227,19 @@ class AppTheme {
   // ── ThemeData ──────────────────────────────────────────────────────────
   static ThemeData get light {
     const scheme = ColorScheme(
-      brightness: Brightness.dark,
-      primary: accent,
-      onPrimary: navy,
-      primaryContainer: accentWash,
-      onPrimaryContainer: accent,
+      brightness: Brightness.light,
+      primary: navy,
+      onPrimary: onNavy,
+      primaryContainer: navySoft,
+      onPrimaryContainer: onNavy,
       secondary: accent,
       onSecondary: navy,
       secondaryContainer: accentWash,
-      onSecondaryContainer: accent,
+      onSecondaryContainer: navy,
       tertiary: info,
-      onTertiary: navy,
+      onTertiary: onNavy,
       error: danger,
-      onError: navy,
+      onError: onNavy,
       errorContainer: dangerWash,
       onErrorContainer: danger,
       surface: surface,
@@ -144,11 +248,11 @@ class AppTheme {
       onSurfaceVariant: textSecondary,
       outline: line,
       outlineVariant: lineSoft,
-      shadow: Color(0x66000000),
-      scrim: Color(0xCC000000),
-      inverseSurface: textPrimary,
-      onInverseSurface: bg,
-      inversePrimary: accentDeep,
+      shadow: Color(0x1A101828),
+      scrim: Color(0x66000000),
+      inverseSurface: navy,
+      onInverseSurface: onNavy,
+      inversePrimary: accent,
     );
 
     final base = ThemeData(
@@ -179,14 +283,14 @@ class AppTheme {
 
       // ── App bar: flat, white, hairline ─────────────────────────────────
       appBarTheme: const AppBarTheme(
-        backgroundColor: bg,
+        backgroundColor: surface,
         foregroundColor: textPrimary,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: true,
         toolbarHeight: 60,
-        iconTheme: IconThemeData(color: textPrimary, size: 24),
+        iconTheme: IconThemeData(color: navy, size: 24),
         titleTextStyle: TextStyle(
           fontFamily: 'Cairo',
           fontWeight: FontWeight.w700,
@@ -223,7 +327,7 @@ class AppTheme {
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: textPrimary,
+          foregroundColor: navy,
           minimumSize: const Size.fromHeight(tapMin),
           side: const BorderSide(color: line, width: 1.5),
           textStyle: button.copyWith(fontSize: 16),
@@ -233,7 +337,7 @@ class AppTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: accent,
+          foregroundColor: navy,
           textStyle: label.copyWith(fontSize: 15),
         ),
       ),
@@ -241,9 +345,8 @@ class AppTheme {
       // ── Inputs ─────────────────────────────────────────────────────────
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: surfaceAlt,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+        fillColor: fieldFill,
+        contentPadding: fieldPad,
         hintStyle: const TextStyle(
             fontFamily: 'Cairo',
             fontSize: 14.5,
@@ -257,28 +360,28 @@ class AppTheme {
         floatingLabelStyle: const TextStyle(
             fontFamily: 'Cairo',
             fontSize: 14,
-            color: accent,
+            color: navy,
             fontWeight: FontWeight.w700),
         errorStyle: const TextStyle(
             fontFamily: 'Cairo', fontSize: 13, color: danger),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(rMd),
-          borderSide: const BorderSide(color: line),
+          borderRadius: BorderRadius.circular(fieldRadius),
+          borderSide: const BorderSide(color: fieldLine),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(rMd),
-          borderSide: const BorderSide(color: line),
+          borderRadius: BorderRadius.circular(fieldRadius),
+          borderSide: const BorderSide(color: fieldLine),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(rMd),
-          borderSide: const BorderSide(color: accent, width: 2),
+          borderRadius: BorderRadius.circular(fieldRadius),
+          borderSide: const BorderSide(color: navy, width: 2),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(rMd),
+          borderRadius: BorderRadius.circular(fieldRadius),
           borderSide: const BorderSide(color: danger),
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(rMd),
+          borderRadius: BorderRadius.circular(fieldRadius),
           borderSide: const BorderSide(color: danger, width: 2),
         ),
         prefixIconColor: textSecondary,
@@ -288,14 +391,14 @@ class AppTheme {
       // ── Chips — explicit colours, never inherited ──────────────────────
       chipTheme: ChipThemeData(
         backgroundColor: surface,
-        selectedColor: accent,
+        selectedColor: navy,
         disabledColor: lineSoft,
         side: const BorderSide(color: line),
         shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(999)),
+            borderRadius: BorderRadius.circular(rPill)),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         labelStyle: label.copyWith(fontSize: 14.5, color: textPrimary),
-        secondaryLabelStyle: label.copyWith(fontSize: 14.5, color: navy),
+        secondaryLabelStyle: label.copyWith(fontSize: 14.5, color: onNavy),
         showCheckmark: false,
         elevation: 0,
         pressElevation: 0,
@@ -303,13 +406,14 @@ class AppTheme {
 
       // ── Cards ──────────────────────────────────────────────────────────
       cardTheme: CardThemeData(
-        color: surface,
+        color: cardFill,
         surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(rLg),
-          side: const BorderSide(color: line),
+          borderRadius: BorderRadius.circular(cardRadius),
+          side: const BorderSide(color: cardLine, width: cardLineWidth),
         ),
       ),
 
@@ -317,7 +421,7 @@ class AppTheme {
           color: lineSoft, thickness: 1, space: 1),
 
       listTileTheme: const ListTileThemeData(
-        iconColor: textSecondary,
+        iconColor: navy,
         textColor: textPrimary,
         titleTextStyle: TextStyle(
             fontFamily: 'Cairo',
@@ -326,10 +430,10 @@ class AppTheme {
             color: textPrimary),
         subtitleTextStyle: TextStyle(
             fontFamily: 'Cairo', fontSize: 13.5, color: textSecondary),
-        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        contentPadding: cardPadRows,
       ),
 
-      iconTheme: const IconThemeData(color: textSecondary, size: 24),
+      iconTheme: const IconThemeData(color: navy, size: 24),
       dividerColor: line,
 
       bottomSheetTheme: const BottomSheetThemeData(
@@ -352,7 +456,7 @@ class AppTheme {
 
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         backgroundColor: surface,
-        selectedItemColor: accent,
+        selectedItemColor: navy,
         unselectedItemColor: textMuted,
         selectedLabelStyle: TextStyle(
             fontFamily: 'Cairo', fontSize: 12, fontWeight: FontWeight.w700),
@@ -374,25 +478,25 @@ class AppTheme {
               fontWeight: states.contains(WidgetState.selected)
                   ? FontWeight.w700
                   : FontWeight.w500,
-              color: states.contains(WidgetState.selected) ? accent : textMuted,
+              color: states.contains(WidgetState.selected) ? navy : textMuted,
             )),
         iconTheme: WidgetStateProperty.resolveWith((states) => IconThemeData(
               size: 25,
-              color: states.contains(WidgetState.selected) ? accent : textMuted,
+              color: states.contains(WidgetState.selected) ? navy : textMuted,
             )),
       ),
 
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: surfaceAlt,
+        backgroundColor: navy,
         contentTextStyle: const TextStyle(
             fontFamily: 'Cairo',
             fontSize: 14.5,
-            color: textPrimary,
+            color: onNavy,
             fontWeight: FontWeight.w600),
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(rSm)),
-        insetPadding: const EdgeInsets.all(16),
+        insetPadding: const EdgeInsets.all(s16),
       ),
 
       progressIndicatorTheme:
@@ -408,16 +512,16 @@ class AppTheme {
       ),
 
       expansionTileTheme: const ExpansionTileThemeData(
-        iconColor: textSecondary,
-        collapsedIconColor: textMuted,
+        iconColor: navy,
+        collapsedIconColor: textSecondary,
         textColor: textPrimary,
         collapsedTextColor: textPrimary,
-        tilePadding: EdgeInsets.symmetric(horizontal: 16),
-        childrenPadding: EdgeInsets.fromLTRB(16, 0, 16, 16),
+        tilePadding: EdgeInsets.symmetric(horizontal: s16),
+        childrenPadding: EdgeInsets.fromLTRB(s16, 0, s16, s16),
       ),
 
       tabBarTheme: const TabBarThemeData(
-        labelColor: accent,
+        labelColor: navy,
         unselectedLabelColor: textMuted,
         labelStyle: TextStyle(
             fontFamily: 'Cairo', fontSize: 15, fontWeight: FontWeight.w700),

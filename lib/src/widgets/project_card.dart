@@ -16,7 +16,7 @@ class ProjectCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppCard(
       onTap: onTap,
-      padding: const EdgeInsets.all(13),
+      padding: AppTheme.cardPad,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -94,7 +94,7 @@ class ProjectCard extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppTheme.label.copyWith(
-                                fontSize: 13, color: AppTheme.accent),
+                                fontSize: 13, color: AppTheme.navy),
                           ),
                         ),
                       ],

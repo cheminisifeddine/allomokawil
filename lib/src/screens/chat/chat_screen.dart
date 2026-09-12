@@ -300,23 +300,23 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Row(
         children: [
           const Icon(Icons.cloud_off_rounded,
-              size: 18, color: AppTheme.accent),
+              size: 18, color: AppTheme.accentDeep),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               'رسائل غير مرسلة — اضغط لإعادة المحاولة',
               style: AppTheme.label
-                  .copyWith(fontSize: 12.5, color: AppTheme.accent),
+                  .copyWith(fontSize: 12.5, color: AppTheme.accentDeep),
             ),
           ),
           TextButton(
             onPressed: _sendText,
             style: TextButton.styleFrom(
               minimumSize: const Size(64, 44),
-              foregroundColor: AppTheme.accent,
+              foregroundColor: AppTheme.navy,
             ),
             child: Text('إرسال',
-                style: AppTheme.label.copyWith(fontSize: 14, color: AppTheme.accent)),
+                style: AppTheme.label.copyWith(fontSize: 14, color: AppTheme.navy)),
           ),
         ],
       ),
@@ -442,7 +442,7 @@ class _DateDivider extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
           decoration: BoxDecoration(
             color: AppTheme.lineSoft,
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(AppTheme.rPill),
           ),
           child: Text(
             _label,
@@ -489,7 +489,7 @@ class _Bubble extends StatelessWidget {
         : Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
             decoration: BoxDecoration(
-              color: mine ? AppTheme.accentWash : AppTheme.surface,
+              color: mine ? AppTheme.navy : AppTheme.surface,
               borderRadius: radius,
               border: mine ? null : Border.all(color: AppTheme.line),
             ),

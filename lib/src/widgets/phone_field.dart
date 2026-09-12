@@ -106,7 +106,7 @@ class _DzPhoneFieldState extends State<DzPhoneField> {
           child: Row(
             children: [
               const Icon(Icons.phone_android_rounded,
-                  size: 18, color: AppTheme.textSecondary),
+                  size: 18, color: AppTheme.navy),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -122,15 +122,11 @@ class _DzPhoneFieldState extends State<DzPhoneField> {
         ),
         Container(
           constraints: const BoxConstraints(minHeight: AppTheme.tapMin),
-          decoration: BoxDecoration(
-            color: AppTheme.surfaceAlt,
-            borderRadius: BorderRadius.circular(AppTheme.rMd),
-            border: Border.all(
-              color: error != null
-                  ? AppTheme.danger
-                  : (focused ? AppTheme.navy : AppTheme.line),
-              width: (focused || error != null) ? 1.8 : 1,
-            ),
+          decoration: AppTheme.fieldDecorationOf(
+            border: error != null
+                ? AppTheme.danger
+                : (focused ? AppTheme.navy : AppTheme.fieldLine),
+            borderWidth: (focused || error != null) ? 1.8 : 1,
           ),
           child: TextField(
             key: const Key('dz-phone-input'),

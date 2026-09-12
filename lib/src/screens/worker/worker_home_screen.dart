@@ -661,7 +661,7 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppCard(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+      padding: AppTheme.cardPadRail,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -779,7 +779,7 @@ class _ChipShell extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(AppTheme.rPill),
         onTap: onTap,
         child: Center(
           // Full-height (56px) tap target, the pill keeps its natural size.
@@ -788,7 +788,7 @@ class _ChipShell extends StatelessWidget {
             padding: const EdgeInsets.all(3),
             decoration: BoxDecoration(
               color: selected ? AppTheme.accentWash : AppTheme.surface,
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: BorderRadius.circular(AppTheme.rPill),
               border: Border.all(
                 color: selected ? AppTheme.navy : AppTheme.line,
                 width: selected ? 2 : 1,
@@ -816,7 +816,7 @@ class _ProjectsSkeleton extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: AppCard(
-                padding: const EdgeInsets.all(13),
+                padding: AppTheme.cardPad,
                 child: const Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -884,7 +884,7 @@ class _GettingStarted extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
       child: AppCard(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+        padding: AppTheme.cardPad,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -895,7 +895,7 @@ class _GettingStarted extends StatelessWidget {
                   height: 42,
                   decoration: BoxDecoration(
                     color: complete ? AppTheme.successWash : AppTheme.accentWash,
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(AppTheme.rSm),
                   ),
                   child: Icon(
                     complete
@@ -943,7 +943,7 @@ class _GettingStarted extends StatelessWidget {
               children: [
                 Expanded(
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(99),
+                    borderRadius: BorderRadius.circular(AppTheme.rPill),
                     child: LinearProgressIndicator(
                       value: ratio,
                       minHeight: 8,
@@ -1153,7 +1153,7 @@ class _ToolTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppCard(
       onTap: onTap,
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      padding: AppTheme.cardPad,
       child: Row(
         children: [
           IconBubble(icon: icon, tint: tint, wash: wash, size: 44),

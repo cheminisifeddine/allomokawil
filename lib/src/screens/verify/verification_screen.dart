@@ -301,7 +301,7 @@ class _ProgressCard extends StatelessWidget {
                     ? Icons.check_circle_rounded
                     : Icons.upload_file_rounded,
                 size: 20,
-                color: complete ? AppTheme.success : AppTheme.textMuted,
+                color: complete ? AppTheme.success : AppTheme.navy,
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -316,7 +316,7 @@ class _ProgressCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           ClipRRect(
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(AppTheme.rPill),
             child: LinearProgressIndicator(
               value: total == 0 ? 0 : done / total,
               minHeight: 8,
@@ -360,7 +360,7 @@ class _DocCard extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 12),
       child: AppCard(
         onTap: onPick,
-        padding: const EdgeInsets.all(14),
+        padding: AppTheme.cardPad,
         borderColor: chosen ? AppTheme.success : AppTheme.line,
         child: Row(
           children: [

@@ -28,9 +28,10 @@ class AppTabAction {
   });
 }
 
-/// Bottom navigation in the approved board's style: a dark hairline bar with
+/// Bottom navigation in the approved board's style: a white hairline bar with
 /// four labelled destinations and one **raised gold button** in the middle for
-/// the single thing this role does most.
+/// the single thing this role does most. The selected destination is navy ink:
+/// gold on white measures ~2:1 and would fail the low-literacy legibility bar.
 ///
 /// The button is drawn inside this widget's own box (88dp, of which the lower
 /// 60dp is the bar) instead of being translated upwards, so nothing depends on
@@ -110,7 +111,7 @@ class AppTabBar extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: AppTheme.accent,
                       shape: BoxShape.circle,
-                      border: Border.all(color: AppTheme.bg, width: 4),
+                      border: Border.all(color: AppTheme.surface, width: 4),
                       boxShadow: const [
                         BoxShadow(
                           color: Color(0x4DF2B23E),
@@ -142,7 +143,7 @@ class AppTabBar extends StatelessWidget {
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                       height: 1.1,
-                      color: AppTheme.accent,
+                      color: AppTheme.accentDeep,
                     ),
                   ),
                 ),
@@ -171,7 +172,7 @@ class AppTabBar extends StatelessWidget {
               Icon(
                 selected ? item.activeIcon : item.icon,
                 size: 23,
-                color: selected ? AppTheme.accent : AppTheme.textMuted,
+                color: selected ? AppTheme.navy : AppTheme.textMuted,
               ),
               const SizedBox(height: 3),
               Flexible(
@@ -184,7 +185,7 @@ class AppTabBar extends StatelessWidget {
                     fontSize: 11,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                     height: 1.1,
-                    color: selected ? AppTheme.accent : AppTheme.textMuted,
+                    color: selected ? AppTheme.navy : AppTheme.textMuted,
                   ),
                 ),
               ),

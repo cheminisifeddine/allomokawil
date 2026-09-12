@@ -31,7 +31,7 @@ class SkeletonMotion {
 class SkeletonTone {
   SkeletonTone._();
 
-  static const Color base = Color(0xFF1B212A);
+  static const Color base = Color(0xFFE5E2DB);
   static const Color highlight = Color(0x8CFFFFFF);
 }
 
@@ -129,12 +129,8 @@ class SkeletonCard extends StatelessWidget {
   Widget build(BuildContext context) {
     const widths = <double>[double.infinity, 210, 150, 180, 120];
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        borderRadius: BorderRadius.circular(AppTheme.rLg),
-        border: Border.all(color: AppTheme.line),
-      ),
+      padding: AppTheme.cardPadRows,
+      decoration: AppTheme.cardDecoration,
       child: Column(
         children: [
           for (var i = 0; i < rows; i++) ...[
@@ -185,12 +181,8 @@ class SkeletonCardList extends StatelessWidget {
         itemCount: count,
         itemBuilder: (_, __) => Container(
           margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: AppTheme.surface,
-            borderRadius: BorderRadius.circular(AppTheme.rLg),
-            border: Border.all(color: AppTheme.line),
-          ),
+          padding: AppTheme.cardPad,
+          decoration: AppTheme.cardDecoration,
           child: Row(
             children: [
               SkeletonBox(

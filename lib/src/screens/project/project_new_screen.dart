@@ -375,7 +375,7 @@ class _StepLabel extends StatelessWidget {
             height: 18,
             decoration: BoxDecoration(
               color: AppTheme.accent,
-              borderRadius: BorderRadius.circular(2),
+              borderRadius: BorderRadius.circular(AppTheme.rXs),
             ),
           ),
           const SizedBox(width: 9),
@@ -417,12 +417,8 @@ class _PickerField extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppTheme.rMd),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-          decoration: BoxDecoration(
-            color: AppTheme.surface,
-            borderRadius: BorderRadius.circular(AppTheme.rMd),
-            border: Border.all(color: AppTheme.line),
-          ),
+          padding: AppTheme.fieldPad,
+          decoration: AppTheme.fieldDecorationOf(),
           child: Row(
             children: [
               Icon(icon, size: 21, color: AppTheme.textSecondary),
@@ -736,13 +732,13 @@ class _UrgencyPill extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(AppTheme.rPill),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
           padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
           decoration: BoxDecoration(
             color: selected ? wash : AppTheme.surface,
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(AppTheme.rPill),
             border: Border.all(
               color: selected ? tint : AppTheme.line,
               width: selected ? 2 : 1,
@@ -799,13 +795,10 @@ class _ImageAttach extends StatelessWidget {
                     borderRadius: BorderRadius.circular(AppTheme.rMd),
                     child: Container(
                       width: 96,
-                      decoration: BoxDecoration(
-                        color: AppTheme.surface,
-                        borderRadius: BorderRadius.circular(AppTheme.rMd),
-                        border: Border.all(
-                          color: AppTheme.navy,
-                          width: 1.5,
-                        ),
+                      decoration: AppTheme.fieldDecorationOf(
+                        fill: AppTheme.cardFill,
+                        border: AppTheme.navy,
+                        borderWidth: 1.5,
                       ),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
