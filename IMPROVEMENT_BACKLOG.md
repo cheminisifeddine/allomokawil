@@ -80,7 +80,7 @@ understand that is the single biggest "this app is foreign" signal.
       keystroke because that endpoint has no Arabic text search. Verified live in
       the release web bundle (CDP, 412 px, RTL): empty box 7 cards, `جبس` 3,
       `رخام` 1, `زززز` -> the no-match state; the box's clear button empties it.
-- [ ] **Wilaya + commune picker with Arabic search.** 58 wilayas by name, not
+- [~] **[CLAIMED — do not start] Wilaya + commune picker with Arabic search.** 58 wilayas by name, not
       by numeric code, with the commune list for the chosen wilaya. Must be
       searchable by typing the Arabic name or the code (`16` → الجزائر).
       *Done when:* a user can reach حسين داي without scrolling a list of 1541
