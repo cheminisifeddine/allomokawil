@@ -103,8 +103,13 @@ class ArabicSearch {
         .map((f) => normalize(f!))
         .join(' ');
     if (haystack.isEmpty) return false;
+    // Spaces are not reliable input on a phone keyboard, so a query typed
+    // without them ("حسينداي") is also compared against a space-free copy.
+    final compact = haystack.replaceAll(' ', '');
     for (final token in q.split(' ')) {
-      if (!haystack.contains(token)) return false;
+      if (haystack.contains(token)) continue;
+      if (compact.contains(token.replaceAll(' ', ''))) continue;
+      return false;
     }
     return true;
   }

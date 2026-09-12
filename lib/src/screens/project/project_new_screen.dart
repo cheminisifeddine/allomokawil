@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/app_scope.dart';
 import '../../core/text/arabic_search.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/communes.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
 import '../../models/project.dart';
@@ -123,7 +124,32 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
       isScrollControlled: true,
       builder: (_) => const _WilayaSheet(),
     );
-    if (picked != null) setState(() => _wilaya = picked);
+    if (picked == null) return;
+    // A commune only means something inside its wilaya: keeping حسين داي
+    // selected after switching to وهران would post a project that cannot exist.
+    setState(() {
+      if (picked != _wilaya) _commune.clear();
+      _wilaya = picked;
+    });
+  }
+
+  Future<void> _pickCommune() async {
+    if (_wilaya == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('اختر الولاية أولاً')),
+      );
+      return;
+    }
+    final wilaya = _wilaya!;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _CommuneSheet(
+        wilayaId: wilaya,
+        wilayaName: Taxonomy.wilayaName(wilaya),
+      ),
+    );
+    if (picked != null) setState(() => _commune.text = picked);
   }
 
   @override
@@ -198,12 +224,15 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
                 onTap: _pickWilaya,
               ),
               const SizedBox(height: 10),
-              TextField(
-                controller: _commune,
-                decoration: const InputDecoration(
-                  hintText: 'البلدية (اختياري)',
-                  prefixIcon: Icon(Icons.location_city_rounded),
-                ),
+              _PickerField(
+                value: _commune.text.trim().isEmpty
+                    ? null
+                    : _commune.text.trim(),
+                hint: _wilaya == null
+                    ? 'اختر الولاية أولاً'
+                    : 'اختر البلدية (اختياري)',
+                icon: Icons.location_city_rounded,
+                onTap: _pickCommune,
               ),
 
               const _StepLabel(5, 'الميزانية التقديرية'),
@@ -448,6 +477,166 @@ class _WilayaSheetState extends State<_WilayaSheet> {
                       );
                     },
                   ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Searchable commune picker for the wilaya already chosen.
+///
+/// 57 options in the largest wilaya is more than anyone wants to scroll blind,
+/// so the list opens filtered by typing. Matching is folded and bilingual
+/// ([CommuneIndex.search]), and a name that is not in the list can still be
+/// used as typed — the dataset must never be the reason a project cannot be
+/// posted.
+class _CommuneSheet extends StatefulWidget {
+  const _CommuneSheet({required this.wilayaId, required this.wilayaName});
+
+  final String wilayaId;
+  final String wilayaName;
+
+  @override
+  State<_CommuneSheet> createState() => _CommuneSheetState();
+}
+
+class _CommuneSheetState extends State<_CommuneSheet> {
+  String _q = '';
+  bool _loading = true;
+  int _total = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    CommuneIndex.instance.forWilaya(widget.wilayaId).then((list) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _total = list.length;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final index = CommuneIndex.instance;
+    final shown = index.search(widget.wilayaId, _q);
+    final matches = index.searchCount(widget.wilayaId, _q);
+    final typed = _q.trim();
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.85,
+      maxChildSize: 0.95,
+      builder: (context, controller) => Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 6, 18, 2),
+            child: Row(
+              children: [
+                const Icon(Icons.location_city_rounded,
+                    size: 18, color: AppTheme.textSecondary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    widget.wilayaName,
+                    style: AppTheme.label.copyWith(fontSize: 15),
+                  ),
+                ),
+                if (!_loading)
+                  Text(
+                    '$_total بلدية',
+                    style: AppTheme.caption
+                        .copyWith(color: AppTheme.textMuted),
+                  ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 8, 18, 10),
+            child: TextField(
+              autofocus: false,
+              onChanged: (v) => setState(() => _q = v),
+              decoration: InputDecoration(
+                hintText: 'ابحث عن بلدية...',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: typed.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                        color: AppTheme.textSecondary,
+                        tooltip: 'مسح البحث',
+                        onPressed: () => setState(() => _q = ''),
+                      ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : shown.isEmpty
+                    ? Column(
+                        children: [
+                          const Expanded(
+                            child: EmptyView(
+                              icon: Icons.search_off_rounded,
+                              title: 'لا توجد بلدية بهذا الاسم',
+                            ),
+                          ),
+                          if (typed.isNotEmpty)
+                            // Escape hatch: the list is authoritative, but a user
+                            // whose commune was merged or renamed must not be
+                            // stuck — whatever they typed is accepted.
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(18, 0, 18, 20),
+                              child: SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton.icon(
+                                  onPressed: () =>
+                                      Navigator.pop(context, typed),
+                                  icon: const Icon(Icons.edit_rounded,
+                                      size: 18),
+                                  label: Text('استعمل "$typed" كما كتبتها'),
+                                ),
+                              ),
+                            ),
+                        ],
+                      )
+                    : ListView.builder(
+                        controller: controller,
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+                        itemCount: shown.length + 1,
+                        itemBuilder: (_, i) {
+                          if (i == 0) {
+                            return Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(6, 0, 6, 8),
+                              child: Text(
+                                matches == 1
+                                    ? 'بلدية واحدة'
+                                    : '$matches بلدية',
+                                style: AppTheme.caption
+                                    .copyWith(color: AppTheme.textMuted),
+                              ),
+                            );
+                          }
+                          final c = shown[i - 1];
+                          return ListTile(
+                            leading: const Icon(
+                              Icons.place_outlined,
+                              color: AppTheme.textSecondary,
+                            ),
+                            title: Text(c.name, style: AppTheme.label),
+                            subtitle: Text(
+                              c.latin,
+                              style: AppTheme.caption
+                                  .copyWith(color: AppTheme.textMuted),
+                            ),
+                            onTap: () => Navigator.pop(context, c.name),
+                          );
+                        },
+                      ),
           ),
         ],
       ),
