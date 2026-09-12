@@ -201,10 +201,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
                     const SizedBox(height: 12),
                     for (var i = 0; i < _certs.length; i++)
                       _DocCard(
-                        index: _docs.length + i,
-                        label: i == 0
-                            ? 'شهادة تكوين أو دبلوم'
-                            : 'شهادة إضافية',
+                        index: null,
+                        label: i == 0 ? 'شهادة تكوين أو دبلوم' : 'شهادة إضافية',
                         icon: Icons.workspace_premium_rounded,
                         tint: AppTheme.accentDeep,
                         wash: AppTheme.accentWash,
@@ -323,7 +321,10 @@ class _ProgressCard extends StatelessWidget {
 
 /// One document slot: whole card is tappable, thumbnail + status once chosen.
 class _DocCard extends StatelessWidget {
-  final int index;
+  /// 1-based position among the REQUIRED documents, or null for the optional
+  /// certificate slots. An optional slot must not carry the next number: the
+  /// progress card counts three documents, so a "4" reads as a fourth duty.
+  final int? index;
   final String label;
   final IconData icon;
   final Color tint;
@@ -332,7 +333,7 @@ class _DocCard extends StatelessWidget {
   final VoidCallback onPick;
 
   const _DocCard({
-    required this.index,
+    this.index,
     required this.label,
     required this.icon,
     required this.tint,
@@ -384,9 +385,12 @@ class _DocCard extends StatelessWidget {
                           color: AppTheme.navy,
                           shape: BoxShape.circle,
                         ),
-                        child: Text('${index + 1}',
-                            style: AppTheme.caption.copyWith(
-                                fontSize: 12, color: AppTheme.onNavy)),
+                        child: index == null
+                            ? const Icon(Icons.add_rounded,
+                                size: 14, color: Colors.white)
+                            : Text('${index! + 1}',
+                                style: AppTheme.caption.copyWith(
+                                    fontSize: 12, color: AppTheme.onNavy)),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -408,8 +412,8 @@ class _DocCard extends StatelessWidget {
                       icon: Icons.check_circle_rounded,
                     )
                   else
-                    const StatusPill(
-                      label: 'اضغط للإضافة',
+                    StatusPill(
+                      label: index == null ? 'أضف شهادة' : 'اضغط للإضافة',
                       color: AppTheme.info,
                       wash: AppTheme.infoWash,
                       icon: Icons.add_a_photo_outlined,
