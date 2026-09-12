@@ -106,7 +106,7 @@ class _DzPhoneFieldState extends State<DzPhoneField> {
           child: Row(
             children: [
               const Icon(Icons.phone_android_rounded,
-                  size: 18, color: AppTheme.navy),
+                  size: 18, color: AppTheme.textSecondary),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(

@@ -9,6 +9,7 @@ import '../../models/enums.dart';
 import '../../models/quote_review.dart';
 import '../../models/worker.dart';
 import '../../widgets/ui.dart';
+import '../../widgets/skeletons.dart';
 import '../chat/chat_screen.dart';
 import '../../core/l10n/error_copy.dart';
 
@@ -83,7 +84,7 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 640),
               child: loading || (!snap.hasError && worker == null)
-                  ? const _ProfileSkeleton()
+                  ? const Shimmer(child: _ProfileSkeleton())
                   : snap.hasError
                       ? EmptyView(
                           icon: Icons.error_outline_rounded,
@@ -347,7 +348,7 @@ class _PortfolioGrid extends StatelessWidget {
       future: portfolio,
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
-          return const _PortfolioSkeleton();
+          return const Shimmer(child: _PortfolioSkeleton());
         }
         final urls = snap.data ?? const <String>[];
         if (urls.isEmpty) {
@@ -453,7 +454,7 @@ class _ReviewsSection extends StatelessWidget {
       future: reviews,
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
-          return const _ReviewsSkeleton();
+          return const Shimmer(child: _ReviewsSkeleton());
         }
         final list = snap.data ?? const <Review>[];
         if (list.isEmpty) {
@@ -549,24 +550,24 @@ class _ProfileSkeleton extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
       children: [
-        const SkeletonBox(height: 176, radius: AppTheme.rXl),
+        const SkeletonBox(height: 176, radius: AppTheme.rXl, color: SkeletonTone.base),
         const SizedBox(height: 22),
-        const SkeletonBox(width: 110, height: 16),
+        const SkeletonBox(width: 110, height: 16, color: SkeletonTone.base),
         const SizedBox(height: 10),
-        const SkeletonBox(height: 78, radius: AppTheme.rLg),
+        const SkeletonBox(height: 78, radius: AppTheme.rLg, color: SkeletonTone.base),
         const SizedBox(height: 22),
-        const SkeletonBox(width: 90, height: 16),
+        const SkeletonBox(width: 90, height: 16, color: SkeletonTone.base),
         const SizedBox(height: 10),
         Wrap(
           spacing: 8,
           runSpacing: 8,
           children: [
             for (var i = 0; i < 3; i++)
-              const SkeletonBox(width: 118, height: 30, radius: 999),
+              const SkeletonBox(width: 118, height: 30, radius: 999, color: SkeletonTone.base),
           ],
         ),
         const SizedBox(height: 22),
-        const SkeletonBox(height: 168, radius: AppTheme.rLg),
+        const SkeletonBox(height: 168, radius: AppTheme.rLg, color: SkeletonTone.base),
       ],
     );
   }
@@ -589,7 +590,7 @@ class _PortfolioSkeleton extends StatelessWidget {
         childAspectRatio: 1.15,
       ),
       itemBuilder: (_, __) =>
-          const SkeletonBox(height: double.infinity, radius: AppTheme.rMd),
+          const SkeletonBox(height: double.infinity, radius: AppTheme.rMd, color: SkeletonTone.base),
     );
   }
 }
@@ -604,7 +605,7 @@ class _ReviewsSkeleton extends StatelessWidget {
         for (var i = 0; i < 2; i++)
           const Padding(
             padding: EdgeInsets.only(bottom: 10),
-            child: SkeletonBox(height: 96, radius: AppTheme.rLg),
+            child: SkeletonBox(height: 96, radius: AppTheme.rLg, color: SkeletonTone.base),
           ),
       ],
     );

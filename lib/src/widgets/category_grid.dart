@@ -73,7 +73,7 @@ class _CategoryStripTile extends StatelessWidget {
             color: selected ? AppTheme.accentWash : AppTheme.surface,
             borderRadius: BorderRadius.circular(AppTheme.rMd),
             border: Border.all(
-              color: selected ? AppTheme.navy : AppTheme.line,
+              color: selected ? AppTheme.accent : AppTheme.line,
               width: selected ? 2 : 1,
             ),
           ),
@@ -84,11 +84,11 @@ class _CategoryStripTile extends StatelessWidget {
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
-                  color: selected ? AppTheme.navy : wash,
+                  color: selected ? AppTheme.accent : wash,
                   shape: BoxShape.circle,
                 ),
                 child: Icon(icon,
-                    size: 22, color: selected ? AppTheme.onNavy : tint),
+                    size: 22, color: selected ? AppTheme.navy : tint),
               ),
               const SizedBox(height: 8),
               Flexible(
@@ -100,7 +100,7 @@ class _CategoryStripTile extends StatelessWidget {
                   style: AppTheme.label.copyWith(
                     fontSize: 11.5,
                     height: 1.25,
-                    color: selected ? AppTheme.navy : AppTheme.textPrimary,
+                    color: selected ? AppTheme.accent : AppTheme.textPrimary,
                   ),
                 ),
               ),

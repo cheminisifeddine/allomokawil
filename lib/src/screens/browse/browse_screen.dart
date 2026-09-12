@@ -8,6 +8,7 @@ import '../../data/taxonomy.dart';
 import '../../models/worker.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/ui.dart';
+import '../../widgets/skeletons.dart';
 import '../../widgets/worker_card.dart';
 import '../worker/worker_profile_screen.dart';
 
@@ -113,7 +114,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                 future: _future,
                 builder: (context, snap) {
                   if (snap.connectionState != ConnectionState.done) {
-                    return const LoadingList(count: 5);
+                    return const Shimmer(child: LoadingList(count: 5));
                   }
                   if (snap.hasError) {
                     return EmptyView(

@@ -94,7 +94,7 @@ class ProjectCard extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppTheme.label.copyWith(
-                                fontSize: 13, color: AppTheme.navy),
+                                fontSize: 13, color: AppTheme.accent),
                           ),
                         ),
                       ],

@@ -81,7 +81,7 @@ class ClientStartCard extends StatelessWidget {
                       Text(
                         'ابدأ من هنا',
                         style: AppTheme.h2
-                            .copyWith(fontSize: 16, color: AppTheme.navy),
+                            .copyWith(fontSize: 16, color: AppTheme.textPrimary),
                       ),
                       const SizedBox(height: 3),
                       Text(
@@ -158,7 +158,7 @@ class _StepRow extends StatelessWidget {
                 style: AppTheme.caption.copyWith(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w800,
-                  color: first ? AppTheme.navy : AppTheme.textSecondary,
+                  color: first ? AppTheme.accent : AppTheme.textSecondary,
                 ),
               ),
             ),
@@ -173,7 +173,7 @@ class _StepRow extends StatelessWidget {
                     Icon(
                       step.icon,
                       size: 16,
-                      color: first ? AppTheme.navy : AppTheme.textMuted,
+                      color: first ? AppTheme.accent : AppTheme.textMuted,
                     ),
                     const SizedBox(width: 6),
                     Flexible(

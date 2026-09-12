@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
 import '../../models/chat.dart';
 import '../../widgets/ui.dart';
+import '../../widgets/skeletons.dart';
 
 /// Thread chat: text + image (queue-on-retry when offline).
 class ChatScreen extends StatefulWidget {
@@ -215,7 +216,7 @@ class _ChatScreenState extends State<ChatScreen> {
           title:
               Text(widget.otherName.isEmpty ? 'الرسائل' : widget.otherName)),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const SkeletonChatThread()
           : _error
               ? EmptyView(
                   icon: Icons.wifi_off_rounded,
@@ -299,23 +300,23 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Row(
         children: [
           const Icon(Icons.cloud_off_rounded,
-              size: 18, color: AppTheme.accentDeep),
+              size: 18, color: AppTheme.accent),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               'رسائل غير مرسلة — اضغط لإعادة المحاولة',
               style: AppTheme.label
-                  .copyWith(fontSize: 12.5, color: AppTheme.accentDeep),
+                  .copyWith(fontSize: 12.5, color: AppTheme.accent),
             ),
           ),
           TextButton(
             onPressed: _sendText,
             style: TextButton.styleFrom(
               minimumSize: const Size(64, 44),
-              foregroundColor: AppTheme.navy,
+              foregroundColor: AppTheme.accent,
             ),
             child: Text('إرسال',
-                style: AppTheme.label.copyWith(fontSize: 14, color: AppTheme.navy)),
+                style: AppTheme.label.copyWith(fontSize: 14, color: AppTheme.accent)),
           ),
         ],
       ),
@@ -488,7 +489,7 @@ class _Bubble extends StatelessWidget {
         : Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
             decoration: BoxDecoration(
-              color: mine ? AppTheme.navy : AppTheme.surface,
+              color: mine ? AppTheme.accentWash : AppTheme.surface,
               borderRadius: radius,
               border: mine ? null : Border.all(color: AppTheme.line),
             ),

@@ -9,9 +9,11 @@ import '../../data/taxonomy.dart';
 import '../../models/chat.dart';
 import '../../models/project.dart';
 import '../../models/worker.dart';
+import '../../widgets/app_tab_bar.dart';
 import '../../widgets/category_grid.dart';
 import '../../widgets/client_start_card.dart';
 import '../../widgets/project_card.dart';
+import '../../widgets/skeletons.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/worker_card.dart';
 import '../browse/browse_screen.dart';
@@ -142,15 +144,33 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         ),
         const ProfileScreen(),
       ]),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), label: 'استكشف'),
-          NavigationDestination(icon: Icon(Icons.folder_outlined), label: 'مشاريعي'),
-          NavigationDestination(icon: Icon(Icons.chat_outlined), label: 'الرسائل'),
-          NavigationDestination(icon: Icon(Icons.person_outline), label: 'حسابي'),
+      bottomNavigationBar: AppTabBar(
+        index: _tab,
+        onSelect: (i) => setState(() => _tab = i),
+        items: const [
+          AppTabItem(
+              icon: Icons.home_outlined,
+              activeIcon: Icons.home_rounded,
+              label: 'استكشف'),
+          AppTabItem(
+              icon: Icons.folder_outlined,
+              activeIcon: Icons.folder_rounded,
+              label: 'مشاريعي'),
+          AppTabItem(
+              icon: Icons.chat_bubble_outline_rounded,
+              activeIcon: Icons.chat_bubble_rounded,
+              label: 'الرسائل'),
+          AppTabItem(
+              icon: Icons.person_outline_rounded,
+              activeIcon: Icons.person_rounded,
+              label: 'حسابي'),
         ],
+        // A client's one repeating action is posting the next project.
+        action: AppTabAction(
+          icon: Icons.add_rounded,
+          label: 'مشروع جديد',
+          onTap: () => _push(const ProjectNewScreen()),
+        ),
       ),
     );
   }
@@ -273,7 +293,7 @@ class _ExploreView extends StatelessWidget {
           future: topWorkers,
           builder: (context, snap) {
             if (snap.connectionState != ConnectionState.done) {
-              return const SliverToBoxAdapter(child: _WorkerStripSkeleton());
+              return const SliverToBoxAdapter(child: Shimmer(child: _WorkerStripSkeleton()));
             }
             if (snap.hasError) {
               return SliverToBoxAdapter(
@@ -339,7 +359,7 @@ class _ExploreView extends StatelessWidget {
           builder: (context, snap) {
             if (snap.connectionState != ConnectionState.done) {
               return const SliverToBoxAdapter(
-                  child: _ProjectStripSkeleton(count: 2));
+                  child: Shimmer(child: _ProjectStripSkeleton(count: 2)));
             }
             if (snap.hasError) {
               return SliverToBoxAdapter(
@@ -696,17 +716,17 @@ class _WorkerStripSkeleton extends StatelessWidget {
             children: const [
               Row(
                 children: [
-                  SkeletonBox(height: 46, width: 46, radius: 23),
+                  SkeletonBox(height: 46, width: 46, radius: 23, color: SkeletonTone.base),
                   Spacer(),
-                  SkeletonBox(height: 18, width: 18, radius: 9),
+                  SkeletonBox(height: 18, width: 18, radius: 9, color: SkeletonTone.base),
                 ],
               ),
               SizedBox(height: 14),
-              SkeletonBox(height: 13, width: 118),
+              SkeletonBox(height: 13, width: 118, color: SkeletonTone.base),
               SizedBox(height: 9),
-              SkeletonBox(height: 11, width: 92),
+              SkeletonBox(height: 11, width: 92, color: SkeletonTone.base),
               SizedBox(height: 11),
-              SkeletonBox(height: 12, width: 70),
+              SkeletonBox(height: 12, width: 70, color: SkeletonTone.base),
             ],
           ),
         ),
@@ -738,17 +758,17 @@ class _ProjectStripSkeleton extends StatelessWidget {
               ),
               child: Row(
                 children: const [
-                  SkeletonBox(height: 76, width: 76, radius: AppTheme.rSm),
+                  SkeletonBox(height: 76, width: 76, radius: AppTheme.rSm, color: SkeletonTone.base),
                   SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SkeletonBox(height: 14, width: 150),
+                        SkeletonBox(height: 14, width: 150, color: SkeletonTone.base),
                         SizedBox(height: 10),
-                        SkeletonBox(height: 12, width: 110),
+                        SkeletonBox(height: 12, width: 110, color: SkeletonTone.base),
                         SizedBox(height: 10),
-                        SkeletonBox(height: 12, width: 78),
+                        SkeletonBox(height: 12, width: 78, color: SkeletonTone.base),
                       ],
                     ),
                   ),

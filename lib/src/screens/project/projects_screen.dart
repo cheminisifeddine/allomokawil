@@ -9,6 +9,7 @@ import '../../models/project.dart';
 import '../../widgets/feed_search_field.dart';
 import '../../widgets/project_card.dart';
 import '../../widgets/ui.dart';
+import '../../widgets/skeletons.dart';
 import 'project_detail_screen.dart';
 import 'project_new_screen.dart';
 
@@ -122,7 +123,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                 future: _future,
                 builder: (context, snap) {
                   if (snap.connectionState != ConnectionState.done) {
-                    return const _ProjectsSkeleton(count: 4);
+                    return const Shimmer(child: _ProjectsSkeleton(count: 4));
                   }
                   if (snap.hasError) {
                     return ListView(
@@ -330,17 +331,17 @@ class _ProjectsSkeleton extends StatelessWidget {
         ),
         child: Row(
           children: const [
-            SkeletonBox(height: 76, width: 76, radius: AppTheme.rSm),
+            SkeletonBox(height: 76, width: 76, radius: AppTheme.rSm, color: SkeletonTone.base),
             SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SkeletonBox(height: 14, width: 150),
+                  SkeletonBox(height: 14, width: 150, color: SkeletonTone.base),
                   SizedBox(height: 10),
-                  SkeletonBox(height: 12, width: 110),
+                  SkeletonBox(height: 12, width: 110, color: SkeletonTone.base),
                   SizedBox(height: 10),
-                  SkeletonBox(height: 12, width: 78),
+                  SkeletonBox(height: 12, width: 78, color: SkeletonTone.base),
                 ],
               ),
             ),

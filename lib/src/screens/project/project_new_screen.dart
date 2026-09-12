@@ -15,6 +15,7 @@ import '../../models/project.dart';
 import '../../widgets/category_grid.dart';
 import '../../widgets/number_field.dart';
 import '../../widgets/ui.dart';
+import '../../widgets/skeletons.dart';
 import '../../core/l10n/error_copy.dart';
 
 /// Post a new project (client).
@@ -612,7 +613,7 @@ class _CommuneSheetState extends State<_CommuneSheet> {
           ),
           Expanded(
             child: _loading
-                ? const Center(child: CircularProgressIndicator())
+                ? const SkeletonRowList()
                 : shown.isEmpty
                     ? Column(
                         children: [

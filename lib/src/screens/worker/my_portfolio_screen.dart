@@ -9,6 +9,7 @@ import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
 import '../../models/worker.dart';
 import '../../widgets/ui.dart';
+import '../../widgets/skeletons.dart';
 import '../../core/l10n/error_copy.dart';
 import '../../core/l10n/strings.dart';
 
@@ -173,7 +174,7 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const SkeletonGrid()
           : Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 620),

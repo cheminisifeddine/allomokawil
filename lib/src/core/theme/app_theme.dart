@@ -16,38 +16,41 @@ class AppTheme {
   AppTheme._();
 
   // ── Brand ──────────────────────────────────────────────────────────────
-  /// Deep navy — brand, headers, navigation, primary text on light cards.
-  static const Color navy = Color(0xFF16213E);
-  static const Color navyDeep = Color(0xFF0F1830);
-  static const Color navySoft = Color(0xFF243457);
+  /// Deep ink. Plays two roles that both stay dark in the dark theme: it is a
+  /// *surface* (headers, heroes, snackbars) and the ink that sits **on gold**
+  /// (button labels, selected chips). Never use it as text on a card — that is
+  /// what `textPrimary` is for.
+  static const Color navy = Color(0xFF12161D);
+  static const Color navyDeep = Color(0xFF0B0E13);
+  static const Color navySoft = Color(0xFF1E242E);
 
-  /// Warm amber — the single call-to-action colour.
-  static const Color accent = Color(0xFFE8A33D);
+  /// Warm gold — the single call-to-action colour (board palette).
+  static const Color accent = Color(0xFFF2B23E);
   static const Color accentDeep = Color(0xFF9B6415);
-  static const Color accentWash = Color(0xFFFDF3E3);
+  static const Color accentWash = Color(0xFF2A2213);
 
-  // ── Neutrals ───────────────────────────────────────────────────────────
-  static const Color bg = Color(0xFFF5F4F1);
-  static const Color surface = Color(0xFFFFFFFF);
-  static const Color surfaceAlt = Color(0xFFFAF9F7);
-  static const Color line = Color(0xFFE6E4DE);
-  static const Color lineSoft = Color(0xFFF0EEE9);
+  // ── Neutrals — dark canvas from the approved board ─────────────────────
+  static const Color bg = Color(0xFF0B0E13);
+  static const Color surface = Color(0xFF141922);
+  static const Color surfaceAlt = Color(0xFF1A1F27);
+  static const Color line = Color(0xFF242A33);
+  static const Color lineSoft = Color(0xFF1B212A);
 
   // ── Text ───────────────────────────────────────────────────────────────
-  static const Color textPrimary = Color(0xFF101828);
-  static const Color textSecondary = Color(0xFF475065);
-  static const Color textMuted = Color(0xFF6C707A);
+  static const Color textPrimary = Color(0xFFF5F6F8);
+  static const Color textSecondary = Color(0xFFC3C9D4);
+  static const Color textMuted = Color(0xFF9AA1AC);
   static const Color onNavy = Color(0xFFFFFFFF);
   static const Color onNavyMuted = Color(0xFFB9C2D6);
 
-  // ── Semantic ───────────────────────────────────────────────────────────
-  static const Color success = Color(0xFF1B7E50);
-  static const Color successWash = Color(0xFFE7F5EE);
-  static const Color danger = Color(0xFFC33F39);
-  static const Color dangerWash = Color(0xFFFCEDEC);
-  static const Color info = Color(0xFF2C6FBB);
-  static const Color infoWash = Color(0xFFEAF2FB);
-  static const Color star = Color(0xFFF2B01E);
+  // ── Semantic — lifted for legibility on a dark canvas ──────────────────
+  static const Color success = Color(0xFF3FBF6F);
+  static const Color successWash = Color(0xFF10231A);
+  static const Color danger = Color(0xFFFF6B6B);
+  static const Color dangerWash = Color(0xFF2A1618);
+  static const Color info = Color(0xFF6BA8F5);
+  static const Color infoWash = Color(0xFF14202E);
+  static const Color star = Color(0xFFF2B23E);
 
   // ── Geometry ───────────────────────────────────────────────────────────
   static const double rSm = 12;
@@ -120,19 +123,19 @@ class AppTheme {
   // ── ThemeData ──────────────────────────────────────────────────────────
   static ThemeData get light {
     const scheme = ColorScheme(
-      brightness: Brightness.light,
-      primary: navy,
-      onPrimary: onNavy,
-      primaryContainer: navySoft,
-      onPrimaryContainer: onNavy,
+      brightness: Brightness.dark,
+      primary: accent,
+      onPrimary: navy,
+      primaryContainer: accentWash,
+      onPrimaryContainer: accent,
       secondary: accent,
       onSecondary: navy,
       secondaryContainer: accentWash,
-      onSecondaryContainer: navy,
+      onSecondaryContainer: accent,
       tertiary: info,
-      onTertiary: onNavy,
+      onTertiary: navy,
       error: danger,
-      onError: onNavy,
+      onError: navy,
       errorContainer: dangerWash,
       onErrorContainer: danger,
       surface: surface,
@@ -141,11 +144,11 @@ class AppTheme {
       onSurfaceVariant: textSecondary,
       outline: line,
       outlineVariant: lineSoft,
-      shadow: Color(0x1A101828),
-      scrim: Color(0x66000000),
-      inverseSurface: navy,
-      onInverseSurface: onNavy,
-      inversePrimary: accent,
+      shadow: Color(0x66000000),
+      scrim: Color(0xCC000000),
+      inverseSurface: textPrimary,
+      onInverseSurface: bg,
+      inversePrimary: accentDeep,
     );
 
     final base = ThemeData(
@@ -176,14 +179,14 @@ class AppTheme {
 
       // ── App bar: flat, white, hairline ─────────────────────────────────
       appBarTheme: const AppBarTheme(
-        backgroundColor: surface,
+        backgroundColor: bg,
         foregroundColor: textPrimary,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: true,
         toolbarHeight: 60,
-        iconTheme: IconThemeData(color: navy, size: 24),
+        iconTheme: IconThemeData(color: textPrimary, size: 24),
         titleTextStyle: TextStyle(
           fontFamily: 'Cairo',
           fontWeight: FontWeight.w700,
@@ -220,7 +223,7 @@ class AppTheme {
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: navy,
+          foregroundColor: textPrimary,
           minimumSize: const Size.fromHeight(tapMin),
           side: const BorderSide(color: line, width: 1.5),
           textStyle: button.copyWith(fontSize: 16),
@@ -230,7 +233,7 @@ class AppTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: navy,
+          foregroundColor: accent,
           textStyle: label.copyWith(fontSize: 15),
         ),
       ),
@@ -238,7 +241,7 @@ class AppTheme {
       // ── Inputs ─────────────────────────────────────────────────────────
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: surface,
+        fillColor: surfaceAlt,
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
         hintStyle: const TextStyle(
@@ -254,7 +257,7 @@ class AppTheme {
         floatingLabelStyle: const TextStyle(
             fontFamily: 'Cairo',
             fontSize: 14,
-            color: navy,
+            color: accent,
             fontWeight: FontWeight.w700),
         errorStyle: const TextStyle(
             fontFamily: 'Cairo', fontSize: 13, color: danger),
@@ -268,7 +271,7 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(rMd),
-          borderSide: const BorderSide(color: navy, width: 2),
+          borderSide: const BorderSide(color: accent, width: 2),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(rMd),
@@ -285,14 +288,14 @@ class AppTheme {
       // ── Chips — explicit colours, never inherited ──────────────────────
       chipTheme: ChipThemeData(
         backgroundColor: surface,
-        selectedColor: navy,
+        selectedColor: accent,
         disabledColor: lineSoft,
         side: const BorderSide(color: line),
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(999)),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         labelStyle: label.copyWith(fontSize: 14.5, color: textPrimary),
-        secondaryLabelStyle: label.copyWith(fontSize: 14.5, color: onNavy),
+        secondaryLabelStyle: label.copyWith(fontSize: 14.5, color: navy),
         showCheckmark: false,
         elevation: 0,
         pressElevation: 0,
@@ -314,7 +317,7 @@ class AppTheme {
           color: lineSoft, thickness: 1, space: 1),
 
       listTileTheme: const ListTileThemeData(
-        iconColor: navy,
+        iconColor: textSecondary,
         textColor: textPrimary,
         titleTextStyle: TextStyle(
             fontFamily: 'Cairo',
@@ -326,7 +329,7 @@ class AppTheme {
         contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       ),
 
-      iconTheme: const IconThemeData(color: navy, size: 24),
+      iconTheme: const IconThemeData(color: textSecondary, size: 24),
       dividerColor: line,
 
       bottomSheetTheme: const BottomSheetThemeData(
@@ -349,7 +352,7 @@ class AppTheme {
 
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         backgroundColor: surface,
-        selectedItemColor: navy,
+        selectedItemColor: accent,
         unselectedItemColor: textMuted,
         selectedLabelStyle: TextStyle(
             fontFamily: 'Cairo', fontSize: 12, fontWeight: FontWeight.w700),
@@ -371,21 +374,21 @@ class AppTheme {
               fontWeight: states.contains(WidgetState.selected)
                   ? FontWeight.w700
                   : FontWeight.w500,
-              color: states.contains(WidgetState.selected) ? navy : textMuted,
+              color: states.contains(WidgetState.selected) ? accent : textMuted,
             )),
         iconTheme: WidgetStateProperty.resolveWith((states) => IconThemeData(
               size: 25,
-              color: states.contains(WidgetState.selected) ? navy : textMuted,
+              color: states.contains(WidgetState.selected) ? accent : textMuted,
             )),
       ),
 
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: navy,
+        backgroundColor: surfaceAlt,
         contentTextStyle: const TextStyle(
             fontFamily: 'Cairo',
             fontSize: 14.5,
-            color: onNavy,
+            color: textPrimary,
             fontWeight: FontWeight.w600),
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(rSm)),
@@ -405,8 +408,8 @@ class AppTheme {
       ),
 
       expansionTileTheme: const ExpansionTileThemeData(
-        iconColor: navy,
-        collapsedIconColor: textSecondary,
+        iconColor: textSecondary,
+        collapsedIconColor: textMuted,
         textColor: textPrimary,
         collapsedTextColor: textPrimary,
         tilePadding: EdgeInsets.symmetric(horizontal: 16),
@@ -414,7 +417,7 @@ class AppTheme {
       ),
 
       tabBarTheme: const TabBarThemeData(
-        labelColor: navy,
+        labelColor: accent,
         unselectedLabelColor: textMuted,
         labelStyle: TextStyle(
             fontFamily: 'Cairo', fontSize: 15, fontWeight: FontWeight.w700),

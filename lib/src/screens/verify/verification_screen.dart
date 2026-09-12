@@ -9,6 +9,7 @@ import '../../data/repository.dart';
 import '../../models/enums.dart';
 import '../../models/worker.dart';
 import '../../widgets/ui.dart';
+import '../../widgets/skeletons.dart';
 import '../../core/l10n/error_copy.dart';
 
 /// Contractor verification: upload auto-entrepreneur/artisan card + ID +
@@ -117,7 +118,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
         future: _profile,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
+            return const SkeletonFormPage(fields: 4);
           }
           if (snap.hasError) {
             return EmptyView(
@@ -300,7 +301,7 @@ class _ProgressCard extends StatelessWidget {
                     ? Icons.check_circle_rounded
                     : Icons.upload_file_rounded,
                 size: 20,
-                color: complete ? AppTheme.success : AppTheme.navy,
+                color: complete ? AppTheme.success : AppTheme.textMuted,
               ),
               const SizedBox(width: 8),
               Expanded(

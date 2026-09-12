@@ -15,6 +15,7 @@ import '../browse/browse_screen.dart';
 import '../chat/chat_screen.dart';
 import '../review/review_screen.dart';
 import '../../core/l10n/error_copy.dart';
+import '../../widgets/skeletons.dart';
 
 /// Full project view: info, photos, and the quotes workflow.
 /// - customer/owner: browse quotes, accept one (rejects the rest), complete.
@@ -81,7 +82,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
         future: _project,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
+            return const SkeletonDetailPage();
           }
           if (snap.hasError) {
             return EmptyView(
@@ -552,22 +553,22 @@ class _QuotesSkeleton extends StatelessWidget {
         children: [
           Row(
             children: [
-              SkeletonBox(height: 46, width: 46, radius: 23),
+              SkeletonBox(height: 46, width: 46, radius: 23, color: SkeletonTone.base),
               SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SkeletonBox(height: 14, width: 150),
+                    SkeletonBox(height: 14, width: 150, color: SkeletonTone.base),
                     SizedBox(height: 8),
-                    SkeletonBox(height: 12, width: 96),
+                    SkeletonBox(height: 12, width: 96, color: SkeletonTone.base),
                   ],
                 ),
               ),
             ],
           ),
           SizedBox(height: 16),
-          SkeletonBox(height: 52, radius: 12),
+          SkeletonBox(height: 52, radius: 12, color: SkeletonTone.base),
         ],
       ),
     );

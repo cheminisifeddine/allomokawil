@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme/app_theme.dart';
+import 'skeletons.dart';
 
 /// Friendly empty state for lists with no content yet.
 class EmptyState extends StatelessWidget {
@@ -89,7 +90,7 @@ class LoadingList extends StatelessWidget {
               width: 62,
               height: 62,
               decoration: BoxDecoration(
-                color: AppTheme.lineSoft,
+                color: SkeletonTone.base,
                 borderRadius: BorderRadius.circular(AppTheme.rSm),
               ),
             ),
@@ -123,7 +124,7 @@ class _Bar extends StatelessWidget {
         width: width,
         height: height,
         decoration: BoxDecoration(
-          color: AppTheme.lineSoft,
+          color: SkeletonTone.base,
           borderRadius: BorderRadius.circular(6),
         ),
       );

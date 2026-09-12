@@ -50,7 +50,7 @@ class FeedSearchField extends StatelessWidget {
             decoration: InputDecoration(
               hintText: hint,
               hintStyle: AppTheme.body.copyWith(color: AppTheme.textMuted),
-              prefixIcon: const Icon(Icons.search_rounded, color: AppTheme.navy),
+              prefixIcon: const Icon(Icons.search_rounded, color: AppTheme.textSecondary),
               suffixIcon: empty
                   ? null
                   : IconButton(

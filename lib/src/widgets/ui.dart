@@ -322,7 +322,7 @@ class SelectableTile extends StatelessWidget {
             color: selected ? AppTheme.accentWash : AppTheme.surface,
             borderRadius: BorderRadius.circular(AppTheme.rMd),
             border: Border.all(
-              color: selected ? AppTheme.navy : AppTheme.line,
+              color: selected ? AppTheme.accent : AppTheme.line,
               width: selected ? 2 : 1,
             ),
           ),
@@ -333,11 +333,11 @@ class SelectableTile extends StatelessWidget {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: selected ? AppTheme.navy : wash,
+                  color: selected ? AppTheme.accent : wash,
                   shape: BoxShape.circle,
                 ),
                 child: Icon(icon,
-                    size: 19, color: selected ? AppTheme.onNavy : tint),
+                    size: 19, color: selected ? AppTheme.navy : tint),
               ),
               const SizedBox(height: 6),
               // Flexible, not a fixed box: a two-line Arabic label must be able
@@ -352,7 +352,7 @@ class SelectableTile extends StatelessWidget {
                   style: AppTheme.label.copyWith(
                     fontSize: 12,
                     height: 1.25,
-                    color: selected ? AppTheme.navy : AppTheme.textPrimary,
+                    color: selected ? AppTheme.accent : AppTheme.textPrimary,
                   ),
                 ),
               ),
@@ -493,7 +493,7 @@ class InitialAvatar extends StatelessWidget {
       height: size,
       alignment: Alignment.center,
       decoration: const BoxDecoration(
-        color: AppTheme.navy,
+        color: AppTheme.navySoft,
         shape: BoxShape.circle,
       ),
       child: Text(
@@ -659,11 +659,17 @@ class SkeletonBox extends StatelessWidget {
   final double width;
   final double radius;
 
+  /// Defaults to the old soft grey so existing screens keep their look; the
+  /// skeleton kit passes its slightly darker [SkeletonTone.base] so the sweep
+  /// highlight is actually visible over it.
+  final Color color;
+
   const SkeletonBox({
     super.key,
     this.height = 16,
     this.width = double.infinity,
     this.radius = 8,
+    this.color = AppTheme.lineSoft,
   });
 
   @override
@@ -672,7 +678,7 @@ class SkeletonBox extends StatelessWidget {
       height: height,
       width: width,
       decoration: BoxDecoration(
-        color: AppTheme.lineSoft,
+        color: color,
         borderRadius: BorderRadius.circular(radius),
       ),
     );

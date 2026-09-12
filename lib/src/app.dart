@@ -7,6 +7,7 @@ import 'core/security/auth_state.dart';
 import 'core/theme/app_theme.dart';
 import 'screens/landing/landing_screen.dart';
 import 'screens/scaffold/role_home.dart';
+import 'widgets/skeletons.dart';
 
 /// Root widget: resolves where the app starts based on auth + role.
 ///
@@ -54,9 +55,9 @@ class _RootGate extends StatelessWidget {
       listenable: auth,
       builder: (context, _) {
         if (!auth.isRestored) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          // The restore takes a few frames. A grey circle mid-screen reads as
+          // "broken"; the shape of the home reads as "opening".
+          return const Scaffold(body: AppBootSkeleton());
         }
         if (!auth.isAuthenticated) {
           return const LandingScreen();

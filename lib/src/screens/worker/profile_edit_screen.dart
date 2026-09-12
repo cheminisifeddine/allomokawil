@@ -8,6 +8,7 @@ import '../../data/taxonomy.dart';
 import '../../widgets/category_grid.dart';
 import '../../widgets/number_field.dart';
 import '../../widgets/ui.dart';
+import '../../widgets/skeletons.dart';
 import '../../core/l10n/error_copy.dart';
 
 /// Edit the contractor's own profile.
@@ -159,7 +160,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('تعديل ملفي')),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const SkeletonFormPage(fields: 5)
           : ListView(
               padding: const EdgeInsets.fromLTRB(18, 4, 18, 30),
               children: [

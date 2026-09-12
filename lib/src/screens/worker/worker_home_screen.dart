@@ -9,10 +9,12 @@ import '../../data/taxonomy.dart';
 import '../../models/enums.dart';
 import '../../models/project.dart';
 import '../../models/worker.dart';
+import '../../widgets/app_tab_bar.dart';
 import '../../widgets/big_button.dart';
 import '../../widgets/feed_search_field.dart';
 import '../../widgets/project_card.dart';
 import '../../widgets/ui.dart';
+import '../../widgets/skeletons.dart';
 import '../chat/chat_list_screen.dart';
 import '../profile_screen.dart';
 import '../project/project_detail_screen.dart';
@@ -80,17 +82,34 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen> {
         ChatListScreen(repo: _repo, onDiscover: () => setState(() => _tab = 0)),
         const ProfileScreen(),
       ]),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
-        destinations: const [
-          NavigationDestination(
-              icon: Icon(Icons.storefront_outlined), label: 'المنصة'),
-          NavigationDestination(
-              icon: Icon(Icons.folder_outlined), label: 'مشاريعي'),
-          NavigationDestination(icon: Icon(Icons.chat_outlined), label: 'الرسائل'),
-          NavigationDestination(icon: Icon(Icons.person_outline), label: 'حسابي'),
+      bottomNavigationBar: AppTabBar(
+        index: _tab,
+        onSelect: (i) => setState(() => _tab = i),
+        items: const [
+          AppTabItem(
+              icon: Icons.storefront_outlined,
+              activeIcon: Icons.storefront_rounded,
+              label: 'المنصة'),
+          AppTabItem(
+              icon: Icons.folder_outlined,
+              activeIcon: Icons.folder_rounded,
+              label: 'مشاريعي'),
+          AppTabItem(
+              icon: Icons.chat_bubble_outline_rounded,
+              activeIcon: Icons.chat_bubble_rounded,
+              label: 'الرسائل'),
+          AppTabItem(
+              icon: Icons.person_outline_rounded,
+              activeIcon: Icons.person_rounded,
+              label: 'حسابي'),
         ],
+        // A contractor's one repeating action is adding the work he has done.
+        action: AppTabAction(
+          icon: Icons.add_a_photo_outlined,
+          label: 'أضف عملاً',
+          onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const MyPortfolioScreen())),
+        ),
       ),
     );
   }
@@ -285,7 +304,7 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
             future: _projects,
             builder: (context, snap) {
               if (snap.connectionState != ConnectionState.done) {
-                return const SliverToBoxAdapter(child: _ProjectsSkeleton());
+                return const SliverToBoxAdapter(child: Shimmer(child: _ProjectsSkeleton()));
               }
               if (snap.hasError) {
                 return SliverToBoxAdapter(
@@ -307,7 +326,7 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
                 // The multi-page fetch is still in flight — that is not yet a
                 // verdict, so show the loading shape rather than "no results".
                 if (_widening) {
-                  return const SliverToBoxAdapter(child: _ProjectsSkeleton());
+                  return const SliverToBoxAdapter(child: Shimmer(child: _ProjectsSkeleton()));
                 }
                 if (_query.trim().isNotEmpty) {
                   return SliverToBoxAdapter(
@@ -544,15 +563,15 @@ class _HeaderSection extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SkeletonBox(width: 52, height: 52, radius: 26),
+            SkeletonBox(width: 52, height: 52, radius: 26, color: SkeletonTone.base),
             SizedBox(width: 13),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SkeletonBox(width: 150, height: 15),
+                  SkeletonBox(width: 150, height: 15, color: SkeletonTone.base),
                   SizedBox(height: 10),
-                  SkeletonBox(width: 100, height: 11),
+                  SkeletonBox(width: 100, height: 11, color: SkeletonTone.base),
                 ],
               ),
             ),
@@ -801,17 +820,17 @@ class _ProjectsSkeleton extends StatelessWidget {
                 child: const Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SkeletonBox(width: 76, height: 76, radius: AppTheme.rSm),
+                    SkeletonBox(width: 76, height: 76, radius: AppTheme.rSm, color: SkeletonTone.base),
                     SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          SkeletonBox(width: 160, height: 15),
+                          SkeletonBox(width: 160, height: 15, color: SkeletonTone.base),
                           SizedBox(height: 10),
-                          SkeletonBox(width: 96, height: 26, radius: 999),
+                          SkeletonBox(width: 96, height: 26, radius: 999, color: SkeletonTone.base),
                           SizedBox(height: 12),
-                          SkeletonBox(width: 120, height: 11),
+                          SkeletonBox(width: 120, height: 11, color: SkeletonTone.base),
                         ],
                       ),
                     ),

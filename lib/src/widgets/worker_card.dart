@@ -216,7 +216,7 @@ class _Avatar extends StatelessWidget {
       height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: AppTheme.navy,
+        color: AppTheme.navySoft,
         shape: BoxShape.circle,
       ),
       child: Text(

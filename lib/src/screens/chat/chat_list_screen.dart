@@ -7,6 +7,7 @@ import '../../models/chat.dart';
 import '../../models/enums.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/ui.dart';
+import '../../widgets/skeletons.dart';
 import 'chat_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
@@ -60,7 +61,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
           future: _future,
           builder: (context, snap) {
             if (snap.connectionState != ConnectionState.done) {
-              return const LoadingList(count: 4);
+              return const Shimmer(child: LoadingList(count: 4));
             }
             if (snap.hasError) {
               return EmptyView(
