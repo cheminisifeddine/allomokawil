@@ -5,6 +5,9 @@ import '../core/theme/app_theme.dart';
 import '../data/taxonomy.dart';
 import '../models/enums.dart';
 import '../widgets/ui.dart';
+import 'verify/verification_screen.dart';
+import 'worker/my_portfolio_screen.dart';
+import 'worker/profile_edit_screen.dart';
 
 /// Lightweight account screen shared by both roles: identity info,
 /// wilaya help, and logout.
@@ -57,6 +60,59 @@ class ProfileScreen extends StatelessWidget {
               ],
             ),
           ),
+
+          // ── The contractor's own material ──────────────────────────────
+          //
+          // A contractor opens this tab looking for "my work" and "my papers".
+          // Leaving them only on the home tab meant hunting for the one place
+          // that uploads; the account screen is where a user looks for their own
+          // things, so the same three doors are here too.
+          if (u.type == UserRole.worker) ...[
+            const SizedBox(height: 14),
+            const SectionTitle('ملفي المهني', icon: Icons.handyman_outlined),
+            AppCard(
+              key: const Key('account-portfolio'),
+              padding: EdgeInsets.zero,
+              onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const MyPortfolioScreen())),
+              child: const _SettingsRow(
+                icon: Icons.photo_library_outlined,
+                title: 'معرض أعمالي',
+                value: 'أضف صور أعمالك السابقة',
+                tint: AppTheme.accentDeep,
+                wash: AppTheme.accentWash,
+                trailing: _Chevron(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            AppCard(
+              key: const Key('account-documents'),
+              padding: EdgeInsets.zero,
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const VerificationScreen())),
+              child: const _SettingsRow(
+                icon: Icons.verified_user_outlined,
+                title: 'المستندات والشهادات',
+                value: 'بطاقة الحرفي، الهوية، وشهاداتك',
+                tint: AppTheme.info,
+                wash: AppTheme.infoWash,
+                trailing: _Chevron(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            AppCard(
+              key: const Key('account-edit'),
+              padding: EdgeInsets.zero,
+              onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ProfileEditScreen())),
+              child: const _SettingsRow(
+                icon: Icons.tune_rounded,
+                title: 'تعديل الملف المهني',
+                value: 'التخصصات، النبذة، الأسعار، ومنطقة الخدمة',
+                trailing: _Chevron(),
+              ),
+            ),
+          ],
 
           // ── Logout ─────────────────────────────────────────────────────
           const SizedBox(height: 14),
@@ -131,6 +187,8 @@ class _SettingsRow extends StatelessWidget {
   final Color wash;
   final Color titleColor;
 
+  final Widget? trailing;
+
   const _SettingsRow({
     required this.icon,
     required this.title,
@@ -138,6 +196,7 @@ class _SettingsRow extends StatelessWidget {
     this.tint = AppTheme.navy,
     this.wash = AppTheme.lineSoft,
     this.titleColor = AppTheme.textPrimary,
+    this.trailing,
   });
 
   @override
@@ -170,9 +229,21 @@ class _SettingsRow extends StatelessWidget {
               ],
             ),
           ),
+          if (trailing != null) trailing!,
         ],
       ),
     );
+  }
+}
+
+/// Right-pointing chevron for a row that opens another screen.
+class _Chevron extends StatelessWidget {
+  const _Chevron();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Icon(Icons.chevron_left_rounded,
+        size: 20, color: AppTheme.textMuted);
   }
 }
 
