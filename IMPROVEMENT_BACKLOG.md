@@ -361,8 +361,31 @@ understand that is the single biggest "this app is foreign" signal.
 
 ## Phase 2 — Elite visual pass
 
-- [ ] **Skeleton loaders instead of spinners.** Cards that fade to their real
+- [x] **Skeleton loaders instead of spinners.** Cards that fade to their real
       content read as fast and native; a grey circle mid-screen reads as broken.
+      **DONE `be1a246`** (the kit and its wiring ride inside the design-system
+      commit, which is why there is no separate skeleton commit). Kit:
+      `lib/src/widgets/skeletons.dart` — `Shimmer` sweep, `SkeletonTone`, and
+      shapes matched to the widgets they stand in for (card row, strip, grid,
+      chat thread, form, detail, app boot). Wired into 13 files: app boot
+      (`app.dart`), the inbox, the chat thread, both home strips, the projects
+      feed, the marketplace, the portfolio grid, the profile, reviews, project
+      detail quotes, the project form and the verification form. What is left
+      spinning is only in-button busy state (`big_button.dart`, `ui.dart`, the
+      two send/post buttons) — press feedback, not a page loading.
+      8 new tests in `test/skeleton_loading_test.dart`: the feed assertion is
+      "a waiting screen shows no `CircularProgressIndicator`" plus a two-frame
+      raster check that the sweep actually moves (a frozen shimmer fails).
+      Evidence: `flutter analyze` → No issues found!; `flutter test` → 263/263
+      (was 255) on that exact commit, run in an isolated `git worktree` while
+      another session held the main checkout.
+      **Visual proof — honest status:** no browser screenshot this cycle.
+      Chrome on this box hangs on `about:blank` (the backlog already records
+      "no CDP driver"); a raster harness for the loading frames is written but
+      the box was saturated by the concurrent release APK build (load avg 64)
+      and the run was killed before a test even loaded. Re-run
+      `test/skeleton_loading_test.dart` in a quiet window and look at
+      `/tmp/shots/{boot_skeleton_dark,loading_projects_dark}.png`.
 - [ ] **8pt spacing audit + one card recipe.** Every card uses the same radius,
       border, shadow and inner padding; no screen invents its own.
 - [ ] **Typography scale from Cairo.** Define title/body/caption sizes once and
