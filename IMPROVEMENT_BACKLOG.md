@@ -80,11 +80,34 @@ understand that is the single biggest "this app is foreign" signal.
       keystroke because that endpoint has no Arabic text search. Verified live in
       the release web bundle (CDP, 412 px, RTL): empty box 7 cards, `جبس` 3,
       `رخام` 1, `زززز` -> the no-match state; the box's clear button empties it.
-- [~] **[CLAIMED — do not start] Wilaya + commune picker with Arabic search.** 58 wilayas by name, not
+- [x] **Wilaya + commune picker with Arabic search.** 58 wilayas by name, not
       by numeric code, with the commune list for the chosen wilaya. Must be
       searchable by typing the Arabic name or the code (`16` → الجزائر).
       *Done when:* a user can reach حسين داي without scrolling a list of 1541
       communes.
+      **DONE 12 Sep** — `assets/data/communes_dz.json` (1,541 communes, the
+      official national count) + `lib/src/data/communes.dart` + a searchable
+      sheet in the project form. Search is folded, so الابيار finds الأبيار and
+      `hussein` finds حسين داي; a commune missing from the list can still be
+      typed. Generator: `tool/gen_communes.py` (read its header — one candidate
+      source had its Arabic column shifted a row and was rejected). Wilaya split
+      comes from the wilaya/city dataset the founder supplied; Arabic names from
+      kossa/algerian-cities (MIT). 134 tests pass, was 100.
+- [~] **[OUT OF THIS REPO — backend/D1, do not start here] The `wilayas` D1 table
+      has wilayas 49-58 in the wrong order.**
+      Codes 49-57 read المغير/المنيعة/... where the app, the web and the
+      official numbering all say 49 = تيميمون. Verified 12 Sep: three
+      independent lists (`app/lib/constants.ts`, the app taxonomy, and the
+      MIT commune dataset) agree against D1. Nothing reads the table today
+      (`grep -rn "FROM wilayas"` finds no caller), so the impact is latent —
+      fix before any code joins on it. Backend item.
+      **BLOCKED 12 Sep (app loop):** the table lives in the Cloudflare D1 database
+      owned by the backend/`workers/mobile.ts` repo, not in this Flutter repo,
+      and the loop is forbidden to touch deploy credentials, so no app-side
+      change can fix it. Nothing in the app reads the table (the app ships its
+      own taxonomy + `assets/data/communes_dz.json`), so the user-visible impact
+      is zero today. Hand to BACKEND-API: one `UPDATE wilayas SET code=...`
+      migration, verified by a join against the commune dataset.
 - [ ] **Phone entry that behaves like an Algerian expects.** A `+213` /
       `0X` prefix affordance, grouping shown as `0X XX XX XX XX`, live inline
       validation from the existing `isValidDzPhone` rules, and no rejection of
