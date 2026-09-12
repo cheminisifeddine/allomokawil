@@ -72,7 +72,12 @@ void main() {
     expect(find.text('أنا صاحب مشروع'), findsOneWidget,
         reason: 'landing gate should be visible before registering');
 
-    final phone = '0774${DateTime.now().millisecondsSinceEpoch % 1000000}';
+    // Pad to a full 10-digit Algerian number: `% 1000000` yields fewer than six
+    // digits roughly one time in ten, and a 9-digit number is correctly rejected
+    // by the app's own validator -- which made this test flaky. Both tests in this
+    // file run inside the same second, so they used to fail together.
+    final phone =
+        '0774${(DateTime.now().millisecondsSinceEpoch % 1000000).toString().padLeft(6, '0')}';
     debugPrint('LIVE registering phone=$phone');
 
     await tester.runAsync(() => auth.register(
@@ -102,7 +107,8 @@ void main() {
     HttpOverrides.global = null;
     final auth = await boot(tester);
 
-    final phone = '0775${DateTime.now().millisecondsSinceEpoch % 1000000}';
+    final phone =
+        '0775${(DateTime.now().millisecondsSinceEpoch % 1000000).toString().padLeft(6, '0')}';
     await tester.runAsync(() => auth.register(
           phone: phone,
           email: '',
