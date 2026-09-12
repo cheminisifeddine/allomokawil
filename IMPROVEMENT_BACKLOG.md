@@ -13,6 +13,12 @@ correctness gap — never a refactor for its own sake. One item per loop.
 
 1. `cd /home/renia/allomokawil && git status --short` must be clean. If it is
    not, commit or stash the leftovers first and say so in the report.
+   **Exception — do not touch another writer's work.** If the dirt is in files
+   you did not edit, an interactive session is mid-cycle in this same checkout:
+   touch nothing, report "working tree busy, skipped this cycle" and exit. Two
+   writers in one tree means one of them loses a commit; on 12 Sep the loop
+   committed on top of a live session's in-flight feature and the two nearly
+   shipped a half-built phone field.
 2. Take the **first unchecked item in phase order**. Do not reorder phases; do
    not batch two items into one loop.
 3. Implement it completely in Dart. Original code only — no Houzz assets, code,
@@ -108,10 +114,20 @@ understand that is the single biggest "this app is foreign" signal.
       own taxonomy + `assets/data/communes_dz.json`), so the user-visible impact
       is zero today. Hand to BACKEND-API: one `UPDATE wilayas SET code=...`
       migration, verified by a join against the commune dataset.
-- [ ] **Phone entry that behaves like an Algerian expects.** A `+213` /
+- [x] **Phone entry that behaves like an Algerian expects.** A `+213` /
       `0X` prefix affordance, grouping shown as `0X XX XX XX XX`, live inline
       validation from the existing `isValidDzPhone` rules, and no rejection of
       a number pasted with spaces or dashes.
+      **DONE `b59274e`.** `lib/src/core/text/dz_phone.dart` + `phone_field.dart`,
+      used by both auth screens. Verified live in the release web bundle (CDP,
+      412 px, RTL, real API): `0550-12-34-56`, `+213 550 12 34 56` and the
+      Arabic-Indic `٠٥٥٠١٢٣٤٥٦` all land as `05 50 12 34 56`; tapping the chip
+      flips the field to `550 12 34 56` and back; `0212345678` turns the frame
+      and the error line `#C33F39` (0 px of that colour when valid, 1,400 when
+      not); a valid number shows the `#1B7E50` tick at x48-63. Filled the
+      register form with a bad number and clicked submit: **zero** network
+      requests, only the Arabic error. With a spaced valid number the POST body
+      was `"phone":"0734304363"` → 201. 172 tests pass, was 134.
 - [ ] **Numeric keypad for numeric fields.** Every amount, year, radius and
       day-count field opens a number keyboard, not a full text keyboard.
 - [ ] **No dead-end empty states.** Every list (projects, quotes, chats,
