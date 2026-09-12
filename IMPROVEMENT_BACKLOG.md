@@ -55,6 +55,54 @@ with the reason and move to the next one.
 
 ---
 
+## Phase 0 — First-run experience (founder review, 12 Sep)
+
+The founder opened the app, sent two screenshots and said: the first page must be
+world-class, signing in and signing up must be easy, the role question belongs on
+the auth page and not before it, the `0X` chip has to go, and a contractor's
+profile must let him upload past work, certificates and his ID.
+
+- [x] **One auth screen.** Login and register were two screens, reached through a
+      role gate that asked the user to pick a side before anything else. Now: a
+      landing page with one **إنشاء الحساب** button and one **تسجيل الدخول** link,
+      and a single auth screen with a two-segment switch where the account type
+      is chosen *inside* the sign-up form. The confirm-password row is gone so the
+      submit button fits above the fold. **DONE `f083d71`.**
+      *Verified by driving the real registration through the UI in the release
+      web bundle: role tile → name → phone → password → submit landed on the
+      contractor home, and `POST /api/login` then returned 200 for that number
+      with `type: worker`.*
+- [x] **The `0X` prefix chip is gone.** It was the first control on the form and
+      it asked a low-digital-literacy user a question they cannot answer. The
+      field still accepts local, `+213`, `00213` and Arabic-Indic digits and reads
+      the number back grouped. **DONE `f083d71`** (7 phone-field tests, including
+      one that asserts no prefix picker exists).
+- [x] **A first page worth looking at.** Hero with original vector line art
+      (house + tower crane on a blueprint grid, drawn in `CustomPainter` — no
+      borrowed asset), how-it-works in three steps, the trades strip, and the
+      verified/ratings/58-wilayas promise. **DONE `f083d71`.**
+      *Two layout bugs found by rendering it: the category tiles clipped their
+      second label line at 412 px (92 px tall → 104), and the drawing sat behind
+      the tagline where the roof line ran through the text (it now has its own
+      band).*
+- [x] **A contractor can show his work.** "معرض أعمالي" uploads photos to R2 with
+      progress and Arabic failure copy; the documents screen gained optional
+      **شهادات ودبلومات** slots. Optional slots show a plus badge, not the next
+      number — the progress card counts three required documents. **DONE
+      `f083d71`, `eb9b1c4`** (backend: `POST /mobile/workers/:id/portfolio`,
+      plus the doc-type alias and the error-masking fix, finili `ba110e3`).
+- [ ] **The client's first run has no equivalent.** A contractor who opens the app
+      with nothing set up gets a four-step checklist that names the next action
+      ("أكمل ملفك ليظهر اسمك أمام أصحاب المشاريع", then one CTA). A project owner
+      opening the app for the first time gets the marketplace with no explanation
+      of what to do first. Give the client home the same shape: name the first
+      step (post a project or browse contractors), make it tappable, and let it
+      disappear once the user has posted or contacted someone.
+      *Done when:* a fresh customer account sees a named next step and a CTA, and
+      a customer with one project does not.
+
+---
+
 ## Phase 1 — Arabic-first correctness (search & input)
 
 Algerian users type Arabic with inconsistent orthography. Search that does not
@@ -212,11 +260,19 @@ understand that is the single biggest "this app is foreign" signal.
 - [ ] **Reviews flow after completion.** Star picker + comment, submitted to the
       API, then reflected in the contractor's average — with a test that the
       average updates. **No fake or seeded reviews, ever.**
-- [ ] **Contractor portfolio upload** from camera/gallery to R2, with progress,
-      retry, and Arabic permission rationale strings.
+- [x] **Contractor portfolio upload** from camera/gallery to R2, with progress,
+      retry, and Arabic permission rationale strings. **DONE `f083d71`** —
+      `lib/src/screens/worker/my_portfolio_screen.dart`; camera and gallery both
+      offered, the busy state names what is happening, and a failed upload keeps
+      the picture on screen with a retry instead of dropping it.
 - [ ] **Verification flow end-to-end.** Upload the auto-entrepreneur card, ID
       front and selfie, then show the real pending/approved/rejected state
       instead of a static form.
+      *Partly done (`f083d71`, `eb9b1c4`): the upload side works, the doc-type
+      alias is fixed so the contractor card no longer fails the insert, and there
+      are optional certificate slots. What remains is the status the user sees
+      **after** submitting — the API stores `verification_status` but the screen
+      does not read it back.*
 - [ ] **Project edit + cancel** for the owner, with the same validation as create.
 - [ ] **Offline behaviour.** Cache wilaya/specialty lists so the app opens with
       content on a dead connection, and queue a chat message for retry instead
