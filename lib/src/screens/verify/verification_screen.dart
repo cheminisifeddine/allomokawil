@@ -4,10 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_scope.dart';
+import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
 import '../../models/enums.dart';
 import '../../models/worker.dart';
-import '../../widgets/big_button.dart';
+import '../../widgets/ui.dart';
 
 /// Contractor verification: upload auto-entrepreneur/artisan card + ID +
 /// selfie. This is the trust gate that powers "verified contractor" badges.
@@ -65,7 +66,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
       await _repo.submitVerification(worker.id, documents);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('تم إرسال مستنداتك، بانتظار المراجعة ✔')));
+            content: Text('تم إرسال مستنداتك، بانتظار المراجعة')));
         Navigator.of(context).pop();
       }
     } on Exception catch (e) {
@@ -91,67 +92,106 @@ class _VerificationScreenState extends State<VerificationScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snap.hasError) {
-            return Center(child: Text('تعذّر جلب ملفك'));
+            return Center(
+              child: Text('تعذّر جلب ملفك',
+                  style: AppTheme.bodySoft.copyWith(color: AppTheme.danger)),
+            );
           }
           final worker = snap.data!;
-          final verified = worker.verificationStatus == VerificationStatus.verified;
-          return ListView(
-            padding: const EdgeInsets.all(20),
-            children: [
-              if (verified)
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE3F2E1),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Row(children: [
-                    Icon(Icons.verified, color: Color(0xFF2E7D32)),
-                    SizedBox(width: 10),
-                    Expanded(
-                        child: Text('حسابك موثّق. يمكنك استقبال المشاريع.',
-                            style: TextStyle(
-                                color: Color(0xFF2E7D32),
-                                fontWeight: FontWeight.w700))),
-                  ]),
-                )
-              else ...[
-                const Text(
-                  'لكي تظهر للموكلين وتحصل على شارة "موثّق"، أرفق المستندات التالية.',
-                  style: TextStyle(fontSize: 14, height: 1.6),
-                ),
-                const SizedBox(height: 18),
-                _DocRow(
-                    index: 0,
-                    label: 'بطاقة المقاول/الإسالتكار',
-                    file: _docs[0].$2,
-                    onPick: () => _pickFor(0)),
-                const SizedBox(height: 10),
-                _DocRow(
-                    index: 1,
-                    label: 'صورة شخصية (سيلفي)',
-                    file: _docs[1].$2,
-                    onPick: () => _pickFor(1)),
-                const SizedBox(height: 10),
-                _DocRow(
-                    index: 2,
-                    label: 'بطاقة التعريف (وجه)',
-                    file: _docs[2].$2,
-                    onPick: () => _pickFor(2)),
-                const SizedBox(height: 22),
-                BigButton(
-                  label: 'إرسال المستندات',
-                  icon: Icons.upload_file_outlined,
-                  loading: _busy,
-                  onPressed: () => _submit(worker),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'تُراجع المستندات خلال 24-48 ساعة. تُحذف صور المستندات من الخادم بعد المراجعة.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 11.5, color: Color(0xFF6E6E73))),
-              ],
-            ],
+          final verified =
+              worker.verificationStatus == VerificationStatus.verified;
+          final done = _docs.where((d) => d.$2 != null).length;
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 620),
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+                children: [
+                  if (verified)
+                    const _VerifiedBanner()
+                  else ...[
+                    Text(
+                      'لكي تظهر للموكلين وتحصل على شارة "موثّق"، أرفق المستندات التالية.',
+                      style: AppTheme.body,
+                    ),
+                    const SizedBox(height: 12),
+                    // Reassuring note: says why the documents are needed.
+                    AppCard(
+                      color: AppTheme.infoWash,
+                      borderColor: AppTheme.infoWash,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.lock_outline_rounded,
+                              size: 20, color: AppTheme.info),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'نطلب هذه المستندات للتحقق من هويتك فقط ولحماية كل الأطراف. '
+                              'تبقى صورك خاصة ثم تُحذف بعد المراجعة، ولا تظهر لأي طرف آخر.',
+                              style: AppTheme.bodySoft.copyWith(
+                                  fontSize: 13.5, color: AppTheme.info),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _ProgressCard(done: done, total: _docs.length),
+                    const SectionTitle('المستندات المطلوبة',
+                        icon: Icons.folder_open_rounded),
+                    _DocCard(
+                      index: 0,
+                      label: 'بطاقة المقاول/الإسالتكار',
+                      icon: Icons.badge_outlined,
+                      tint: AppTheme.navy,
+                      wash: AppTheme.lineSoft,
+                      file: _docs[0].$2,
+                      onPick: () => _pickFor(0),
+                    ),
+                    _DocCard(
+                      index: 1,
+                      label: 'صورة شخصية (سيلفي)',
+                      icon: Icons.photo_camera_front_outlined,
+                      tint: AppTheme.accentDeep,
+                      wash: AppTheme.accentWash,
+                      file: _docs[1].$2,
+                      onPick: () => _pickFor(1),
+                    ),
+                    _DocCard(
+                      index: 2,
+                      label: 'بطاقة التعريف (وجه)',
+                      icon: Icons.credit_card_outlined,
+                      tint: AppTheme.info,
+                      wash: AppTheme.infoWash,
+                      file: _docs[2].$2,
+                      onPick: () => _pickFor(2),
+                    ),
+                    const SizedBox(height: 12),
+                    PrimaryButton(
+                      label: 'إرسال المستندات',
+                      icon: Icons.upload_file_outlined,
+                      loading: _busy,
+                      onPressed: () => _submit(worker),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        const Icon(Icons.schedule_rounded,
+                            size: 15, color: AppTheme.textMuted),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'تُراجع المستندات خلال 24-48 ساعة. تُحذف صور المستندات من الخادم بعد المراجعة.',
+                            style: AppTheme.caption.copyWith(fontSize: 11.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
           );
         },
       ),
@@ -159,53 +199,186 @@ class _VerificationScreenState extends State<VerificationScreen> {
   }
 }
 
-class _DocRow extends StatelessWidget {
-  final int index;
-  final String label;
-  final XFile? file;
-  final VoidCallback onPick;
-
-  const _DocRow(
-      {required this.index,
-      required this.label,
-      required this.file,
-      required this.onPick});
+class _VerifiedBanner extends StatelessWidget {
+  const _VerifiedBanner();
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onPick,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE8E7E3)),
-        ),
+    return AppCard(
+      color: AppTheme.successWash,
+      borderColor: AppTheme.successWash,
+      child: Row(
+        children: [
+          const IconBubble(
+            icon: Icons.verified_rounded,
+            tint: AppTheme.success,
+            wash: AppTheme.surface,
+            size: 44,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text('حسابك موثّق. يمكنك استقبال المشاريع.',
+                style: AppTheme.label
+                    .copyWith(fontSize: 14.5, color: AppTheme.success)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "You completed n of 3 documents" progress readout.
+class _ProgressCard extends StatelessWidget {
+  final int done;
+  final int total;
+
+  const _ProgressCard({required this.done, required this.total});
+
+  @override
+  Widget build(BuildContext context) {
+    final complete = total > 0 && done == total;
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                complete
+                    ? Icons.check_circle_rounded
+                    : Icons.upload_file_rounded,
+                size: 20,
+                color: complete ? AppTheme.success : AppTheme.navy,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  complete
+                      ? 'كل المستندات جاهزة للإرسال'
+                      : 'أكملت $done من $total مستندات',
+                  style: AppTheme.label.copyWith(fontSize: 14.5),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: total == 0 ? 0 : done / total,
+              minHeight: 8,
+              backgroundColor: AppTheme.line,
+              color: complete ? AppTheme.success : AppTheme.accent,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One document slot: whole card is tappable, thumbnail + status once chosen.
+class _DocCard extends StatelessWidget {
+  final int index;
+  final String label;
+  final IconData icon;
+  final Color tint;
+  final Color wash;
+  final XFile? file;
+  final VoidCallback onPick;
+
+  const _DocCard({
+    required this.index,
+    required this.label,
+    required this.icon,
+    required this.tint,
+    required this.wash,
+    required this.file,
+    required this.onPick,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final chosen = file != null;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: AppCard(
+        onTap: onPick,
+        padding: const EdgeInsets.all(14),
+        borderColor: chosen ? AppTheme.success : AppTheme.line,
         child: Row(
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: Container(
-                width: 56,
-                height: 56,
-                color: const Color(0xFFF0EFEB),
-                child: file != null
-                    ? Image.file(File(file!.path), fit: BoxFit.cover)
-                    : const Icon(Icons.add_a_photo_outlined,
-                        color: Color(0xFF8A8A90)),
+              borderRadius: BorderRadius.circular(AppTheme.rSm),
+              child: SizedBox(
+                width: 58,
+                height: 58,
+                child: chosen
+                    ? Image.file(
+                        File(file!.path),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Center(
+                          child: IconBubble(
+                              icon: icon, tint: tint, wash: wash, size: 58),
+                        ),
+                      )
+                    : IconBubble(icon: icon, tint: tint, wash: wash, size: 58),
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(file == null ? 'أضف: $label' : label,
-                  style: TextStyle(
-                      fontSize: 14,
-                      fontWeight:
-                          file == null ? FontWeight.w400 : FontWeight.w700)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 20,
+                        height: 20,
+                        alignment: Alignment.center,
+                        decoration: const BoxDecoration(
+                          color: AppTheme.navy,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Text('${index + 1}',
+                            style: AppTheme.caption.copyWith(
+                                fontSize: 12, color: AppTheme.onNavy)),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          label,
+                          style: AppTheme.label.copyWith(fontSize: 14.5),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (chosen)
+                    const StatusPill(
+                      label: 'تم الاختيار',
+                      color: AppTheme.success,
+                      wash: AppTheme.successWash,
+                      icon: Icons.check_circle_rounded,
+                    )
+                  else
+                    const StatusPill(
+                      label: 'اضغط للإضافة',
+                      color: AppTheme.info,
+                      wash: AppTheme.infoWash,
+                      icon: Icons.add_a_photo_outlined,
+                    ),
+                ],
+              ),
             ),
-            const Icon(Icons.chevron_right, color: Color(0xFFC0C0C4)),
+            const SizedBox(width: 6),
+            Icon(
+              chosen ? Icons.sync_rounded : Icons.touch_app_rounded,
+              size: 22,
+              color: chosen ? AppTheme.navy : AppTheme.textMuted,
+            ),
           ],
         ),
       ),

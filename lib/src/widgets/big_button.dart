@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
 
+import '../core/theme/app_theme.dart';
+
 /// Large, high-contrast primary button with a >= 56px touch target —
 /// the backbone of the app's friendly, low-literacy UX.
+///
+/// Kept as a thin wrapper over the shared kit so every call site in the app
+/// inherits the new look without being touched.
 class BigButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
   final IconData? icon;
   final bool loading;
+  final bool expanded;
 
   const BigButton({
     super.key,
@@ -14,53 +20,123 @@ class BigButton extends StatelessWidget {
     this.onPressed,
     this.icon,
     this.loading = false,
+    this.expanded = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton(
+    return _KitPrimary(
+      label: label,
+      icon: icon,
+      loading: loading,
+      onPressed: onPressed,
+      expanded: expanded,
+    );
+  }
+}
+
+class _KitPrimary extends StatelessWidget {
+  final String label;
+  final IconData? icon;
+  final bool loading;
+  final VoidCallback? onPressed;
+  final bool expanded;
+
+  const _KitPrimary({
+    required this.label,
+    this.icon,
+    required this.loading,
+    this.onPressed,
+    required this.expanded,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final btn = ElevatedButton(
       onPressed: loading ? null : onPressed,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppTheme.accent,
+        foregroundColor: AppTheme.navy,
+        disabledBackgroundColor: AppTheme.line,
+        disabledForegroundColor: AppTheme.textMuted,
+        elevation: 0,
+        minimumSize: const Size.fromHeight(AppTheme.tapMin),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppTheme.rMd)),
+      ),
       child: loading
           ? const SizedBox(
               width: 24,
               height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2.5),
+              child: CircularProgressIndicator(
+                  strokeWidth: 2.6, color: AppTheme.navy),
             )
           : Row(
               mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 if (icon != null) ...[
-                  Icon(icon, size: 22),
-                  const SizedBox(width: 10),
+                  Icon(icon, size: 21, color: AppTheme.navy),
+                  const SizedBox(width: 9),
                 ],
-                Text(label),
+                Flexible(
+                  child: Text(label,
+                      style: AppTheme.button,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                ),
               ],
             ),
     );
+    return expanded ? SizedBox(width: double.infinity, child: btn) : btn;
   }
 }
 
-/// Subtle text-outline secondary button (same touch target).
+/// Subtle outlined secondary button (same touch target).
 class OutlineButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
+  final IconData? icon;
 
-  const OutlineButton({super.key, required this.label, this.onPressed});
+  const OutlineButton({
+    super.key,
+    required this.label,
+    this.onPressed,
+    this.icon,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return OutlinedButton(
-      onPressed: onPressed,
-      style: OutlinedButton.styleFrom(
-        minimumSize: const Size.fromHeight(56),
-        foregroundColor: Theme.of(context).colorScheme.primary,
-        side: const BorderSide(color: appThemeNavy),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(AppTheme.tapMin),
+          foregroundColor: AppTheme.navy,
+          side: const BorderSide(color: AppTheme.line, width: 1.5),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppTheme.rMd)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 20, color: AppTheme.navy),
+              const SizedBox(width: 8),
+            ],
+            Flexible(
+              child: Text(label,
+                  style: AppTheme.button.copyWith(fontSize: 16),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+            ),
+          ],
+        ),
       ),
-      child: Text(label),
     );
   }
 }
 
-const Color appThemeNavy = Color(0xFF16213E);
+const Color appThemeNavy = AppTheme.navy;

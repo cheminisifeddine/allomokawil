@@ -2,14 +2,19 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/l10n/strings.dart';
+import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
+import '../../data/taxonomy.dart';
+import '../../models/project.dart';
 import '../../models/worker.dart';
 import '../../widgets/category_grid.dart';
-import '../../widgets/empty_state.dart';
+import '../../widgets/project_card.dart';
+import '../../widgets/ui.dart';
 import '../../widgets/worker_card.dart';
 import '../browse/browse_screen.dart';
 import '../chat/chat_list_screen.dart';
 import '../profile_screen.dart';
+import '../project/project_detail_screen.dart';
 import '../project/project_new_screen.dart';
 import '../project/projects_screen.dart';
 import '../worker/worker_profile_screen.dart';
@@ -27,6 +32,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   int _tab = 0;
   late final Repository _repo;
   late Future<List<WorkerProfile>> _topWorkers;
+  late Future<List<Project>> _recentProjects;
 
   bool _scopeReady = false;
 
@@ -38,19 +44,32 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     _scopeReady = true;
     _repo = Repository(AppScope.of(context).api);
     _topWorkers = _repo.topWorkers();
+    _recentProjects = _repo.myProjects();
   }
+
+  /// Retry handlers for the two home strips. They call the same repository
+  /// methods the screen already used — just a second time, on demand.
+  void _reloadWorkers() => setState(() => _topWorkers = _repo.topWorkers());
+  void _reloadProjects() =>
+      setState(() => _recentProjects = _repo.myProjects());
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(index: _tab, children: [
         _ExploreView(
-          repo: _repo,
           topWorkers: _topWorkers,
+          recentProjects: _recentProjects,
+          onRetryWorkers: _reloadWorkers,
+          onRetryProjects: _reloadProjects,
           onPost: () => _push(const ProjectNewScreen()),
-          onBrowseCategory: (slug) => _push(
-              BrowseScreen(customerSide: true, initialCategory: slug)),
+          onBrowseAll: () => _push(const BrowseScreen(customerSide: true)),
+          onSeeAllProjects: () => setState(() => _tab = 1),
+          onBrowseCategory: (slug) =>
+              _push(BrowseScreen(customerSide: true, initialCategory: slug)),
           onWorker: (w) => _push(WorkerProfileScreen(workerId: w.id)),
+          onProject: (p) =>
+              _push(ProjectDetailScreen(projectId: p.id, repo: _repo)),
         ),
         ProjectsScreen(repo: _repo),
         ChatListScreen(repo: _repo),
@@ -74,183 +93,536 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   }
 }
 
+/// The "explore" tab: branded header, search, categories, top contractors and
+/// the client's own most recent projects.
 class _ExploreView extends StatelessWidget {
-  final Repository repo;
   final Future<List<WorkerProfile>> topWorkers;
+  final Future<List<Project>> recentProjects;
+  final VoidCallback onRetryWorkers;
+  final VoidCallback onRetryProjects;
   final VoidCallback onPost;
+  final VoidCallback onBrowseAll;
+  final VoidCallback onSeeAllProjects;
   final void Function(String) onBrowseCategory;
   final void Function(WorkerProfile) onWorker;
+  final void Function(Project) onProject;
 
   const _ExploreView({
-    required this.repo,
     required this.topWorkers,
+    required this.recentProjects,
+    required this.onRetryWorkers,
+    required this.onRetryProjects,
     required this.onPost,
+    required this.onBrowseAll,
+    required this.onSeeAllProjects,
     required this.onBrowseCategory,
     required this.onWorker,
+    required this.onProject,
   });
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: CustomScrollView(
-        slivers: [
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    S.appName,
-                    style: TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF16213E)),
+    final user = AppScope.of(context).auth.user;
+    final rawName = user?.fullName.trim() ?? '';
+    final wilayaId = user?.wilaya;
+    final location = (wilayaId == null || wilayaId.isEmpty)
+        ? 'كل الولايات'
+        : Taxonomy.wilayaName(wilayaId);
+
+    return CustomScrollView(
+      slivers: [
+        // ── Branded header (greeting + location + search) ────────────────
+        SliverToBoxAdapter(
+          child: _HomeHeader(
+            name: rawName.isEmpty ? null : rawName,
+            location: location,
+            onSearch: onBrowseAll,
+          ),
+        ),
+
+        // ── Categories ───────────────────────────────────────────────────
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: SectionTitle(
+              'التخصصات',
+              icon: Icons.grid_view_rounded,
+              actionText: 'عرض الكل',
+              onAction: onBrowseAll,
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(child: CategoryGrid(onTap: onBrowseCategory)),
+
+        // ── Post-a-project banner ────────────────────────────────────────
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
+            child: _PostProjectBanner(onTap: onPost),
+          ),
+        ),
+
+        // ── Top-rated contractors ────────────────────────────────────────
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: SectionTitle(
+              'أفضل المقاولين',
+              icon: Icons.workspace_premium_rounded,
+              actionText: 'عرض الكل',
+              onAction: onBrowseAll,
+            ),
+          ),
+        ),
+        FutureBuilder<List<WorkerProfile>>(
+          future: topWorkers,
+          builder: (context, snap) {
+            if (snap.connectionState != ConnectionState.done) {
+              return const SliverToBoxAdapter(child: _WorkerStripSkeleton());
+            }
+            if (snap.hasError) {
+              return SliverToBoxAdapter(
+                child: EmptyView(
+                  icon: Icons.wifi_off_rounded,
+                  title: 'تعذّر جلب المقاولين',
+                  message: 'تحقق من اتصالك بالإنترنت ثم أعد المحاولة',
+                  actionLabel: 'إعادة المحاولة',
+                  onAction: onRetryWorkers,
+                ),
+              );
+            }
+            final workers = snap.data ?? const <WorkerProfile>[];
+            if (workers.isEmpty) {
+              return const SliverToBoxAdapter(
+                child: EmptyView(
+                  icon: Icons.people_outline_rounded,
+                  title: 'لا يوجد مقاولون بعد',
+                  message: 'سيظهر أفضل المقاولين هنا فور تسجيلهم في التطبيق',
+                ),
+              );
+            }
+            return SliverToBoxAdapter(
+              child: SizedBox(
+                height: 190,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  itemCount: workers.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (context, i) => WorkerCard(
+                    worker: workers[i],
+                    variant: WorkerCardVariant.vertical,
+                    onTap: () => onWorker(workers[i]),
                   ),
-                  const SizedBox(height: 6),
-                  const Text('ماذا تريد أن تنجز في منزلك؟',
-                      style: TextStyle(color: Color(0xFF6E6E73))),
-                  const SizedBox(height: 14),
-                  // Search entry — big, obvious tap target
-                  InkWell(
-                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) =>
-                            const BrowseScreen(customerSide: true))),
-                    borderRadius: BorderRadius.circular(14),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        border:
-                            Border.all(color: const Color(0xFFE0E0E0)),
+                ),
+              ),
+            );
+          },
+        ),
+
+        // ── The client's own recent projects ─────────────────────────────
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: SectionTitle(
+              'مشاريعي الأخيرة',
+              icon: Icons.folder_outlined,
+              actionText: 'عرض الكل',
+              onAction: onSeeAllProjects,
+            ),
+          ),
+        ),
+        FutureBuilder<List<Project>>(
+          future: recentProjects,
+          builder: (context, snap) {
+            if (snap.connectionState != ConnectionState.done) {
+              return const SliverToBoxAdapter(
+                  child: _ProjectStripSkeleton(count: 2));
+            }
+            if (snap.hasError) {
+              return SliverToBoxAdapter(
+                child: EmptyView(
+                  icon: Icons.wifi_off_rounded,
+                  title: 'تعذّر جلب المشاريع',
+                  message: 'تحقق من اتصالك بالإنترنت ثم أعد المحاولة',
+                  actionLabel: 'إعادة المحاولة',
+                  onAction: onRetryProjects,
+                ),
+              );
+            }
+            final projects = snap.data ?? const <Project>[];
+            if (projects.isEmpty) {
+              return SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: _NoProjectsCard(onPost: onPost),
+                ),
+              );
+            }
+            final recent = projects.take(3).toList();
+            return SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: Column(
+                  children: [
+                    for (var i = 0; i < recent.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 12),
+                      ProjectCard(
+                        project: recent[i],
+                        onTap: () => onProject(recent[i]),
                       ),
-                      child: Row(
-                        children: const [
-                          Icon(Icons.search, color: Color(0xFF6E6E73)),
-                          SizedBox(width: 10),
-                          // Must be flexible: a fixed-width Row overflows on
-                          // narrow screens.
-                          Expanded(
-                            child: Text('ابحث عن حرفي أو تخصص...',
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                    color: Color(0xFF6E6E73), fontSize: 15)),
-                          ),
-                        ],
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+        const SliverToBoxAdapter(child: SizedBox(height: 28)),
+      ],
+    );
+  }
+}
+
+/// ── Branded header ───────────────────────────────────────────────────────
+/// Navy gradient block that owns the status-bar inset (so the colour reaches
+/// the top of the screen), carrying the brand mark, the greeting, the user's
+/// wilaya and the search entry point.
+class _HomeHeader extends StatelessWidget {
+  final String? name;
+  final String location;
+  final VoidCallback onSearch;
+
+  const _HomeHeader({
+    required this.name,
+    required this.location,
+    required this.onSearch,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [AppTheme.navyDeep, AppTheme.navySoft],
+        ),
+        borderRadius:
+            BorderRadius.vertical(bottom: Radius.circular(AppTheme.rXl)),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: const BoxDecoration(
+                      color: AppTheme.accent,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.home_work_rounded,
+                        color: AppTheme.navy, size: 24),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'مرحباً بك',
+                          style: AppTheme.caption.copyWith(
+                              fontSize: 12.5, color: AppTheme.onNavyMuted),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          name ?? S.appName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.h1
+                              .copyWith(fontSize: 19, color: AppTheme.onNavy),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              // Location pill — wilaya the user registered with.
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  color: AppTheme.onNavy.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.location_on_rounded,
+                        size: 15, color: AppTheme.accent),
+                    const SizedBox(width: 5),
+                    Flexible(
+                      child: Text(
+                        location,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTheme.label.copyWith(
+                            fontSize: 12.5, color: AppTheme.onNavy),
                       ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'ماذا تريد أن تنجز في منزلك؟',
+                style: AppTheme.body
+                    .copyWith(fontSize: 14.5, color: AppTheme.onNavyMuted),
+              ),
+              const SizedBox(height: 14),
+              _SearchBar(onTap: onSearch),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Search entry point. It is a button, not an input: tapping it opens the
+/// browse screen, keeping one search experience for the whole app.
+class _SearchBar extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _SearchBar({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppTheme.surface,
+      borderRadius: BorderRadius.circular(AppTheme.rMd),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppTheme.rMd),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: AppTheme.tapMin),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              const Icon(Icons.search_rounded, color: AppTheme.navy, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'ابحث عن حرفي أو تخصص...',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.body
+                      .copyWith(fontSize: 15, color: AppTheme.textMuted),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The single most prominent action on the home screen.
+class _PostProjectBanner extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _PostProjectBanner({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppTheme.navy,
+      borderRadius: BorderRadius.circular(AppTheme.rLg),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppTheme.rLg),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: const BoxDecoration(
+                  color: AppTheme.accent,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.add_home_work_rounded,
+                    color: AppTheme.navy, size: 27),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'انشر مشروعك مجاناً',
+                      style: AppTheme.h2
+                          .copyWith(fontSize: 16.5, color: AppTheme.onNavy),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'استقبل عروض مقاولين موثوقين خلال أيام',
+                      style: AppTheme.bodySoft.copyWith(
+                          fontSize: 12.5, color: AppTheme.onNavyMuted),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(Icons.chevron_left_rounded,
+                  color: AppTheme.onNavyMuted, size: 26),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Friendly card shown when the client has not posted anything yet. The call
+/// to action goes straight to the post-project form.
+class _NoProjectsCard extends StatelessWidget {
+  final VoidCallback onPost;
+
+  const _NoProjectsCard({required this.onPost});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      padding: const EdgeInsets.fromLTRB(18, 22, 18, 22),
+      child: Column(
+        children: [
+          const IconBubble(
+            icon: Icons.folder_open_rounded,
+            tint: AppTheme.accentDeep,
+            wash: AppTheme.accentWash,
+            size: 64,
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'لا مشاريع بعد',
+            textAlign: TextAlign.center,
+            style: AppTheme.h2.copyWith(color: AppTheme.textPrimary),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'انشر مشروعك الأول واستقبل عروض المقاولين الموثوقين',
+            textAlign: TextAlign.center,
+            style: AppTheme.bodySoft,
+          ),
+          const SizedBox(height: 18),
+          PrimaryButton(
+            label: 'انشر مشروعك',
+            icon: Icons.add_rounded,
+            onPressed: onPost,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Skeleton for the horizontal contractor strip — grey placeholders that read
+/// as "loading" instead of a bare spinner.
+class _WorkerStripSkeleton extends StatelessWidget {
+  const _WorkerStripSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 190,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        physics: const NeverScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        itemCount: 3,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemBuilder: (_, __) => Container(
+          width: 172,
+          padding: const EdgeInsets.all(13),
+          decoration: BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.circular(AppTheme.rLg),
+            border: Border.all(color: AppTheme.line),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Row(
+                children: [
+                  SkeletonBox(height: 46, width: 46, radius: 23),
+                  Spacer(),
+                  SkeletonBox(height: 18, width: 18, radius: 9),
+                ],
+              ),
+              SizedBox(height: 14),
+              SkeletonBox(height: 13, width: 118),
+              SizedBox(height: 9),
+              SkeletonBox(height: 11, width: 92),
+              SizedBox(height: 11),
+              SkeletonBox(height: 12, width: 70),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Skeleton rows mirroring [ProjectCard] while the client's projects load.
+class _ProjectStripSkeleton extends StatelessWidget {
+  final int count;
+
+  const _ProjectStripSkeleton({this.count = 2});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      child: Column(
+        children: [
+          for (var i = 0; i < count; i++)
+            Container(
+              margin: EdgeInsets.only(bottom: i == count - 1 ? 0 : 12),
+              padding: const EdgeInsets.all(13),
+              decoration: BoxDecoration(
+                color: AppTheme.surface,
+                borderRadius: BorderRadius.circular(AppTheme.rLg),
+                border: Border.all(color: AppTheme.line),
+              ),
+              child: Row(
+                children: const [
+                  SkeletonBox(height: 76, width: 76, radius: AppTheme.rSm),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SkeletonBox(height: 14, width: 150),
+                        SizedBox(height: 10),
+                        SkeletonBox(height: 12, width: 110),
+                        SizedBox(height: 10),
+                        SkeletonBox(height: 12, width: 78),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-              child: Text('التخصصات',
-                  style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: Theme.of(context).colorScheme.onSurface)),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: CategoryGrid(onTap: onBrowseCategory),
-          ),
-          // Post-project hero banner
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Material(
-                color: const Color(0xFF16213E),
-                borderRadius: BorderRadius.circular(18),
-                child: InkWell(
-                  onTap: onPost,
-                  borderRadius: BorderRadius.circular(18),
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.15),
-                            shape: BoxShape.circle,
-                          ),
-                          child:
-                              const Icon(Icons.add_home_work, color: Colors.white),
-                        ),
-                        const SizedBox(width: 16),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('انشر مشروعك مجاناً',
-                                  style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 17,
-                                      fontWeight: FontWeight.w800)),
-                              SizedBox(height: 4),
-                              Text('استقبل عروض مقاولين موثوقين خلال أيام',
-                                  style: TextStyle(
-                                      color: Colors.white70, fontSize: 12.5)),
-                            ],
-                          ),
-                        ),
-                        const Icon(Icons.chevron_left, color: Colors.white),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: Text('أفضل المقاولين',
-                  style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: Theme.of(context).colorScheme.onSurface)),
-            ),
-          ),
-          FutureBuilder<List<WorkerProfile>>(
-            future: topWorkers,
-            builder: (context, snap) {
-              if (snap.connectionState != ConnectionState.done) {
-                return const SliverToBoxAdapter(child: LoadingList(count: 3));
-              }
-              if (snap.hasError) {
-                return const SliverToBoxAdapter(
-                    child: EmptyState(
-                        icon: Icons.wifi_off, title: 'تعذّر جلب المقاولين'));
-              }
-              final workers = snap.data ?? const [];
-              if (workers.isEmpty) {
-                return const SliverToBoxAdapter(
-                    child: EmptyState(
-                        icon: Icons.people_outline,
-                        title: 'لا يوجد مقاولون بعد'));
-              }
-              return SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 190,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: workers.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 12),
-                    itemBuilder: (context, i) =>
-                        WorkerCard(worker: workers[i], onTap: () => onWorker(workers[i])),
-                  ),
-                ),
-              );
-            },
-          ),
-          const SliverToBoxAdapter(child: SizedBox(height: 24)),
         ],
       ),
     );

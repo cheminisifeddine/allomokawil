@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 /// Static taxonomy shared with the web app — offline-cached so the core
 /// screens work without a connection. Mirrors `/root/finili/app/lib/constants.ts`.
 class Taxonomy {
@@ -66,23 +68,126 @@ class Taxonomy {
   ];
 
   /// Service categories — the professional taxonomy of the marketplace.
-  static const List<({String slug, String name, String icon})> categories = [
-    (slug: 'construction', name: 'بناء عام وهيكل', icon: '🏗️'),
-    (slug: 'renovation', name: 'ترميم وتجديد', icon: '🔨'),
-    (slug: 'general_finishing', name: 'تشطيب عام وتسليم مفتاح', icon: '🔑'),
-    (slug: 'painting', name: 'دهان وطلاء ديكوري', icon: '🎨'),
-    (slug: 'plaster_drywall', name: 'جبس بورد وديكور', icon: '🏛️'),
-    (slug: 'plumbing', name: 'سباكة وترصيص صحي', icon: '🚿'),
-    (slug: 'electrical', name: 'كهرباء وإنارة', icon: '⚡'),
-    (slug: 'tiling_marble', name: 'بلاط وسيراميك ورخام', icon: '🔲'),
-    (slug: 'carpentry_aluminum', name: 'نجارة خشب وألمنيوم', icon: '🪟'),
-    (slug: 'ironwork_welding', name: 'حدادة وتلحيم', icon: '🛡️'),
-    (slug: 'waterproofing_insulation', name: 'عزل مائي وحراري', icon: '💧'),
-    (slug: 'hvac_heating', name: 'تكييف وتدفئة', icon: '❄️'),
-    (slug: 'epoxy_flooring', name: 'إيبوكسي وأرضيات', icon: '💎'),
-    (slug: 'landscaping_exterior', name: 'تهيئة خارجية وحدائق', icon: '🌳'),
-    (slug: 'venetian_plaster', name: 'جبس فينيسي وستوكو', icon: '🏛️'),
-    (slug: 'wallpaper', name: 'ورق جدران', icon: '📜'),
+  ///
+  /// `icon` is a bundled Material icon, deliberately NOT an emoji: emoji render
+  /// as tofu boxes on many older Android builds (that is why one tile in the
+  /// old UI showed an empty rectangle), and the old set even reused 🏛️ twice.
+  /// `tint`/`wash` are explicit colours so a tile can never inherit a bad one.
+  static const List<
+      ({String slug, String name, IconData icon, Color tint, Color wash})>
+      categories = [
+    (
+      slug: 'construction',
+      name: 'بناء عام وهيكل',
+      icon: Icons.engineering_rounded,
+      tint: Color(0xFF2C5FA8),
+      wash: Color(0xFFEAF1FB)
+    ),
+    (
+      slug: 'renovation',
+      name: 'ترميم وتجديد',
+      icon: Icons.handyman_rounded,
+      tint: Color(0xFFC9821B),
+      wash: Color(0xFFFDF3E3)
+    ),
+    (
+      slug: 'general_finishing',
+      name: 'تشطيب عام وتسليم مفتاح',
+      icon: Icons.key_rounded,
+      tint: Color(0xFF1E8E5A),
+      wash: Color(0xFFE7F5EE)
+    ),
+    (
+      slug: 'painting',
+      name: 'دهان وطلاء ديكوري',
+      icon: Icons.format_paint_rounded,
+      tint: Color(0xFF8E44AD),
+      wash: Color(0xFFF4EAF8)
+    ),
+    (
+      slug: 'plaster_drywall',
+      name: 'جبس بورد وديكور',
+      icon: Icons.layers_rounded,
+      tint: Color(0xFFA9603C),
+      wash: Color(0xFFF8EDE7)
+    ),
+    (
+      slug: 'plumbing',
+      name: 'سباكة وترصيص صحي',
+      icon: Icons.plumbing_rounded,
+      tint: Color(0xFF1F7FB8),
+      wash: Color(0xFFE8F4FA)
+    ),
+    (
+      slug: 'electrical',
+      name: 'كهرباء وإنارة',
+      icon: Icons.electrical_services_rounded,
+      tint: Color(0xFFC9920F),
+      wash: Color(0xFFFDF6E3)
+    ),
+    (
+      slug: 'tiling_marble',
+      name: 'بلاط وسيراميك ورخام',
+      icon: Icons.grid_view_rounded,
+      tint: Color(0xFF4A5568),
+      wash: Color(0xFFEEF0F3)
+    ),
+    (
+      slug: 'carpentry_aluminum',
+      name: 'نجارة خشب وألمنيوم',
+      icon: Icons.window_rounded,
+      tint: Color(0xFF137E7E),
+      wash: Color(0xFFE6F4F4)
+    ),
+    (
+      slug: 'ironwork_welding',
+      name: 'حدادة وتلحيم',
+      icon: Icons.construction_rounded,
+      tint: Color(0xFF5B6472),
+      wash: Color(0xFFEFF0F2)
+    ),
+    (
+      slug: 'waterproofing_insulation',
+      name: 'عزل مائي وحراري',
+      icon: Icons.water_drop_rounded,
+      tint: Color(0xFF0E7C9B),
+      wash: Color(0xFFE6F3F7)
+    ),
+    (
+      slug: 'hvac_heating',
+      name: 'تكييف وتدفئة',
+      icon: Icons.ac_unit_rounded,
+      tint: Color(0xFF2A7DE1),
+      wash: Color(0xFFEAF2FE)
+    ),
+    (
+      slug: 'epoxy_flooring',
+      name: 'إيبوكسي وأرضيات',
+      icon: Icons.texture_rounded,
+      tint: Color(0xFF4C51A8),
+      wash: Color(0xFFECECF9)
+    ),
+    (
+      slug: 'landscaping_exterior',
+      name: 'تهيئة خارجية وحدائق',
+      icon: Icons.park_rounded,
+      tint: Color(0xFF2E8B3D),
+      wash: Color(0xFFE9F5EA)
+    ),
+    (
+      slug: 'venetian_plaster',
+      name: 'جبس فينيسي وستوكو',
+      icon: Icons.brush_rounded,
+      tint: Color(0xFFB5537A),
+      wash: Color(0xFFFAEDF2)
+    ),
+    (
+      slug: 'wallpaper',
+      name: 'ورق جدران',
+      icon: Icons.wallpaper_rounded,
+      tint: Color(0xFF7A5AF8),
+      wash: Color(0xFFF0EDFE)
+    ),
   ];
 
   static String categoryName(String slug) {
@@ -92,11 +197,25 @@ class Taxonomy {
     return slug;
   }
 
-  static String categoryIcon(String slug) {
+  static IconData categoryIcon(String slug) {
     for (final c in categories) {
       if (c.slug == slug) return c.icon;
     }
-    return '🛠️';
+    return Icons.handyman_rounded;
+  }
+
+  static Color categoryTint(String slug) {
+    for (final c in categories) {
+      if (c.slug == slug) return c.tint;
+    }
+    return const Color(0xFF5B6472);
+  }
+
+  static Color categoryWash(String slug) {
+    for (final c in categories) {
+      if (c.slug == slug) return c.wash;
+    }
+    return const Color(0xFFEFF0F2);
   }
 
   static String wilayaName(String id) {

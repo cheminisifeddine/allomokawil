@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
+import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
 import '../../models/enums.dart';
 import '../../models/project.dart';
 import '../../models/quote_review.dart';
-import '../../widgets/big_button.dart';
-import '../../widgets/rating_stars.dart';
+import '../../widgets/ui.dart';
 import '../chat/chat_screen.dart';
 import '../review/review_screen.dart';
 
@@ -46,6 +46,27 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     });
   }
 
+  /// Owner accepts a quote — the backend rejects every other one.
+  Future<void> _accept(Quote q) async {
+    await widget.repo.acceptQuote(widget.projectId, q.id);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم قبول العرض، سيتم رفض باقي العروض')));
+      _reload();
+    }
+  }
+
+  /// Owner closes the job, then rates the contractor.
+  Future<void> _complete(Project project) async {
+    await widget.repo.completeProject(project.id);
+    if (mounted) {
+      final workerId = project.selectedWorkerId ?? 0;
+      Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => ReviewScreen(
+              projectId: project.id, workerId: workerId, repo: widget.repo)));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -57,74 +78,144 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snap.hasError) {
-            return Center(child: Text('تعذّر تحميل المشروع'));
+            return Center(
+              child: Text('تعذّر تحميل المشروع',
+                  style: AppTheme.bodySoft.copyWith(color: AppTheme.danger)),
+            );
           }
           final project = snap.data!;
-          return Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 620),
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  _Photos(images: project.images),
-                  const SizedBox(height: 14),
-                  Text(project.title,
-                      style: const TextStyle(
-                          fontSize: 20, fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 8),
-                  Text(
-                    '${Taxonomy.categoryIcon(project.category)} ${Taxonomy.categoryName(project.category)}',
-                    style: TextStyle(
-                        color: Theme.of(context).colorScheme.primary,
-                        fontSize: 14),
+          return Column(
+            children: [
+              Expanded(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 620),
+                    child: ListView(
+                      padding: AppTheme.pagePad,
+                      children: [
+                        _Photos(images: project.images),
+                        const SizedBox(height: 18),
+                        Text(project.title,
+                            style:
+                                AppTheme.display.copyWith(fontSize: 23)),
+                        const SizedBox(height: 12),
+                        _StatusRow(project: project),
+                        if (project.description != null) ...[
+                          const SectionTitle('وصف المشروع',
+                              icon: Icons.notes_rounded),
+                          AppCard(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 14),
+                            child:
+                                Text(project.description!, style: AppTheme.body),
+                          ),
+                        ],
+                        const SectionTitle('تفاصيل المشروع',
+                            icon: Icons.fact_check_outlined),
+                        AppCard(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 6),
+                          child: Column(
+                            children: [
+                              InfoRow(
+                                icon: Icons.payments_outlined,
+                                label: 'الميزانية',
+                                value: project.budgetLabel,
+                                color: AppTheme.accentDeep,
+                              ),
+                              const Divider(height: 1, color: AppTheme.lineSoft),
+                              InfoRow(
+                                icon: Icons.schedule_rounded,
+                                label: 'الاستعجال',
+                                value: _urgencyLabel(project.urgency),
+                                color: AppTheme.info,
+                              ),
+                              const Divider(height: 1, color: AppTheme.lineSoft),
+                              InfoRow(
+                                icon: Icons.place_outlined,
+                                label: 'البلدية',
+                                value: _locationLabel(project),
+                                color: AppTheme.navy,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SectionTitle('العروض',
+                            icon: Icons.handshake_outlined),
+                        _QuotesSection(
+                          quotesFuture: _quotes,
+                          project: project,
+                          isOwner: _isOwner,
+                          onAccept: _accept,
+                          onBid: () => _showBidSheet(project),
+                        ),
+                        if (!_isOwner) ...[
+                          const SizedBox(height: 16),
+                          SecondaryButton(
+                            label: 'مراسلة صاحب المشروع',
+                            icon: Icons.chat_outlined,
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => ChatScreen(
+                                  projectId: project.id,
+                                  otherUserId: project.customerId,
+                                  repo: widget.repo,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 6),
-                  Text('📍 ${Taxonomy.wilayaName(project.wilaya)}'
-                      '${project.commune == null ? '' : ' — ${project.commune}'}',
-                      style: const TextStyle(fontSize: 13)),
-                  if (project.description != null) ...[
-                    const SizedBox(height: 12),
-                    Text(project.description!,
-                        style: const TextStyle(
-                            fontSize: 14, height: 1.6, color: Color(0xFF3A3A3C))),
-                  ],
-                  const SizedBox(height: 12),
-                  // Wrap, not Row: two chips plus a budget label overflow the
-                  // available width on a phone.
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      if (project.budgetMin != null || project.budgetMax != null)
-                        Chip(
-                            label: Text(project.budgetLabel),
-                            avatar:
-                                const Icon(Icons.payments_outlined, size: 18)),
-                      Chip(label: Text(_urgencyLabel(project.urgency))),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  _QuotesSection(
-                    repo: widget.repo,
-                    project: project,
-                    quotesFuture: _quotes,
-                    isOwner: _isOwner,
-                    onChanged: _reload,
-                  ),
-                  const SizedBox(height: 24),
-                ],
+                ),
               ),
-            ),
+              // Primary action always reachable at the bottom of the screen.
+              _stickyCta(project),
+            ],
           );
         },
       ),
     );
   }
 
+  /// The single primary action for the current role/state, pinned at the
+  /// bottom. States with no primary action render nothing.
+  Widget _stickyCta(Project project) {
+    if (_isOwner && project.status == ProjectStatus.inProgress) {
+      return StickyCta(
+        child: PrimaryButton(
+          label: 'أكمل المشروع وتقييم',
+          icon: Icons.task_alt_rounded,
+          onPressed: () => _complete(project),
+        ),
+      );
+    }
+    if (!_isOwner && project.status == ProjectStatus.open) {
+      return StickyCta(
+        child: PrimaryButton(
+          label: 'قدّم عرضك',
+          icon: Icons.request_quote_outlined,
+          onPressed: () => _showBidSheet(project),
+        ),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  String _locationLabel(Project project) {
+    final commune = project.commune;
+    if (commune == null || commune.isEmpty) {
+      return Taxonomy.wilayaName(project.wilaya);
+    }
+    return '${Taxonomy.wilayaName(project.wilaya)} — $commune';
+  }
+
   String _urgencyLabel(UrgencyLevel u) {
     switch (u) {
       case UrgencyLevel.urgent:
-        return '⌛ عاجل';
+        return 'عاجل';
       case UrgencyLevel.withinWeek:
         return 'خلال أسبوع';
       case UrgencyLevel.withinMonth:
@@ -133,174 +224,9 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
         return 'بدون استعجال';
     }
   }
-}
 
-class _Photos extends StatelessWidget {
-  final List<String> images;
-  const _Photos({required this.images});
-
-  @override
-  Widget build(BuildContext context) {
-    if (images.isEmpty) {
-      return Container(
-        height: 200,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF0EFEB),
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: const Icon(Icons.home_work_outlined,
-            size: 48, color: Color(0xFFB9B8B2)),
-      );
-    }
-    return SizedBox(
-      height: 220,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: images.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (context, i) => ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: Image.network(images[i],
-              width: 280, fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
-                  width: 280,
-                  color: const Color(0xFFF0EFEB),
-                  child: const Icon(Icons.photo_outlined))),
-        ),
-      ),
-    );
-  }
-}
-
-class _QuotesSection extends StatefulWidget {
-  final Repository repo;
-  final Project project;
-  final Future<List<Quote>> quotesFuture;
-  final bool isOwner;
-  final VoidCallback onChanged;
-
-  const _QuotesSection({
-    required this.repo,
-    required this.project,
-    required this.quotesFuture,
-    required this.isOwner,
-    required this.onChanged,
-  });
-
-  @override
-  State<_QuotesSection> createState() => _QuotesSectionState();
-}
-
-class _QuotesSectionState extends State<_QuotesSection> {
-  Future<void> _accept(Quote q) async {
-    await widget.repo.acceptQuote(widget.project.id, q.id);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تم قبول العرض ✔ سيتم رفض باقي العروض')));
-      widget.onChanged();
-    }
-  }
-
-  Future<void> _complete() async {
-    await widget.repo.completeProject(widget.project.id);
-    if (mounted) {
-      final workerId = widget.project.selectedWorkerId ?? 0;
-      Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => ReviewScreen(
-              projectId: widget.project.id, workerId: workerId, repo: widget.repo)));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('العروض',
-            style:
-                const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-        const SizedBox(height: 10),
-        FutureBuilder<List<Quote>>(
-          future: widget.quotesFuture,
-          builder: (context, snap) {
-            if (snap.connectionState != ConnectionState.done) {
-              return const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Center(child: CircularProgressIndicator()));
-            }
-            final quotes = snap.data ?? const [];
-            if (quotes.isEmpty) {
-              return Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFE8E7E3)),
-                ),
-                child: Column(
-                  children: [
-                    const Text('لا عروض بعد'),
-                    const SizedBox(height: 12),
-                    if (widget.isOwner)
-                      const Text('شارك مشروعك ليصل إلى المقاولين',
-                          style: TextStyle(
-                              fontSize: 12, color: Color(0xFF6E6E73))),
-                    if (!widget.isOwner)
-                      BigButton(
-                        label: 'قدّم عرضك',
-                        icon: Icons.request_quote_outlined,
-                        onPressed: () => _showBidSheet(),
-                      ),
-                  ],
-                ),
-              );
-            }
-            return Column(
-              children: [
-                for (final q in quotes) _QuoteTile(quote: q, isOwner: widget.isOwner, onAccept: () => _accept(q)),
-                if (!widget.isOwner && widget.project.status == ProjectStatus.open)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: BigButton(
-                      label: 'قدّم عرضك',
-                      icon: Icons.request_quote_outlined,
-                      onPressed: () => _showBidSheet(),
-                    ),
-                  ),
-                if (widget.isOwner &&
-                    widget.project.status == ProjectStatus.inProgress)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: OutlineButtonOnly(
-                      label: 'أكمل المشروع وتقييم',
-                      onPressed: _complete,
-                    ),
-                  ),
-              ],
-            );
-          },
-        ),
-        if (!widget.isOwner)
-          Padding(
-            padding: const EdgeInsets.only(top: 14),
-            child: SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => ChatScreen(
-                        projectId: widget.project.id,
-                        otherUserId: widget.project.customerId,
-                        repo: widget.repo))),
-                icon: const Icon(Icons.chat_outlined),
-                label: const Text('مراسلة صاحب المشروع'),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Future<void> _showBidSheet() async {
+  /// Quote form. Same fields, same validation (>= 1000 DZD), same call.
+  Future<void> _showBidSheet(Project project) async {
     final amount = TextEditingController();
     final message = TextEditingController();
     final days = TextEditingController();
@@ -317,8 +243,7 @@ class _QuotesSectionState extends State<_QuotesSection> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('قدّم عرضك',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            Text('قدّم عرضك', style: AppTheme.h1),
             const SizedBox(height: 14),
             TextField(
               controller: amount,
@@ -339,8 +264,9 @@ class _QuotesSectionState extends State<_QuotesSection> {
               decoration: const InputDecoration(labelText: 'رسالتك (اختياري)'),
             ),
             const SizedBox(height: 18),
-            BigButton(
+            PrimaryButton(
               label: 'إرسال العرض',
+              icon: Icons.send_rounded,
               onPressed: () => Navigator.pop(context, true),
             ),
           ],
@@ -351,20 +277,20 @@ class _QuotesSectionState extends State<_QuotesSection> {
       if (!mounted) return;
       final amt = int.tryParse(amount.text.trim());
       if (amt == null || amt < 1000) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('المبلغ يجب أن يكون 1000 دج على الأقل')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('المبلغ يجب أن يكون 1000 دج على الأقل')));
       } else {
         try {
           await widget.repo.submitQuote(
-            projectId: widget.project.id,
+            projectId: project.id,
             amount: amt,
             message: message.text.trim().isEmpty ? null : message.text.trim(),
             estimatedDays: int.tryParse(days.text.trim()),
           );
           if (mounted) {
             ScaffoldMessenger.of(context)
-                .showSnackBar(const SnackBar(content: Text('تم إرسال عرضك ✔')));
-            widget.onChanged();
+                .showSnackBar(const SnackBar(content: Text('تم إرسال عرضك')));
+            _reload();
           }
         } on Exception catch (e) {
           if (mounted) {
@@ -377,92 +303,357 @@ class _QuotesSectionState extends State<_QuotesSection> {
   }
 }
 
-class _QuoteTile extends StatelessWidget {
-  final Quote quote;
-  final bool isOwner;
-  final VoidCallback onAccept;
+/// Status / category / place, laid out with [Wrap] so a long wilaya name or a
+/// large font scale can never overflow the row.
+class _StatusRow extends StatelessWidget {
+  final Project project;
+  const _StatusRow({required this.project});
 
-  const _QuoteTile(
-      {required this.quote, required this.isOwner, required this.onAccept});
+  @override
+  Widget build(BuildContext context) {
+    final commune = project.commune;
+    final place = (commune == null || commune.isEmpty)
+        ? Taxonomy.wilayaName(project.wilaya)
+        : '${Taxonomy.wilayaName(project.wilaya)} — $commune';
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        StatusPill.project(project.status.name),
+        CategoryBadge(slug: project.category),
+        _MetaChip(icon: Icons.place_outlined, text: place),
+      ],
+    );
+  }
+}
+
+class _MetaChip extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _MetaChip({required this.icon, required this.text});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE8E7E3)),
+        color: AppTheme.lineSoft,
+        borderRadius: BorderRadius.circular(999),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              const Icon(Icons.person, color: Color(0xFF16213E)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(quote.workerFullName,
-                    style:
-                        const TextStyle(fontWeight: FontWeight.w700)),
-              ),
-              RatingStars(rating: quote.workerAvgRating, size: 14),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text('المبلغ: ${quote.amount} دج',
-              style: const TextStyle(
-                  fontSize: 16, fontWeight: FontWeight.w800)),
-          if (quote.estimatedDays != null)
-            Text('مدة الإنجاز: ${quote.estimatedDays} يوم'),
-          if (quote.message != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(quote.message!,
-                  style: const TextStyle(color: Color(0xFF3A3A3C))),
-            ),
-          if (isOwner)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: FilledButton.icon(
-                  onPressed: onAccept,
-                  icon: const Icon(Icons.check_circle_outline),
-                  label: const Text('قبول العرض'),
-                ),
-              ),
-            ),
+          Icon(icon, size: 14, color: AppTheme.textSecondary),
+          const SizedBox(width: 6),
+          Text(text,
+              style: AppTheme.caption
+                  .copyWith(fontSize: 12.5, color: AppTheme.textSecondary)),
         ],
       ),
     );
   }
 }
 
-// Secondary helper exported for reuse.
-class OutlineButtonOnly extends StatelessWidget {
-  final String label;
-  final VoidCallback onPressed;
-  const OutlineButtonOnly({super.key, required this.label, required this.onPressed});
+/// Photo carousel: swipeable pages with a dot indicator underneath.
+class _Photos extends StatefulWidget {
+  final List<String> images;
+  const _Photos({required this.images});
+
+  @override
+  State<_Photos> createState() => _PhotosState();
+}
+
+class _PhotosState extends State<_Photos> {
+  final PageController _controller = PageController();
+  int _index = 0;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: OutlinedButton(
-        onPressed: onPressed,
-        style: OutlinedButton.styleFrom(
-          minimumSize: const Size.fromHeight(56),
-          foregroundColor: const Color(0xFF16213E),
-          side: const BorderSide(color: Color(0xFF16213E)),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          textStyle: const TextStyle(
-              fontSize: 16, fontWeight: FontWeight.w700),
+    if (widget.images.isEmpty) {
+      return Container(
+        height: 180,
+        decoration: BoxDecoration(
+          color: AppTheme.lineSoft,
+          borderRadius: BorderRadius.circular(AppTheme.rLg),
         ),
-        child: Text(label),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.home_work_outlined,
+                size: 44, color: AppTheme.textMuted),
+            const SizedBox(height: 10),
+            Text('لا توجد صور لهذا المشروع',
+                style: AppTheme.caption.copyWith(color: AppTheme.textSecondary)),
+          ],
+        ),
+      );
+    }
+    return Column(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppTheme.rLg),
+          child: SizedBox(
+            height: 220,
+            child: PageView.builder(
+              controller: _controller,
+              itemCount: widget.images.length,
+              onPageChanged: (i) => setState(() => _index = i),
+              itemBuilder: (context, i) => Image.network(
+                widget.images[i],
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const _PhotoFallback(),
+              ),
+            ),
+          ),
+        ),
+        if (widget.images.length > 1) ...[
+          const SizedBox(height: 10),
+          // Wrap: a project can carry many photos, dots must be able to wrap.
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (var i = 0; i < widget.images.length; i++)
+                Container(
+                  width: i == _index ? 18 : 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: i == _index ? AppTheme.accent : AppTheme.line,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _PhotoFallback extends StatelessWidget {
+  const _PhotoFallback();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: AppTheme.lineSoft,
+      alignment: Alignment.center,
+      child: const Icon(Icons.image_outlined, size: 36, color: AppTheme.textMuted),
+    );
+  }
+}
+
+/// Quotes list. The accept + bid + complete actions live in
+/// [_ProjectDetailScreenState] so the sticky bottom CTA can reuse them.
+class _QuotesSection extends StatelessWidget {
+  final Future<List<Quote>> quotesFuture;
+  final Project project;
+  final bool isOwner;
+  final ValueChanged<Quote> onAccept;
+  final VoidCallback onBid;
+
+  const _QuotesSection({
+    required this.quotesFuture,
+    required this.project,
+    required this.isOwner,
+    required this.onAccept,
+    required this.onBid,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<Quote>>(
+      future: quotesFuture,
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const _QuotesSkeleton();
+        }
+        final quotes = snap.data ?? const <Quote>[];
+        if (quotes.isEmpty) {
+          // A worker must be able to bid from the empty state even when the
+          // sticky CTA is not shown (i.e. the project is no longer open).
+          final offerFromEmptyState =
+              !isOwner && project.status != ProjectStatus.open;
+          return EmptyView(
+            icon: Icons.request_quote_outlined,
+            title: 'لا عروض بعد',
+            message: isOwner ? 'شارك مشروعك ليصل إلى المقاولين' : null,
+            actionLabel: offerFromEmptyState ? 'قدّم عرضك' : null,
+            onAction: offerFromEmptyState ? onBid : null,
+          );
+        }
+        return Column(
+          children: [
+            for (final q in quotes) ...[
+              _QuoteCard(
+                quote: q,
+                isOwner: isOwner,
+                onAccept: () => onAccept(q),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _QuotesSkeleton extends StatelessWidget {
+  const _QuotesSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return const AppCard(
+      child: Column(
+        children: [
+          Row(
+            children: [
+              SkeletonBox(height: 46, width: 46, radius: 23),
+              SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SkeletonBox(height: 14, width: 150),
+                    SizedBox(height: 8),
+                    SkeletonBox(height: 12, width: 96),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 16),
+          SkeletonBox(height: 52, radius: 12),
+        ],
       ),
     );
+  }
+}
+
+class _QuoteCard extends StatelessWidget {
+  final Quote quote;
+  final bool isOwner;
+  final VoidCallback onAccept;
+
+  const _QuoteCard(
+      {required this.quote, required this.isOwner, required this.onAccept});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              InitialAvatar(name: quote.workerFullName, size: 48),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(quote.workerFullName,
+                        style: AppTheme.h2.copyWith(fontSize: 16),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 4),
+                    if (quote.workerTotalReviews > 0)
+                      RatingStars(
+                          rating: quote.workerAvgRating,
+                          count: quote.workerTotalReviews,
+                          size: 14)
+                    else
+                      Text('لا تقييمات بعد',
+                          style: AppTheme.caption
+                              .copyWith(color: AppTheme.textSecondary)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: AppTheme.accentWash,
+              borderRadius: BorderRadius.circular(AppTheme.rSm),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('المبلغ: ${quote.amount} دج',
+                    style: AppTheme.h2
+                        .copyWith(fontSize: 18, color: AppTheme.navy)),
+                if (quote.estimatedDays != null) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      const Icon(Icons.schedule_rounded,
+                          size: 15, color: AppTheme.textSecondary),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text('مدة الإنجاز: ${quote.estimatedDays} يوم',
+                            style: AppTheme.bodySoft.copyWith(fontSize: 13.5)),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (quote.message != null) ...[
+            const SizedBox(height: 12),
+            Text(quote.message!, style: AppTheme.bodySoft),
+          ],
+          if (isOwner) ...[
+            const SizedBox(height: 14),
+            // Wrap, not Row: the action row reflows instead of overflowing on
+            // a narrow phone, and a second action can be added safely.
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: PrimaryButton(
+                    label: 'قبول العرض',
+                    icon: Icons.check_circle_outline_rounded,
+                    onPressed: onAccept,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text('بالقبول تُرفض باقي العروض تلقائياً.',
+                style:
+                    AppTheme.caption.copyWith(color: AppTheme.textSecondary)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Secondary helper kept for reuse — same signature, now built on the UI kit.
+class OutlineButtonOnly extends StatelessWidget {
+  final String label;
+  final VoidCallback onPressed;
+  const OutlineButtonOnly(
+      {super.key, required this.label, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return SecondaryButton(label: label, onPressed: onPressed);
   }
 }

@@ -1,3 +1,10 @@
+/// Tolerant timestamp parsing for the API's `yyyy-MM-dd HH:mm:ss` strings.
+/// Returns null when the field is absent so older payloads keep working.
+DateTime? _parseTime(Object? raw) {
+  if (raw is! String || raw.isEmpty) return null;
+  return DateTime.tryParse(raw);
+}
+
 /// A conversation thread keyed by (customer, worker, project).
 class Conversation {
   final int id;
@@ -9,6 +16,9 @@ class Conversation {
   final String? lastMessageContent;
   final int unreadCount;
 
+  /// Server `last_message_at` — drives the relative timestamp in the list row.
+  final DateTime? lastMessageAt;
+
   const Conversation({
     required this.id,
     required this.customerId,
@@ -18,6 +28,7 @@ class Conversation {
     this.otherUserAvatar,
     this.lastMessageContent,
     required this.unreadCount,
+    this.lastMessageAt,
   });
 
   factory Conversation.fromJson(Map<String, dynamic> json) => Conversation(
@@ -29,6 +40,7 @@ class Conversation {
         otherUserAvatar: json['other_user_avatar'] as String?,
         lastMessageContent: json['last_message_content'] as String?,
         unreadCount: (json['unread_count'] as num?)?.toInt() ?? 0,
+        lastMessageAt: _parseTime(json['last_message_at']),
       );
 }
 
@@ -45,6 +57,10 @@ class Message {
   final MessageType type;
   final int isRead;
 
+  /// Server `created_at` — drives the date dividers in the thread.
+  /// Null for messages queued offline (they carry no server timestamp).
+  final DateTime? createdAt;
+
   const Message({
     required this.id,
     required this.conversationId,
@@ -53,6 +69,7 @@ class Message {
     this.imageUrl,
     required this.type,
     required this.isRead,
+    this.createdAt,
   });
 
   factory Message.fromJson(Map<String, dynamic> json) {
@@ -71,6 +88,7 @@ class Message {
                   ? MessageType.system
                   : MessageType.text,
       isRead: (json['is_read'] as num?)?.toInt() ?? 0,
+      createdAt: _parseTime(json['created_at']),
     );
   }
 }

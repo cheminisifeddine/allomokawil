@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
+import '../../core/l10n/strings.dart';
+import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
+import '../../models/enums.dart';
 import '../../models/project.dart';
-import '../../widgets/category_grid.dart';
-import '../../widgets/empty_state.dart';
+import '../../models/worker.dart';
 import '../../widgets/project_card.dart';
+import '../../widgets/ui.dart';
 import '../chat/chat_list_screen.dart';
 import '../profile_screen.dart';
 import '../project/project_detail_screen.dart';
@@ -42,7 +45,15 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen> {
     return Scaffold(
       appBar: _tab == 0
           ? AppBar(
-              title: const Text('المنصة'),
+              title: const Text(
+                'المنصة',
+                style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textPrimary,
+                ),
+              ),
               actions: [
                 IconButton(
                   icon: const Icon(Icons.badge_outlined),
@@ -76,6 +87,8 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen> {
   }
 }
 
+/// The marketplace tab: contractor header + quick stats + the open-project
+/// feed with a legible kit-based filter bar.
 class _MarketplaceView extends StatefulWidget {
   final Repository repo;
   const _MarketplaceView({required this.repo});
@@ -89,10 +102,14 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
   String? _wilaya;
   late Future<List<Project>> _projects;
 
+  /// Signed-in contractor, used by the branded header and the stats row.
+  late final Future<WorkerProfile> _me;
+
   @override
   void initState() {
     super.initState();
     _projects = widget.repo.browseProjects(status: ProjectStatus.open);
+    _me = widget.repo.myProfile();
   }
 
   void _reload() {
@@ -105,87 +122,77 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
     });
   }
 
+  /// Tapping a category twice clears the filter (same as the old strip).
+  void _selectCategory(String? slug) {
+    _category = _category == slug ? null : slug;
+    _reload();
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: Text('مشاريع مفتوحة للعروض',
-                style:
-                    TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+      child: CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(child: _HeaderSection(profile: _me)),
+          SliverToBoxAdapter(
+            child: _FilterBar(
+              category: _category,
+              wilaya: _wilaya,
+              onCategory: _selectCategory,
+              onWilaya: () => _pickWilaya(context),
+            ),
           ),
-          CategoryGrid(onTap: (slug) {
-            _category = _category == slug ? null : slug;
-            _reload();
-          }),
-          _filters(),
-          const SizedBox(height: 4),
-          Expanded(
-            child: FutureBuilder<List<Project>>(
-              future: _projects,
-              builder: (context, snap) {
-                if (snap.connectionState != ConnectionState.done) {
-                  return const LoadingList(count: 6);
-                }
-                if (snap.hasError) {
-                  return EmptyState(
-                    icon: Icons.wifi_off,
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: SectionTitle('مشاريع مفتوحة للعروض',
+                  icon: Icons.storefront_rounded),
+            ),
+          ),
+          FutureBuilder<List<Project>>(
+            future: _projects,
+            builder: (context, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const SliverToBoxAdapter(child: _ProjectsSkeleton());
+              }
+              if (snap.hasError) {
+                return SliverToBoxAdapter(
+                  child: EmptyView(
+                    icon: Icons.wifi_off_rounded,
                     title: 'تعذّر جلب المشاريع',
-                    subtitle: snap.error.toString(),
-                    action: TextButton(
-                        onPressed: _reload, child: const Text('إعادة المحاولة')),
-                  );
-                }
-                final projects = snap.data ?? const [];
-                if (projects.isEmpty) {
-                  return const EmptyState(
-                      icon: Icons.inbox_outlined,
-                      title: 'لا مشاريع مفتوحة حالياً',
-                      subtitle: 'جرّب تغيير الفلتر');
-                }
-                return ListView.separated(
-                  padding: const EdgeInsets.all(16),
+                    message: snap.error.toString(),
+                    actionLabel: 'إعادة المحاولة',
+                    onAction: _reload,
+                    danger: true,
+                  ),
+                );
+              }
+              final projects = snap.data ?? const <Project>[];
+              if (projects.isEmpty) {
+                return const SliverToBoxAdapter(
+                  child: EmptyView(
+                    icon: Icons.inbox_rounded,
+                    title: 'لا مشاريع مفتوحة حالياً',
+                    message: 'جرّب تغيير الفلتر',
+                  ),
+                );
+              }
+              return SliverPadding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 4),
+                sliver: SliverList.separated(
                   itemCount: projects.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
                   itemBuilder: (context, i) => ProjectCard(
                     project: projects[i],
-                    onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) => ProjectDetailScreen(
-                                projectId: projects[i].id, repo: widget.repo))),
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => ProjectDetailScreen(
+                            projectId: projects[i].id, repo: widget.repo))),
                   ),
-                );
-              },
-            ),
+                ),
+              );
+            },
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _filters() {
-    return SizedBox(
-      height: 48,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        children: [
-          FilterChip(
-            label: Text(_wilaya == null
-                ? 'كل الولايات'
-                : Taxonomy.wilayaName(_wilaya!)),
-            selected: _wilaya != null,
-            onSelected: (_) => _pickWilaya(context),
-          ),
-          const SizedBox(width: 8),
-          FilterChip(
-            label: const Text('الميزانية'),
-            selected: false,
-            onSelected: (_) {},
-          ),
+          const SliverToBoxAdapter(child: SizedBox(height: 24)),
         ],
       ),
     );
@@ -199,7 +206,11 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
           for (final w in Taxonomy.wilayas)
             ListTile(
               leading: const Icon(Icons.location_on_outlined),
-              title: Text(w.name),
+              title: Text(
+                w.name,
+                style: AppTheme.label
+                    .copyWith(fontSize: 15, color: AppTheme.textPrimary),
+              ),
               onTap: () => Navigator.pop(context, w.id),
             ),
         ],
@@ -209,5 +220,419 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
       _wilaya = picked;
       _reload();
     }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  Branded header — identity, availability and the quick-stats row.
+// ─────────────────────────────────────────────────────────────────────────
+
+class _HeaderSection extends StatelessWidget {
+  final Future<WorkerProfile> profile;
+  const _HeaderSection({required this.profile});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<WorkerProfile>(
+      future: profile,
+      builder: (context, snap) {
+        final loading = snap.connectionState != ConnectionState.done;
+        final worker = snap.data;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              margin: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: AppTheme.navy,
+                borderRadius: BorderRadius.circular(AppTheme.rXl),
+                boxShadow: AppTheme.softShadow,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.construction_rounded,
+                          size: 18, color: AppTheme.onNavy),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          S.appName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.label.copyWith(
+                              fontSize: 13, color: AppTheme.onNavyMuted),
+                        ),
+                      ),
+                      if (worker != null) _availabilityPill(worker),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (loading)
+                    ..._skeletonRows()
+                  else if (worker == null)
+                    Text(
+                      'تعذّر جلب ملفك',
+                      style: AppTheme.bodySoft
+                          .copyWith(color: AppTheme.onNavyMuted),
+                    )
+                  else ...[
+                    _identity(worker),
+                    if (worker.verificationStatus ==
+                            VerificationStatus.verified ||
+                        (worker.wilaya != null && worker.wilaya!.isNotEmpty)) ...[
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (worker.verificationStatus ==
+                              VerificationStatus.verified)
+                            const StatusPill(
+                                label: 'مقاول موثّق',
+                                color: AppTheme.success,
+                                wash: AppTheme.successWash,
+                                icon: Icons.verified_rounded),
+                          if (worker.wilaya != null && worker.wilaya!.isNotEmpty)
+                            StatusPill(
+                                label: Taxonomy.wilayaName(worker.wilaya!),
+                                color: AppTheme.info,
+                                wash: AppTheme.infoWash,
+                                icon: Icons.location_on_rounded),
+                        ],
+                      ),
+                    ],
+                  ],
+                ],
+              ),
+            ),
+            if (!loading && worker != null) _QuickStats(worker: worker),
+          ],
+        );
+      },
+    );
+  }
+
+  static Widget _availabilityPill(WorkerProfile w) => StatusPill(
+        label: w.isAvailable ? 'متاح الآن' : 'غير متاح',
+        color: w.isAvailable ? AppTheme.success : AppTheme.textSecondary,
+        wash: w.isAvailable ? AppTheme.successWash : AppTheme.lineSoft,
+        icon: w.isAvailable
+            ? Icons.bolt_rounded
+            : Icons.pause_circle_filled_rounded,
+      );
+
+  Widget _identity(WorkerProfile w) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // White ring so the navy avatar separates from the navy header.
+        Container(
+          padding: const EdgeInsets.all(3),
+          decoration: const BoxDecoration(
+            color: AppTheme.surface,
+            shape: BoxShape.circle,
+          ),
+          child: InitialAvatar(name: w.fullName, size: 52),
+        ),
+        const SizedBox(width: 13),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                w.fullName.isEmpty ? 'حرفي' : w.fullName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTheme.h2
+                    .copyWith(fontSize: 17, color: AppTheme.onNavy),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                _specialtyLabel(w),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTheme.bodySoft
+                    .copyWith(fontSize: 13, color: AppTheme.onNavyMuted),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _skeletonRows() => const [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SkeletonBox(width: 52, height: 52, radius: 26),
+            SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SkeletonBox(width: 150, height: 15),
+                  SizedBox(height: 10),
+                  SkeletonBox(width: 100, height: 11),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ];
+
+  static String _specialtyLabel(WorkerProfile w) {
+    if (w.specialties.isEmpty) return 'حرفي';
+    return w.specialties
+        .map((s) => Taxonomy.categoryName(s))
+        .take(2)
+        .join(' · ');
+  }
+}
+
+class _QuickStats extends StatelessWidget {
+  final WorkerProfile worker;
+  const _QuickStats({required this.worker});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: SizedBox(
+              height: 112,
+              child: _StatCard(
+                icon: Icons.star_rounded,
+                tint: AppTheme.star,
+                wash: AppTheme.accentWash,
+                value: worker.avgRating.toStringAsFixed(1),
+                label: 'التقييم',
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: SizedBox(
+              height: 112,
+              child: _StatCard(
+                icon: Icons.task_alt_rounded,
+                tint: AppTheme.success,
+                wash: AppTheme.successWash,
+                value: '${worker.totalCompletedJobs}',
+                label: 'مشروع منجز',
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: SizedBox(
+              height: 112,
+              child: _StatCard(
+                icon: Icons.workspace_premium_rounded,
+                tint: AppTheme.info,
+                wash: AppTheme.infoWash,
+                value: '${worker.experienceYears}',
+                label: 'سنوات خبرة',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One quick-stat: [AppCard] + [IconBubble], every colour explicit.
+class _StatCard extends StatelessWidget {
+  final IconData icon;
+  final Color tint;
+  final Color wash;
+  final String value;
+  final String label;
+
+  const _StatCard({
+    required this.icon,
+    required this.tint,
+    required this.wash,
+    required this.value,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          IconBubble(icon: icon, tint: tint, wash: wash, size: 36),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: AppTheme.h2.copyWith(fontSize: 15),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style:
+                AppTheme.caption.copyWith(fontSize: 10.5, color: AppTheme.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  Filter bar — kit pills, never Material ChoiceChip/FilterChip.
+// ─────────────────────────────────────────────────────────────────────────
+
+class _FilterBar extends StatelessWidget {
+  final String? category;
+  final String? wilaya;
+  final void Function(String?) onCategory;
+  final VoidCallback onWilaya;
+
+  const _FilterBar({
+    required this.category,
+    required this.wilaya,
+    required this.onCategory,
+    required this.onWilaya,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: AppTheme.tapMin,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        children: [
+          _ChipShell(
+            selected: category == null,
+            onTap: () => onCategory(null),
+            child: const StatusPill(
+              label: 'الكل',
+              color: AppTheme.navy,
+              wash: AppTheme.lineSoft,
+              icon: Icons.apps_rounded,
+            ),
+          ),
+          const SizedBox(width: 8),
+          _ChipShell(
+            selected: wilaya != null,
+            onTap: onWilaya,
+            child: StatusPill(
+              label: wilaya == null ? 'كل الولايات' : Taxonomy.wilayaName(wilaya!),
+              color: AppTheme.info,
+              wash: AppTheme.infoWash,
+              icon: Icons.location_on_rounded,
+            ),
+          ),
+          for (final c in Taxonomy.categories) ...[
+            const SizedBox(width: 8),
+            _ChipShell(
+              selected: category == c.slug,
+              onTap: () => onCategory(c.slug),
+              child: CategoryBadge(slug: c.slug),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Selection ring around a kit pill. The pill itself always carries explicit
+/// tint/wash colours, so the label can never render invisible.
+class _ChipShell extends StatelessWidget {
+  final Widget child;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ChipShell({
+    required this.child,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Center(
+          // Full-height (56px) tap target, the pill keeps its natural size.
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 140),
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: selected ? AppTheme.accentWash : AppTheme.surface,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: selected ? AppTheme.navy : AppTheme.line,
+                width: selected ? 2 : 1,
+              ),
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Skeleton rows that mirror [ProjectCard]'s layout while the feed loads.
+class _ProjectsSkeleton extends StatelessWidget {
+  const _ProjectsSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      child: Column(
+        children: [
+          for (var i = 0; i < 4; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: AppCard(
+                padding: const EdgeInsets.all(13),
+                child: const Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SkeletonBox(width: 76, height: 76, radius: AppTheme.rSm),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SkeletonBox(width: 160, height: 15),
+                          SizedBox(height: 10),
+                          SkeletonBox(width: 96, height: 26, radius: 999),
+                          SizedBox(height: 12),
+                          SkeletonBox(width: 120, height: 11),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }

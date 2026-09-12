@@ -1,24 +1,6 @@
-import 'package:flutter/material.dart';
-
-/// Compact 5-star rating display used across search, profiles & reviews.
-class RatingStars extends StatelessWidget {
-  final double rating;
-  final double size;
-
-  const RatingStars({super.key, required this.rating, this.size = 16});
-
-  @override
-  Widget build(BuildContext context) {
-    final filled = rating.round();
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(5, (i) {
-        return Icon(
-          i < filled ? Icons.star_rounded : Icons.star_outline_rounded,
-          size: size,
-          color: i < filled ? const Color(0xFFE0A458) : const Color(0xFFD5D5D9),
-        );
-      }),
-    );
-  }
-}
+// Single source of truth for the star widget.
+//
+// It lives in the shared UI kit now (it gained an optional review count and a
+// half-star state). This file re-exports it so older imports keep compiling
+// and the app can never end up with two conflicting `RatingStars` classes.
+export 'ui.dart' show RatingStars;

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
-import '../../widgets/big_button.dart';
-import '../../widgets/rating_stars.dart';
+import '../../widgets/ui.dart';
 
 /// Post-project review: 1-5 stars + optional comment.
 class ReviewScreen extends StatefulWidget {
@@ -43,7 +43,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('شكراً لك، تم إرسال التقييم ✔')));
+            const SnackBar(content: Text('شكراً لك، تم إرسال التقييم')));
         Navigator.of(context).popUntil((r) => r.isFirst);
       }
     } on Exception catch (e) {
@@ -61,76 +61,74 @@ class _ReviewScreenState extends State<ReviewScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('قيّم المقاول')),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 8),
-              const Text('كيف كانت تجربتك مع المقاول؟',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 20),
-              // Big 5-star picker with large tap targets.
-              Center(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(5, (i) {
-                    final n = i + 1;
-                    return InkWell(
-                      onTap: () => setState(() => _rating = n),
-                      borderRadius: BorderRadius.circular(12),
-                      child: Padding(
-                        padding: const EdgeInsets.all(6),
-                        child: Icon(
-                          n <= _rating
-                              ? Icons.star_rounded
-                              : Icons.star_outline_rounded,
-                          size: 46,
-                          color: n <= _rating
-                              ? const Color(0xFFE0A458)
-                              : const Color(0xFFD5D5D9),
-                        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
+              children: [
+                Text('كيف كانت تجربتك مع المقاول؟',
+                    textAlign: TextAlign.center, style: AppTheme.h1),
+                const SizedBox(height: 6),
+                Text('اضغط على النجوم لتقييم عمله.',
+                    textAlign: TextAlign.center, style: AppTheme.bodySoft),
+                const SizedBox(height: 18),
+                AppCard(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
+                  child: Column(
+                    children: [
+                      _StarPicker(
+                        value: _rating,
+                        onChanged: (v) => setState(() => _rating = v),
                       ),
-                    );
-                  }),
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppTheme.accentWash,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(_label(_rating),
+                            style: AppTheme.label.copyWith(
+                                fontSize: 15, color: AppTheme.accentDeep)),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 6),
-              Center(
-                child: Text(_label(_rating),
-                    style: const TextStyle(
-                        color: Color(0xFF6E6E73), fontSize: 13)),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: _comment,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  labelText: 'تعليقك (اختياري)',
-                  hintText: 'شارك تفاصيل التجربة...',
-                  prefixIcon: Icon(Icons.rate_review_outlined),
+                const SizedBox(height: 22),
+                TextField(
+                  controller: _comment,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'تعليقك (اختياري)',
+                    hintText: 'شارك تفاصيل التجربة...',
+                    prefixIcon: Icon(Icons.rate_review_outlined),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 24),
-              BigButton(
-                label: 'إرسال التقييم',
-                icon: Icons.send,
-                loading: _busy,
-                onPressed: _submit,
-              ),
-              const SizedBox(height: 12),
-              const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  RatingStars(rating: 5, size: 14),
-                  SizedBox(width: 6),
-                  Text('التقييمات تبني الثقة في السوق',
-                      style:
-                          TextStyle(fontSize: 12, color: Color(0xFF6E6E73))),
-                ],
-              ),
-            ],
+                const SizedBox(height: 24),
+                PrimaryButton(
+                  label: 'إرسال التقييم',
+                  icon: Icons.send_rounded,
+                  loading: _busy,
+                  onPressed: _submit,
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    const RatingStars(rating: 5, size: 14),
+                    Text('التقييمات تبني الثقة في السوق',
+                        style: AppTheme.caption
+                            .copyWith(color: AppTheme.textSecondary)),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -150,5 +148,46 @@ class _ReviewScreenState extends State<ReviewScreen> {
       default:
         return 'ممتاز';
     }
+  }
+}
+
+/// Large tap-to-rate stars: every star keeps a >= 48px touch target and the
+/// row is sized from the available width so it can never overflow.
+class _StarPicker extends StatelessWidget {
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  const _StarPicker({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final star = (constraints.maxWidth / 5).clamp(48.0, 58.0).toDouble();
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            for (var n = 1; n <= 5; n++)
+              SizedBox(
+                width: star,
+                height: star,
+                child: InkWell(
+                  onTap: () => onChanged(n),
+                  borderRadius: BorderRadius.circular(AppTheme.rSm),
+                  child: Center(
+                    child: Icon(
+                      n <= value
+                          ? Icons.star_rounded
+                          : Icons.star_outline_rounded,
+                      size: star * 0.78,
+                      color: n <= value ? AppTheme.star : AppTheme.line,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
   }
 }
