@@ -9,7 +9,15 @@ import 'chat_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   final Repository repo;
-  const ChatListScreen({super.key, required this.repo});
+
+  /// A conversations future the caller already holds.
+  ///
+  /// The client home needs the same list to decide whether its first-run guide
+  /// is still needed, so it hands its future over instead of making every
+  /// app-open pay for this endpoint twice.
+  final Future<List<Conversation>>? initial;
+
+  const ChatListScreen({super.key, required this.repo, this.initial});
 
   @override
   State<ChatListScreen> createState() => _ChatListScreenState();
@@ -21,7 +29,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   @override
   void initState() {
     super.initState();
-    _future = widget.repo.conversations();
+    _future = widget.initial ?? widget.repo.conversations();
   }
 
   void _reload() {

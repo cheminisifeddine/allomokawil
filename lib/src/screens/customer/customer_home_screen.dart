@@ -3,11 +3,14 @@ import 'package:flutter/material.dart';
 import '../../core/app_scope.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/first_run.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
+import '../../models/chat.dart';
 import '../../models/project.dart';
 import '../../models/worker.dart';
 import '../../widgets/category_grid.dart';
+import '../../widgets/client_start_card.dart';
 import '../../widgets/project_card.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/worker_card.dart';
@@ -34,6 +37,20 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   late Future<List<WorkerProfile>> _topWorkers;
   late Future<List<Project>> _recentProjects;
 
+  /// The same endpoint the messages tab reads. The client home needs it because
+  /// the first-run guide has to disappear as soon as the owner has contacted
+  /// somebody.
+  late Future<List<Conversation>> _conversations;
+
+  /// Whether the explore tab shows the first-run guide. `false` until the two
+  /// strips answer, so a slow connection never promises a first run it cannot
+  /// back up.
+  bool _firstRun = false;
+
+  /// Guards the guide against a stale answer: every re-read takes a token and
+  /// only the newest one is allowed to write.
+  int _guideToken = 0;
+
   bool _scopeReady = false;
 
   @override
@@ -45,19 +62,63 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     _repo = Repository(AppScope.of(context).api);
     _topWorkers = _repo.topWorkers();
     _recentProjects = _repo.myProjects();
+    _conversations = _repo.conversations();
+    _readFirstRunGuide();
+  }
+
+  /// Decides whether this account is still on its first run, from the client's
+  /// own projects and conversations. Either request failing means "no guide":
+  /// a card that keeps telling a client who already posted to post reads as a
+  /// broken app, and silence is the cheaper mistake.
+  void _readFirstRunGuide() {
+    final token = ++_guideToken;
+    _resolveFirstRun(token, _recentProjects, _conversations);
+  }
+
+  Future<void> _resolveFirstRun(
+    int token,
+    Future<List<Project>> projectsFuture,
+    Future<List<Conversation>> conversationsFuture,
+  ) async {
+    List<Project>? projects;
+    List<Conversation>? conversations;
+    try {
+      projects = await projectsFuture;
+    } catch (_) {
+      projects = null;
+    }
+    try {
+      conversations = await conversationsFuture;
+    } catch (_) {
+      conversations = null;
+    }
+    if (!mounted || token != _guideToken) return;
+    final needed = clientNeedsFirstRunGuideFor(
+      projects: projects,
+      conversations: conversations,
+    );
+    if (needed != _firstRun) setState(() => _firstRun = needed);
   }
 
   /// Retry handlers for the two home strips. They call the same repository
   /// methods the screen already used — just a second time, on demand.
   void _reloadWorkers() => setState(() => _topWorkers = _repo.topWorkers());
-  void _reloadProjects() =>
-      setState(() => _recentProjects = _repo.myProjects());
+  void _reloadProjects() => setState(_reloadStrips);
+
+  /// Re-reads everything the explore tab knows about this client. The guide is
+  /// derived from two of those answers, so it is re-evaluated with them.
+  void _reloadStrips() {
+    _recentProjects = _repo.myProjects();
+    _conversations = _repo.conversations();
+    _readFirstRunGuide();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(index: _tab, children: [
         _ExploreView(
+          firstRun: _firstRun,
           topWorkers: _topWorkers,
           recentProjects: _recentProjects,
           onRetryWorkers: _reloadWorkers,
@@ -72,7 +133,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               _push(ProjectDetailScreen(projectId: p.id, repo: _repo)),
         ),
         ProjectsScreen(repo: _repo),
-        ChatListScreen(repo: _repo),
+        ChatListScreen(repo: _repo, initial: _conversations),
         const ProfileScreen(),
       ]),
       bottomNavigationBar: NavigationBar(
@@ -88,14 +149,25 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     );
   }
 
+  /// Pushes a screen and re-reads the home strips when it pops.
+  ///
+  /// Posting the first project has to make the first-run guide disappear, and
+  /// that decision is made from the very lists this tab loads — so the screen
+  /// the user returns to cannot keep the answers it had before he posted.
   void _push(Widget screen) {
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => screen))
+        .then((_) {
+      if (mounted) setState(_reloadStrips);
+    });
   }
 }
 
 /// The "explore" tab: branded header, search, categories, top contractors and
 /// the client's own most recent projects.
 class _ExploreView extends StatelessWidget {
+  /// True while this client has neither posted a project nor contacted anybody.
+  final bool firstRun;
   final Future<List<WorkerProfile>> topWorkers;
   final Future<List<Project>> recentProjects;
   final VoidCallback onRetryWorkers;
@@ -108,6 +180,7 @@ class _ExploreView extends StatelessWidget {
   final void Function(Project) onProject;
 
   const _ExploreView({
+    required this.firstRun,
     required this.topWorkers,
     required this.recentProjects,
     required this.onRetryWorkers,
@@ -140,6 +213,19 @@ class _ExploreView extends StatelessWidget {
           ),
         ),
 
+        // ── First-run guide ──────────────────────────────────────────────
+        // A project owner opening the app for the first time used to get the
+        // marketplace with no explanation of what to do first. He gets the
+        // three steps and one obvious action instead — right under the header,
+        // where he cannot miss them.
+        if (firstRun)
+          SliverToBoxAdapter(
+            child: ClientStartCard(
+              onPost: onPost,
+              onBrowseWorkers: onBrowseAll,
+            ),
+          ),
+
         // ── Categories ───────────────────────────────────────────────────
         SliverToBoxAdapter(
           child: Padding(
@@ -155,12 +241,15 @@ class _ExploreView extends StatelessWidget {
         SliverToBoxAdapter(child: CategoryGrid(onTap: onBrowseCategory)),
 
         // ── Post-a-project banner ────────────────────────────────────────
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
-            child: _PostProjectBanner(onTap: onPost),
+        // Hidden while the guide is up: the guide already carries this action,
+        // and the same call to action twice on one screen reads as padding.
+        if (!firstRun)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
+              child: _PostProjectBanner(onTap: onPost),
+            ),
           ),
-        ),
 
         // ── Top-rated contractors ────────────────────────────────────────
         SliverToBoxAdapter(
@@ -255,7 +344,9 @@ class _ExploreView extends StatelessWidget {
               return SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: _NoProjectsCard(onPost: onPost),
+                  child: firstRun
+                      ? const _FirstRunProjectsHint()
+                      : _NoProjectsCard(onPost: onPost),
                 ),
               );
             }
@@ -529,6 +620,34 @@ class _NoProjectsCard extends StatelessWidget {
             label: 'انشر مشروعك',
             icon: Icons.add_rounded,
             onPressed: onPost,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shown in the "recent projects" strip while the first-run guide owns the
+/// publish action. The guide already offers it twice, so this only says what
+/// will appear here.
+class _FirstRunProjectsHint extends StatelessWidget {
+  const _FirstRunProjectsHint();
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+      child: Row(
+        children: [
+          const Icon(Icons.folder_open_rounded,
+              size: 20, color: AppTheme.textMuted),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'ستظهر هنا مشاريعك بعد نشر أول مشروع',
+              style: AppTheme.bodySoft
+                  .copyWith(fontSize: 13.5, color: AppTheme.textSecondary),
+            ),
           ),
         ],
       ),
