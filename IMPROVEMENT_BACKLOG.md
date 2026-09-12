@@ -113,7 +113,7 @@ profile must let him upload past work, certificates and his ID.
       (`/tmp/shots/fr_30_client_home.png` vs `fr_31_client_after_project.png`).
       `flutter analyze` clean, `flutter test` 217 passed (206 before).*
 
-- [ ] **A stored session that is not a plain string takes the app to a white
+- [x] **A stored session that is not a plain string takes the app to a white
       screen.** `AuthState.restore()` is awaited *before* `runApp`, and its two
       `prefs.getString('auth.token' / 'auth.user')` casts sit **outside** the
       `try`, so a value of any other type in either key throws uncaught: `main()`
@@ -128,6 +128,28 @@ profile must let him upload past work, certificates and his ID.
       inside the `try` and fall back to the logged-out landing page.
       *Done when:* booting with a non-string `auth.user` lands on the landing
       page with the bad keys cleared, pinned by a test.
+      **DONE `8d5b369`.** Both reads moved to the untyped `SharedPreferences.get`
+      and narrowed by hand (the typed getters are hard casts); anything that is
+      not two strings forming a parseable user is discarded and the launch opens
+      logged out. `_restored` is set in a `finally` so the splash cannot hang,
+      and `main()` now guards the awaited call as well. New
+      `test/session_restore_test.dart`: 5 unit cases + a widget case that boots
+      the real app on a corrupt store and asserts the landing page.
+      *Verified on the release web bundle over CDP, 412 px, corrupt store seeded
+      as `flutter.auth.user` = `{"id":1}` (the exact repro): the **pre-fix**
+      bundle (hash `185892d7…`, served before the rebuild) rendered a 100%
+      #FFFFFF page with 0 semantics nodes and one uncaught error at
+      `main.dart.js:4979:30` called from `:48166` (= `main()`), keys left in
+      place — `/tmp/shots/boot_01_before.png`; the **fixed** bundle (hash
+      `e24941f3…`) on the same seeded store rendered 45 semantics nodes holding
+      the full landing copy (ابدأ الآن — مجاناً / إنشاء الحساب / تسجيل الدخول),
+      zero exceptions, and `localStorage` empty afterwards —
+      `/tmp/shots/boot_03_after.png` (2057 distinct colours vs 1).*
+      **Lesson for the next loop:** Chrome serves the old bundle from its HTTP
+      cache and the Flutter service worker after a rebuild — a first "after"
+      run reproduced the old failure byte-for-byte. Purge
+      `navigator.serviceWorker` registrations + `caches` and reload with
+      `ignoreCache` before believing a post-rebuild render.
 
 ---
 
