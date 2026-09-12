@@ -323,9 +323,41 @@ understand that is the single biggest "this app is foreign" signal.
       (`grep -rl captureScreenshot|websocket /home/renia/{tools,allomokawil,qa}`
       is empty). The frames above are rendered by the same widgets, not
       reconstructed.
-- [ ] **Arabic error copy audit.** Walk every `catch`/error path and confirm the
+- [x] **Arabic error copy audit.** Walk every `catch`/error path and confirm the
       user sees an Arabic sentence that says what to do next — never a raw
       exception, a status code, or an English word.
+      **DONE `6720f24`.** The audit found twelve call sites rendering
+      `e.toString()` (auth ×2, review, verification, portfolio ×2, profile edit
+      ×2, quote submit, publish project, and two `snap.error.toString()` error
+      views) plus an HTTP layer rendering `'حدث خطأ (401)'`. Whatever arrived was
+      shown verbatim: `PlatformException(photo_access_denied, ...)` from the
+      image picker, `SocketException`, a bare `401`, or the Worker's own English
+      `Method not allowed` (real — `workers/mobile.ts` answers it).
+      `lib/src/core/l10n/error_copy.dart` is now the one place a failure becomes
+      copy: by exception type first (socket/TLS/http, timeout, platform code,
+      string), then by status class. Server text is shown only when it is Arabic
+      *and* specific — `رقم الهاتف مسجل مسبقاً` is kept because it names the field
+      to fix — while a phrase that only names the problem (`غير مصرح`,
+      `بيانات غير صالحة`) is expanded into the instruction (see `_terseServerCopy`,
+      and the two `apiErrorCopy` rules in `apiErrorCopyPrefersServerText`). The
+      HTTP status number is never rendered. `verification_screen` and
+      `project_detail_screen` were the last two dead ends — a centred sentence
+      with no way out — and now carry `EmptyView` with the copy plus its retry.
+      `test/error_copy_test.dart` (new, 22 tests) asserts every sentence is
+      Arabic-only, contains an instruction, and never carries a Latin letter or a
+      status digit; drives the real `AuthScreen` against a throwing API; and
+      rasterises the three error states. Gate: `flutter analyze` "No issues
+      found!", `flutter test` **255 passed** (233 before). Visual:
+      `/tmp/shots/err_auth_notice.png`, `err_project_detail.png`,
+      `err_verification.png` — `pngscan.py --color FCEDEC` finds the 948×198 px
+      danger notice (border `C33F39`, 44×45 px icon) and
+      `--color E8A33D` finds the 984×167 px retry button under each error state.
+      *Not done with CDP:* this box has no CDP driver, as recorded on 12 Sep.
+
+      **Gap logged, not fixed here:** `ProjectDetailScreen` starts its quotes
+      request in `initState` and only observes it once a project renders, so when
+      the project call fails the quotes future errors unobserved. That belongs to
+      the Phase 4 "every API call wrapped" item.
 
 ## Phase 2 — Elite visual pass
 
