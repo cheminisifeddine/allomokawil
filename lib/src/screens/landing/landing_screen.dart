@@ -51,14 +51,8 @@ class LandingScreen extends StatelessWidget {
                       // The whole "what is this / can I trust it" half stays
                       // together at the top; the one free-space gap falls just
                       // above the buttons, where it reads as breathing room.
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _Welcome(),
-                          SizedBox(height: 32),
-                          _Promises(),
-                        ],
-                      ),
+                      const _Welcome(),
+                      const _Promises(),
                       _StartBlock(
                         onCreate: () => _openAuth(context, AuthMode.signUp),
                         onSignIn: () => _openAuth(context, AuthMode.signIn),
@@ -97,8 +91,8 @@ class _Welcome extends StatelessWidget {
             borderRadius: BorderRadius.circular(AppTheme.rSm),
             child: Image.asset(
               'assets/brand/icon.png',
-              width: 72,
-              height: 72,
+              width: 88,
+              height: 88,
               fit: BoxFit.cover,
             ),
           ),
@@ -143,14 +137,14 @@ class _Promises extends StatelessWidget {
           note: 'كل حساب مقاول يُراجع قبل النشر',
           tint: AppTheme.info,
         ),
-        SizedBox(height: 16),
+        SizedBox(height: 24),
         _PromiseRow(
           icon: Icons.star_rounded,
           label: 'تقييمات حقيقية',
           note: 'تقييم بالنجوم بعد كل عمل يُنجز',
           tint: AppTheme.star,
         ),
-        SizedBox(height: 16),
+        SizedBox(height: 24),
         _PromiseRow(
           icon: Icons.payments_rounded,
           label: 'بدون رسوم',
@@ -181,14 +175,14 @@ class _PromiseRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Container(
-          width: 44,
-          height: 44,
+          width: 48,
+          height: 48,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: tint.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(AppTheme.rSm),
           ),
-          child: Icon(icon, size: 22, color: tint),
+          child: Icon(icon, size: 24, color: tint),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -200,7 +194,7 @@ class _PromiseRow extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppTheme.label
-                    .copyWith(fontSize: 15.5, color: AppTheme.textPrimary),
+                    .copyWith(fontSize: 16, color: AppTheme.textPrimary),
               ),
               const SizedBox(height: 4),
               Text(
@@ -208,7 +202,7 @@ class _PromiseRow extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppTheme.caption
-                    .copyWith(color: AppTheme.textSecondary, fontSize: 12.5),
+                    .copyWith(color: AppTheme.textSecondary, fontSize: 13),
               ),
             ],
           ),
