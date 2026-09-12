@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/text/dz_number.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
 import '../../widgets/category_grid.dart';
+import '../../widgets/number_field.dart';
 import '../../widgets/ui.dart';
 
 /// Edit the contractor's own profile.
@@ -88,8 +90,13 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   Future<void> _save() async {
     final name = _name.text.trim();
-    final min = int.tryParse(_minPrice.text.trim());
-    final max = int.tryParse(_maxPrice.text.trim());
+    // Folded parse — `٨` on an Arabic keypad and `2.500` are the same 2500 here.
+    final min = DzNumber.tryParse(_minPrice.text);
+    final max = DzNumber.tryParse(_maxPrice.text);
+    final years = DzNumber.tryParse(
+      _years.text,
+      max: DzNumber.maxExperienceYears,
+    );
 
     if (name.isEmpty) {
       setState(() => _error = 'اكتب اسمك كما تريد أن يظهر للمشترين');
@@ -98,6 +105,19 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     if (_specialties.isEmpty) {
       setState(() => _error = 'اختر تخصصاً واحداً على الأقل');
       return;
+    }
+    // Empty stays valid: every one of these is optional. A non-empty field that
+    // did not yield a number is not optional, it is a mistake to name.
+    if (_years.text.trim().isNotEmpty && years == null) {
+      setState(() => _error =
+          'سنوات الخبرة يجب أن تكون رقماً بين 0 و ${DzNumber.maxExperienceYears}');
+      return;
+    }
+    for (final f in [_minPrice, _maxPrice]) {
+      if (f.text.trim().isNotEmpty && DzNumber.tryParse(f.text) == null) {
+        setState(() => _error = 'أسعارك يجب أن تكون أرقاماً بالدينار');
+        return;
+      }
     }
     if (min != null && max != null && min > max) {
       setState(() => _error = 'أدنى سعر يجب أن يكون أقل من أعلى سعر');
@@ -113,7 +133,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         fullName: name,
         bio: _bio.text.trim(),
         specialties: _specialties.toList(),
-        experienceYears: int.tryParse(_years.text.trim()) ?? 0,
+        experienceYears: years ?? 0,
         priceRangeMin: min,
         priceRangeMax: max,
         serviceRadiusKm: _radius.round(),
@@ -146,7 +166,6 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                   const SizedBox(height: 8),
                   _Notice(text: _error!),
                 ],
-
                 const SectionTitle('الاسم الظاهر', icon: Icons.badge_rounded),
                 TextField(
                   controller: _name,
@@ -156,9 +175,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                     prefixIcon: Icon(Icons.person_rounded),
                   ),
                 ),
-
                 const SectionTitle('تخصصاتك', icon: Icons.handyman_rounded),
-                const _Hint('اختر كل المهن التي تتقنها. ظهورك يزيد مع كل تخصص.'),
+                const _Hint(
+                    'اختر كل المهن التي تتقنها. ظهورك يزيد مع كل تخصص.'),
                 const SizedBox(height: 10),
                 CategoryGridMultiTiles(
                   selected: _specialties,
@@ -167,7 +186,6 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                     _error = null;
                   }),
                 ),
-
                 const SectionTitle('نبذة عنك', icon: Icons.notes_rounded),
                 TextField(
                   controller: _bio,
@@ -178,17 +196,14 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                         'عرّف بنفسك: كم سنة خبرة، ما الذي تتقنه، ومنطقتك...',
                   ),
                 ),
-
-                const SectionTitle('سنوات الخبرة', icon: Icons.timeline_rounded),
-                TextField(
+                const SectionTitle('سنوات الخبرة',
+                    icon: Icons.timeline_rounded),
+                NumberField(
                   controller: _years,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    hintText: 'مثال: 8',
-                    suffixText: 'سنة',
-                  ),
+                  hintText: 'مثال: 8',
+                  suffixText: 'سنة',
+                  onChanged: (_) => setState(() => _error = null),
                 ),
-
                 const SectionTitle('أسعارك (دج)', icon: Icons.payments_rounded),
                 const _Hint('اتركهما فارغين إذا كنت تفضل التسعير حسب المشروع.'),
                 const SizedBox(height: 10),
@@ -201,10 +216,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                         children: [
                           const _FieldLabel('من (دج)'),
                           const SizedBox(height: 6),
-                          TextField(
+                          NumberField(
                             controller: _minPrice,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(hintText: '2500'),
+                            hintText: '2500',
+                            onChanged: (_) => setState(() => _error = null),
                           ),
                         ],
                       ),
@@ -216,17 +231,16 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                         children: [
                           const _FieldLabel('إلى (دج)'),
                           const SizedBox(height: 6),
-                          TextField(
+                          NumberField(
                             controller: _maxPrice,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(hintText: '8000'),
+                            hintText: '8000',
+                            onChanged: (_) => setState(() => _error = null),
                           ),
                         ],
                       ),
                     ),
                   ],
                 ),
-
                 const SectionTitle('نطاق الخدمة', icon: Icons.radar_rounded),
                 Row(
                   children: [
@@ -255,7 +269,6 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 6),
                 Container(
                   decoration: BoxDecoration(
@@ -285,7 +298,6 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 22),
               ],
             ),

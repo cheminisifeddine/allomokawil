@@ -6,12 +6,14 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/text/arabic_search.dart';
+import '../../core/text/dz_number.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/communes.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
 import '../../models/project.dart';
 import '../../widgets/category_grid.dart';
+import '../../widgets/number_field.dart';
 import '../../widgets/ui.dart';
 
 /// Post a new project (client).
@@ -78,6 +80,11 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
       _toast('أكمل العنوان، التخصص والولاية');
       return;
     }
+    final budgetError = _budgetError;
+    if (budgetError != null) {
+      _toast(budgetError);
+      return;
+    }
     setState(() => _busy = true);
     try {
       final urls = <String>[];
@@ -91,15 +98,15 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
         category: _category!,
         wilaya: _wilaya,
         commune: _commune.text.trim().isEmpty ? null : _commune.text.trim(),
-        budgetMin: _intOrNull(_budgetMin.text),
-        budgetMax: _intOrNull(_budgetMax.text),
+        budgetMin: _budgetMinValue,
+        budgetMax: _budgetMaxValue,
         urgency: _urgency,
         images: urls,
       );
       if (mounted) {
         Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('تم نشر مشروعك بنجاح')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('تم نشر مشروعك بنجاح')));
       }
     } on Exception catch (e) {
       _toast(e.toString());
@@ -108,9 +115,26 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
     }
   }
 
-  int? _intOrNull(String v) {
-    final n = int.tryParse(v.trim());
-    return (n == null || n <= 0) ? null : n;
+  /// The budget ends as the user actually wrote them — Arabic-Indic digits,
+  /// `25.000` grouping and a pasted `دج` all included. Null means "no usable
+  /// number in this field".
+  int? get _budgetMinValue => DzNumber.tryParse(_budgetMin.text);
+  int? get _budgetMaxValue => DzNumber.tryParse(_budgetMax.text);
+
+  /// Arabic explanation for a budget that cannot be posted, or null when the
+  /// row is fine. Empty is always fine — the budget is optional.
+  String? get _budgetError {
+    for (final c in [_budgetMin, _budgetMax]) {
+      if (c.text.trim().isNotEmpty && DzNumber.digits(c.text).isEmpty) {
+        return 'الميزانية يجب أن تكون رقماً بالدينار';
+      }
+    }
+    final min = _budgetMinValue;
+    final max = _budgetMaxValue;
+    if (min != null && max != null && min > max) {
+      return 'الحد الأدنى أكبر من الحد الأعلى — صحّح الميزانية';
+    }
+    return null;
   }
 
   void _toast(String msg) {
@@ -154,9 +178,8 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final ready = _title.text.trim().isNotEmpty &&
-        _category != null &&
-        _wilaya != null;
+    final ready =
+        _title.text.trim().isNotEmpty && _category != null && _wilaya != null;
 
     return Scaffold(
       appBar: AppBar(title: const Text('انشر مشروعك')),
@@ -182,8 +205,8 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
                     Expanded(
                       child: Text(
                         'املأ المعلومات وسيتواصل معك الحرفيون بعروضهم',
-                        style: AppTheme.bodySoft.copyWith(
-                            fontSize: 13.5, color: AppTheme.info),
+                        style: AppTheme.bodySoft
+                            .copyWith(fontSize: 13.5, color: AppTheme.info),
                       ),
                     ),
                   ],
@@ -225,9 +248,8 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
               ),
               const SizedBox(height: 10),
               _PickerField(
-                value: _commune.text.trim().isEmpty
-                    ? null
-                    : _commune.text.trim(),
+                value:
+                    _commune.text.trim().isEmpty ? null : _commune.text.trim(),
                 hint: _wilaya == null
                     ? 'اختر الولاية أولاً'
                     : 'اختر البلدية (اختياري)',
@@ -239,31 +261,46 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
               Row(
                 children: [
                   Expanded(
-                    child: TextField(
+                    child: NumberField(
                       controller: _budgetMin,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        hintText: 'من',
-                        suffixText: 'دج',
-                      ),
+                      hintText: 'من',
+                      suffixText: 'دج',
+                      // Live, so reversing the two ends is visible while typing
+                      // rather than at publish time.
+                      onChanged: (_) => setState(() {}),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: TextField(
+                    child: NumberField(
                       controller: _budgetMax,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        hintText: 'إلى',
-                        suffixText: 'دج',
-                      ),
+                      hintText: 'إلى',
+                      suffixText: 'دج',
+                      onChanged: (_) => setState(() {}),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 8),
-              Text('اتركها فارغة إذا لم تكن متأكداً من التكلفة',
-                  style: AppTheme.caption.copyWith(fontSize: 12)),
+              if (_budgetError != null)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.error_outline_rounded,
+                        size: 16, color: AppTheme.danger),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _budgetError!,
+                        style: AppTheme.caption
+                            .copyWith(fontSize: 12, color: AppTheme.danger),
+                      ),
+                    ),
+                  ],
+                )
+              else
+                Text('اتركها فارغة إذا لم تكن متأكداً من التكلفة',
+                    style: AppTheme.caption.copyWith(fontSize: 12)),
 
               const _StepLabel(6, 'متى تريد البدء؟'),
               _UrgencySelector(
@@ -294,8 +331,8 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Text(
                   'العنوان، التخصص والولاية مطلوبة',
-                  style: AppTheme.caption.copyWith(
-                      fontSize: 12.5, color: AppTheme.accentDeep),
+                  style: AppTheme.caption
+                      .copyWith(fontSize: 12.5, color: AppTheme.accentDeep),
                 ),
               ),
             PrimaryButton(
@@ -346,8 +383,8 @@ class _StepLabel extends StatelessWidget {
           if (required) ...[
             const SizedBox(width: 5),
             Text('*',
-                style: AppTheme.h2
-                    .copyWith(fontSize: 16, color: AppTheme.danger)),
+                style:
+                    AppTheme.h2.copyWith(fontSize: 16, color: AppTheme.danger)),
           ],
         ],
       ),
@@ -462,14 +499,12 @@ class _WilayaSheetState extends State<_WilayaSheet> {
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
                             color: AppTheme.lineSoft,
-                            borderRadius:
-                                BorderRadius.circular(AppTheme.rSm),
+                            borderRadius: BorderRadius.circular(AppTheme.rSm),
                           ),
                           child: Text(
                             w.id,
                             style: AppTheme.label.copyWith(
-                                fontSize: 12.5,
-                                color: AppTheme.textSecondary),
+                                fontSize: 12.5, color: AppTheme.textSecondary),
                           ),
                         ),
                         title: Text(w.name, style: AppTheme.label),
@@ -547,8 +582,7 @@ class _CommuneSheetState extends State<_CommuneSheet> {
                 if (!_loading)
                   Text(
                     '$_total بلدية',
-                    style: AppTheme.caption
-                        .copyWith(color: AppTheme.textMuted),
+                    style: AppTheme.caption.copyWith(color: AppTheme.textMuted),
                   ),
               ],
             ),
@@ -569,7 +603,8 @@ class _CommuneSheetState extends State<_CommuneSheet> {
                   icon: const Icon(Icons.close_rounded, size: 20),
                   color: AppTheme.textSecondary,
                   tooltip: 'مسح البحث',
-                  onPressed: typed.isEmpty ? null : () => setState(() => _q = ''),
+                  onPressed:
+                      typed.isEmpty ? null : () => setState(() => _q = ''),
                 ),
               ),
             ),
@@ -597,8 +632,8 @@ class _CommuneSheetState extends State<_CommuneSheet> {
                                 child: OutlinedButton.icon(
                                   onPressed: () =>
                                       Navigator.pop(context, typed),
-                                  icon: const Icon(Icons.edit_rounded,
-                                      size: 18),
+                                  icon:
+                                      const Icon(Icons.edit_rounded, size: 18),
                                   label: Text('استعمل "$typed" كما كتبتها'),
                                 ),
                               ),
@@ -612,12 +647,9 @@ class _CommuneSheetState extends State<_CommuneSheet> {
                         itemBuilder: (_, i) {
                           if (i == 0) {
                             return Padding(
-                              padding:
-                                  const EdgeInsets.fromLTRB(6, 0, 6, 8),
+                              padding: const EdgeInsets.fromLTRB(6, 0, 6, 8),
                               child: Text(
-                                matches == 1
-                                    ? 'بلدية واحدة'
-                                    : '$matches بلدية',
+                                matches == 1 ? 'بلدية واحدة' : '$matches بلدية',
                                 style: AppTheme.caption
                                     .copyWith(color: AppTheme.textMuted),
                               ),
@@ -718,8 +750,7 @@ class _UrgencyPill extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon,
-                  size: 17,
-                  color: selected ? tint : AppTheme.textSecondary),
+                  size: 17, color: selected ? tint : AppTheme.textSecondary),
               const SizedBox(width: 7),
               Text(
                 label,

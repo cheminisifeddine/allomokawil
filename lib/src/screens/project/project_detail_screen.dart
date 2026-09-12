@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/format/money.dart';
+import '../../core/text/dz_number.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
 import '../../models/enums.dart';
 import '../../models/project.dart';
 import '../../models/quote_review.dart';
+import '../../widgets/number_field.dart';
 import '../../widgets/ui.dart';
 import '../chat/chat_screen.dart';
 import '../review/review_screen.dart';
@@ -71,7 +73,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(_isOwner ? 'تفاصيل مشروعك' : 'تفاصيل المشروع')),
+      appBar:
+          AppBar(title: Text(_isOwner ? 'تفاصيل مشروعك' : 'تفاصيل المشروع')),
       body: FutureBuilder<Project>(
         future: _project,
         builder: (context, snap) {
@@ -97,8 +100,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                         _Photos(images: project.images),
                         const SizedBox(height: 18),
                         Text(project.title,
-                            style:
-                                AppTheme.display.copyWith(fontSize: 23)),
+                            style: AppTheme.display.copyWith(fontSize: 23)),
                         const SizedBox(height: 12),
                         _StatusRow(project: project),
                         if (project.description != null) ...[
@@ -107,8 +109,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                           AppCard(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 16, vertical: 14),
-                            child:
-                                Text(project.description!, style: AppTheme.body),
+                            child: Text(project.description!,
+                                style: AppTheme.body),
                           ),
                         ],
                         const SectionTitle('تفاصيل المشروع',
@@ -124,14 +126,16 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                                 value: project.budgetLabel,
                                 color: AppTheme.accentDeep,
                               ),
-                              const Divider(height: 1, color: AppTheme.lineSoft),
+                              const Divider(
+                                  height: 1, color: AppTheme.lineSoft),
                               InfoRow(
                                 icon: Icons.schedule_rounded,
                                 label: 'الاستعجال',
                                 value: _urgencyLabel(project.urgency),
                                 color: AppTheme.info,
                               ),
-                              const Divider(height: 1, color: AppTheme.lineSoft),
+                              const Divider(
+                                  height: 1, color: AppTheme.lineSoft),
                               InfoRow(
                                 icon: Icons.place_outlined,
                                 label: 'البلدية',
@@ -246,17 +250,15 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
           children: [
             Text('قدّم عرضك', style: AppTheme.h1),
             const SizedBox(height: 14),
-            TextField(
+            NumberField(
               controller: amount,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                  labelText: 'المبلغ (دج)', suffixText: 'دج'),
+              labelText: 'المبلغ (دج)',
+              suffixText: 'دج',
             ),
             const SizedBox(height: 12),
-            TextField(
+            NumberField(
               controller: days,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'مدة الإنجاز (أيام)'),
+              labelText: 'مدة الإنجاز (أيام)',
             ),
             const SizedBox(height: 12),
             TextField(
@@ -276,17 +278,24 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     );
     if (submitted == true) {
       if (!mounted) return;
-      final amt = int.tryParse(amount.text.trim());
-      if (amt == null || amt < 1000) {
+      // Folded parse: a contractor who typed `٢٥٠٠٠` on an Arabic keypad, or
+      // pasted `25.000 دج` out of a note, means 25000 — not "no amount".
+      final amt = DzNumber.tryParse(amount.text, min: 1000);
+      final rawDays = days.text.trim();
+      final dayCount = DzNumber.tryParse(rawDays, min: 1);
+      if (amt == null) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text('المبلغ يجب أن يكون 1000 دج على الأقل')));
+      } else if (rawDays.isNotEmpty && dayCount == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('مدة الإنجاز يجب أن تكون عدداً من الأيام')));
       } else {
         try {
           await widget.repo.submitQuote(
             projectId: project.id,
             amount: amt,
             message: message.text.trim().isEmpty ? null : message.text.trim(),
-            estimatedDays: int.tryParse(days.text.trim()),
+            estimatedDays: dayCount,
           );
           if (mounted) {
             ScaffoldMessenger.of(context)
@@ -391,7 +400,8 @@ class _PhotosState extends State<_Photos> {
                 size: 44, color: AppTheme.textMuted),
             const SizedBox(height: 10),
             Text('لا توجد صور لهذا المشروع',
-                style: AppTheme.caption.copyWith(color: AppTheme.textSecondary)),
+                style:
+                    AppTheme.caption.copyWith(color: AppTheme.textSecondary)),
           ],
         ),
       );
@@ -448,7 +458,8 @@ class _PhotoFallback extends StatelessWidget {
     return Container(
       color: AppTheme.lineSoft,
       alignment: Alignment.center,
-      child: const Icon(Icons.image_outlined, size: 36, color: AppTheme.textMuted),
+      child:
+          const Icon(Icons.image_outlined, size: 36, color: AppTheme.textMuted),
     );
   }
 }
