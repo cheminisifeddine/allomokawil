@@ -561,14 +561,16 @@ class _CommuneSheetState extends State<_CommuneSheet> {
               decoration: InputDecoration(
                 hintText: 'ابحث عن بلدية...',
                 prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: typed.isEmpty
-                    ? null
-                    : IconButton(
-                        icon: const Icon(Icons.close_rounded, size: 20),
-                        color: AppTheme.textSecondary,
-                        tooltip: 'مسح البحث',
-                        onPressed: () => setState(() => _q = ''),
-                      ),
+                // Static decoration on purpose: swapping the suffix in and out
+                // as text arrives rebuilds the decorator mid-keystroke, and the
+                // field stops delivering edits (typing looked ignored). The
+                // button is always present and simply disabled while empty.
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                  color: AppTheme.textSecondary,
+                  tooltip: 'مسح البحث',
+                  onPressed: typed.isEmpty ? null : () => setState(() => _q = ''),
+                ),
               ),
             ),
           ),
