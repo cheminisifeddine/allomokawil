@@ -80,22 +80,11 @@ class _Welcome extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Container(
-          decoration: BoxDecoration(
-            color: AppTheme.accentWash,
-            borderRadius: BorderRadius.circular(AppTheme.rLg),
-            border: Border.all(color: AppTheme.line),
-          ),
-          padding: const EdgeInsets.all(8),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(AppTheme.rSm),
-            child: Image.asset(
-              'assets/brand/icon.png',
-              width: 96,
-              height: 96,
-              fit: BoxFit.cover,
-            ),
-          ),
+        // The mark on its own: no tile, no ring, nothing behind it.
+        Image.asset(
+          'assets/brand/mark.png',
+          width: 200,
+          fit: BoxFit.contain,
         ),
         const SizedBox(height: 20),
         Text(
