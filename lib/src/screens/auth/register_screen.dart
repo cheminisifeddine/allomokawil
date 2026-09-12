@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/l10n/strings.dart';
+import '../../core/text/dz_phone.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/enums.dart';
+import '../../widgets/phone_field.dart';
 import '../../widgets/ui.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -24,6 +26,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _password = TextEditingController();
   final _confirm = TextEditingController();
   bool _busy = false;
+  // Set once the user has tried to submit, so the phone field can show why it
+  // objected instead of only the form-level notice at the bottom.
+  bool _phoneTried = false;
   bool _showPassword = false;
   bool _showConfirm = false;
   String? _error;
@@ -46,7 +51,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (_name.text.trim().isEmpty ||
         _phone.text.trim().isEmpty ||
         pwd.isEmpty) {
-      setState(() => _error = 'أكمل الحقول المطلوبة');
+      setState(() {
+        _phoneTried = true;
+        _error = 'أكمل الحقول المطلوبة';
+      });
+      return;
+    }
+    // The number is checked here, not by the server: a bad phone is caught before
+    // a round trip and the field explains itself in Arabic.
+    if (!DzPhone.isValid(_phone.text)) {
+      setState(() {
+        _phoneTried = true;
+        _error = S.phoneInvalid;
+      });
       return;
     }
     if (pwd.length < 8) {
@@ -63,7 +80,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
     try {
       await auth.register(
-        phone: _phone.text.trim(),
+        phone: DzPhone.canonical(_phone.text),
         email: _email.text.trim().isEmpty ? '' : _email.text.trim(),
         fullName: _name.text.trim(),
         password: pwd,
@@ -93,7 +110,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       appBar: AppBar(
         title: Text(
           isWorker ? S.workerLabel : S.customerLabel,
-          style: AppTheme.label.copyWith(fontSize: 18, color: AppTheme.textPrimary),
+          style: AppTheme.label
+              .copyWith(fontSize: 18, color: AppTheme.textPrimary),
         ),
         leading: BackButton(onPressed: () => Navigator.of(context).pop()),
       ),
@@ -160,17 +178,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       decoration: _input(icon: Icons.person_outline_rounded),
                     ),
                     const SizedBox(height: 18),
-                    const _FieldLabel(
-                        text: S.phone, icon: Icons.phone_android_rounded),
-                    TextField(
+                    DzPhoneField(
                       controller: _phone,
-                      keyboardType: TextInputType.phone,
-                      textInputAction: TextInputAction.next,
-                      onChanged: (_) => _touch(),
-                      decoration: _input(
-                        icon: Icons.phone_android_rounded,
-                        hint: S.phoneHint,
-                      ),
+                      forceValidate: _phoneTried,
+                      onChanged: _touch,
                     ),
                     const SizedBox(height: 18),
                     const _FieldLabel(
@@ -194,8 +205,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         icon: Icons.lock_outline_rounded,
                         suffix: _RevealButton(
                           shown: _showPassword,
-                          onPressed: () => setState(
-                              () => _showPassword = !_showPassword),
+                          onPressed: () =>
+                              setState(() => _showPassword = !_showPassword),
                         ),
                       ),
                     ),

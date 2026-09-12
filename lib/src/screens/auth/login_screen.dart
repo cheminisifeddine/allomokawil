@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/l10n/strings.dart';
+import '../../core/text/dz_phone.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/enums.dart';
+import '../../widgets/phone_field.dart';
 import '../../widgets/ui.dart';
 import 'register_screen.dart';
 
@@ -20,6 +22,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _password = TextEditingController();
   bool _remember = false;
   bool _busy = false;
+  // True after a submit attempt, so the phone field shows its error.
+  bool _phoneTried = false;
   bool _showPassword = false;
   String? _error;
 
@@ -33,7 +37,19 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _submit() async {
     final auth = AppScope.of(context).auth;
     if (_phone.text.trim().isEmpty || _password.text.isEmpty) {
-      setState(() => _error = 'أدخل رقم الهاتف وكلمة المرور');
+      setState(() {
+        _phoneTried = true;
+        _error = 'أدخل رقم الهاتف وكلمة المرور';
+      });
+      return;
+    }
+    // Same rule as the API. Signing in with a number the server will normalise to
+    // something else is exactly how "الرقم غير مسجل" happens for a valid account.
+    if (!DzPhone.isValid(_phone.text)) {
+      setState(() {
+        _phoneTried = true;
+        _error = S.phoneInvalid;
+      });
       return;
     }
     setState(() {
@@ -42,7 +58,7 @@ class _LoginScreenState extends State<LoginScreen> {
     });
     try {
       await auth.login(
-          phone: _phone.text.trim(),
+          phone: DzPhone.canonical(_phone.text),
           password: _password.text,
           rememberMe: _remember);
       // The root gate listens to AuthState: unwind to it so it swaps in RoleHome.
@@ -78,7 +94,8 @@ class _LoginScreenState extends State<LoginScreen> {
       appBar: AppBar(
         title: Text(
           S.loginTitle,
-          style: AppTheme.label.copyWith(fontSize: 18, color: AppTheme.textPrimary),
+          style: AppTheme.label
+              .copyWith(fontSize: 18, color: AppTheme.textPrimary),
         ),
       ),
       body: SafeArea(
@@ -108,19 +125,14 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const _FieldLabel(text: S.phone, icon: Icons.phone_android_rounded),
-                    TextField(
+                    DzPhoneField(
                       controller: _phone,
-                      keyboardType: TextInputType.phone,
-                      textInputAction: TextInputAction.next,
-                      onChanged: (_) => _touch(),
-                      decoration: _input(
-                        icon: Icons.phone_android_rounded,
-                        hint: S.phoneHint,
-                      ),
+                      forceValidate: _phoneTried,
+                      onChanged: _touch,
                     ),
                     const SizedBox(height: 18),
-                    const _FieldLabel(text: S.password, icon: Icons.lock_outline_rounded),
+                    const _FieldLabel(
+                        text: S.password, icon: Icons.lock_outline_rounded),
                     TextField(
                       controller: _password,
                       obscureText: !_showPassword,

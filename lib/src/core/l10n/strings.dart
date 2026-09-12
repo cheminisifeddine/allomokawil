@@ -33,6 +33,14 @@ class S {
   static const customerDesc =
       'انشر مشروعك، استقبل عروض المقاولين الموثوقين، وتابع العمل حتى التسليم.';
   static const phoneHint = 'مثال: 0550123456';
+  // Phone entry (see widgets/phone_field.dart). The invalid message is the same
+  // rule the API enforces, so a user who solves it here never meets the server's
+  // version of it.
+  static const phoneHintIntl = 'مثال: 550 12 34 56';
+  static const phoneRequired = 'رقم الهاتف مطلوب';
+  static const phoneInvalid = 'رقم غير صحيح: 10 أرقام تبدأ بـ 05 أو 06 أو 07';
+  static const phoneSwitchToIntl = 'الكتابة بالصيغة الدولية +213';
+  static const phoneSwitchToLocal = 'الكتابة بالصيغة المحلية 0X';
   static const rememberMe = 'تذكرني';
 
   // Permissions (Arabic rationale shown before requesting camera/gallery)
