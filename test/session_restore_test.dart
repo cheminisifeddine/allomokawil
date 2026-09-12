@@ -141,7 +141,7 @@ void main() {
 
       // The logged-out front door, with one way in — never a stuck splash and
       // never an empty tree.
-      expect(find.text('ابدأ الآن — مجاناً'), findsOneWidget);
+      expect(find.byKey(const Key('landing-create-account')), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsNothing);
       expect(find.text('استكشف'), findsNothing);
     },

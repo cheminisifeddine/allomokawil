@@ -65,7 +65,7 @@ void main() {
       // No session yet -> the public landing page, with one way in.
       // It deliberately has no role gate: the account type is asked on the
       // sign-up form itself.
-      expect(find.text('ابدأ الآن — مجاناً'), findsOneWidget);
+      expect(find.byKey(const Key('landing-create-account')), findsOneWidget);
       expect(find.text('أنا صاحب مشروع'), findsNothing);
 
       await auth.register(
@@ -79,7 +79,7 @@ void main() {
 
       // Regression: a successful register must replace the gate with the
       // dashboard. It previously stayed on the landing/register screen forever.
-      expect(find.text('ابدأ الآن — مجاناً'), findsNothing);
+      expect(find.byKey(const Key('landing-create-account')), findsNothing);
       expect(find.text('استكشف'), findsOneWidget);
       expect(find.text('مشاريعي'), findsOneWidget);
     },
@@ -112,7 +112,7 @@ void main() {
     await auth.logout();
     await tester.pumpAndSettle();
 
-    expect(find.text('ابدأ الآن — مجاناً'), findsOneWidget);
+    expect(find.byKey(const Key('landing-create-account')), findsOneWidget);
   });
 
   testWidgets('the landing opens ONE auth screen, with the role inside it',

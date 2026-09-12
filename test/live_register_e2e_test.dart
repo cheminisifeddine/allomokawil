@@ -70,7 +70,7 @@ void main() {
 
     // Nothing signed in yet: the front door is the landing page, which no
     // longer asks the visitor to pick a side before they can do anything.
-    expect(find.text('ابدأ الآن — مجاناً'), findsOneWidget,
+    expect(find.byKey(const Key('landing-create-account')), findsOneWidget,
         reason: 'the landing must be visible before registering');
     expect(find.text('أنا صاحب مشروع'), findsNothing,
         reason: 'the role gate must NOT be the first screen any more');
@@ -97,7 +97,7 @@ void main() {
     // THE BUG: after creating an account the gate must show the dashboard.
     expect(auth.isAuthenticated, isTrue,
         reason: 'register must persist a session');
-    expect(find.text('ابدأ الآن — مجاناً'), findsNothing,
+    expect(find.byKey(const Key('landing-create-account')), findsNothing,
         reason: 'the landing must be replaced after registering');
     expect(find.text('استكشف'), findsOneWidget,
         reason: 'the customer dashboard must be on screen after registering');
@@ -124,7 +124,7 @@ void main() {
 
     await tester.runAsync(() => auth.logout());
     await settle(tester, frames: 20);
-    expect(find.text('ابدأ الآن — مجاناً'), findsOneWidget,
+    expect(find.byKey(const Key('landing-create-account')), findsOneWidget,
         reason: 'signing out returns to the landing');
 
     await tester.runAsync(() => auth.login(
