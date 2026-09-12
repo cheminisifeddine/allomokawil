@@ -143,8 +143,35 @@ understand that is the single biggest "this app is foreign" signal.
       register form with a bad number and clicked submit: **zero** network
       requests, only the Arabic error. With a spaced valid number the POST body
       was `"phone":"0734304363"` → 201. 172 tests pass, was 134.
-- [ ] **Numeric keypad for numeric fields.** Every amount, year, radius and
+- [x] **Numeric keypad for numeric fields.** Every amount, year, radius and
       day-count field opens a number keyboard, not a full text keyboard.
+      **DONE `f6d6096`.** The keypad was already wired on 8 fields — the real gap
+      was that none of them *parsed* what an Algerian actually types. New
+      `lib/src/core/text/dz_number.dart` (Arabic-Indic ٠-٩, `25.000` grouping,
+      `25,5` / `25.75` as fractions and never as grouping, a pasted `دج`, spaces
+      and NBSP) plus one shared `lib/src/widgets/number_field.dart`, now used by
+      the project budget row (`من` / `إلى`), the quote-sheet amount, the
+      contractor rate and years of experience; the budget row also gained live
+      min ≤ max validation instead of failing at publish time. 206 tests pass,
+      was 172 (`test/dz_number_test.dart` + `test/number_field_test.dart`, 34
+      new, driven through the real `Repository`). Verified live in the release
+      web bundle (CDP, 412 px, RTL, real API): typing the Arabic-Indic `٨` into
+      the years field leaves the app's own editing element at `8`, and `٢٥٠٠٠`
+      into `إلى (دج)` leaves `25000` (/tmp/shots/nf_18_rakam_live.png).
+- [ ] **The declared brand font is not a font.** `assets/fonts/Cairo-Regular.ttf`
+      and `Cairo-Bold.ttf` are both GitHub `404: Not Found` HTML pages (magic
+      `0a0a0a0a`, `<!DOCTYPE html>`, committed in `a40b812`) — so every string in
+      the app renders in a fallback face, on Android, iOS and web alike. The live
+      web bundle says it out loud on every load: `Failed to load font Cairo at
+      assets/assets/fonts/Cairo-Regular.ttf … Verify that … contains a valid
+      font`. Fix path: take the real OFL face (`google/fonts` →
+      `ofl/cairo/Cairo[slnt,wght].ttf`) and instance it to static 400/700 with
+      `fonttools` (`uv pip install fonttools`, then `python -m
+      fontTools.varLib.instancer "Cairo[slnt,wght].ttf" wght=400 -o
+      Cairo-Regular.ttf`); gstatic's legacy `/l/font?kit=` URL and the
+      `fonts.google.com/download` zip both return non-sfnt payloads, so neither
+      works. Then audit every screenshot again — Cairo's metrics differ from the
+      fallback, so wrapped lines move.
 - [ ] **No dead-end empty states.** Every list (projects, quotes, chats,
       portfolio, reviews) shows an Arabic explanation **and** the action that
       creates the first item.
