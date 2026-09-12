@@ -96,11 +96,70 @@ class Repository {
     return WorkerProfile.fromJson(data);
   }
 
+  /// Open projects for the contractor feed.
+  ///
+  /// The endpoint pages in hard-coded chunks of 20 rows and has no text query
+  /// (SQLite on D1 cannot fold Arabic orthography), so [pages] lets the feed
+  /// pull several pages at once and filter the union — otherwise a search would
+  /// only ever see the newest twenty projects on the whole platform.
+  ///
+  /// Pages are fetched concurrently and de-duplicated by id. One failing page
+  /// does not sink the batch; if *every* page fails the first page is re-issued
+  /// so the caller still gets the real error instead of a silently empty market.
   Future<List<Project>> browseProjects({
     String? category,
     String? wilaya,
     ProjectStatus? status,
     int page = 1,
+    int pages = 1,
+  }) async {
+    if (pages <= 1) {
+      return _browseProjectsPage(
+          category: category, wilaya: wilaya, status: status, page: page);
+    }
+    final batches = await Future.wait<List<Project>?>([
+      for (var i = 0; i < pages; i++)
+        _safeBrowsePage(
+          category: category,
+          wilaya: wilaya,
+          status: status,
+          page: page + i,
+        ),
+    ]);
+    if (batches.every((b) => b == null)) {
+      return _browseProjectsPage(
+          category: category, wilaya: wilaya, status: status, page: page);
+    }
+    final seen = <String>{};
+    final merged = <Project>[];
+    for (final batch in batches) {
+      for (final p in batch ?? const <Project>[]) {
+        if (seen.add(p.id)) merged.add(p);
+      }
+    }
+    return merged;
+  }
+
+  /// One page, or `null` when that page failed.
+  Future<List<Project>?> _safeBrowsePage({
+    String? category,
+    String? wilaya,
+    ProjectStatus? status,
+    required int page,
+  }) async {
+    try {
+      return await _browseProjectsPage(
+          category: category, wilaya: wilaya, status: status, page: page);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<Project>> _browseProjectsPage({
+    String? category,
+    String? wilaya,
+    ProjectStatus? status,
+    required int page,
   }) async {
     final q = <String>[
       if (category != null) 'category=$category',

@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import '../../core/app_scope.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/project_search.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
 import '../../models/enums.dart';
 import '../../models/project.dart';
 import '../../models/worker.dart';
 import '../../widgets/big_button.dart';
+import '../../widgets/feed_search_field.dart';
 import '../../widgets/project_card.dart';
 import '../../widgets/ui.dart';
 import '../chat/chat_list_screen.dart';
@@ -100,9 +102,35 @@ class _MarketplaceView extends StatefulWidget {
 }
 
 class _MarketplaceViewState extends State<_MarketplaceView> {
+  /// How many pages of open projects a search pulls in at once. The endpoint
+  /// pages 20 rows at a time with no server-side text search, so widening to
+  /// 100 rows is what makes searching the market meaningful instead of a scan
+  /// of the newest twenty postings.
+  static const int _searchPages = 5;
+
   String? _category;
   String? _wilaya;
   late Future<List<Project>> _projects;
+
+  final _search = TextEditingController();
+
+  /// Live text from the search box.
+  String _query = '';
+
+  /// Rows from the widened (multi-page) fetch, once a search has started.
+  /// Kept beside the single-page future instead of replacing it, so the list
+  /// never blinks back to a skeleton on the first keystroke.
+  List<Project>? _wideRows;
+
+  /// True while the widened fetch is in flight, so the feed can say "still
+  /// looking" instead of declaring "no results" too early.
+  bool _widening = false;
+
+  /// One widen per filter set. Reset whenever the filters change.
+  bool _widened = false;
+
+  /// Bumped on every reload so a stale widen cannot write into a newer feed.
+  int _searchToken = 0;
 
   /// Signed-in contractor, used by the branded header and the stats row.
   /// Not `final`: the profile editor can change it, and the header must show
@@ -123,7 +151,65 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
         wilaya: _wilaya,
         status: ProjectStatus.open,
       );
+      // A different filter means a different market: drop the widened rows and
+      // let the next keystroke widen again.
+      _wideRows = null;
+      _widened = false;
+      _searchToken++;
     });
+  }
+
+  /// Live feed search. Filtering is in memory; the first typed character also
+  /// widens the request once, because the visible page is only the newest 20
+  /// open projects on the platform.
+  void _onSearchChanged(String v) {
+    setState(() => _query = v);
+    if (v.trim().isNotEmpty) _widenForSearch();
+  }
+
+  /// Empties the box from the outside — the empty state's own action.
+  void _clearSearch() {
+    _search.clear();
+    setState(() => _query = '');
+    FocusManager.instance.primaryFocus?.unfocus();
+  }
+
+  Future<void> _widenForSearch() async {
+    if (_widened || _widening) return;
+    setState(() => _widening = true);
+    final token = _searchToken;
+    final List<Project> wide;
+    try {
+      wide = await widget.repo.browseProjects(
+        category: _category,
+        wilaya: _wilaya,
+        status: ProjectStatus.open,
+        pages: _searchPages,
+      );
+    } catch (_) {
+      // Network down or the API refused: keep the page already on screen, which
+      // the in-memory filter still narrows. `_widened` stays set so a dead
+      // connection is not hammered on every keystroke; the retry button (or a
+      // filter change) calls _reload and resets it.
+      if (!mounted || token != _searchToken) return;
+      setState(() {
+        _widening = false;
+        _widened = true;
+      });
+      return;
+    }
+    if (!mounted || token != _searchToken) return;
+    setState(() {
+      _widening = false;
+      _widened = true;
+      if (wide.isNotEmpty) _wideRows = wide;
+    });
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
   }
 
   /// Opens the profile editor and, on save, refreshes without a round trip to
@@ -159,6 +245,21 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
               onWilaya: () => _pickWilaya(context),
             ),
           ),
+          SliverToBoxAdapter(
+            child: FeedSearchField(
+              controller: _search,
+              hint: 'ابحث في المشاريع: العنوان، الحي، التخصص...',
+              onChanged: _onSearchChanged,
+            ),
+          ),
+          if (_widening)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(18, 2, 18, 2),
+                child: LinearProgressIndicator(
+                    minHeight: 3, color: AppTheme.navy),
+              ),
+            ),
           const SliverToBoxAdapter(
             child: Padding(
               padding: EdgeInsets.symmetric(horizontal: 16),
@@ -184,8 +285,29 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
                   ),
                 );
               }
-              final projects = snap.data ?? const <Project>[];
+              // Prefer the widened rows when a search has already pulled them.
+              final loaded =
+                  _wideRows ?? snap.data ?? const <Project>[];
+              final projects = narrowProjects(loaded, _query);
               if (projects.isEmpty) {
+                // The multi-page fetch is still in flight — that is not yet a
+                // verdict, so show the loading shape rather than "no results".
+                if (_widening) {
+                  return const SliverToBoxAdapter(child: _ProjectsSkeleton());
+                }
+                if (_query.trim().isNotEmpty) {
+                  return SliverToBoxAdapter(
+                    child: EmptyView(
+                      icon: Icons.search_off_rounded,
+                      title: 'لا نتائج مطابقة',
+                      message:
+                          'لا يوجد مشروع مفتوح يطابق «$_query».\nجرّب كلمة أقصر، أو امسح البحث',
+                      actionLabel: 'مسح البحث',
+                      actionIcon: Icons.close_rounded,
+                      onAction: _clearSearch,
+                    ),
+                  );
+                }
                 return const SliverToBoxAdapter(
                   child: EmptyView(
                     icon: Icons.inbox_rounded,

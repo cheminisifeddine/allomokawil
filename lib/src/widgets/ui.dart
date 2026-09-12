@@ -518,6 +518,10 @@ class EmptyView extends StatelessWidget {
   final VoidCallback? onAction;
   final bool danger;
 
+  /// The action button defaults to a retry icon; a state whose action is not a
+  /// retry (e.g. "clear the search") passes its own so the button does not lie.
+  final IconData actionIcon;
+
   const EmptyView({
     super.key,
     required this.icon,
@@ -526,6 +530,7 @@ class EmptyView extends StatelessWidget {
     this.actionLabel,
     this.onAction,
     this.danger = false,
+    this.actionIcon = Icons.refresh_rounded,
   });
 
   @override
@@ -567,7 +572,7 @@ class EmptyView extends StatelessWidget {
                 label: actionLabel!,
                 onPressed: onAction,
                 expanded: false,
-                icon: Icons.refresh_rounded,
+                icon: actionIcon,
               ),
             ],
           ],

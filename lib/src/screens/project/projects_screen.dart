@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/project_search.dart';
 import '../../data/repository.dart';
 import '../../models/enums.dart';
 import '../../models/project.dart';
+import '../../widgets/feed_search_field.dart';
 import '../../widgets/project_card.dart';
 import '../../widgets/ui.dart';
 import 'project_detail_screen.dart';
@@ -43,6 +45,13 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   ProjectStatus? _status = ProjectStatus.open;
   late Future<List<Project>> _future;
 
+  final _search = TextEditingController();
+
+  /// Live text from the search box. The narrowing runs in memory over the rows
+  /// the visible tab already fetched (this endpoint returns every one of the
+  /// user's projects, unpaged), so a keystroke never costs a round trip.
+  String _query = '';
+
   @override
   void initState() {
     super.initState();
@@ -66,6 +75,19 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     }
   }
 
+  /// Empties the box from the outside — the empty state's own action.
+  void _clearSearch() {
+    _search.clear();
+    setState(() => _query = '');
+    FocusManager.instance.primaryFocus?.unfocus();
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -77,6 +99,12 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           const SizedBox(height: 10),
           _tabStrip(),
           const SizedBox(height: 6),
+          FeedSearchField(
+            controller: _search,
+            hint: 'ابحث في مشاريعك: العنوان، الحي، التخصص...',
+            onChanged: (v) => setState(() => _query = v),
+          ),
+          const SizedBox(height: 4),
           Expanded(
             child: RefreshIndicator(
               onRefresh: _refresh,
@@ -104,9 +132,13 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                       ],
                     );
                   }
-                  final projects = snap.data ?? const <Project>[];
-                  if (projects.isEmpty) {
+                  final loaded = snap.data ?? const <Project>[];
+                  if (loaded.isEmpty) {
                     return _emptyList(context);
+                  }
+                  final projects = narrowProjects(loaded, _query);
+                  if (projects.isEmpty) {
+                    return _noMatchList();
                   }
                   return ListView.separated(
                     physics: const AlwaysScrollableScrollPhysics(),
@@ -151,6 +183,27 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           );
         },
       ),
+    );
+  }
+
+  /// The typed word matched nothing in this tab. Deliberately not the same
+  /// state as [_emptyList]: the projects exist, only the word missed, so the
+  /// action offered is to clear the search rather than to create anything.
+  Widget _noMatchList() {
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+      children: [
+        EmptyView(
+          icon: Icons.search_off_rounded,
+          title: 'لا نتائج مطابقة',
+          message: 'لا يوجد مشروع في هذه الحالة يطابق «$_query».\n'
+              'جرّب كلمة أقصر، أو امسح البحث لعرض الكل',
+          actionLabel: 'مسح البحث',
+          actionIcon: Icons.close_rounded,
+          onAction: _clearSearch,
+        ),
+      ],
     );
   }
 
