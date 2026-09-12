@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
+import '../../core/text/arabic_search.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
@@ -27,6 +28,11 @@ class _BrowseScreenState extends State<BrowseScreen> {
   final _search = TextEditingController();
   String? _category;
   String? _wilaya;
+
+  /// The submitted search text. Held separately from the controller so a
+  /// half-typed word does not refetch on every keystroke.
+  String _query = '';
+
   Future<List<WorkerProfile>>? _future;
 
   bool _scopeReady = false;
@@ -39,22 +45,52 @@ class _BrowseScreenState extends State<BrowseScreen> {
     _scopeReady = true;
     _repo = Repository(AppScope.of(context).api);
     _category = widget.initialCategory;
-    _future = _repo.searchWorkers(category: _category, wilaya: _wilaya);
+    _future = _repo.searchWorkers(
+        category: _category, wilaya: _wilaya, query: _query);
   }
 
   void _reload() {
     setState(() {
-      _future = _repo.searchWorkers(category: _category, wilaya: _wilaya);
+      _future = _repo.searchWorkers(
+          category: _category, wilaya: _wilaya, query: _query);
     });
   }
 
-  /// Drops both filters and re-runs the same repository query.
+  /// Runs the search for what is currently in the box.
+  void _submitSearch(String raw) {
+    final next = raw.trim();
+    if (next == _query) return; // nothing new to ask the API for
+    _query = next;
+    _reload();
+  }
+
+  /// Drops filters and the search text, then re-runs the query.
   void _clearFilters() {
     setState(() {
       _category = null;
       _wilaya = null;
+      _query = '';
+      _search.clear();
     });
     _reload();
+  }
+
+  /// Does this contractor match the typed text? Applied on top of the server
+  /// filter so search still works against a backend that does not know `q`
+  /// yet, and so the match rules (hamza, ta marbuta, digits) are identical to
+  /// the ones the rest of the app uses.
+  ///
+  /// `wilaya` is stored as a numeric code, so the Arabic name is resolved
+  /// through the taxonomy — otherwise typing a wilaya name finds nobody.
+  bool _matchesQuery(WorkerProfile w) {
+    if (_query.isEmpty) return true;
+    return ArabicSearch.matches(_query, [
+      w.fullName,
+      w.bio,
+      w.commune,
+      w.wilaya == null ? null : Taxonomy.wilayaName(w.wilaya!),
+      w.specialties.map(Taxonomy.categoryName).join(' '),
+    ]);
   }
 
   @override
@@ -88,20 +124,22 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       onAction: _reload,
                     );
                   }
-                  final workers = snap.data ?? const [];
+                  final workers =
+                      (snap.data ?? const <WorkerProfile>[])
+                          .where(_matchesQuery)
+                          .toList();
                   if (workers.isEmpty) {
+                    final hasFilter = _category != null ||
+                        _wilaya != null ||
+                        _query.isNotEmpty;
                     return EmptyView(
                       icon: Icons.search_off_rounded,
                       title: 'لا نتائج مطابقة',
-                      message: 'جرّب تغيير الفلتر أو الولاية',
-                      actionLabel:
-                          (_category != null || _wilaya != null)
-                              ? 'مسح الفلاتر'
-                              : null,
-                      onAction:
-                          (_category != null || _wilaya != null)
-                              ? _clearFilters
-                              : null,
+                      message: _query.isEmpty
+                          ? 'جرّب تغيير التخصص أو الولاية'
+                          : 'لا يوجد مقاول يطابق «$_query».\nجرّب كلمة أقصر أو امسح البحث',
+                      actionLabel: hasFilter ? 'مسح البحث والفلاتر' : null,
+                      onAction: hasFilter ? _clearFilters : null,
                     );
                   }
                   return ListView.separated(
@@ -155,16 +193,21 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       onPressed: () {
                         _search.clear();
                         FocusScope.of(context).unfocus();
-                        // Same query as a submitted search — nothing new here.
+                        _query = '';
                         _reload();
                       },
                     ),
             ),
-            // Unchanged behaviour: submitting re-runs the same search call.
-            onSubmitted: (_) => setState(() {
-              _future = _repo.searchWorkers(
-                  category: _category, wilaya: _wilaya);
-            }),
+            // Submitting asks the API for the typed text. Deleting it back to
+            // empty restores the unfiltered list without a second tap, so the
+            // control never looks stuck.
+            onChanged: (v) {
+              if (v.trim().isEmpty && _query.isNotEmpty) {
+                _query = '';
+                _reload();
+              }
+            },
+            onSubmitted: _submitSearch,
           );
         },
       ),

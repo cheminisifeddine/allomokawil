@@ -26,10 +26,13 @@ class Repository {
   Future<List<WorkerProfile>> searchWorkers({
     String? category,
     String? wilaya,
+    String? query,
   }) async {
     final q = <String>[
       if (category != null) 'category=$category',
       if (wilaya != null) 'wilaya=$wilaya',
+      if (query != null && query.trim().isNotEmpty)
+        'q=${Uri.encodeQueryComponent(query.trim())}',
     ].join('&');
     final data =
         await _api.get('/api/mobile/workers/search${q.isEmpty ? '' : '?$q'}')
