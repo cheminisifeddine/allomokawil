@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -61,8 +62,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // No session yet -> the two-choice landing gate.
-      expect(find.text('أنا صاحب مشروع'), findsOneWidget);
+      // No session yet -> the public landing page, with one way in.
+      // It deliberately has no role gate: the account type is asked on the
+      // sign-up form itself.
+      expect(find.text('ابدأ الآن — مجاناً'), findsOneWidget);
+      expect(find.text('أنا صاحب مشروع'), findsNothing);
 
       await auth.register(
         phone: '0550000000',
@@ -75,7 +79,7 @@ void main() {
 
       // Regression: a successful register must replace the gate with the
       // dashboard. It previously stayed on the landing/register screen forever.
-      expect(find.text('أنا صاحب مشروع'), findsNothing);
+      expect(find.text('ابدأ الآن — مجاناً'), findsNothing);
       expect(find.text('استكشف'), findsOneWidget);
       expect(find.text('مشاريعي'), findsOneWidget);
     },
@@ -108,6 +112,43 @@ void main() {
     await auth.logout();
     await tester.pumpAndSettle();
 
+    expect(find.text('ابدأ الآن — مجاناً'), findsOneWidget);
+  });
+
+  testWidgets('the landing opens ONE auth screen, with the role inside it',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+
+    final client = MockClient((req) async => _ok('[]'));
+    final api = ApiClient(httpClient: client, baseUrls: ['https://x.test']);
+    final auth = AuthState(api);
+    await auth.restore();
+
+    await tester.pumpWidget(
+      AppScope(api: api, auth: auth, child: const AlloMokawilApp()),
+    );
+    await tester.pumpAndSettle();
+
+    // The front door sells the product instead of asking a question.
+    expect(find.text('أنا صاحب مشروع'), findsNothing);
+    expect(find.text('أنا مقاول/حرفي'), findsNothing);
+
+    await tester.ensureVisible(find.byKey(const Key('landing-create-account')));
+    await tester.tap(find.byKey(const Key('landing-create-account')));
+    await tester.pumpAndSettle();
+
+    // One screen holds both halves, and the account type is asked HERE.
+    expect(find.text('أنشئ حسابك في دقيقة'), findsOneWidget);
+    expect(find.text('نوع الحساب'), findsOneWidget);
     expect(find.text('أنا صاحب مشروع'), findsOneWidget);
+    expect(find.text('أنا مقاول/حرفي'), findsOneWidget);
+
+    // Switching to sign-in drops the role question: an existing account
+    // already knows what it is.
+    await tester.tap(find.byKey(const Key('auth-tab-signin')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('أهلاً بعودتك'), findsOneWidget);
+    expect(find.text('نوع الحساب'), findsNothing);
   });
 }

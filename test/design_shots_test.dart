@@ -29,8 +29,8 @@ import 'package:allomokawil/src/core/security/auth_state.dart';
 import 'package:allomokawil/src/core/theme/app_theme.dart';
 import 'package:allomokawil/src/data/repository.dart';
 import 'package:allomokawil/src/models/enums.dart';
-import 'package:allomokawil/src/screens/auth/login_screen.dart';
-import 'package:allomokawil/src/screens/auth/register_screen.dart';
+import 'package:allomokawil/src/screens/auth/auth_screen.dart';
+import 'package:allomokawil/src/screens/landing/landing_screen.dart';
 import 'package:allomokawil/src/screens/browse/browse_screen.dart';
 import 'package:allomokawil/src/screens/chat/chat_list_screen.dart';
 import 'package:allomokawil/src/screens/chat/chat_screen.dart';
@@ -222,13 +222,16 @@ void main() {
     return (api: api, auth: auth);
   }
 
-  testWidgets('shots: auth + gate', (tester) async {
+  testWidgets('shots: landing + auth', (tester) async {
     final s = await boot();
-    await _shoot(tester, '01_login', const LoginScreen(), s.api, s.auth);
-    await _shoot(tester, '02_register_client',
-        const RegisterScreen(role: UserRole.customer), s.api, s.auth);
-    await _shoot(tester, '03_register_worker',
-        const RegisterScreen(role: UserRole.worker), s.api, s.auth);
+    await _shoot(tester, '00_landing', const LandingScreen(), s.api, s.auth);
+    await _shoot(tester, '01_signin',
+        const AuthScreen(mode: AuthMode.signIn), s.api, s.auth);
+    await _shoot(tester, '02_signup_client',
+        const AuthScreen(mode: AuthMode.signUp), s.api, s.auth);
+    await _shoot(tester, '03_signup_worker',
+        const AuthScreen(mode: AuthMode.signUp, role: UserRole.worker),
+        s.api, s.auth);
   });
 
   testWidgets('shots: customer', (tester) async {

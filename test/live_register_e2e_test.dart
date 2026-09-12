@@ -68,9 +68,12 @@ void main() {
     HttpOverrides.global = null;
     final auth = await boot(tester);
 
-    // Nothing signed in yet: the gate shows the landing screen.
-    expect(find.text('أنا صاحب مشروع'), findsOneWidget,
-        reason: 'landing gate should be visible before registering');
+    // Nothing signed in yet: the front door is the landing page, which no
+    // longer asks the visitor to pick a side before they can do anything.
+    expect(find.text('ابدأ الآن — مجاناً'), findsOneWidget,
+        reason: 'the landing must be visible before registering');
+    expect(find.text('أنا صاحب مشروع'), findsNothing,
+        reason: 'the role gate must NOT be the first screen any more');
 
     // Pad to a full 10-digit Algerian number: `% 1000000` yields fewer than six
     // digits roughly one time in ten, and a 9-digit number is correctly rejected
@@ -94,8 +97,8 @@ void main() {
     // THE BUG: after creating an account the gate must show the dashboard.
     expect(auth.isAuthenticated, isTrue,
         reason: 'register must persist a session');
-    expect(find.text('أنا صاحب مشروع'), findsNothing,
-        reason: 'the auth gate must be replaced after registering');
+    expect(find.text('ابدأ الآن — مجاناً'), findsNothing,
+        reason: 'the landing must be replaced after registering');
     expect(find.text('استكشف'), findsOneWidget,
         reason: 'the customer dashboard must be on screen after registering');
     debugPrint('LIVE PASS: dashboard reached after register');
@@ -121,7 +124,8 @@ void main() {
 
     await tester.runAsync(() => auth.logout());
     await settle(tester, frames: 20);
-    expect(find.text('أنا صاحب مشروع'), findsOneWidget);
+    expect(find.text('ابدأ الآن — مجاناً'), findsOneWidget,
+        reason: 'signing out returns to the landing');
 
     await tester.runAsync(() => auth.login(
         phone: phone, password: 'secret123', rememberMe: true));

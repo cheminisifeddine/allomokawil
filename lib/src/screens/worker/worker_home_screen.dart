@@ -18,6 +18,7 @@ import '../profile_screen.dart';
 import '../project/project_detail_screen.dart';
 import '../project/projects_screen.dart';
 import '../verify/verification_screen.dart';
+import 'my_portfolio_screen.dart';
 import 'profile_edit_screen.dart';
 
 /// Dual home screen for contractors: browse open projects, filter by
@@ -455,6 +456,8 @@ class _HeaderSection extends StatelessWidget {
               (worker.totalCompletedJobs == 0 && worker.totalReviews == 0)
                   ? _GettingStarted(worker: worker, onEdit: onEdit)
                   : _QuickStats(worker: worker),
+            if (!loading && worker != null)
+              _ProToolsRow(worker: worker, onEdit: onEdit),
           ],
         );
       },
@@ -964,6 +967,176 @@ class _SetupRow extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  The contractor's own workshop: work photos, documents, profile
+// ─────────────────────────────────────────────────────────────────────────
+
+/// The three things a contractor comes back to after signing up.
+///
+/// They sit right under the header, always visible: the app previously rendered
+/// a portfolio grid on the public profile but gave the contractor no way to put
+/// anything in it, so a new profile was an empty gallery with no hint that it
+/// needed filling. A tile that says "add photos of your past work" is the whole
+/// fix.
+class _ProToolsRow extends StatelessWidget {
+  final WorkerProfile worker;
+  final VoidCallback onEdit;
+
+  const _ProToolsRow({required this.worker, required this.onEdit});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
+      child: Column(
+        children: [
+          _ToolTile(
+            key: const Key('worker-tools-portfolio'),
+            icon: Icons.photo_library_rounded,
+            tint: AppTheme.accentDeep,
+            wash: AppTheme.accentWash,
+            title: 'معرض أعمالي',
+            subtitle: 'أضف صور أعمالك السابقة ليراها أصحاب المشاريع',
+            trailing: _PortfolioCount(workerId: worker.id),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const MyPortfolioScreen()),
+            ),
+          ),
+          const SizedBox(height: 10),
+          _ToolTile(
+            key: const Key('worker-tools-documents'),
+            icon: Icons.verified_user_rounded,
+            tint: AppTheme.info,
+            wash: AppTheme.infoWash,
+            title: 'المستندات والشهادات',
+            subtitle: 'بطاقة الحرفي، الهوية، والشهادات التي بحوزتك',
+            trailing: worker.verificationStatus == VerificationStatus.verified
+                ? const Icon(Icons.verified_rounded,
+                    size: 20, color: AppTheme.success)
+                : const StatusPill(
+                    label: 'غير موثّق',
+                    color: AppTheme.accentDeep,
+                    wash: AppTheme.accentWash,
+                  ),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const VerificationScreen()),
+            ),
+          ),
+          const SizedBox(height: 10),
+          _ToolTile(
+            key: const Key('worker-tools-edit'),
+            icon: Icons.tune_rounded,
+            tint: AppTheme.navy,
+            wash: AppTheme.lineSoft,
+            title: 'تعديل الملف المهني',
+            subtitle: 'التخصصات، النبذة، الأسعار، ومنطقة الخدمة',
+            onTap: onEdit,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Reads the gallery size so the tile can say "3 صور" instead of being silent.
+class _PortfolioCount extends StatelessWidget {
+  final int workerId;
+
+  const _PortfolioCount({required this.workerId});
+
+  @override
+  Widget build(BuildContext context) {
+    final future =
+        Repository(AppScope.of(context).api).portfolioImages(workerId);
+    return FutureBuilder<List<String>>(
+      future: future,
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          );
+        }
+        final n = snap.data?.length ?? 0;
+        if (n == 0) {
+          return const StatusPill(
+            label: 'أضف صوراً',
+            color: AppTheme.accentDeep,
+            wash: AppTheme.accentWash,
+          );
+        }
+        return StatusPill(
+          label: n == 1 ? 'صورة واحدة' : '\$n صور',
+          color: AppTheme.success,
+          wash: AppTheme.successWash,
+        );
+      },
+    );
+  }
+}
+
+/// One row of the contractor's toolbox: icon, title, why, and where it leads.
+class _ToolTile extends StatelessWidget {
+  final IconData icon;
+  final Color tint;
+  final Color wash;
+  final String title;
+  final String subtitle;
+  final Widget? trailing;
+  final VoidCallback onTap;
+
+  const _ToolTile({
+    super.key,
+    required this.icon,
+    required this.tint,
+    required this.wash,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      onTap: onTap,
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      child: Row(
+        children: [
+          IconBubble(icon: icon, tint: tint, wash: wash, size: 44),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.label
+                      .copyWith(fontSize: 15, color: AppTheme.textPrimary),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.caption.copyWith(height: 1.5),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (trailing != null) ...[trailing!, const SizedBox(width: 6)],
+          const Icon(Icons.chevron_left_rounded,
+              size: 20, color: AppTheme.textMuted),
         ],
       ),
     );

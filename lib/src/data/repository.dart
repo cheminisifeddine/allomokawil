@@ -58,6 +58,26 @@ class Repository {
         .toList();
   }
 
+  /// Adds one picture to the signed-in contractor's own gallery.
+  ///
+  /// The file goes to R2 first (`uploadPhoto`) and only the resulting URL is
+  /// posted, so a full-resolution phone photo never travels as JSON — which is
+  /// also why the upload has to succeed before this returns: the URL is what the
+  /// public profile will show.
+  Future<void> addPortfolioImage(
+    int workerId, {
+    required String imageUrl,
+    String? category,
+    String? caption,
+  }) async {
+    await _api.post('/api/mobile/workers/$workerId/portfolio', body: {
+      'image_url': imageUrl,
+      if (category != null && category.isNotEmpty) 'category': category,
+      if (caption != null && caption.trim().isNotEmpty)
+        'caption': caption.trim(),
+    });
+  }
+
   // ---- Projects ---------------------------------------------------------
   /// The signed-in contractor's own profile (for verification & portfolio).
   Future<WorkerProfile> myProfile() async {

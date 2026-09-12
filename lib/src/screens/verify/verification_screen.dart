@@ -27,6 +27,13 @@ class _VerificationScreenState extends State<VerificationScreen> {
     ('selfie', null),
     ('national_id_front', null),
   ];
+
+  /// Proof of skill — optional, and deliberately NOT part of the progress bar.
+  /// A certificate is what separates two contractors who both have no reviews
+  /// yet, but demanding one to appear in the marketplace would keep capable
+  /// artisans out, so the slot is offered and never required.
+  final List<XFile?> _certs = [null, null];
+
   bool _busy = false;
 
   bool _scopeReady = false;
@@ -39,6 +46,14 @@ class _VerificationScreenState extends State<VerificationScreen> {
     _scopeReady = true;
     _repo = Repository(AppScope.of(context).api);
     _profile = _repo.myProfile();
+  }
+
+  Future<void> _pickCert(int index) async {
+    final picker = ImagePicker();
+    final file = await picker.pickImage(source: ImageSource.gallery);
+    if (file != null) {
+      setState(() => _certs[index] = file);
+    }
   }
 
   Future<void> _pickFor(int index) async {
@@ -62,6 +77,13 @@ class _VerificationScreenState extends State<VerificationScreen> {
       for (final d in _docs) {
         final url = await _repo.uploadDocument(File(d.$2!.path));
         documents.add({'document_type': d.$1, 'document_url': url});
+      }
+      // Uploaded one at a time on purpose: certificates can be several
+      // megabytes each and a mobile uplink drops parallel uploads.
+      for (final c in _certs) {
+        if (c == null) continue;
+        final url = await _repo.uploadDocument(File(c.path));
+        documents.add({'document_type': 'certificate', 'document_url': url});
       }
       await _repo.submitVerification(worker.id, documents);
       if (mounted) {
@@ -142,7 +164,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                         icon: Icons.folder_open_rounded),
                     _DocCard(
                       index: 0,
-                      label: 'بطاقة المقاول/الإسالتكار',
+                      label: 'بطاقة المقاول (auto-entrepreneur)',
                       icon: Icons.badge_outlined,
                       tint: AppTheme.navy,
                       wash: AppTheme.lineSoft,
@@ -167,6 +189,28 @@ class _VerificationScreenState extends State<VerificationScreen> {
                       file: _docs[2].$2,
                       onPick: () => _pickFor(2),
                     ),
+                    const SizedBox(height: 6),
+                    const SectionTitle('شهادات ودبلومات (اختياري)',
+                        icon: Icons.workspace_premium_rounded),
+                    Text(
+                      'إن كانت بحوزتك شهادة تكوين أو دبلوم حرفة فأضفها هنا. '
+                      'تظهر في ملفك وترفع ثقة أصحاب المشاريع بك، خاصة إن كنت جديداً بلا تقييمات.',
+                      style: AppTheme.bodySoft
+                          .copyWith(fontSize: 13.5, height: 1.6),
+                    ),
+                    const SizedBox(height: 12),
+                    for (var i = 0; i < _certs.length; i++)
+                      _DocCard(
+                        index: _docs.length + i,
+                        label: i == 0
+                            ? 'شهادة تكوين أو دبلوم'
+                            : 'شهادة إضافية',
+                        icon: Icons.workspace_premium_rounded,
+                        tint: AppTheme.accentDeep,
+                        wash: AppTheme.accentWash,
+                        file: _certs[i],
+                        onPick: () => _pickCert(i),
+                      ),
                     const SizedBox(height: 12),
                     PrimaryButton(
                       label: 'إرسال المستندات',

@@ -78,55 +78,25 @@ void main() {
     expect(c.text, '05 50 12 34 56');
   });
 
-  testWidgets('the +213 chip switches the reading and keeps the digits',
+  testWidgets('the field carries no prefix picker — the number is just typed',
       (tester) async {
     final c = TextEditingController();
     await tester.pumpWidget(host(c));
-    await tester.enterText(
-        find.byKey(const Key('dz-phone-input')), '0550123456');
-    await tester.pump();
-    expect(
-        tester
-            .widget<Text>(find.byKey(const Key('dz-phone-prefix-label')))
-            .data,
-        '0X');
+    // A left-over `0X` / `+213` selector reads as a mystery dropdown to a user
+    // who has never met a country-code field; the field folds every shape of the
+    // number itself instead.
+    expect(find.byKey(const Key('dz-phone-prefix')), findsNothing);
+    expect(find.text('0X'), findsNothing);
+    expect(find.text('+213'), findsNothing);
 
-    await tester.tap(find.byKey(const Key('dz-phone-prefix')));
-    await tester.pumpAndSettle();
-    expect(
-        tester
-            .widget<Text>(find.byKey(const Key('dz-phone-prefix-label')))
-            .data,
-        '+213');
-    expect(c.text, '550 12 34 56',
-        reason: 'the leading zero belongs to the 0X form');
-    // Still the same, still valid number — the API receives the canonical form.
-    expect(DzPhone.isValid(c.text), isTrue);
-    expect(DzPhone.canonical(c.text), '0550123456');
-    expect(
-        tester
-            .widget<TextField>(find.byKey(const Key('dz-phone-input')))
-            .decoration!
-            .hintText,
-        S.phoneHintIntl);
-
-    await tester.tap(find.byKey(const Key('dz-phone-prefix')));
-    await tester.pumpAndSettle();
-    expect(c.text, '05 50 12 34 56');
-  });
-
-  testWidgets('in +213 mode a nine-digit number is entered without the zero',
-      (tester) async {
-    final c = TextEditingController();
-    await tester.pumpWidget(host(c));
-    await tester.tap(find.byKey(const Key('dz-phone-prefix')));
-    await tester.pumpAndSettle();
+    // …and the shape it folds to is always the local one, even when the number
+    // was pasted in international form.
     await tester.enterText(
         find.byKey(const Key('dz-phone-input')), '550123456');
     await tester.pump();
-    expect(c.text, '550 12 34 56');
+    expect(c.text, '05 50 12 34 56');
     expect(hasValidTick(tester), isTrue);
-    expect(DzPhone.isValid(c.text), isTrue);
+    expect(DzPhone.canonical(c.text), '0550123456');
   });
 
   testWidgets('a landline is refused in Arabic, immediately', (tester) async {
