@@ -296,9 +296,33 @@ understand that is the single biggest "this app is foreign" signal.
       Cairo-vs-fallback deltas are the font alone. Text runs do move: the same
       string «أنشئ حساب مقاول» is 147 px in Cairo vs 137 px in Noto Sans Arabic,
       and content above the fold shifts up to 13 px. Nothing broke.
-- [ ] **No dead-end empty states.** Every list (projects, quotes, chats,
+- [x] **No dead-end empty states.** Every list (projects, quotes, chats,
       portfolio, reviews) shows an Arabic explanation **and** the action that
       creates the first item.
+      **DONE `6e6bc53`.** Seven dead ends, all of them a sentence with nothing
+      behind it, now carry the control that creates the first item: the chat
+      inbox (both roles) switches to the marketplace tab through a callback the
+      shell owns — a conversation can only start there; an empty thread points at
+      the composer instead of inventing a second button; مشاريعي hands a client
+      the publish action and a contractor the market tab; an owner with no quote
+      is sent to the contractor directory, since quotes arrive from pros and the
+      app has no share action to offer; a contractor's filtered-out market resets
+      both filters in one tap and a genuinely empty one re-fetches; the client
+      home strip asks for the project that brings contractors; an empty portfolio
+      or review row on somebody else's profile opens the conversation with him.
+      `test/empty_states_test.dart` (new, 10 tests) builds each state against a
+      fake API, **taps the action** and asserts the real effect — a route push, a
+      tab switch, or a new request in the API log — so a label that renders but
+      does nothing fails the suite. Gate: `flutter analyze` "No issues found!",
+      `flutter test` **233 passed** (223 before). Visual: five frames rasterised
+      to `/tmp/shots/empty_*.png` from the real widget tree with Cairo loaded, and
+      `pngscan.py --color E8A33D` finds the amber action button in every one
+      (e.g. inbox 984x167 px at y1610, market 984x168 px, quotes 876x168 px).
+      *Not done with CDP:* the served bundle talks to the live API, which has
+      data, so it cannot show an empty state, and this box has no CDP driver
+      (`grep -rl captureScreenshot|websocket /home/renia/{tools,allomokawil,qa}`
+      is empty). The frames above are rendered by the same widgets, not
+      reconstructed.
 - [ ] **Arabic error copy audit.** Walk every `catch`/error path and confirm the
       user sees an Arabic sentence that says what to do next — never a raw
       exception, a status code, or an English word.
