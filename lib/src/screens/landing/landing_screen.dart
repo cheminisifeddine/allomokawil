@@ -46,7 +46,7 @@ class LandingScreen extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       // The whole "what is this / can I trust it" half stays
                       // together at the top; the one free-space gap falls just
@@ -91,8 +91,8 @@ class _Welcome extends StatelessWidget {
             borderRadius: BorderRadius.circular(AppTheme.rSm),
             child: Image.asset(
               'assets/brand/icon.png',
-              width: 88,
-              height: 88,
+              width: 96,
+              height: 96,
               fit: BoxFit.cover,
             ),
           ),
