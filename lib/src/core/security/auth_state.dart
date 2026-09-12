@@ -26,21 +26,60 @@ class AuthState extends ChangeNotifier {
   bool get isRestored => _restored;
 
   /// Load a previously stored session at app start.
+  ///
+  /// This is awaited *before* `runApp`, so it must never throw: an exception
+  /// that escapes leaves the process launched with no first frame — a blank
+  /// white page on every start, no error, no retry, no way back.
+  ///
+  /// The keys are therefore read through [SharedPreferences.get] and narrowed
+  /// by hand instead of using `getString`. The typed getters are hard casts
+  /// (`_preferenceCache[key] as String?`), so a single value of the wrong type
+  /// under `auth.user` — a corrupted or migrated preferences file — used to
+  /// throw a `_TypeError` out of `main()`. Anything that is not two strings
+  /// forming a parseable user is not a session: the keys are dropped and the
+  /// app opens on the logged-out landing page.
   Future<void> restore() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString(_tokenKey);
-    final userRaw = prefs.getString(_userKey);
-    if (token != null && userRaw != null) {
-      try {
-        _api.token = token;
-        _user = User.fromJson(jsonDecode(userRaw) as Map<String, dynamic>);
-      } catch (_) {
-        await prefs.remove(_tokenKey);
-        await prefs.remove(_userKey);
+    SharedPreferences? prefs;
+    try {
+      prefs = await SharedPreferences.getInstance();
+      final tokenRaw = prefs.get(_tokenKey);
+      final userRaw = prefs.get(_userKey);
+      if (tokenRaw is String && userRaw is String) {
+        // Decode before touching state: assigning the token first would leave
+        // a credential attached to a session with nobody in it.
+        final user = User.fromJson(jsonDecode(userRaw) as Map<String, dynamic>);
+        _api.token = tokenRaw;
+        _user = user;
+      } else if (tokenRaw != null || userRaw != null) {
+        // Wrong type, or only half of the pair.
+        await _discardSession(prefs);
       }
+    } catch (error) {
+      // Unreadable JSON, a value we cannot cast, or a store that will not open.
+      // Start logged out instead of not starting at all.
+      _api.token = null;
+      _user = null;
+      if (prefs != null) {
+        await _discardSession(prefs);
+      }
+      debugPrint('restore: stored session discarded ($error)');
+    } finally {
+      _restored = true;
+      notifyListeners();
     }
-    _restored = true;
-    notifyListeners();
+  }
+
+  /// Remove both session keys, so the next launch starts from a known state.
+  ///
+  /// Never rethrows: a preferences store that refuses the write is still not a
+  /// reason to fail the launch.
+  Future<void> _discardSession(SharedPreferences prefs) async {
+    try {
+      await prefs.remove(_tokenKey);
+      await prefs.remove(_userKey);
+    } catch (error) {
+      debugPrint('restore: could not clear the stored session ($error)');
+    }
   }
 
   Future<void> login({

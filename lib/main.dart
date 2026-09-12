@@ -9,6 +9,13 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final api = ApiClient();
   final auth = AuthState(api);
-  await auth.restore();
+  // Awaited before the first frame, so nothing may escape it: restore() guards
+  // its own reads, and this second guard means a future boot-time failure still
+  // reaches runApp instead of leaving the user on a blank white page.
+  try {
+    await auth.restore();
+  } catch (error) {
+    debugPrint('startup: session restore failed, opening logged out ($error)');
+  }
   runApp(AppScope(api: api, auth: auth, child: const AlloMokawilApp()));
 }
