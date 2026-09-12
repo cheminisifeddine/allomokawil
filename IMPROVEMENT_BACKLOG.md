@@ -69,11 +69,17 @@ understand that is the single biggest "this app is foreign" signal.
       *Also folded in the same pass:* the 58-entry wilaya picker in the
       new-project form filtered with a raw `contains`, so الجزاير never found
       الجزائر — it now folds too, with 4 more tests (name, code, empty, narrow).
-- [ ] **The project feeds have no search box at all.** Neither the client's
+- [x] **The project feeds have no search box at all.** Neither the client's
       "مشاريعي" list nor the contractor marketplace feed offers a text filter,
       so a user with 30 projects scrolls. Add a field to both, matched with
       `ArabicSearch` against title, description, commune and category.
       *Done when:* both feeds can be narrowed by a typed word.
+      **DONE `e4bd692`.** One field + one filter for both feeds
+      (`lib/src/widgets/feed_search_field.dart`, `lib/src/data/project_search.dart`);
+      18 new tests (unit + widget). Marketplace widens to 5 pages on the first
+      keystroke because that endpoint has no Arabic text search. Verified live in
+      the release web bundle (CDP, 412 px, RTL): empty box 7 cards, `جبس` 3,
+      `رخام` 1, `زززز` -> the no-match state; the box's clear button empties it.
 - [ ] **Wilaya + commune picker with Arabic search.** 58 wilayas by name, not
       by numeric code, with the commune list for the chosen wilaya. Must be
       searchable by typing the Arabic name or the code (`16` → الجزائر).
