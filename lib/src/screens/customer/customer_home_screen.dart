@@ -133,7 +133,13 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               _push(ProjectDetailScreen(projectId: p.id, repo: _repo)),
         ),
         ProjectsScreen(repo: _repo),
-        ChatListScreen(repo: _repo, initial: _conversations),
+        // A client with no conversation yet is sent to the directory that
+        // starts one; the inbox itself can never create the first message.
+        ChatListScreen(
+          repo: _repo,
+          initial: _conversations,
+          onDiscover: () => _push(const BrowseScreen(customerSide: true)),
+        ),
         const ProfileScreen(),
       ]),
       bottomNavigationBar: NavigationBar(
@@ -282,11 +288,18 @@ class _ExploreView extends StatelessWidget {
             }
             final workers = snap.data ?? const <WorkerProfile>[];
             if (workers.isEmpty) {
-              return const SliverToBoxAdapter(
+              // "سيظهر أفضل المقاولين هنا" left the client with nothing to do.
+              // The one action that makes contractors appear for him is the one
+              // he can take himself: publish the project so it reaches them.
+              return SliverToBoxAdapter(
                 child: EmptyView(
                   icon: Icons.people_outline_rounded,
                   title: 'لا يوجد مقاولون بعد',
-                  message: 'سيظهر أفضل المقاولين هنا فور تسجيلهم في التطبيق',
+                  message: 'لم يسجّل أي مقاول في منطقتك حتى الآن.\n'
+                      'انشر مشروعك وسيصل إليه أول المقاولين المسجّلين.',
+                  actionLabel: 'انشر مشروعاً ليصلك مقاول',
+                  actionIcon: Icons.add_rounded,
+                  onAction: onPost,
                 ),
               );
             }

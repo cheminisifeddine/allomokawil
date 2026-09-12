@@ -72,8 +72,11 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen> {
           : null,
       body: IndexedStack(index: _tab, children: [
         _MarketplaceView(repo: _repo),
-        ProjectsScreen(repo: _repo),
-        ChatListScreen(repo: _repo),
+        // Both tabs below are dead ends without a job or a conversation: the
+        // only thing that creates either one is the market on tab 0, so each
+        // empty state can send the contractor back there.
+        ProjectsScreen(repo: _repo, onDiscover: () => setState(() => _tab = 0)),
+        ChatListScreen(repo: _repo, onDiscover: () => setState(() => _tab = 0)),
         const ProfileScreen(),
       ]),
       bottomNavigationBar: NavigationBar(
@@ -225,6 +228,15 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
     _reload();
   }
 
+  /// The empty market's own action. `_selectCategory(null)` only clears the
+  /// trade; a wilaya filter can empty the page on its own, so both go.
+  void _clearFilters() {
+    if (_category == null && _wilaya == null) return;
+    _category = null;
+    _wilaya = null;
+    _reload();
+  }
+
   /// Tapping a category twice clears the filter (same as the old strip).
   void _selectCategory(String? slug) {
     _category = _category == slug ? null : slug;
@@ -309,11 +321,25 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
                     ),
                   );
                 }
-                return const SliverToBoxAdapter(
+                // "جرّب تغيير الفلتر" was advice with no button under it. A
+                // filtered-out market is cleared in one tap; a genuinely empty
+                // one is re-fetched, because that is the only honest action a
+                // contractor has when the platform has nothing published.
+                final filtered = _category != null || _wilaya != null;
+                return SliverToBoxAdapter(
                   child: EmptyView(
                     icon: Icons.inbox_rounded,
                     title: 'لا مشاريع مفتوحة حالياً',
-                    message: 'جرّب تغيير الفلتر',
+                    message: filtered
+                        ? 'لا يوجد مشروع منشور يطابق الفلتر.\n'
+                            'اعرض كل التخصصات لترى باقي المشاريع.'
+                        : 'لم يُنشر أي مشروع في تخصصك بعد.\n'
+                            'حدّث الصفحة أو عد لاحقاً.',
+                    actionLabel: filtered ? 'اعرض كل المشاريع' : 'تحديث',
+                    actionIcon: filtered
+                        ? Icons.apps_rounded
+                        : Icons.refresh_rounded,
+                    onAction: filtered ? _clearFilters : _reload,
                   ),
                 );
               }

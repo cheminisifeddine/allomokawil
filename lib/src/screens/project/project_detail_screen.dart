@@ -11,6 +11,7 @@ import '../../models/project.dart';
 import '../../models/quote_review.dart';
 import '../../widgets/number_field.dart';
 import '../../widgets/ui.dart';
+import '../browse/browse_screen.dart';
 import '../chat/chat_screen.dart';
 import '../review/review_screen.dart';
 
@@ -495,6 +496,22 @@ class _QuotesSection extends StatelessWidget {
           // sticky CTA is not shown (i.e. the project is no longer open).
           final offerFromEmptyState =
               !isOwner && project.status != ProjectStatus.open;
+          // An owner staring at "شارك مشروعك ليصل إلى المقاولين" had no way to
+          // share anything: the app has no share action, and quotes arrive from
+          // the contractor directory. So the empty state hands him the one step
+          // he can actually take — go find a pro and talk to him.
+          if (isOwner && !offerFromEmptyState) {
+            return EmptyView(
+              icon: Icons.request_quote_outlined,
+              title: 'لا عروض بعد',
+              message: 'لم يتقدّم أي مقاول بعرض على مشروعك بعد.\n'
+                  'راسل مقاولاً موثوقاً من دليل المقاولين وسيصل عرضه هنا.',
+              actionLabel: 'ابحث عن مقاول',
+              actionIcon: Icons.search_rounded,
+              onAction: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const BrowseScreen(customerSide: true))),
+            );
+          }
           return EmptyView(
             icon: Icons.request_quote_outlined,
             title: 'لا عروض بعد',

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../core/app_scope.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
 import '../../models/chat.dart';
+import '../../models/enums.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/ui.dart';
 import 'chat_screen.dart';
@@ -17,7 +19,20 @@ class ChatListScreen extends StatefulWidget {
   /// app-open pay for this endpoint twice.
   final Future<List<Conversation>>? initial;
 
-  const ChatListScreen({super.key, required this.repo, this.initial});
+  /// What an empty inbox does next.
+  ///
+  /// A conversation is never created *here* — it starts in the marketplace,
+  /// either by messaging a contractor or by quoting a project. The inbox lives
+  /// in a tab inside two different shells, so the shell hands in the switch
+  /// instead of this screen guessing where the marketplace is.
+  final VoidCallback? onDiscover;
+
+  const ChatListScreen({
+    super.key,
+    required this.repo,
+    this.initial,
+    this.onDiscover,
+  });
 
   @override
   State<ChatListScreen> createState() => _ChatListScreenState();
@@ -58,11 +73,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
             }
             final convs = snap.data ?? const [];
             if (convs.isEmpty) {
-              return const EmptyView(
-                icon: Icons.chat_bubble_outline_rounded,
-                title: 'لا محادثات بعد',
-                message: 'ستظهر هنا رسائلك مع المقاولين وأصحاب المشاريع',
-              );
+              return _emptyInbox(context);
             }
             return RefreshIndicator(
               onRefresh: () async => _reload(),
@@ -87,6 +98,27 @@ class _ChatListScreenState extends State<ChatListScreen> {
           },
         ),
       ),
+    );
+  }
+
+  /// The dead end the second tab used to be: an explanation a user cannot act
+  /// on. Both roles now get the sentence that says what creates a conversation
+  /// and the button that starts one — a client browses contractors, a
+  /// contractor browses the open projects.
+  Widget _emptyInbox(BuildContext context) {
+    final isCustomer = AppScope.of(context).auth.role == UserRole.customer;
+    final canDiscover = widget.onDiscover != null;
+    return EmptyView(
+      icon: Icons.forum_outlined,
+      title: 'لا محادثات بعد',
+      message: isCustomer
+          ? 'اختر مقاولاً من دليل المقاولين وراسله، أو انشر مشروعك ليصلك عرضه هنا.'
+          : 'تصفّح المشاريع المفتوحة وقدّم عرضك؛ تُفتح المحادثة مع صاحب المشروع هنا.',
+      actionLabel: !canDiscover
+          ? null
+          : (isCustomer ? 'تصفّح المقاولين' : 'تصفّح المشاريع المفتوحة'),
+      actionIcon: Icons.search_rounded,
+      onAction: widget.onDiscover,
     );
   }
 }

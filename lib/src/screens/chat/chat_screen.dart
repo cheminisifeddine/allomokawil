@@ -236,6 +236,36 @@ class _ChatScreenState extends State<ChatScreen> {
 
   // ── Thread ──────────────────────────────────────────────────────────────
   Widget _thread() {
+    // A conversation nobody has written in yet used to be a blank page above
+    // the composer — no explanation, so a user who just tapped "راسل" could
+    // believe the app had lost the message. The action is the composer, so the
+    // copy points at it instead of inventing a second button.
+    if (_messages.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.forum_outlined,
+                  size: 42, color: AppTheme.textMuted),
+              const SizedBox(height: 12),
+              Text(
+                'لا رسائل بعد',
+                textAlign: TextAlign.center,
+                style: AppTheme.h2.copyWith(color: AppTheme.textPrimary),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'اكتب رسالتك الأولى في الخانة أسفله وستصل مباشرة.',
+                textAlign: TextAlign.center,
+                style: AppTheme.bodySoft,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return ListView.builder(
       controller: _scroll,
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),

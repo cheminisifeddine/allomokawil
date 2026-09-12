@@ -35,7 +35,15 @@ const List<({ProjectStatus? status, String label, IconData icon})> _tabs = [
 class ProjectsScreen extends StatefulWidget {
   final Repository repo;
 
-  const ProjectsScreen({super.key, required this.repo});
+  /// Where a worker with no job at all is sent when he taps the empty state.
+  ///
+  /// Only a client can create a project from here, so a contractor's first
+  /// project arrives from the marketplace tab — a different tab of the same
+  /// shell, which is why the shell passes the switch in rather than this list
+  /// pushing a screen of its own.
+  final VoidCallback? onDiscover;
+
+  const ProjectsScreen({super.key, required this.repo, this.onDiscover});
 
   @override
   State<ProjectsScreen> createState() => _ProjectsScreenState();
@@ -208,8 +216,14 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   }
 
   /// Empty state per tab, with a call to action that fits the signed-in role.
+  ///
+  /// Both roles get a real next step: a client posts a project, a contractor
+  /// goes to the open projects. "ستظهر هنا المشاريع التي تعمل عليها" alone was
+  /// a sentence with nothing behind it.
   Widget _emptyList(BuildContext context) {
     final isCustomer = AppScope.of(context).auth.role == UserRole.customer;
+    final workerAction =
+        isCustomer || widget.onDiscover == null ? null : widget.onDiscover;
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
@@ -219,7 +233,11 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           title: 'لا مشاريع في هذه الحالة',
           message: isCustomer
               ? 'انشر مشروعك الأول واستقبل عروض المقاولين الموثوقين'
-              : 'ستظهر هنا المشاريع التي تعمل عليها',
+              : 'ستظهر هنا المشاريع التي تعمل عليها.\n'
+                  'تصفّح المشاريع المفتوحة وقدّم عرضك الأول لتصل إليك هنا.',
+          actionLabel: workerAction == null ? null : 'تصفّح المشاريع المفتوحة',
+          actionIcon: Icons.storefront_rounded,
+          onAction: workerAction,
         ),
         if (isCustomer)
           Padding(

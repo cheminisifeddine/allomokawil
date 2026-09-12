@@ -125,9 +125,13 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
         const SectionTitle('تفاصيل العمل', icon: Icons.fact_check_rounded),
         _WorkFacts(worker: w),
         const SectionTitle('معرض الأعمال', icon: Icons.photo_library_rounded),
-        _PortfolioGrid(portfolio: _portfolio, slug: slug),
+        _PortfolioGrid(
+          portfolio: _portfolio,
+          slug: slug,
+          onContact: () => _openChat(w),
+        ),
         const SectionTitle('التقييمات', icon: Icons.star_rounded),
-        _ReviewsSection(reviews: _reviews),
+        _ReviewsSection(reviews: _reviews, onContact: () => _openChat(w)),
         const SizedBox(height: 8),
       ],
     );
@@ -323,7 +327,18 @@ class _PortfolioGrid extends StatelessWidget {
   /// First specialty — drives the tint/wash of the fallback tiles.
   final String? slug;
 
-  const _PortfolioGrid({required this.portfolio, this.slug});
+  /// Opens the conversation with this contractor.
+  ///
+  /// A visitor cannot upload for him, so "لم يضف صوراً بعد" on its own was a
+  /// statement about somebody else's to-do list. A visitor *can* ask — the row
+  /// is now the way to do it.
+  final VoidCallback onContact;
+
+  const _PortfolioGrid({
+    required this.portfolio,
+    this.slug,
+    required this.onContact,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -336,6 +351,8 @@ class _PortfolioGrid extends StatelessWidget {
         final urls = snap.data ?? const <String>[];
         if (urls.isEmpty) {
           return AppCard(
+            key: const Key('profile-portfolio-empty'),
+            onTap: onContact,
             child: const Row(
               children: [
                 IconBubble(
@@ -345,8 +362,18 @@ class _PortfolioGrid extends StatelessWidget {
                     size: 42),
                 SizedBox(width: 12),
                 Expanded(
-                  child: Text('لم يضف صوراً بعد', style: AppTheme.bodySoft),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('لم يضف صوراً بعد', style: AppTheme.bodySoft),
+                      SizedBox(height: 3),
+                      Text('اطلب منه صور أعمال سابقة في المحادثة.',
+                          style: AppTheme.caption),
+                    ],
+                  ),
                 ),
+                Icon(Icons.chevron_left_rounded,
+                    size: 20, color: AppTheme.textMuted),
               ],
             ),
           );
@@ -411,7 +438,13 @@ class _PortfolioTile extends StatelessWidget {
 
 class _ReviewsSection extends StatelessWidget {
   final Future<List<Review>> reviews;
-  const _ReviewsSection({required this.reviews});
+
+  /// Who can write the first review here? Not the visitor. The review is
+  /// written *after* a job is completed, so the only action that leads there is
+  /// starting the conversation — the same row idiom the account screen uses,
+  /// rather than another full-width button next to the sticky "مراسلة" CTA.
+  final VoidCallback onContact;
+  const _ReviewsSection({required this.reviews, required this.onContact});
 
   @override
   Widget build(BuildContext context) {
@@ -424,6 +457,8 @@ class _ReviewsSection extends StatelessWidget {
         final list = snap.data ?? const <Review>[];
         if (list.isEmpty) {
           return AppCard(
+            key: const Key('profile-reviews-empty'),
+            onTap: onContact,
             child: const Row(
               children: [
                 IconBubble(
@@ -433,8 +468,18 @@ class _ReviewsSection extends StatelessWidget {
                     size: 42),
                 SizedBox(width: 12),
                 Expanded(
-                  child: Text('لا تقييمات بعد', style: AppTheme.bodySoft),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('لا تقييمات بعد', style: AppTheme.bodySoft),
+                      SizedBox(height: 3),
+                      Text('التقييم يُكتب بعد إنجاز العمل — ابدأ بالتواصل معه.',
+                          style: AppTheme.caption),
+                    ],
+                  ),
                 ),
+                Icon(Icons.chevron_left_rounded,
+                    size: 20, color: AppTheme.textMuted),
               ],
             ),
           );
