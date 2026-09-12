@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_scope.dart';
+import '../../core/text/arabic_search.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
@@ -390,8 +391,10 @@ class _WilayaSheetState extends State<_WilayaSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // Folded, not raw: a user hunting for الجزائر may type الجزاير or drop the
+    // hamza, and the code path (16) has to keep working alongside the name.
     final list = Taxonomy.wilayas
-        .where((w) => _q.isEmpty || w.name.contains(_q) || w.id.contains(_q))
+        .where((w) => ArabicSearch.matches(_q, [w.name, w.id]))
         .toList();
 
     return DraggableScrollableSheet(

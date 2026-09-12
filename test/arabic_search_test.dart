@@ -1,4 +1,5 @@
 import 'package:allomokawil/src/core/text/arabic_search.dart';
+import 'package:allomokawil/src/data/taxonomy.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The point of these tests is that each one is a spelling a real Algerian user
@@ -120,6 +121,32 @@ void main() {
     test('equals ignores spelling variants', () {
       expect(ArabicSearch.equals('الجزائر', 'الجزائر'), isTrue);
       expect(ArabicSearch.equals('البليدة', 'بليدة'), isFalse);
+    });
+
+    group('the 58-entry wilaya picker', () {
+      // The picker filters on the name and the numeric code together, which is
+      // how a user either spells it or remembers it.
+      List<String> forQuery(String q) => Taxonomy.wilayas
+          .where((w) => ArabicSearch.matches(q, [w.name, w.id]))
+          .map((w) => w.name)
+          .toList();
+
+      test('finds a wilaya when the spelling is not the official one', () {
+        expect(forQuery('الجزاير'), contains('الجزائر'));
+      });
+
+      test('finds a wilaya from its code', () {
+        expect(forQuery('16'), contains('الجزائر'));
+      });
+
+      test('an empty box still lists every wilaya', () {
+        expect(forQuery('').length, Taxonomy.wilayas.length);
+      });
+
+      test('a wrong query narrows rather than empties', () {
+        expect(forQuery('البليدة'), contains('البليدة'));
+        expect(forQuery('البليدة').length, lessThan(Taxonomy.wilayas.length));
+      });
     });
   });
 }

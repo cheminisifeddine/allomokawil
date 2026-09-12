@@ -54,12 +54,26 @@ with the reason and move to the next one.
 Algerian users type Arabic with inconsistent orthography. Search that does not
 understand that is the single biggest "this app is foreign" signal.
 
-- [ ] **Search normalisation for Arabic.** `بحث` must match `البحث`; `احمد` must
+- [x] **Search normalisation for Arabic.** `بحث` must match `البحث`; `احمد` must
       match `أحمد`; `ه` must match `ة`; `و`/`ي` must match `ؤ`/`ئ`; strip
       tatweel `ـ` and all diacritics; collapse repeated whitespace. Apply to
       project search, contractor search and the wilaya/commune picker.
       *Done when:* a test asserts each of those pairs matches, and searching
       without hamza finds a record stored with hamza.
+      **DONE app `81eee89`, backend `6fa03ed`.** `lib/src/core/text/arabic_search.dart`
+      folds the letters and matches every word of the query; 24 tests, one per
+      real spelling. Contractor browse is wired (submit, clear-back-to-empty,
+      and an empty state that names the term). The API takes `q=` and widens
+      the page to 500 rows because SQLite cannot fold Arabic. Verified live:
+      typing `احمد` on the browse screen took the list from 5 cards to 1.
+      *Also folded in the same pass:* the 58-entry wilaya picker in the
+      new-project form filtered with a raw `contains`, so الجزاير never found
+      الجزائر — it now folds too, with 4 more tests (name, code, empty, narrow).
+- [ ] **The project feeds have no search box at all.** Neither the client's
+      "مشاريعي" list nor the contractor marketplace feed offers a text filter,
+      so a user with 30 projects scrolls. Add a field to both, matched with
+      `ArabicSearch` against title, description, commune and category.
+      *Done when:* both feeds can be narrowed by a typed word.
 - [ ] **Wilaya + commune picker with Arabic search.** 58 wilayas by name, not
       by numeric code, with the commune list for the chosen wilaya. Must be
       searchable by typing the Arabic name or the code (`16` → الجزائر).
