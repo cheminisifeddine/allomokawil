@@ -99,6 +99,21 @@ understand that is the single biggest "this app is foreign" signal.
       source had its Arabic column shifted a row and was rejected). Wilaya split
       comes from the wilaya/city dataset the founder supplied; Arabic names from
       kossa/algerian-cities (MIT). 134 tests pass, was 100.
+      **Verified in the clean 1.0.5+6 web bundle** (isolated `git worktree`, CDP,
+      412x915, semantics tree enabled): form -> `اختر الولاية` -> typed `الجزائر`
+      collapsed 58 wilayas to one (`16 الجزائر`) -> commune sheet header read
+      `الجزائر — 57 بلدية` (Algiers really has 57) -> typed `حسين` collapsed 57
+      communes to one row, `حسين داي Hussein Dey`, with the count line reading
+      `بلدية واحدة` -> picking it put `حسين داي` in the form field. A nonsense
+      query showed `لا توجد بلدية بهذا الاسم` plus the accept-as-typed button.
+      **Two real bugs found and fixed by this verification:**
+      1. the commune sheet's search ignored typing entirely — a conditional
+         `suffixIcon` rebuilt the decoration on the first keystroke and the field
+         stopped delivering onChanged (two different queries rendered
+         byte-identical screens). Decoration is now static (fix ad78277).
+      2. the pinned publish CTA sits over the scroll content, so a tap meant for
+         the commune field hits نشر المشروع instead — drive the form with the
+         field scrolled clear of the bottom bar.
 - [~] **[OUT OF THIS REPO — backend/D1, do not start here] The `wilayas` D1 table
       has wilayas 49-58 in the wrong order.**
       Codes 49-57 read المغير/المنيعة/... where the app, the web and the
