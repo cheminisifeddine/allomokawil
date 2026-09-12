@@ -1,5 +1,14 @@
 name: Android release APK
 
+# Manual only, deliberately.
+#
+# This workflow used to also fire on `push: tags`, so creating a release tag
+# started a CI build of the same commit at the same moment as the local
+# digest-verifying publisher. Two writers, one release, and `gh release upload
+# --clobber` means the last one wins: the v1.0.6 assets ended up being CI's
+# bytes, not the bytes the publisher had just hashed and verified. Run this by
+# hand when you want a clean-machine build as an independent check; the release
+# assets are owned by tools/publish_release.py.
 on:
   workflow_dispatch:
     inputs:
@@ -7,9 +16,6 @@ on:
         description: "Release tag to build and attach the APKs to"
         required: true
         default: "v1.0.1"
-  push:
-    tags:
-      - "v*"
 
 permissions:
   contents: write
