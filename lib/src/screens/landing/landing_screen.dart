@@ -43,15 +43,22 @@ class LandingScreen extends StatelessWidget {
               child: ConstrainedBox(
                 constraints: BoxConstraints(minHeight: constraints.maxHeight),
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 28, 24, 16),
+                  padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const _Welcome(),
-                      const SizedBox(height: 24),
-                      const _Promises(),
-                      const SizedBox(height: 24),
+                      // The whole "what is this / can I trust it" half stays
+                      // together at the top; the one free-space gap falls just
+                      // above the buttons, where it reads as breathing room.
+                      const Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _Welcome(),
+                          SizedBox(height: 32),
+                          _Promises(),
+                        ],
+                      ),
                       _StartBlock(
                         onCreate: () => _openAuth(context, AuthMode.signUp),
                         onSignIn: () => _openAuth(context, AuthMode.signIn),
