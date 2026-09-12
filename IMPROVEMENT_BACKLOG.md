@@ -91,7 +91,7 @@ profile must let him upload past work, certificates and his ID.
       number — the progress card counts three required documents. **DONE
       `f083d71`, `eb9b1c4`** (backend: `POST /mobile/workers/:id/portfolio`,
       plus the doc-type alias and the error-masking fix, finili `ba110e3`).
-- [ ] **The client's first run has no equivalent.** A contractor who opens the app
+- [x] **The client's first run has no equivalent.** A contractor who opens the app
       with nothing set up gets a four-step checklist that names the next action
       ("أكمل ملفك ليظهر اسمك أمام أصحاب المشاريع", then one CTA). A project owner
       opening the app for the first time gets the marketplace with no explanation
@@ -100,6 +100,34 @@ profile must let him upload past work, certificates and his ID.
       disappear once the user has posted or contacted someone.
       *Done when:* a fresh customer account sees a named next step and a CTA, and
       a customer with one project does not.
+      **DONE `718f99e`.** The client home opens with «ابدأ من هنا» — three
+      numbered steps (انشر مشروعك / قارن عروض المقاولين / تواصل واختر الأنسب), a
+      primary «انشر مشروعك الأول» CTA and a «تصفّح المقاولين» secondary one — and
+      the card disappears the moment the account owns a project. New
+      `lib/src/data/first_run.dart` (the rule, testable without a widget) and
+      `lib/src/widgets/client_start_card.dart` (the card, theme tokens only).
+      *Verified live in the release web bundle, 412 px RTL, real customer from
+      `POST /api/register`: 45 semantics nodes with the guide's strings in the
+      DOM and its CTA solid in accent `#E8A33D` at x35-376 y486-533 w342 h48;
+      after one project, 34 nodes, no guide text, no accent CTA box
+      (`/tmp/shots/fr_30_client_home.png` vs `fr_31_client_after_project.png`).
+      `flutter analyze` clean, `flutter test` 217 passed (206 before).*
+
+- [ ] **A stored session that is not a plain string takes the app to a white
+      screen.** `AuthState.restore()` is awaited *before* `runApp`, and its two
+      `prefs.getString('auth.token' / 'auth.user')` casts sit **outside** the
+      `try`, so a value of any other type in either key throws uncaught: `main()`
+      never reaches `runApp` and the user gets a blank white page — no error, no
+      retry, no way back, on every launch. Found while verifying the item above:
+      the compiled bundle throws at `main.dart.js:48165-48166` (null/cast check
+      at `:4979`) when `auth.user` holds a JSON object instead of a string, and
+      the identical page renders 45 semantics nodes the moment it is a string
+      again. Healthy installs write through `setString`, so normal users are
+      safe; the trigger is corrupted or migrated preferences — and the blast
+      radius is the whole app. Fix before the first release: move both reads
+      inside the `try` and fall back to the logged-out landing page.
+      *Done when:* booting with a non-string `auth.user` lands on the landing
+      page with the bad keys cleared, pinned by a test.
 
 ---
 
