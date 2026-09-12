@@ -8,6 +8,7 @@ import '../../data/taxonomy.dart';
 import '../../widgets/category_grid.dart';
 import '../../widgets/number_field.dart';
 import '../../widgets/ui.dart';
+import '../../core/l10n/error_copy.dart';
 
 /// Edit the contractor's own profile.
 ///
@@ -83,7 +84,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = '$e';
+        _error = errorCopy(e);
       });
     }
   }
@@ -148,7 +149,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _error = '$e';
+        _error = errorCopy(e);
       });
     }
   }

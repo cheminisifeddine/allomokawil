@@ -20,6 +20,7 @@ import '../project/projects_screen.dart';
 import '../verify/verification_screen.dart';
 import 'my_portfolio_screen.dart';
 import 'profile_edit_screen.dart';
+import '../../core/l10n/error_copy.dart';
 
 /// Dual home screen for contractors: browse open projects, filter by
 /// specialty, enter their professional profile & verification.
@@ -291,7 +292,7 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
                   child: EmptyView(
                     icon: Icons.wifi_off_rounded,
                     title: 'تعذّر جلب المشاريع',
-                    message: snap.error.toString(),
+                    message: errorCopy(snap.error),
                     actionLabel: 'إعادة المحاولة',
                     onAction: _reload,
                     danger: true,

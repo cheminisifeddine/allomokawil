@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
 import '../../widgets/ui.dart';
+import '../../core/l10n/error_copy.dart';
 
 /// Post-project review: 1-5 stars + optional comment.
 class ReviewScreen extends StatefulWidget {
@@ -49,7 +50,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
     } on Exception catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(errorCopy(e))));
       }
     } finally {
       if (mounted) setState(() => _busy = false);

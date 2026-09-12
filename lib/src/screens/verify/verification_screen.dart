@@ -9,6 +9,7 @@ import '../../data/repository.dart';
 import '../../models/enums.dart';
 import '../../models/worker.dart';
 import '../../widgets/ui.dart';
+import '../../core/l10n/error_copy.dart';
 
 /// Contractor verification: upload auto-entrepreneur/artisan card + ID +
 /// selfie. This is the trust gate that powers "verified contractor" badges.
@@ -46,6 +47,11 @@ class _VerificationScreenState extends State<VerificationScreen> {
     _scopeReady = true;
     _repo = Repository(AppScope.of(context).api);
     _profile = _repo.myProfile();
+  }
+
+  /// Re-issues the profile request behind the error state.
+  void _retry() {
+    setState(() => _profile = _repo.myProfile());
   }
 
   Future<void> _pickCert(int index) async {
@@ -92,7 +98,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
         Navigator.of(context).pop();
       }
     } on Exception catch (e) {
-      _$toast(e.toString());
+      _$toast(errorCopy(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -114,9 +120,13 @@ class _VerificationScreenState extends State<VerificationScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snap.hasError) {
-            return Center(
-              child: Text('تعذّر جلب ملفك',
-                  style: AppTheme.bodySoft.copyWith(color: AppTheme.danger)),
+            return EmptyView(
+              icon: Icons.error_outline_rounded,
+              title: 'تعذّر جلب ملفك',
+              message: errorCopy(snap.error),
+              actionLabel: 'إعادة المحاولة',
+              onAction: _retry,
+              danger: true,
             );
           }
           final worker = snap.data!;

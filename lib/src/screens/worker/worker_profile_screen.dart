@@ -10,6 +10,7 @@ import '../../models/quote_review.dart';
 import '../../models/worker.dart';
 import '../../widgets/ui.dart';
 import '../chat/chat_screen.dart';
+import '../../core/l10n/error_copy.dart';
 
 /// Public contractor profile: bio, specialties, price range, portfolio
 /// gallery, reviews + contact.
@@ -87,7 +88,7 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                       ? EmptyView(
                           icon: Icons.error_outline_rounded,
                           title: 'تعذّر تحميل الملف',
-                          message: snap.error.toString(),
+                          message: errorCopy(snap.error),
                           actionLabel: 'إعادة المحاولة',
                           onAction: _retry,
                           danger: true,

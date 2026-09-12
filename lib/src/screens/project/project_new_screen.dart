@@ -15,6 +15,7 @@ import '../../models/project.dart';
 import '../../widgets/category_grid.dart';
 import '../../widgets/number_field.dart';
 import '../../widgets/ui.dart';
+import '../../core/l10n/error_copy.dart';
 
 /// Post a new project (client).
 ///
@@ -109,7 +110,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
             .showSnackBar(const SnackBar(content: Text('تم نشر مشروعك بنجاح')));
       }
     } on Exception catch (e) {
-      _toast(e.toString());
+      _toast(errorCopy(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

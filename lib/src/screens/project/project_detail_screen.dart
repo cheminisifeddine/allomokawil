@@ -14,6 +14,7 @@ import '../../widgets/ui.dart';
 import '../browse/browse_screen.dart';
 import '../chat/chat_screen.dart';
 import '../review/review_screen.dart';
+import '../../core/l10n/error_copy.dart';
 
 /// Full project view: info, photos, and the quotes workflow.
 /// - customer/owner: browse quotes, accept one (rejects the rest), complete.
@@ -83,9 +84,13 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snap.hasError) {
-            return Center(
-              child: Text('تعذّر تحميل المشروع',
-                  style: AppTheme.bodySoft.copyWith(color: AppTheme.danger)),
+            return EmptyView(
+              icon: Icons.error_outline_rounded,
+              title: 'تعذّر تحميل المشروع',
+              message: errorCopy(snap.error),
+              actionLabel: 'إعادة المحاولة',
+              onAction: _reload,
+              danger: true,
             );
           }
           final project = snap.data!;
@@ -306,7 +311,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
         } on Exception catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context)
-                .showSnackBar(SnackBar(content: Text(e.toString())));
+                .showSnackBar(SnackBar(content: Text(errorCopy(e))));
           }
         }
       }

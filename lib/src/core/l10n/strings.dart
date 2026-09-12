@@ -50,4 +50,41 @@ class S {
       'نحتاج الوصول إلى صورك لإرفاقها بمشروعك أو بمعرض أعمالك.';
   static const notificationRationale =
       'نرسل لك إشعارات عند وصول عروض جديدة أو رسائل من المقاولين.';
+
+  // Errors.
+  //
+  // One sentence per failure class, each naming the problem AND the next action,
+  // each written with Arabic letters only — no Latin word, no HTTP status, no
+  // raw exception text. `error_copy.dart` is the only code that renders these,
+  // and `test/error_copy_test.dart` fails the build if any of them learns a
+  // Latin letter or loses its instruction.
+  static const errOffline =
+      'تعذّر الاتصال بالخادم. تأكّد من اتصالك بالإنترنت ثم أعد المحاولة.';
+  static const errCheckConnection = 'تحقّق من اتصالك بالإنترنت ثم أعد المحاولة.';
+  static const errTimeout = 'الخادم تأخّر في الرد. تحقّق من الشبكة ثم أعد المحاولة.';
+  static const errServer =
+      'خلل مؤقّت في الخادم. أعد المحاولة بعد لحظات، وإن تكرّر الأمر جرّب لاحقاً.';
+  static const errUnauthorized = 'انتهت جلستك. سجّل الدخول من جديد للمتابعة.';
+  static const errForbidden =
+      'لا تملك صلاحية لهذا الإجراء. ارجع للخلف أو سجّل الدخول بحساب آخر.';
+  static const errNotFound =
+      'هذا العنصر لم يعد متوفراً. ارجع للخلف وحدّث القائمة ثم أعد المحاولة.';
+  static const errValidation =
+      'البيانات المُرسلة غير مقبولة. راجع الحقول المطلوبة ثم أعد المحاولة.';
+  static const errConflict =
+      'تغيّر هذا العنصر من مكان آخر. حدّث القائمة ثم أعد المحاولة.';
+  static const errTooLarge =
+      'الملف أكبر من الحد المسموح. اختر ملفاً أصغر ثم أعد المحاولة.';
+  static const errTooMany = 'طلبات كثيرة في وقت قصير. انتظر دقيقة ثم أعد المحاولة.';
+  static const errUnexpected =
+      'حدث خطأ غير متوقع. أعد المحاولة، وإن تكرّر الأمر أغلق التطبيق وافتحه من جديد.';
+  static const errNoServer =
+      'التطبيق غير مضبوط على عنوان الخادم. حدّث التطبيق من المتجر ثم أعد المحاولة.';
+  static const errUpload = 'تعذّر رفع الملف. تأكّد من الإنترنت ثم أعد المحاولة.';
+  static const errPickFailed =
+      'لم نتمكّن من إتمام العملية على الصورة. أعد المحاولة، وإن تكرّر الأمر اختر صورة أخرى.';
+  static const errPhotoPermission =
+      'لم نتمكّن من الوصول إلى صورك. افتح إعدادات الهاتف وامنح إذن الصور ثم أعد المحاولة.';
+  static const errCameraPermission =
+      'لم نتمكّن من فتح الكاميرا. افتح إعدادات الهاتف وامنح إذن الكاميرا ثم أعد المحاولة.';
 }

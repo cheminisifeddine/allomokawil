@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../constants/app_config.dart';
+import '../l10n/error_copy.dart';
+import '../l10n/strings.dart';
 
 /// Thin typed client for the Allo Mokawil API.
 ///
@@ -51,7 +53,7 @@ class ApiClient {
     Future<http.Response> Function(Uri uri) send,
   ) async {
     if (_baseUrls.isEmpty) {
-      throw ApiException('لم يتم ضبط عنوان الخادم');
+      throw ApiException(S.errNoServer);
     }
     Object? lastError;
     for (var i = 0; i < _baseUrls.length; i++) {
@@ -71,10 +73,7 @@ class ApiClient {
         lastError = e;
       }
     }
-    throw ApiException(
-      'تعذّر الاتصال بالخادم. تأكّد من اتصالك بالإنترنت ثم أعد المحاولة.',
-      cause: lastError,
-    );
+    throw ApiException(S.errOffline, cause: lastError);
   }
 
   /// GET helper, throws [ApiException] on non-2xx.
@@ -126,18 +125,25 @@ class ApiClient {
     });
     final body = _decode(res);
     if (body is Map && body['url'] is String) return body['url'] as String;
-    throw ApiException('فشل رفع الصورة');
+    throw ApiException(S.errUpload);
   }
 
+  /// Decodes a response, turning any non-2xx into an [ApiException] whose
+  /// message is Arabic copy that carries a next action.
+  ///
+  /// The status code is kept on the exception for callers that branch on it and
+  /// is never rendered: `apiErrorCopy` picks the sentence, and it refuses
+  /// non-Arabic server text so an English `Method not allowed` cannot reach the
+  /// screen.
   dynamic _decode(http.Response res) {
     final body = res.body.isEmpty ? null : _tryJson(res.body);
     if (res.statusCode >= 200 && res.statusCode < 300) {
       return body;
     }
-    final message = body is Map
-        ? (body['error']?.toString() ?? 'حدث خطأ غير متوقع')
-        : 'حدث خطأ (${res.statusCode})';
-    throw ApiException(message, statusCode: res.statusCode);
+    throw ApiException(
+      apiErrorCopy(res.statusCode, body),
+      statusCode: res.statusCode,
+    );
   }
 
   dynamic _tryJson(String raw) {
@@ -149,7 +155,8 @@ class ApiClient {
   }
 }
 
-class ApiException implements Exception {
+class ApiException implements Exception, ArabicCopyError {
+  @override
   final String message;
   final int? statusCode;
 

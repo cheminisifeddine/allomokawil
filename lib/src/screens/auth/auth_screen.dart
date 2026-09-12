@@ -17,6 +17,7 @@ import '../../core/theme/app_theme.dart';
 import '../../models/enums.dart';
 import '../../widgets/phone_field.dart';
 import '../../widgets/ui.dart';
+import '../../core/l10n/error_copy.dart';
 
 /// Which half of the same form is on screen.
 enum AuthMode { signIn, signUp }
@@ -119,7 +120,7 @@ class _AuthScreenState extends State<AuthScreen> {
       // The root gate listens to AuthState: unwind to it so it swaps in RoleHome.
       if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
     } on Exception catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = errorCopy(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -165,7 +166,7 @@ class _AuthScreenState extends State<AuthScreen> {
       // the root gate (which listens to AuthState) shows the role-aware home.
       if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
     } on Exception catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = errorCopy(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

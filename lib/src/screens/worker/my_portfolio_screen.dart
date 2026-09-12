@@ -9,6 +9,8 @@ import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
 import '../../models/worker.dart';
 import '../../widgets/ui.dart';
+import '../../core/l10n/error_copy.dart';
+import '../../core/l10n/strings.dart';
 
 /// "My work gallery" — the contractor's own past-work uploader.
 ///
@@ -72,7 +74,7 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = '$e';
+        _error = errorCopy(e);
       });
     }
   }
@@ -151,7 +153,7 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
       );
     } on Exception catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString());
+      setState(() => _error = errorCopy(e, fallback: S.errUpload));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
