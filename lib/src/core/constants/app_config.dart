@@ -30,6 +30,6 @@ class AppConfig {
           .where((u) => u.isNotEmpty)
           .toList();
 
-  static const String appName = 'الو موكاول';
+  static const String appName = 'الو مقاول';
   static const String appNameLatin = 'Allo Mokawil';
 }

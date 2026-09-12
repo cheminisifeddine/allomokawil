@@ -100,6 +100,14 @@ class ApiClient {
     return _decode(res);
   }
 
+  Future<dynamic> patch(String path, {Object? body}) async {
+    final res = await _withFailover(
+        path,
+        (uri) => _http.patch(uri,
+            headers: _headers, body: jsonEncode(body ?? {})));
+    return _decode(res);
+  }
+
   Future<dynamic> delete(String path) async {
     final res = await _withFailover(
         path, (uri) => _http.delete(uri, headers: _headers));

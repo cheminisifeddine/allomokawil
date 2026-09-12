@@ -63,6 +63,36 @@ class Repository {
     return WorkerProfile.fromJson(data);
   }
 
+  /// Save the contractor's own profile. Only the fields that are supplied are
+  /// sent, so a partially filled form can never blank out the rest.
+  Future<WorkerProfile> updateMyProfile({
+    String? fullName,
+    String? bio,
+    List<String>? specialties,
+    int? experienceYears,
+    int? priceRangeMin,
+    int? priceRangeMax,
+    int? serviceRadiusKm,
+    bool? isAvailable,
+    String? wilaya,
+    String? commune,
+  }) async {
+    final body = <String, dynamic>{};
+    if (fullName != null) body['full_name'] = fullName;
+    if (bio != null) body['bio'] = bio;
+    if (specialties != null) body['specialties'] = specialties;
+    if (experienceYears != null) body['experience_years'] = experienceYears;
+    if (priceRangeMin != null) body['price_range_min'] = priceRangeMin;
+    if (priceRangeMax != null) body['price_range_max'] = priceRangeMax;
+    if (serviceRadiusKm != null) body['service_radius_km'] = serviceRadiusKm;
+    if (isAvailable != null) body['is_available'] = isAvailable;
+    if (wilaya != null) body['wilaya'] = wilaya;
+    if (commune != null) body['commune'] = commune;
+    final data = await _api.patch('/api/mobile/my/profile', body: body)
+        as Map<String, dynamic>;
+    return WorkerProfile.fromJson(data);
+  }
+
   Future<List<Project>> browseProjects({
     String? category,
     String? wilaya,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
+import '../../core/format/money.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
@@ -592,7 +593,7 @@ class _QuoteCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('المبلغ: ${quote.amount} دج',
+                Text('المبلغ: ${Money.dzd(quote.amount)}',
                     style: AppTheme.h2
                         .copyWith(fontSize: 18, color: AppTheme.navy)),
                 if (quote.estimatedDays != null) ...[

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
+import '../../core/format/money.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
@@ -305,10 +306,10 @@ class _WorkFacts extends StatelessWidget {
 
   static String _priceLabel(WorkerProfile w) {
     if (w.priceRangeMin != null && w.priceRangeMax != null) {
-      return '${w.priceRangeMin} - ${w.priceRangeMax} دج';
+      return '${Money.amountOnly(w.priceRangeMin!)} - ${Money.dzd(w.priceRangeMax!)}';
     }
-    if (w.priceRangeMax != null) return 'حتى ${w.priceRangeMax} دج';
-    return 'من ${w.priceRangeMin} دج';
+    if (w.priceRangeMax != null) return 'حتى ${Money.dzd(w.priceRangeMax!)}';
+    return 'من ${Money.dzd(w.priceRangeMin!)}';
   }
 }
 

@@ -152,3 +152,46 @@ class CategoryGridTiles extends StatelessWidget {
     );
   }
 }
+
+/// Same grid, but a contractor can tick several trades.
+///
+/// Tapping a selected tile removes it, which is the behaviour people expect
+/// from a checklist — and it keeps the count visible in the tile's own state.
+class CategoryGridMultiTiles extends StatelessWidget {
+  final Set<String> selected;
+  final void Function(String slug) onToggle;
+
+  const CategoryGridMultiTiles({
+    super.key,
+    required this.selected,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.zero,
+      itemCount: Taxonomy.categories.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+        childAspectRatio: 0.92,
+      ),
+      itemBuilder: (context, i) {
+        final c = Taxonomy.categories[i];
+        return SelectableTile(
+          icon: c.icon,
+          label: c.name,
+          tint: c.tint,
+          wash: c.wash,
+          height: double.infinity,
+          selected: selected.contains(c.slug),
+          onTap: () => onToggle(c.slug),
+        );
+      },
+    );
+  }
+}

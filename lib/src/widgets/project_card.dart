@@ -52,23 +52,55 @@ class ProjectCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 9),
                 Row(
-                  children: [
-                    StatusPill.project(project.status.name),
-                    const Spacer(),
-                    if (project.budgetMin != null ||
-                        project.budgetMax != null) ...[
-                      Flexible(
-                        child: Text(
-                          project.budgetLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTheme.label.copyWith(
-                              fontSize: 13, color: AppTheme.navy),
-                        ),
-                      ),
-                    ],
-                  ],
+                  children: [StatusPill.project(project.status.name)],
                 ),
+                // The budget gets its own full-width strip. A range like
+                // "من 60 ألف إلى 600 ألف دج" is the first thing a contractor
+                // reads, and beside the status pill it was clipped mid-number
+                // ("60000 - 6000…") — the one field that must never be cut.
+                if (project.budgetMin != null || project.budgetMax != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: AppTheme.accentWash,
+                      borderRadius: BorderRadius.circular(AppTheme.rSm),
+                    ),
+                    child: Row(
+                      // No Spacer here: Spacer is itself an Expanded, so it
+                      // competed with the amount for the free space and the
+                      // range kept ellipsising. spaceBetween separates the two
+                      // groups while the Flexible gets the whole remainder.
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.payments_rounded,
+                                size: 14, color: AppTheme.accentDeep),
+                            const SizedBox(width: 5),
+                            Text(
+                              'الميزانية',
+                              style: AppTheme.label.copyWith(
+                                  fontSize: 12, color: AppTheme.accentDeep),
+                            ),
+                          ],
+                        ),
+                        Flexible(
+                          child: Text(
+                            project.budgetLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.label.copyWith(
+                                fontSize: 13, color: AppTheme.navy),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

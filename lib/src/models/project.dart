@@ -1,3 +1,5 @@
+import '../core/format/money.dart';
+
 /// Lifecycle of a posted project. Mirrors `ProjectStatus`.
 enum ProjectStatus { open, inProgress, completed, cancelled }
 
@@ -38,9 +40,10 @@ class Project {
 
   String get budgetLabel {
     if (budgetMin == null && budgetMax == null) return 'بدون ميزانية محددة';
-    if (budgetMax == null) return 'من ${budgetMin!} دج';
-    if (budgetMin == null) return 'حتى ${budgetMax!} دج';
-    return '$budgetMin - $budgetMax دج';
+    if (budgetMax == null) return 'من ${Money.dzd(budgetMin!)}';
+    if (budgetMin == null) return 'حتى ${Money.dzd(budgetMax!)}';
+    if (budgetMin == budgetMax) return Money.dzd(budgetMin!);
+    return 'من ${Money.amountOnly(budgetMin!)} إلى ${Money.dzd(budgetMax!)}';
   }
 
   factory Project.fromJson(Map<String, dynamic> json) {

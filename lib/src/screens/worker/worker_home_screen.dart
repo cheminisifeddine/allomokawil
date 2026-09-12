@@ -8,6 +8,7 @@ import '../../data/taxonomy.dart';
 import '../../models/enums.dart';
 import '../../models/project.dart';
 import '../../models/worker.dart';
+import '../../widgets/big_button.dart';
 import '../../widgets/project_card.dart';
 import '../../widgets/ui.dart';
 import '../chat/chat_list_screen.dart';
@@ -15,6 +16,7 @@ import '../profile_screen.dart';
 import '../project/project_detail_screen.dart';
 import '../project/projects_screen.dart';
 import '../verify/verification_screen.dart';
+import 'profile_edit_screen.dart';
 
 /// Dual home screen for contractors: browse open projects, filter by
 /// specialty, enter their professional profile & verification.
@@ -103,7 +105,9 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
   late Future<List<Project>> _projects;
 
   /// Signed-in contractor, used by the branded header and the stats row.
-  late final Future<WorkerProfile> _me;
+  /// Not `final`: the profile editor can change it, and the header must show
+  /// the saved values without leaving the tab.
+  late Future<WorkerProfile> _me;
 
   @override
   void initState() {
@@ -122,6 +126,18 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
     });
   }
 
+  /// Opens the profile editor and, on save, refreshes without a round trip to
+  /// the server for the header — the editor already returns the saved profile.
+  Future<void> _editProfile() async {
+    final updated = await Navigator.of(context).push<WorkerProfile>(
+      MaterialPageRoute(builder: (_) => const ProfileEditScreen()),
+    );
+    if (updated == null || !mounted) return;
+    setState(() => _me = Future<WorkerProfile>.value(updated));
+    // Specialties may have changed, so re-run the feed against the new trades.
+    _reload();
+  }
+
   /// Tapping a category twice clears the filter (same as the old strip).
   void _selectCategory(String? slug) {
     _category = _category == slug ? null : slug;
@@ -133,7 +149,8 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
     return SafeArea(
       child: CustomScrollView(
         slivers: [
-          SliverToBoxAdapter(child: _HeaderSection(profile: _me)),
+          SliverToBoxAdapter(
+              child: _HeaderSection(profile: _me, onEdit: _editProfile)),
           SliverToBoxAdapter(
             child: _FilterBar(
               category: _category,
@@ -229,7 +246,8 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
 
 class _HeaderSection extends StatelessWidget {
   final Future<WorkerProfile> profile;
-  const _HeaderSection({required this.profile});
+  final VoidCallback onEdit;
+  const _HeaderSection({required this.profile, required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -308,7 +326,13 @@ class _HeaderSection extends StatelessWidget {
                 ],
               ),
             ),
-            if (!loading && worker != null) _QuickStats(worker: worker),
+            if (!loading && worker != null)
+              // A contractor with no history yet cannot have a rating or a job
+              // count, so three zeroes say nothing and offer no next step.
+              // Show the path to a hireable profile instead.
+              (worker.totalCompletedJobs == 0 && worker.totalReviews == 0)
+                  ? _GettingStarted(worker: worker, onEdit: onEdit)
+                  : _QuickStats(worker: worker),
           ],
         );
       },
@@ -515,40 +539,52 @@ class _FilterBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       height: AppTheme.tapMin,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 18),
-        children: [
-          _ChipShell(
-            selected: category == null,
-            onTap: () => onCategory(null),
-            child: const StatusPill(
-              label: 'الكل',
-              color: AppTheme.navy,
-              wash: AppTheme.lineSoft,
-              icon: Icons.apps_rounded,
+      // Fade the trailing edge so the half-visible chip reads as "there is
+      // more here, swipe" rather than as a clipped widget.
+      child: ShaderMask(
+        shaderCallback: (rect) => const LinearGradient(
+          begin: Alignment.centerRight,
+          end: Alignment.centerLeft,
+          colors: [Color(0xFF000000), Color(0xFF000000), Color(0x00000000)],
+          stops: [0.0, 0.88, 1.0],
+        ).createShader(rect),
+        blendMode: BlendMode.dstIn,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          children: [
+            _ChipShell(
+              selected: category == null,
+              onTap: () => onCategory(null),
+              child: const StatusPill(
+                label: 'الكل',
+                color: AppTheme.navy,
+                wash: AppTheme.lineSoft,
+                icon: Icons.apps_rounded,
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          _ChipShell(
-            selected: wilaya != null,
-            onTap: onWilaya,
-            child: StatusPill(
-              label: wilaya == null ? 'كل الولايات' : Taxonomy.wilayaName(wilaya!),
-              color: AppTheme.info,
-              wash: AppTheme.infoWash,
-              icon: Icons.location_on_rounded,
-            ),
-          ),
-          for (final c in Taxonomy.categories) ...[
             const SizedBox(width: 8),
             _ChipShell(
-              selected: category == c.slug,
-              onTap: () => onCategory(c.slug),
-              child: CategoryBadge(slug: c.slug),
+              selected: wilaya != null,
+              onTap: onWilaya,
+              child: StatusPill(
+                label:
+                    wilaya == null ? 'كل الولايات' : Taxonomy.wilayaName(wilaya!),
+                color: AppTheme.info,
+                wash: AppTheme.infoWash,
+                icon: Icons.location_on_rounded,
+              ),
             ),
+            for (final c in Taxonomy.categories) ...[
+              const SizedBox(width: 8),
+              _ChipShell(
+                selected: category == c.slug,
+                onTap: () => onCategory(c.slug),
+                child: CategoryBadge(slug: c.slug),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -631,6 +667,181 @@ class _ProjectsSkeleton extends StatelessWidget {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One line of the contractor setup checklist.
+class _SetupStep {
+  final String label;
+  final IconData icon;
+  final bool done;
+  const _SetupStep(this.label, this.icon, this.done);
+}
+
+/// Replaces the all-zeroes stats row for a contractor with no history yet.
+///
+/// A brand-new contractor used to see `0.0 / 0 / 0` — a rating they cannot
+/// have, a job count that only says "nobody has hired you", and no next step.
+/// This shows the four things that make a profile hireable, ticks them off as
+/// they are done, and links straight to the editor. Verification is included
+/// because the marketplace only lists verified contractors.
+class _GettingStarted extends StatelessWidget {
+  final WorkerProfile worker;
+  final VoidCallback onEdit;
+  const _GettingStarted({required this.worker, required this.onEdit});
+
+  @override
+  Widget build(BuildContext context) {
+    final steps = <_SetupStep>[
+      _SetupStep('أضف تخصصاتك', Icons.handyman_rounded,
+          worker.specialties.isNotEmpty),
+      _SetupStep('اكتب نبذة تعريفية عنك', Icons.notes_rounded,
+          (worker.bio ?? '').trim().isNotEmpty),
+      _SetupStep('حدّد أسعارك ونطاق خدمتك', Icons.payments_rounded,
+          worker.priceRangeMin != null && worker.priceRangeMax != null),
+      _SetupStep('وثّق حسابك بالبطاقة والهوية', Icons.verified_user_rounded,
+          worker.verificationStatus == VerificationStatus.verified),
+    ];
+    final done = steps.where((s) => s.done).length;
+    final total = steps.length;
+    final ratio = total == 0 ? 0.0 : done / total;
+    final complete = done == total;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
+      child: AppCard(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: complete ? AppTheme.successWash : AppTheme.accentWash,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    complete
+                        ? Icons.emoji_events_rounded
+                        : Icons.rocket_launch_rounded,
+                    color: complete ? AppTheme.success : AppTheme.accentDeep,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        complete
+                            ? 'ملفك مكتمل — بالتوفيق!'
+                            : 'ابدأ باستقبال طلبات العمل',
+                        style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.navy,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        complete
+                            ? 'ملفك جاهز. تصفّح المشاريع المفتوحة وأرسل عرضك'
+                            : 'أكمل ملفك ليظهر اسمك أمام أصحاب المشاريع',
+                        style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 12.5,
+                          height: 1.5,
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(99),
+                    child: LinearProgressIndicator(
+                      value: ratio,
+                      minHeight: 8,
+                      backgroundColor: AppTheme.line,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        complete ? AppTheme.success : AppTheme.accent,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  '$done من $total',
+                  style: const TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            for (final s in steps) _SetupRow(step: s),
+            if (!complete) ...[
+              const SizedBox(height: 12),
+              BigButton(
+                label: 'أكمل ملفي الآن',
+                icon: Icons.edit_rounded,
+                onPressed: onEdit,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SetupRow extends StatelessWidget {
+  final _SetupStep step;
+  const _SetupRow({required this.step});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        children: [
+          Icon(
+            step.done
+                ? Icons.check_circle_rounded
+                : Icons.radio_button_unchecked_rounded,
+            size: 19,
+            color: step.done ? AppTheme.success : AppTheme.textMuted,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              step.label,
+              style: TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 13.5,
+                height: 1.4,
+                color: step.done ? AppTheme.textSecondary : AppTheme.navy,
+                fontWeight: step.done ? FontWeight.w600 : FontWeight.w700,
+              ),
+            ),
+          ),
         ],
       ),
     );

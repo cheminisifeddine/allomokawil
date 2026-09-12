@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/format/money.dart';
 import '../core/theme/app_theme.dart';
 import '../data/taxonomy.dart';
 import '../models/enums.dart';
@@ -162,8 +163,8 @@ class WorkerCard extends StatelessWidget {
                         _MiniTag(
                           icon: Icons.payments_rounded,
                           text: worker.priceRangeMax != null
-                              ? '${worker.priceRangeMin}–${worker.priceRangeMax} دج'
-                              : 'من ${worker.priceRangeMin} دج',
+                              ? '${Money.amountOnly(worker.priceRangeMin!)}–${Money.dzd(worker.priceRangeMax!)}'
+                              : 'من ${Money.dzd(worker.priceRangeMin!)}',
                         ),
                     ],
                   ),

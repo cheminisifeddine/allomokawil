@@ -88,7 +88,9 @@ void main() {
     expect(p.category, 'painting');
     expect(p.urgency, UrgencyLevel.withinWeek);
     expect(p.status, ProjectStatus.open);
-    expect(p.budgetLabel, '60000 - 90000 دج');
+    // Rounded amounts render in Arabic words: "60000 دج" makes the reader
+    // count zeros, "60 ألف دج" is read at a glance.
+    expect(p.budgetLabel, 'من 60 ألف إلى 90 ألف دج');
   });
 
   test('Project survives a project posted without a wilaya', () {

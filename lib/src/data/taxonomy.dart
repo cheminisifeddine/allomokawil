@@ -190,30 +190,85 @@ class Taxonomy {
     ),
   ];
 
-  static String categoryName(String slug) {
+  /// Legacy / cross-platform slugs that must resolve to a canonical category.
+  ///
+  /// The web v1 app (`app/lib/constants.ts`), older mobile builds and manual
+  /// rows have all written different dialects into the same `projects.category`
+  /// column. Every lookup resolves through here so an Algerian user never sees
+  /// a raw English slug in an otherwise Arabic screen.
+  static const Map<String, String> _aliases = {
+    // web v1 specialty list -> canonical
+    'decorative_paint': 'painting',
+    'general_painting': 'painting',
+    'texture_coating': 'painting',
+    'metallic_paint': 'painting',
+    'wood_effect': 'painting',
+    'exterior_paint': 'painting',
+    'painting_decorative': 'painting',
+    // finishes that the app already folds into venetian_plaster
+    'stucco': 'venetian_plaster',
+    'tadelakt': 'venetian_plaster',
+    // seamless coatings
+    'epoxy': 'epoxy_flooring',
+    'travertine': 'tiling_marble',
+    'microcement': 'epoxy_flooring',
+    'micro_cement': 'epoxy_flooring',
+    // marble / stone finishes
+    'marble_effect': 'tiling_marble',
+    // gypsum
+    'plaster_decor': 'plaster_drywall',
+    'gypsum': 'plaster_drywall',
+    // misc long forms
+    'general_construction': 'construction',
+    'landscaping': 'landscaping_exterior',
+  };
+
+  /// Resolve any slug dialect to a canonical category slug.
+  static String canonical(String slug) {
+    final s = slug.trim().toLowerCase();
+    if (s.isEmpty || _isKnown(s)) return s;
+    // hyphen / space variants of a real slug (e.g. 'venetian-plaster')
+    final underscored = s.replaceAll('-', '_').replaceAll(' ', '_');
+    if (_isKnown(underscored)) return underscored;
+    return _aliases[s] ?? _aliases[underscored] ?? s;
+  }
+
+  static bool _isKnown(String s) {
     for (final c in categories) {
-      if (c.slug == slug) return c.name;
+      if (c.slug == s) return true;
     }
-    return slug;
+    return false;
+  }
+
+  static String categoryName(String slug) {
+    final s = canonical(slug);
+    for (final c in categories) {
+      if (c.slug == s) return c.name;
+    }
+    // Never leak a raw English slug into the Arabic UI.
+    return 'خدمات عامة';
   }
 
   static IconData categoryIcon(String slug) {
+    final s = canonical(slug);
     for (final c in categories) {
-      if (c.slug == slug) return c.icon;
+      if (c.slug == s) return c.icon;
     }
     return Icons.handyman_rounded;
   }
 
   static Color categoryTint(String slug) {
+    final s = canonical(slug);
     for (final c in categories) {
-      if (c.slug == slug) return c.tint;
+      if (c.slug == s) return c.tint;
     }
     return const Color(0xFF5B6472);
   }
 
   static Color categoryWash(String slug) {
+    final s = canonical(slug);
     for (final c in categories) {
-      if (c.slug == slug) return c.wash;
+      if (c.slug == s) return c.wash;
     }
     return const Color(0xFFEFF0F2);
   }

@@ -4,7 +4,7 @@ class S {
   S._();
 
   // General
-  static const appName = 'الو موكاول';
+  static const appName = 'الو مقاول';
   static const continueBtn = 'متابعة';
   static const save = 'حفظ';
   static const cancel = 'إلغاء';
@@ -15,7 +15,7 @@ class S {
 
   // Auth
   static const loginTitle = 'تسجيل الدخول';
-  static const loginSubtitle = 'أهلاً بعودتك إلى الو موكاول';
+  static const loginSubtitle = 'أهلاً بعودتك إلى الو مقاول';
   static const registerTitle = 'إنشاء حساب جديد';
   static const phone = 'رقم الهاتف';
   static const email = 'البريد الإلكتروني';
