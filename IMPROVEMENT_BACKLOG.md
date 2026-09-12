@@ -370,4 +370,24 @@ understand that is the single biggest "this app is foreign" signal.
 
 ## Completed
 
-(move ticks here with the commit hash when a phase closes)
+### Phase 0 — first-run experience: CLOSED 12 Sep
+
+All six items stay ticked in place above with their own evidence, so the detail
+keeps living where it was written. Commit index:
+
+| item | commit(s) |
+|---|---|
+| one auth screen, no `0X` chip, a real front door | `f083d71` |
+| a contractor can show his work | `f083d71`, `eb9b1c4` (backend `ba110e3`) |
+| the client's first run gets a guide | `718f99e` |
+| a wrong-typed stored session no longer white-screens the launch | `8d5b369` |
+
+**Release `v1.0.8+9`** — the version step the protocol asks for when a phase
+closes. Both ABIs are live on tag `v1.0.8` and byte-identical to the local build
+(`publish_release.py` compares GitHub's own digest; arm64
+`sha256 96787213de3b9688…`, v7a `af6b6d40c9b95e31…`), and the stable download
+link hash-matches too — fetching
+`https://allomokawil.colisify.com/download/allomokawil.apk` returns exactly
+`96787213de3b9688d6533ab69f20c7827b19a46773b4b3a0c2124cbb3db0ddaf`, the same
+19,317,868 bytes, `versionName='1.0.8' versionCode='2009'`. The next loop starts
+Phase 1.
