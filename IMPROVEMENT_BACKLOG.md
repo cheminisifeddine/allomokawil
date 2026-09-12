@@ -386,8 +386,37 @@ understand that is the single biggest "this app is foreign" signal.
       and the run was killed before a test even loaded. Re-run
       `test/skeleton_loading_test.dart` in a quiet window and look at
       `/tmp/shots/{boot_skeleton_dark,loading_projects_dark}.png`.
-- [ ] **8pt spacing audit + one card recipe.** Every card uses the same radius,
+- [x] **8pt spacing audit + one card recipe.** Every card uses the same radius,
       border, shadow and inner padding; no screen invents its own.
+      **DONE `972200e`** — the recipe now lives in `app_theme.dart` (`cardFill`,
+      `cardLine`, `cardLineWidth`, `cardRadius` = `rLg` 20, `cardShadow`
+      deliberately empty, `cardDecoration` / `cardDecorationOf` for the few
+      tinted cards, and three insets off one 4 dp ladder: `cardPad` 16,
+      `cardPadRail` 12, `cardPadRows` h16·v8). Anything typed into wears
+      `fieldFill` / `fieldPad` / `fieldDecorationOf`. `AppCard` is the only way
+      a screen builds a card; 27 files rewritten — 99 typed radii tokenised
+      (999×20, 14×2, 13×2, 12×2, 10, 9, 6×2, 2), every hand-rolled
+      `color: surface` + `Border.all(color: line)` BoxDecoration replaced, 43
+      AppCard insets normalised. The guard is `test/card_recipe_test.dart`
+      (+13): token values, a raster of a real AppCard (the fill and the
+      hairline really paint, and the border stays a hairline, ~1/20th of the
+      fill's pixels), and a source guard that fails the build if a screen types
+      a numeric radius (R1), hand-rolls a surface card (R2) or invents an
+      AppCard inset (R3). R4 ratchets the remaining off-grid literal spacing at
+      **200**, printed in the failure message, so the sweep can only go down.
+      Evidence: `flutter analyze` → "No issues found!"; `flutter test` →
+      **276 passed** (was 263); live bundle screenshot
+      `/tmp/loop/live_landing.png` (412×915) where `pngscan.py --color E8E8EC`
+      finds the recipe hairline as full-width 1 px card outlines x33–378 at
+      y463/542/555/634/647, plus the regenerated `/tmp/shots/0{4,6,8}_*.png`.
+      Caveat, stated plainly: the code rode inside `972200e` ("white canvas…")
+      because a concurrent session committed the shared tree while this recipe
+      was staged — the recipe is the `app_theme.dart` + `ui.dart` + 27-file
+      diff plus `test/card_recipe_test.dart`, and the test file is new in that
+      commit. Follow-up the ratchet names:
+      the remaining 200 off-grid literal insets (mostly icon/skeleton micro
+      padding) and the fact that on the white canvas `bg == surface`, so cards
+      are separated by the hairline alone.
 - [ ] **Typography scale from Cairo.** Define title/body/caption sizes once and
       remove every hardcoded `fontSize` at call sites.
 - [ ] **Colour contrast re-verification.** After the pass, re-check every
