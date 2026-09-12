@@ -370,15 +370,14 @@ class _TopBar extends StatelessWidget {
                 .copyWith(fontSize: 17, color: AppTheme.textPrimary),
           ),
           const SizedBox(width: 8),
-          Container(
-            width: 30,
-            height: 30,
-            decoration: const BoxDecoration(
-              color: AppTheme.accent,
-              shape: BoxShape.circle,
+          ClipRRect(
+            borderRadius: BorderRadius.circular(9),
+            child: Image.asset(
+              'assets/brand/icon.png',
+              width: 30,
+              height: 30,
+              fit: BoxFit.cover,
             ),
-            child: const Icon(Icons.architecture_rounded,
-                size: 17, color: AppTheme.navy),
           ),
         ],
       ),

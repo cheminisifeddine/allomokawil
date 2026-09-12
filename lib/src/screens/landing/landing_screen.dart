@@ -163,15 +163,14 @@ class _Hero extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: const BoxDecoration(
-                        color: AppTheme.accent,
-                        shape: BoxShape.circle,
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.asset(
+                        'assets/brand/icon.png',
+                        width: 40,
+                        height: 40,
+                        fit: BoxFit.cover,
                       ),
-                      child: const Icon(Icons.architecture_rounded,
-                          size: 22, color: AppTheme.navy),
                     ),
                     const SizedBox(width: 10),
                     Flexible(
