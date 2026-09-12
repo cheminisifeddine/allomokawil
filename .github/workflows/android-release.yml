@@ -49,25 +49,35 @@ jobs:
             --dart-define=API_BASE_URL=https://allomokawil.colisify.com \
             --dart-define=API_FALLBACK_URL=https://finili.medsaidkichene.workers.dev
 
-      - name: Show artifacts
+      # Stage the two shipping ABIs under the stable asset names the worker
+      # download route redirects to
+      #   /download/allomokawil.apk -> releases/latest/download/allomokawil-arm64.apk
+      # The x86_64 build is emulator-only and is deliberately not published.
+      - name: Stage APKs under the stable asset names
         run: |
-          ls -la build/app/outputs/flutter-apk/
-          sha256sum build/app/outputs/flutter-apk/*.apk
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk   dist/allomokawil-arm64.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/allomokawil-v7a.apk
+          ls -la dist/
+          sha256sum dist/*.apk
 
+      # `gh release upload` only adds assets. It must not be
+      # softprops/action-gh-release with a name/body: that step rewrote the
+      # release name and notes on every tag, replacing the deploy script's
+      # version notes with a stale body that still carried the old app name.
       - name: Attach APKs to the GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: "Allo Mokawil — Android (network fix build)"
-          body: |
-            الو موكاول — Android build.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --title "الو مقاول $TAG" --generate-notes
+          gh release upload "$TAG" dist/allomokawil-arm64.apk dist/allomokawil-v7a.apk --clobber
 
-            The previous APK could not resolve DNS: the release manifest was missing the
-            INTERNET permission (Flutter only injects it into debug/profile manifests). Fixed.
-
-            - `allomokawil-arm64-v8a-*.apk` → most phones (64-bit, Android 7+)
-            - `allomokawil-armeabi-v7a-*.apk` → older 32-bit phones
-
-            Install: allow "install from unknown sources" for your browser/file manager.
-          files: build/app/outputs/flutter-apk/*.apk
-          fail_on_unmatched_files: true
+      - name: Release asset list
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          gh release view "$TAG" --json assets \
+            --jq '.assets[] | "\(.name)\t\(.size)\t\(.state)"'
