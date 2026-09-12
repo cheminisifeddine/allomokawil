@@ -206,20 +206,46 @@ understand that is the single biggest "this app is foreign" signal.
       web bundle (CDP, 412 px, RTL, real API): typing the Arabic-Indic `٨` into
       the years field leaves the app's own editing element at `8`, and `٢٥٠٠٠`
       into `إلى (دج)` leaves `25000` (/tmp/shots/nf_18_rakam_live.png).
-- [ ] **The declared brand font is not a font.** `assets/fonts/Cairo-Regular.ttf`
-      and `Cairo-Bold.ttf` are both GitHub `404: Not Found` HTML pages (magic
+- [x] **The declared brand font is not a font.** `assets/fonts/Cairo-Regular.ttf`
+      and `Cairo-Bold.ttf` were both GitHub `404: Not Found` HTML pages (magic
       `0a0a0a0a`, `<!DOCTYPE html>`, committed in `a40b812`) — so every string in
-      the app renders in a fallback face, on Android, iOS and web alike. The live
-      web bundle says it out loud on every load: `Failed to load font Cairo at
-      assets/assets/fonts/Cairo-Regular.ttf … Verify that … contains a valid
+      the app rendered in a fallback face, on Android, iOS and web alike. The
+      live web bundle said it out loud on every load: `Failed to load font Cairo
+      at assets/assets/fonts/Cairo-Regular.ttf … Verify that … contains a valid
       font`. Fix path: take the real OFL face (`google/fonts` →
       `ofl/cairo/Cairo[slnt,wght].ttf`) and instance it to static 400/700 with
-      `fonttools` (`uv pip install fonttools`, then `python -m
-      fontTools.varLib.instancer "Cairo[slnt,wght].ttf" wght=400 -o
-      Cairo-Regular.ttf`); gstatic's legacy `/l/font?kit=` URL and the
+      `fonttools`. gstatic's legacy `/l/font?kit=` URL and the
       `fonts.google.com/download` zip both return non-sfnt payloads, so neither
-      works. Then audit every screenshot again — Cairo's metrics differ from the
-      fallback, so wrapped lines move.
+      works.
+      **DONE `c6763f0`.** Both files replaced with real static TrueType
+      instances of upstream **Cairo 3.130** (OFL 1.1), built from
+      `ofl/cairo/Cairo[slnt,wght].ttf` pinned at upstream commit `d2528f6d` with
+      `fontTools.varLib.instancer` (`wght=400` and `wght=700`, `slnt` fixed at 0,
+      `--update-name-table`). Verified on the instanced files: `usWeightClass`
+      400/700, `fsType` 0 (embeddable), 1956 glyphs of which 1951 carry real
+      outlines, the full Arabic block plus Arabic-Indic `٠`–`٩`, and the GSUB
+      features `init medi fina rlig` that Arabic joining needs. Each file is
+      164 KB, down from 267 KB of HTML. Added `assets/fonts/OFL.txt` (the OFL
+      requires the licence to travel with the face) and `assets/fonts/README.md`
+      — provenance, the exact regeneration commands, and how to tell a real font
+      from an error page before committing one. Only the two `.ttf` files are
+      bundled (`pubspec.yaml` declares them under `fonts:`, not `assets:`).
+      *Verified in the release web bundle* (own build, CDP, 412×915 RTL): the app
+      now fetches both faces `200 font/ttf`, the `Failed to load font Cairo`
+      warning is gone from its console, and no gstatic `notosansarabic` request
+      is made any more. **Control:** the same bundle with the old files swapped
+      back reproduces the exact symptom and falls back to Noto Sans Arabic —
+      `OTS parsing error: invalid sfntVersion: 168430090`, `document.fonts.check`
+      false, text width identical to plain sans-serif.
+      *Re-audit (the wrapped-lines warning in this item was real):* four screens
+      — landing, auth, client sign-up, contractor sign-up — driven by Arabic
+      semantics labels so both runs reached provably identical screens: **0**
+      layout-overflow messages, **0** yellow overflow stripes, ink inside
+      x10–393 of a 412 px frame (no clipping), and two reloads of one screen are
+      byte-identical (0.00 % diff) — so the 3.8 % / 6.8 % / 16.8 % / 21.4 %
+      Cairo-vs-fallback deltas are the font alone. Text runs do move: the same
+      string «أنشئ حساب مقاول» is 147 px in Cairo vs 137 px in Noto Sans Arabic,
+      and content above the fold shifts up to 13 px. Nothing broke.
 - [ ] **No dead-end empty states.** Every list (projects, quotes, chats,
       portfolio, reviews) shows an Arabic explanation **and** the action that
       creates the first item.
