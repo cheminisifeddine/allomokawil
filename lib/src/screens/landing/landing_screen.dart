@@ -137,7 +137,7 @@ class LandingScreen extends StatelessWidget {
   }
 }
 
-/// Navy panel: brand, what the app is, and the drawn blueprint scene.
+/// Warm white panel: the mark, the promise, and the three guarantees.
 class _Hero extends StatelessWidget {
   const _Hero();
 

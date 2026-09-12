@@ -177,48 +177,56 @@ class AppTheme {
   // ── Type scale (Cairo) ─────────────────────────────────────────────────
   static const TextStyle display = TextStyle(
       fontFamily: 'Cairo',
+      decoration: TextDecoration.none,
       fontSize: 27,
       fontWeight: FontWeight.w800,
       height: 1.35,
       color: textPrimary);
   static const TextStyle h1 = TextStyle(
       fontFamily: 'Cairo',
+      decoration: TextDecoration.none,
       fontSize: 21,
       fontWeight: FontWeight.w700,
       height: 1.4,
       color: textPrimary);
   static const TextStyle h2 = TextStyle(
       fontFamily: 'Cairo',
+      decoration: TextDecoration.none,
       fontSize: 17.5,
       fontWeight: FontWeight.w700,
       height: 1.45,
       color: textPrimary);
   static const TextStyle body = TextStyle(
       fontFamily: 'Cairo',
+      decoration: TextDecoration.none,
       fontSize: 15.5,
       fontWeight: FontWeight.w400,
       height: 1.65,
       color: textPrimary);
   static const TextStyle bodySoft = TextStyle(
       fontFamily: 'Cairo',
+      decoration: TextDecoration.none,
       fontSize: 14.5,
       fontWeight: FontWeight.w400,
       height: 1.65,
       color: textSecondary);
   static const TextStyle label = TextStyle(
       fontFamily: 'Cairo',
+      decoration: TextDecoration.none,
       fontSize: 14,
       fontWeight: FontWeight.w600,
       height: 1.4,
       color: textPrimary);
   static const TextStyle caption = TextStyle(
       fontFamily: 'Cairo',
+      decoration: TextDecoration.none,
       fontSize: 12.5,
       fontWeight: FontWeight.w500,
       height: 1.4,
       color: textMuted);
   static const TextStyle button = TextStyle(
       fontFamily: 'Cairo',
+      decoration: TextDecoration.none,
       fontSize: 17,
       fontWeight: FontWeight.w700,
       height: 1.2,
