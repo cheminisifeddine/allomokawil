@@ -698,9 +698,49 @@ understand that is the single biggest "this app is foreign" signal.
       chat send 56, browse card 174, portfolio tile 112, notification row 108.8.
       Gates: audit exit 0 (0 provable fails), `flutter analyze` "No issues
       found!", `flutter test` 341/0.
-- [ ] **Press feedback + intentional motion.** Buttons visibly respond on press;
-      screen transitions and list reveals use one consistent duration/curve
-      instead of default jumps.
+- [x] **Press feedback + intentional motion.** DONE `988ca6a`.
+      The app animated at four speeds — eight hand-typed
+      `Duration(milliseconds: 140)`, a 160 in the auth reveal, Material's 300 ms
+      route zoom, and the 1300 ms shimmer loop. `lib/src/core/theme/motion.dart`
+      is now the only place a duration or a curve may be written (five
+      durations, two curves, `AppMotion.all` for the scan), and it carries
+      `AppPageTransitionsBuilder` — a fade plus a 2 % lift on
+      `AppMotion.screen` = 240 ms, registered for all six `TargetPlatform`s in
+      `AppTheme.light` so a push no longer runs at Material's speed on Android
+      and another on Linux.
+      `lib/src/widgets/motion.dart` adds `Pressable` (3 % shrink under the
+      finger, cancelled past `pressSlop` = 12 px so a scroll cannot leave a
+      button stuck pressed) and `Reveal` (a row fades up on first build,
+      `transformHitTests: false` so the lift never moves a target away from a
+      thumb). Applied centrally: `BigButton`, `OutlineButton`, `PrimaryButton`,
+      `SecondaryButton` cover the app's CTAs without touching 28 call sites; the
+      projects feed and the notification list reveal their rows. Both honour
+      `MediaQuery.disableAnimations` — the same switch `Shimmer` already
+      respected. Old ad-hoc `duration:` values in `skeletons.dart`,
+      `category_grid.dart`, `ui.dart`, `worker_home_screen.dart`,
+      `project_new_screen.dart`, `projects_screen.dart`, `auth_screen.dart` and
+      `browse_screen.dart` now reference the spec.
+      Gates: `flutter analyze` → **No issues found!**; `flutter test` → **356/356**
+      (342 before; the 14 new ones are `test/motion_test.dart`, which also fails
+      the build if a screen types its own duration or curve again).
+      Two test bugs found by the gate and fixed in the test, not by weakening
+      the assertion: `Matrix4.getMaxScaleOnAxis()` measures the z axis too and
+      `Transform.scale` leaves z = 1.0, so a correct shrink read as "no shrink";
+      and a `pump(90 ms)` straight after a pointer-down is the ticker's baseline
+      frame, so the controller was still at 0.
+      Render evidence: the suite's own shots at 07:40 (`/tmp/shots`, fresh), and
+      `pngscan.py /tmp/shots/empty_inbox_client.png --color E8A33D` → one
+      **984×167 px** accent box at (96,1610) — the primary CTA is laid out
+      exactly as before, i.e. the wrapper changed no geometry at rest. A still
+      frame cannot show motion, so the press claim rests on the widget test
+      reading the live transform (0.97 pressed / 1.00 released), not on a
+      screenshot.
+      Housekeeping: `pgrep -fc "[f]lutter"` was 1 at the top of this tick — a
+      `flutter_tester` orphan 38 min old, its parent already reaped to systemd
+      and no `dart` tool process anywhere on the box, i.e. a leaked listener
+      from an earlier tick, not a live build. Killed it (pid 21752) rather than
+      inherit a permanent false "another session is building" reading; no
+      Gradle/Java/AAPT2 process was touched (there were none).
 - [ ] **Onboarding for two roles.** One short, skippable Arabic explainer that
       makes "I need work done" vs "I do the work" unmissable at signup.
 - [ ] **Home screen hierarchy.** The client home leads with one clear primary
