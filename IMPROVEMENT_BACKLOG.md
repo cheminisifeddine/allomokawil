@@ -1336,8 +1336,71 @@ understand that is the single biggest "this app is foreign" signal.
        *Next:* the item below (**Cold-start audit**) needs a *release* build and a real device, both
       founder-gated, so the first thing a tick can take unasked is Phase 4's **crash-free
       baseline**.
-- [ ] **Cold-start audit.** Measure and shorten time-to-first-meaningful-paint
-      on the release build; report a real number from a real device/emulator.
+- [~] **Cold-start audit.** *(app-side half shipped `c90db36`; the device number
+      is founder-gated — see the note below)* Measure and shorten
+      time-to-first-meaningful-paint on the release build; report a real number
+      from a real device/emulator.
+      *Tick 20:45, 13 Sep — the shortening shipped and the launch now measures
+      itself.* What was wrong was structural, not mysterious: `main()` awaited
+      **two** storage reads before `runApp` — the stored session and the previous
+      run's crash log — while `_RootGate` was already drawing `AppBootSkeleton`
+      for exactly the unrestored state. So a cold start paid a platform-channel
+      round trip to the preferences file plus a JSON decode of the session and of
+      up to twenty crash lines before it was allowed to paint a frame it had a
+      designed screen for. Now `runApp` runs first and `Boot.warmup` starts both
+      reads behind it, together instead of one after the other; the gate swaps
+      itself when the session lands, which is what the skeleton was built for.
+      Each read keeps its own guard, since nothing awaits them any more.
+      *Two supporting changes the reorder needed:* `CrashLog.loadLines(...,
+      earlier: true)` puts a previous run's lines in front of anything this run
+      has already caught (appending would leave a this-run record ahead of a
+      last-run one, and the restore now lands after the frame, so a startup crash
+      can already be in the list); `CrashReporter.restore()` passes it.
+      *The number, and where it comes from.* New
+      `lib/src/core/diagnostics/boot_trace.dart` is an engine-free phase
+      recorder (injected clock, so the unit tests are exact) and `main()` prints
+      one line per launch. Read back from the **release web bundle** over CDP on
+      this box, 412x915@2, cold cache, 127.0.0.1:8128:
+      `boot: 398ms to first frame | binding 16 · chrome 0 · hooks 0 · runApp 3 ·
+      crash-log 12 · session 0` — i.e. `main()` now hands control to the engine
+      **3 ms** after `runApp`, and the 12 ms of storage work that used to sit
+      inside that number finishes after frame one. First-contentful-paint 5192 ms
+      in the same run is the web bundle's own 3.6 MB `main.dart.js`, not the
+      launch path, and it is not the number this item is about.
+      *What is still owed, and why this box cannot produce it:* the item asks for
+      **time-to-first-meaningful-paint on a release build, from a real device or
+      emulator**. A release APK build and a real device are both founder-gated in
+      this loop, so no tick can produce that number. The measurement is now one
+      install away: the next release prints the line into logcat, so
+      `adb logcat | grep 'boot:'` answers it in one command on a real phone.
+      *Evidence for the shipped half (real output):* `flutter analyze` ->
+      **No issues found!** (84.9 s); `flutter test` -> **482 passed / 3 skipped /
+      0 failed** (was 472/3/0; `test/boot_trace_test.dart` 6 cases, and
+      `test/boot_warmup_test.dart` 4 — session restored off-path, previous-run
+      ordering with a startup crash already captured, a throwing restore still
+      caught as `startup`, and the gate painting the skeleton before storage
+      answers). The bundle was exercised for real, not reasoned about: the page
+      was driven through headless Chrome, `PAGE_ERRORS=[]`, 2 Flutter host
+      elements, and `/tmp/shots/boot_web.png` (557 sampled colours) shows the
+      landing page rendered.
+      *Caught by the gate, worth knowing:* the first version of the trace test
+      asserted `msFor('session') == 96` against a frozen clock, which failed — the
+      two reads are concurrent, so whichever marks first takes the whole delta.
+      The assertion is now "both marks are present and the pair accounts for all
+      the elapsed time", which is the real contract.
+      *A second writer was live this tick:* `pgrep -c java` was 0 when this tick
+      took its first measurement, and a Gradle build in
+      `/home/renia/grokdent-fl/android/renia-calls` appeared mid-tick while the web
+      bundle was compiling (163 MB free, no swap, both builds survived). Nothing
+      was killed to free memory. Worth remembering: the build-safety check is a
+      snapshot, not a lease.
+      *Next, unasked:* with this item's Dart half shipped there is **no unchecked
+      item left in any phase** — the only other open boxes are `[~]` handoffs that
+      need BACKEND-API/DEVOPS credentials or the founder (`wilayas` D1 order; the
+      ~30 junk production contractors). A future tick should therefore say so
+      rather than invent work, and take a read-only audit or a handoff write-up.
+      Also left running deliberately: `python3 -m http.server` on 127.0.0.1:8128
+      serving `build/web`, so the next tick's render check does not rebuild.
 - [x] **Crash-free baseline.** Wire a lightweight error reporter and confirm it
       receives a deliberately thrown test error end-to-end.
        *Implemented and pushed as `98a6ed9` (this tick) — one gate short of done.*
