@@ -60,11 +60,83 @@ class _RootGate extends StatelessWidget {
           return const Scaffold(body: AppBootSkeleton());
         }
         if (!auth.isAuthenticated) {
-          return const LandingScreen();
+          return _LoggedOutView(auth: auth);
         }
         // Route customer vs worker to their own home screens.
         return RoleHome(role: auth.role);
       },
+    );
+  }
+}
+
+/// The landing page, plus the one thing a session that died server-side owes the
+/// user: an explanation.
+///
+/// The founder's report, verbatim: "the jobs are not showing inside the app
+/// nothing is showing". What the app was actually doing was holding a token the
+/// server no longer knew, so every list came back 401 and every screen drew its
+/// own failure line on top of a home page that could never fill in. Nothing on
+/// that screen said "sign in again" and there was no way back to the form.
+///
+/// Now the dead session is dropped and this bar says why, in the same Arabic
+/// sentence the API's own copy uses, above the exact button that fixes it.
+class _LoggedOutView extends StatelessWidget {
+  const _LoggedOutView({required this.auth});
+
+  final AuthState auth;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!auth.sessionExpired) return const LandingScreen();
+    return Column(
+      children: [
+        _SessionExpiredBar(onDismiss: auth.clearSessionExpiredNotice),
+        const Expanded(child: LandingScreen()),
+      ],
+    );
+  }
+}
+
+class _SessionExpiredBar extends StatelessWidget {
+  const _SessionExpiredBar({required this.onDismiss});
+
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppTheme.dangerWash,
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsetsDirectional.only(top: 2, end: 10),
+                child: Icon(Icons.lock_clock_outlined,
+                    size: 20, color: AppTheme.danger),
+              ),
+              const Expanded(
+                child: Text(
+                  S.errUnauthorized,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    height: 1.5,
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: onDismiss,
+                child: const Text('حسناً'),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

@@ -34,16 +34,26 @@ class ApiClient {
 
   static const Duration _timeout = Duration(seconds: 20);
 
-  String? _token;
+  /// The bearer token every request carries, once a session exists.
+  String? token;
 
-  set token(String? value) => _token = value;
+  /// Fired when the server rejects the bearer token we just sent.
+  ///
+  /// A 401 is not an ordinary API failure: the session behind the stored token
+  /// is gone — the account was removed, the session was dropped server-side, or
+  /// another release invalidated it. Without this hook the app kept its stored
+  /// user, so every screen rendered its own "could not load" line and the user
+  /// sat on a signed-in home that could never load anything again, with no path
+  /// back to the login form. The handler drops the dead session and returns to
+  /// the landing page.
+  void Function()? onUnauthorized;
 
   /// Host currently believed to be healthy.
   String get baseUrl => _baseUrls.isEmpty ? '' : _baseUrls[_active];
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
-        if (_token != null) 'Authorization': 'Bearer $_token',
+        if (token != null) 'Authorization': 'Bearer $token',
       };
 
   /// Runs [send] against each configured host until one answers, remembering
@@ -118,7 +128,7 @@ class ApiClient {
   Future<String> uploadPhoto(File file) async {
     final res = await _withFailover('/api/upload', (uri) async {
       final req = http.MultipartRequest('POST', uri);
-      if (_token != null) req.headers['Authorization'] = 'Bearer $_token';
+      if (token != null) req.headers['Authorization'] = 'Bearer $token';
       req.files.add(await http.MultipartFile.fromPath('file', file.path,
           contentType: photoMediaType(file.path)));
       final streamed = await req.send();
@@ -154,6 +164,12 @@ class ApiClient {
         );
       }
       return body;
+    }
+    // A 401 while we were holding a token means the session is dead, not that
+    // this one request failed. Tell the owner of that token before the screen
+    // gets a chance to render a message the user cannot act on.
+    if (res.statusCode == 401 && token != null) {
+      onUnauthorized?.call();
     }
     throw ApiException(
       apiErrorCopy(res.statusCode, body),

@@ -11,7 +11,12 @@ import '../network/api_client.dart';
 /// Holds the signed-in user and role, gates which home screen is shown,
 /// and persists the session token locally.
 class AuthState extends ChangeNotifier {
-  AuthState(this._api);
+  AuthState(this._api) {
+    // The session owner is the only object that can act on a rejected token, so
+    // the hook is installed here rather than at each construction site: production
+    // and tests both get the recovery path without remembering to wire it.
+    _api.onUnauthorized = handleUnauthorized;
+  }
 
   final ApiClient _api;
 
@@ -20,11 +25,44 @@ class AuthState extends ChangeNotifier {
 
   User? _user;
   bool _restored = false;
+  bool _sessionExpired = false;
 
   User? get user => _user;
   UserRole get role => _user?.type ?? UserRole.customer;
   bool get isAuthenticated => _user != null;
   bool get isRestored => _restored;
+
+  /// True when the last thing that happened was the server refusing our token.
+  ///
+  /// The landing page reads this to explain *why* the user is suddenly signed
+  /// out, instead of showing a form with no reason attached to it.
+  bool get sessionExpired => _sessionExpired;
+
+  /// The API answered 401 for a request that carried our bearer token.
+  ///
+  /// The session it belonged to no longer exists on the server, so nothing this
+  /// device can send will work again: keeping the stored user would leave the
+  /// app on a home screen whose every list is empty and whose every button
+  /// fails. Drop the session and put the user back in front of the login form.
+  ///
+  /// Safe to call repeatedly — several in-flight requests can each answer 401
+  /// for the same dead token, and each one lands here.
+  Future<void> handleUnauthorized() async {
+    if (_user == null && _api.token == null) {
+      // Already signed out: a 401 on a request that carried no token (a wrong
+      // password on the login form, say) is not an expired session.
+      return;
+    }
+    _sessionExpired = true;
+    await logout();
+  }
+
+  /// Called by the landing page once the notice has been shown and dismissed.
+  void clearSessionExpiredNotice() {
+    if (!_sessionExpired) return;
+    _sessionExpired = false;
+    notifyListeners();
+  }
 
   /// Load a previously stored session at app start.
   ///
@@ -116,6 +154,8 @@ class AuthState extends ChangeNotifier {
   Future<void> _persist(String token, User user) async {
     _api.token = token;
     _user = user;
+    // A fresh session answers the notice: whatever token failed before is gone.
+    _sessionExpired = false;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_tokenKey, token);
     await prefs.setString(_userKey, jsonEncode(user.toJson()));
