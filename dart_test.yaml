@@ -1,0 +1,12 @@
+# The gate for this app is `flutter test`, and the improvement loop runs it
+# every ten minutes. Three files in test/ are end-to-end tests against the LIVE
+# production API: each one registers a fresh customer and contractor, uploads a
+# real image into R2 and writes a real review, and nothing deletes them. By
+# 13 Sep the marketplace feed a real client browses held ~30 junk contractors
+# named «test», «Yest», «مقاول (اختبار الصور)» with no route to remove them.
+#
+# They are still first-class evidence, they just do not run on every tick:
+#     flutter test --tags live --run-skipped
+tags:
+  live:
+    skip: "live: registers real accounts on the production API — run with `flutter test --tags live --run-skipped`"

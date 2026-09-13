@@ -8,7 +8,13 @@
 //  2. testWidgets runs in a fake-async zone, so real socket I/O must go through
 //     tester.runAsync() or it simply never completes.
 //
-// Run with:  flutter test test/live_register_e2e_test.dart
+// Run with:  flutter test --tags live --run-skipped test/live_register_e2e_test.dart
+// Tagged `live`: this file drives the REAL API, and a run registers real
+// accounts on production. The default gate skips it — run it on demand with
+// `flutter test --tags live --run-skipped live_register_e2e_test.dart`.
+@Tags(['live'])
+library;
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';

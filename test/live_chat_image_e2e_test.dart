@@ -27,6 +27,12 @@
 // the file names the call that failed and the loop reports it as such. Every
 // run creates two real accounts and a few KB in R2, the same way
 // `live_register_e2e_test.dart` already does.
+// Tagged `live`: this file drives the REAL API, and a run registers real
+// accounts on production. The default gate skips it — run it on demand with
+// `flutter test --tags live --run-skipped live_chat_image_e2e_test.dart`.
+@Tags(['live'])
+library;
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
