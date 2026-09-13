@@ -855,7 +855,7 @@ understand that is the single biggest "this app is foreign" signal.
       `lib/src/screens/worker/my_portfolio_screen.dart`; camera and gallery both
       offered, the busy state names what is happening, and a failed upload keeps
       the picture on screen with a retry instead of dropping it.
-- [ ] **Verification flow end-to-end.** Upload the auto-entrepreneur card, ID
+- [x] **Verification flow end-to-end.** Upload the auto-entrepreneur card, ID
       front and selfie, then show the real pending/approved/rejected state
       instead of a static form.
       *Partly done (`f083d71`, `eb9b1c4`): the upload side works, the doc-type
@@ -863,6 +863,43 @@ understand that is the single biggest "this app is foreign" signal.
       are optional certificate slots. What remains is the status the user sees
       **after** submitting — the API stores `verification_status` but the screen
       does not read it back.*
+      **DONE `34f2b55`.** The read-back turned out to need *two* levels, and the
+      second one was missing. `7ddeff2` had already wired the first
+      (`verification_pending_docs`, so a filed dossier stops looking empty), but
+      the reviewer approves documents **one row at a time** and
+      `worker_profiles.verification_status` only flips to `verified` once every
+      row is approved — so a contractor whose ID and selfie were accepted while
+      his contractor card was refused sat in `pending` with a zero-length queue,
+      and the screen answered him with the same blank upload form a man who had
+      sent nothing sees. The API was already sending the two flags that
+      describe it (`is_identity_verified` / `is_certificate_verified`);
+      `WorkerProfile` parsed them away. Now `identityVerified` /
+      `certificateVerified` are read (absent keys default false, so an older
+      backend can never claim a part is verified) and `_PartsStatusCard` shows
+      two rows — الهوية (بطاقة التعريف + سيلفي) and بطاقة المقاول والشهادات —
+      each marked **موثّقة** or **بانتظار التحقق**, above whichever receipt or
+      form applies. No inference in the copy: `بانتظار التحقق` stays true
+      whether the row is queued or refused, so it can never contradict the
+      receipt panel.
+      *Verified:* `flutter analyze` → **No issues found!**; `flutter test` →
+      **398 passed / 0 failed** (383 before; 6 new in
+      `test/verification_review_test.dart`, which now pins the wire flags, the
+      missing-flag fallback and all four screen states). Pixels checked, not
+      asserted: `/tmp/shots/18_verification_partial.png` (shot added to
+      `test/design_shots_test.dart`, whose `_fakeApi` can now serve a chosen
+      profile) — the accepted half's pill fills `#E7F5EE` at x108-310 y348-422
+      with its icon in `#1B7E50` at x1016-1065, while the other half's pill is
+      `#F6F7F9` with `#6C707A` content at x108-407 y483-557. The live API
+      confirmed the contract first: `GET /api/mobile/my/profile` on
+      `allomokawil.colisify.com` returns both flags and
+      `verification_pending_docs`.
+      *Left open, and it is not app-side:* nothing in the product ever writes
+      `worker_profiles.verification_status = 'rejected'` (checked across
+      `workers/` and `app/` in finili — the admin reject route only marks the
+      **document** row), so `_RejectedBanner` is currently unreachable and the
+      reviewer's `admin_notes` never leaves the admin UI. The app cannot show
+      *why* a document was refused until the mobile API exposes the document
+      rows. Hand to BACKEND-API.
 - [ ] **Project edit + cancel** for the owner, with the same validation as create.
 - [ ] **Offline behaviour.** Cache wilaya/specialty lists so the app opens with
       content on a dead connection, and queue a chat message for retry instead
@@ -870,6 +907,19 @@ understand that is the single biggest "this app is foreign" signal.
 
 ## Phase 4 — Engineering hardening
 
+- [ ] **Stop the loop gate from seeding production.** `flutter test` runs the
+      three `test/live_*_e2e_test.dart` files on every tick, and each one
+      registers a fresh customer + worker on the LIVE API and leaves them there.
+      `GET /api/mobile/workers/search` (authenticated, 13 Sep) returns **40**
+      contractors, ~30 of them junk from previous loops — «test», «TEST»,
+      «Yest», «مقاول (اختبار الصور)» x10, «مقاول (اختبار التقييم)» x3 — and they
+      are listed in the same feed a real client browses, sorted by rating, so
+      they sit at the bottom of it right now. Nothing deletes them: there is no
+      DELETE route in `workers/mobile.ts` and no cleanup script, so cleaning the
+      pile needs a `wrangler d1 execute` against production. Two things to do,
+      founder-gated on the second: tag the live files and keep them out of the
+      default gate (`dart_test.yaml` + `@Tags(['live'])`, run on demand), and
+      get a one-off admin-only purge for the accounts already in the table.
 - [ ] **Golden/screenshot tests** for the main screens so a design regression
       fails CI rather than being noticed by the founder.
 - [ ] **Every API call wrapped** so failure surfaces as an Arabic retryable
