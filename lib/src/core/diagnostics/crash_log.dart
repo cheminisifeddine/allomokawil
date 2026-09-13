@@ -115,10 +115,15 @@ class CrashLog {
   ///
   /// Junk is dropped one line at a time rather than failing the whole read:
   /// losing a single corrupt line is acceptable, refusing to show the other
-  /// nineteen is not. Lines are appended, so this is meant for a log that was
-  /// just constructed at boot.
-  int loadLines(Iterable<String> lines) {
-    var read = 0;
+  /// nineteen is not.
+  ///
+  /// [earlier] says these lines came from a previous run and must sit *before*
+  /// whatever this run has already captured — which is how `CrashReporter
+  /// .restore()` calls it, since the restore now lands after the first frame and
+  /// a startup crash can already be in the list by then. Without it the lines
+  /// are appended, for a log that was just constructed.
+  int loadLines(Iterable<String> lines, {bool earlier = false}) {
+    final read = <CrashRecord>[];
     for (final line in lines) {
       CrashRecord? record;
       try {
@@ -126,11 +131,19 @@ class CrashLog {
       } catch (_) {
         record = null;
       }
-      if (record == null) continue;
-      add(record);
-      read++;
+      if (record != null) read.add(record);
     }
-    return read;
+    if (!earlier) {
+      read.forEach(add);
+      return read.length;
+    }
+    _records.insertAll(0, read);
+    if (_records.length > limit) {
+      // Still newest-last: trimming drops the oldest, which is now the far end
+      // of the previous run's tail.
+      _records.removeRange(0, _records.length - limit);
+    }
+    return read.length;
   }
 
   /// The whole log as one plain-text block, newest last — what a support reply

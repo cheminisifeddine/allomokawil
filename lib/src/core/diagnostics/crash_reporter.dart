@@ -66,11 +66,14 @@ class CrashReporter {
 
   /// Reads the previous run's log back into [log].
   ///
-  /// Called from `main` before the first frame, so it must never throw: a boot
-  /// that dies here is a boot that dies for a reason nobody can read.
+  /// Called from `Boot.warmup` *after* the first frame — the log is a diagnostic,
+  /// nothing on screen waits for it, and a cold launch should not pay for it. So
+  /// it must never throw, and it must still land in the right place: `earlier:`
+  /// puts the previous run's lines in front of anything this run already caught,
+  /// which keeps the list newest-last even when a startup crash beats the read.
   Future<void> restore() async {
     try {
-      log.loadLines(await _store.read());
+      log.loadLines(await _store.read(), earlier: true);
     } catch (error) {
       debugPrint('crash: previous log unreadable ($error)');
     }
