@@ -407,7 +407,7 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-//  Branded header — identity, availability and the quick-stats row.
+//  Branded header — identity, availability, and one line of numbers.
 // ─────────────────────────────────────────────────────────────────────────
 
 class _HeaderSection extends StatelessWidget {
@@ -465,6 +465,10 @@ class _HeaderSection extends StatelessWidget {
                     )
                   else ...[
                     _identity(worker),
+                    if (worker.hasHistory) ...[
+                      const SizedBox(height: 8),
+                      _StatsLine(worker: worker),
+                    ],
                     if (worker.verificationStatus ==
                             VerificationStatus.verified ||
                         worker.dossierUnderReview ||
@@ -514,15 +518,14 @@ class _HeaderSection extends StatelessWidget {
                 ],
               ),
             ),
+            // A contractor who has never been hired cannot have a rating or a
+            // job count, so three zeroes say nothing and offer no next step: he
+            // gets the path to a hireable profile instead.
+            if (!loading && worker != null && !worker.hasHistory)
+              _GettingStarted(worker: worker, onEdit: onEdit),
+            // His three doors, one row instead of three full-width tiles.
             if (!loading && worker != null)
-              // A contractor with no history yet cannot have a rating or a job
-              // count, so three zeroes say nothing and offer no next step.
-              // Show the path to a hireable profile instead.
-              (worker.totalCompletedJobs == 0 && worker.totalReviews == 0)
-                  ? _GettingStarted(worker: worker, onEdit: onEdit)
-                  : _QuickStats(worker: worker),
-            if (!loading && worker != null)
-              _ProToolsRow(worker: worker, onEdit: onEdit),
+              _ToolStrip(worker: worker, onEdit: onEdit),
           ],
         );
       },
@@ -608,103 +611,50 @@ class _HeaderSection extends StatelessWidget {
   }
 }
 
-class _QuickStats extends StatelessWidget {
+/// A working contractor's numbers, said in one line instead of three cards.
+///
+/// The home screen used to open with three 112 dp stat cards, so the first
+/// thing a contractor saw was his own scoreboard and the market he earns from
+/// began below the fold. The same numbers now sit under his name, where they
+/// answer "how am I doing" without standing in the way of "what can I quote".
+class _StatsLine extends StatelessWidget {
   final WorkerProfile worker;
-  const _QuickStats({required this.worker});
+
+  const _StatsLine({required this.worker});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
-      child: Row(
-        children: [
+    final jobs = worker.totalCompletedJobs;
+    final reviews = worker.totalReviews;
+    final years = worker.experienceYears;
+    final tail = <String>[
+      if (jobs > 0) '$jobs مشروع منجز',
+      if (jobs == 0 && reviews > 0) '$reviews تقييم',
+      if (years > 0) '$years سنوات خبرة',
+    ].join(' · ');
+
+    return Row(
+      children: [
+        const Icon(Icons.star_rounded, size: 15, color: AppTheme.accent),
+        const SizedBox(width: 4),
+        Text(
+          worker.avgRating.toStringAsFixed(1),
+          style: AppTheme.label.copyWith(
+              fontSize: AppTheme.fsMeta, color: AppTheme.onNavy),
+        ),
+        if (tail.isNotEmpty) ...[
+          const SizedBox(width: 6),
           Expanded(
-            child: SizedBox(
-              height: 112,
-              child: _StatCard(
-                icon: Icons.star_rounded,
-                tint: AppTheme.star,
-                wash: AppTheme.accentWash,
-                value: worker.avgRating.toStringAsFixed(1),
-                label: 'التقييم',
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: SizedBox(
-              height: 112,
-              child: _StatCard(
-                icon: Icons.task_alt_rounded,
-                tint: AppTheme.success,
-                wash: AppTheme.successWash,
-                value: '${worker.totalCompletedJobs}',
-                label: 'مشروع منجز',
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: SizedBox(
-              height: 112,
-              child: _StatCard(
-                icon: Icons.workspace_premium_rounded,
-                tint: AppTheme.info,
-                wash: AppTheme.infoWash,
-                value: '${worker.experienceYears}',
-                label: 'سنوات خبرة',
-              ),
+            child: Text(
+              '· $tail',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTheme.label.copyWith(
+                  fontSize: AppTheme.fsMeta, color: AppTheme.onNavyMuted),
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// One quick-stat: [AppCard] + [IconBubble], every colour explicit.
-class _StatCard extends StatelessWidget {
-  final IconData icon;
-  final Color tint;
-  final Color wash;
-  final String value;
-  final String label;
-
-  const _StatCard({
-    required this.icon,
-    required this.tint,
-    required this.wash,
-    required this.value,
-    required this.label,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      padding: AppTheme.cardPadRail,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          IconBubble(icon: icon, tint: tint, wash: wash, size: 36),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: AppTheme.h2.copyWith(fontSize: AppTheme.fsBody),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: AppTheme.caption.copyWith(
-                fontSize: AppTheme.fsBadge, color: AppTheme.textSecondary),
-          ),
-        ],
-      ),
+      ],
     );
   }
 }
@@ -1060,97 +1010,149 @@ class _SetupRow extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-//  The contractor's own workshop: work photos, documents, profile
+//  The contractor's own workshop — work photos, documents, profile, one row.
 // ─────────────────────────────────────────────────────────────────────────
 
-/// The three things a contractor comes back to after signing up.
+/// The three doors a contractor needs: his work photos, his papers, his file.
 ///
-/// They sit right under the header, always visible: the app previously rendered
-/// a portfolio grid on the public profile but gave the contractor no way to put
-/// anything in it, so a new profile was an empty gallery with no hint that it
-/// needed filling. A tile that says "add photos of your past work" is the whole
-/// fix.
-class _ProToolsRow extends StatelessWidget {
+/// They were three full-width tiles stacked above the market — about 250 dp of
+/// the one screen that earns him money. Same three doors, now one row: still a
+/// single tap each, and the first open project fits on the first screen.
+class _ToolStrip extends StatelessWidget {
   final WorkerProfile worker;
   final VoidCallback onEdit;
 
-  const _ProToolsRow({required this.worker, required this.onEdit});
+  const _ToolStrip({required this.worker, required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+      // One row, three equal heights: the tallest badge sets the row.
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: _ToolTile(
+                key: const Key('worker-tools-portfolio'),
+                icon: Icons.photo_library_rounded,
+                tint: AppTheme.accentDeep,
+                wash: AppTheme.accentWash,
+                label: 'معرض أعمالي',
+                badge: _PortfolioBadge(workerId: worker.id),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const MyPortfolioScreen()),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _ToolTile(
+                key: const Key('worker-tools-documents'),
+                icon: Icons.verified_user_rounded,
+                tint: AppTheme.info,
+                wash: AppTheme.infoWash,
+                label: 'المستندات',
+                badge: _VerificationBadge(worker: worker),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const VerificationScreen()),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _ToolTile(
+                key: const Key('worker-tools-edit'),
+                icon: Icons.tune_rounded,
+                tint: AppTheme.navy,
+                wash: AppTheme.lineSoft,
+                label: 'ملفي المهني',
+                badge: const _ToolBadge(
+                    label: 'تعديل', color: AppTheme.textMuted),
+                onTap: onEdit,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One third of the strip: mark, name, and one line of state under it.
+class _ToolTile extends StatelessWidget {
+  final IconData icon;
+  final Color tint;
+  final Color wash;
+  final String label;
+  final Widget badge;
+  final VoidCallback onTap;
+
+  const _ToolTile({
+    super.key,
+    required this.icon,
+    required this.tint,
+    required this.wash,
+    required this.label,
+    required this.badge,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      onTap: onTap,
+      padding: AppTheme.cardPadRail,
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          _ToolTile(
-            key: const Key('worker-tools-portfolio'),
-            icon: Icons.photo_library_rounded,
-            tint: AppTheme.accentDeep,
-            wash: AppTheme.accentWash,
-            title: 'معرض أعمالي',
-            subtitle: 'أضف صور أعمالك السابقة ليراها أصحاب المشاريع',
-            trailing: _PortfolioCount(workerId: worker.id),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const MyPortfolioScreen()),
-            ),
+          IconBubble(icon: icon, tint: tint, wash: wash, size: 40),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: AppTheme.label.copyWith(
+                fontSize: AppTheme.fsMeta, color: AppTheme.navy),
           ),
-          const SizedBox(height: 10),
-          _ToolTile(
-            key: const Key('worker-tools-documents'),
-            icon: Icons.verified_user_rounded,
-            tint: AppTheme.info,
-            wash: AppTheme.infoWash,
-            title: 'المستندات والشهادات',
-            subtitle: 'بطاقة الحرفي، الهوية، والشهادات التي بحوزتك',
-            trailing: worker.verificationStatus == VerificationStatus.verified
-                ? const Icon(Icons.verified_rounded,
-                    size: 20, color: AppTheme.success)
-                // This tile said "غير موثّق" to every contractor who was not yet
-                // approved — including the ones whose papers were already in the
-                // queue. That single word is what made a successful upload look
-                // like nothing had been sent.
-                : worker.dossierUnderReview
-                    ? const StatusPill(
-                        label: 'قيد المراجعة',
-                        color: AppTheme.info,
-                        wash: AppTheme.infoWash,
-                      )
-                    : worker.verificationStatus == VerificationStatus.rejected
-                        ? const StatusPill(
-                            label: 'مرفوضة',
-                            color: AppTheme.danger,
-                            wash: AppTheme.dangerWash,
-                          )
-                        : const StatusPill(
-                            label: 'غير موثّق',
-                            color: AppTheme.accentDeep,
-                            wash: AppTheme.accentWash,
-                          ),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const VerificationScreen()),
-            ),
-          ),
-          const SizedBox(height: 10),
-          _ToolTile(
-            key: const Key('worker-tools-edit'),
-            icon: Icons.tune_rounded,
-            tint: AppTheme.navy,
-            wash: AppTheme.lineSoft,
-            title: 'تعديل الملف المهني',
-            subtitle: 'التخصصات، النبذة، الأسعار، ومنطقة الخدمة',
-            onTap: onEdit,
-          ),
+          const SizedBox(height: 6),
+          badge,
         ],
       ),
     );
   }
 }
 
-/// Reads the gallery size so the tile can say "3 صور" instead of being silent.
-class _PortfolioCount extends StatelessWidget {
+/// One line of state under a tool tile — deliberately not a [StatusPill], which
+/// is taller than a third of a row can afford.
+class _ToolBadge extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _ToolBadge({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      textAlign: TextAlign.center,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: AppTheme.caption.copyWith(
+          fontSize: AppTheme.fsBadge,
+          fontWeight: FontWeight.w700,
+          color: color),
+    );
+  }
+}
+
+/// Reads the gallery size so the tile can say «3 صور» instead of being silent.
+class _PortfolioBadge extends StatelessWidget {
   final int workerId;
 
-  const _PortfolioCount({required this.workerId});
+  const _PortfolioBadge({required this.workerId});
 
   @override
   Widget build(BuildContext context) {
@@ -1160,87 +1162,43 @@ class _PortfolioCount extends StatelessWidget {
       future: future,
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
-          return const SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          );
+          return const _ToolBadge(label: '...', color: AppTheme.textMuted);
         }
+        // This line used to read `'\$n صور'` — an escaped dollar, so every
+        // contractor with photos saw the literal "\$n صور" and not a count.
         final n = snap.data?.length ?? 0;
         if (n == 0) {
-          return const StatusPill(
-            label: 'أضف صوراً',
-            color: AppTheme.accentDeep,
-            wash: AppTheme.accentWash,
-          );
+          return const _ToolBadge(label: 'أضف صوراً', color: AppTheme.accentDeep);
         }
-        return StatusPill(
-          label: n == 1 ? 'صورة واحدة' : '\$n صور',
+        return _ToolBadge(
+          label: n == 1 ? 'صورة واحدة' : '$n صور',
           color: AppTheme.success,
-          wash: AppTheme.successWash,
         );
       },
     );
   }
 }
 
-/// One row of the contractor's toolbox: icon, title, why, and where it leads.
-class _ToolTile extends StatelessWidget {
-  final IconData icon;
-  final Color tint;
-  final Color wash;
-  final String title;
-  final String subtitle;
-  final Widget? trailing;
-  final VoidCallback onTap;
+/// Where the contractor's dossier stands, in the same one-line shape.
+class _VerificationBadge extends StatelessWidget {
+  final WorkerProfile worker;
 
-  const _ToolTile({
-    super.key,
-    required this.icon,
-    required this.tint,
-    required this.wash,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-    this.trailing,
-  });
+  const _VerificationBadge({required this.worker});
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
-      onTap: onTap,
-      padding: AppTheme.cardPad,
-      child: Row(
-        children: [
-          IconBubble(icon: icon, tint: tint, wash: wash, size: 44),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTheme.label.copyWith(
-                      fontSize: AppTheme.fsBody, color: AppTheme.textPrimary),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTheme.caption.copyWith(height: 1.5),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          if (trailing != null) ...[trailing!, const SizedBox(width: 6)],
-          const Icon(Icons.chevron_left_rounded,
-              size: 20, color: AppTheme.textMuted),
-        ],
-      ),
-    );
+    if (worker.verificationStatus == VerificationStatus.verified) {
+      return const _ToolBadge(label: 'موثّق', color: AppTheme.success);
+    }
+    // A contractor whose papers are already in the queue is not "غير موثّق",
+    // and telling him he was read as one is what made a good upload look like
+    // nothing had been sent.
+    if (worker.dossierUnderReview) {
+      return const _ToolBadge(label: 'قيد المراجعة', color: AppTheme.info);
+    }
+    if (worker.verificationStatus == VerificationStatus.rejected) {
+      return const _ToolBadge(label: 'مرفوضة', color: AppTheme.danger);
+    }
+    return const _ToolBadge(label: 'غير موثّق', color: AppTheme.accentDeep);
   }
 }

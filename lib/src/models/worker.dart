@@ -99,6 +99,12 @@ class WorkerProfile {
       verificationStatus == VerificationStatus.pending &&
       verificationPendingDocs > 0;
 
+  /// True once a contractor has something to show for himself — a finished job
+  /// or a review. Until then a rating and a job count are both zeroes, which is
+  /// not information but a verdict; the home screens show him the next step
+  /// instead of his own empty scoreboard.
+  bool get hasHistory => totalCompletedJobs > 0 || totalReviews > 0;
+
   static VerificationStatus _vd(String? v) {
     switch (v) {
       case 'verified':

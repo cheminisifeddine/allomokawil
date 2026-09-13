@@ -251,7 +251,15 @@ class _ExploreView extends StatelessWidget {
               onPost: onPost,
               onBrowseWorkers: onBrowseAll,
             ),
-          ),
+          )
+        // ── The action this screen exists for ────────────────────────────
+        // Publishing a project is the only thing on this screen that gets work
+        // done; everything else here is browsing, and the categories and the
+        // contractor strip look the same to every visitor. So the one action
+        // leads. While the first-run guide is up it already carries this
+        // action twice, and the banner stands down.
+        else
+          SliverToBoxAdapter(child: _PostProjectBanner(onTap: onPost)),
 
         // ── Categories ───────────────────────────────────────────────────
         SliverToBoxAdapter(
@@ -266,17 +274,6 @@ class _ExploreView extends StatelessWidget {
           ),
         ),
         SliverToBoxAdapter(child: CategoryGrid(onTap: onBrowseCategory)),
-
-        // ── Post-a-project banner ────────────────────────────────────────
-        // Hidden while the guide is up: the guide already carries this action,
-        // and the same call to action twice on one screen reads as padding.
-        if (!firstRun)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
-              child: _PostProjectBanner(onTap: onPost),
-            ),
-          ),
 
         // ── Top-rated contractors ────────────────────────────────────────
         SliverToBoxAdapter(
@@ -565,6 +562,11 @@ class _SearchBar extends StatelessWidget {
 }
 
 /// The single most prominent action on the home screen.
+///
+/// It is filled with the accent and lettered in navy — the same pair
+/// [PrimaryButton] uses, so the biggest thing on the page is unambiguously the
+/// one to press. It used to be navy and sat below the categories, which made it
+/// both the same colour as the header above it and the third block down.
 class _PostProjectBanner extends StatelessWidget {
   final VoidCallback onTap;
 
@@ -572,50 +574,53 @@ class _PostProjectBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: AppTheme.navy,
-      borderRadius: BorderRadius.circular(AppTheme.rLg),
-      child: InkWell(
-        onTap: onTap,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
+      child: Material(
+        key: const Key('client-post-cta'),
+        color: AppTheme.accent,
         borderRadius: BorderRadius.circular(AppTheme.rLg),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: const BoxDecoration(
-                  color: AppTheme.accent,
-                  shape: BoxShape.circle,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppTheme.rLg),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: const BoxDecoration(
+                    color: AppTheme.navy,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.add_home_work_rounded,
+                      color: AppTheme.accent, size: 27),
                 ),
-                child: const Icon(Icons.add_home_work_rounded,
-                    color: AppTheme.navy, size: 27),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'انشر مشروعك مجاناً',
-                      style: AppTheme.h2.copyWith(
-                          fontSize: AppTheme.fsLead, color: AppTheme.onNavy),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'استقبل عروض مقاولين موثوقين خلال أيام',
-                      style: AppTheme.bodySoft.copyWith(
-                          fontSize: AppTheme.fsCaption,
-                          color: AppTheme.onNavyMuted),
-                    ),
-                  ],
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'انشر مشروعك مجاناً',
+                        style: AppTheme.h2.copyWith(
+                            fontSize: AppTheme.fsLead, color: AppTheme.navy),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'استقبل عروض مقاولين موثوقين خلال أيام',
+                        style: AppTheme.bodySoft.copyWith(
+                            fontSize: AppTheme.fsCaption, color: AppTheme.navy),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              const Icon(Icons.chevron_left_rounded,
-                  color: AppTheme.onNavyMuted, size: 26),
-            ],
+                const SizedBox(width: 8),
+                const Icon(Icons.chevron_left_rounded,
+                    color: AppTheme.navy, size: 26),
+              ],
+            ),
           ),
         ),
       ),
