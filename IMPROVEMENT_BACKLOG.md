@@ -1170,6 +1170,30 @@ understand that is the single biggest "this app is foreign" signal.
       `flutter_tester` (pid 226342) held `build/unit_test_assets`; see the
       protocol note.* Nothing was implemented, so the checkbox stays open; the
       next build-capable tick has the whole job below.
+       *Tick 17:05, 13 Sep — implemented, runtime gate deferred.* Shipped
+       `987e2a4` (pushed to `main`). New `lib/src/widgets/a11y.dart` holds the two
+       shapes the house was writing by hand: `A11y.tap` (icon-only control, label
+       required, label and tap action forced onto one node) and `A11y.button`
+       (control that prints its own name -> role + `selected` only, so nothing is
+       read twice), plus `A11y.rating`/`A11y.reviews` for the star row and the
+       Arabic count forms (مراجعة واحدة / مراجعتان / 3 مراجعات / 12 مراجعة). All
+       nine findings below are wired, and so are the shared widgets they run
+       through: `SelectableTile`, `RatingStars`, the category strip tiles, both
+       card avatars and the brand marks (decorative-only now), and every content
+       image (project/portfolio photos, the picked verification card, chat
+       photos). New `test/a11y_semantics_test.dart` reads the semantics tree the
+       way TalkBack does (label + role + tap action + selected state) instead of
+       grepping the source, over `ReviewScreen` and the shared widgets, on
+       `MockClient` only.
+       *Evidence:* `flutter analyze` over the 19 touched paths -> **No issues
+       found!** (repo-wide analyze is not usable as evidence this tick: a
+       concurrent Hermes session was mid-way through its own auth change).
+       *Why the box stays open:* (a) the suite has never executed the new test
+       file — another session held the box with a Gradle build (java pid 275872)
+       for the whole tick and two concurrent builds on 7.8 GB with no swap is a
+       coin flip; (b) part (i) below, the eight-golden-screen sweep, is still not
+       written. Next tick: box free -> `flutter test` (full) -> add the sweep to
+       `_golden` in `test/design_shots_test.dart` -> tick this box.
       *Already right (verified by reading the build methods):* the bottom nav
       sets `Semantics(button: true, label:, selected:)` on both the raised
       centre action and every destination (`app_tab_bar.dart:101`, `:161`), the
