@@ -56,7 +56,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
             const SnackBar(content: Text('شكراً لك، تم إرسال التقييم')));
         Navigator.of(context).popUntil((r) => r.isFirst);
       }
-    } on Exception catch (e) {
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(errorCopy(e))));

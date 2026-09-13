@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../core/l10n/strings.dart';
 import '../core/network/api_client.dart';
 import '../models/chat.dart';
 import '../models/notification.dart';
@@ -18,10 +19,9 @@ class Repository {
 
   // ---- Workers / contractors -------------------------------------------
   Future<List<WorkerProfile>> topWorkers({int limit = 10}) async {
-    final data = await _api.get('/api/mobile/workers/top?limit=$limit') as List;
-    return data
-        .map((e) => WorkerProfile.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return _rows(
+        await _api.get('/api/mobile/workers/top?limit=$limit'),
+        WorkerProfile.fromJson);
   }
 
   Future<List<WorkerProfile>> searchWorkers({
@@ -35,28 +35,26 @@ class Repository {
       if (query != null && query.trim().isNotEmpty)
         'q=${Uri.encodeQueryComponent(query.trim())}',
     ].join('&');
-    final data = await _api
-        .get('/api/mobile/workers/search${q.isEmpty ? '' : '?$q'}') as List;
-    return data
-        .map((e) => WorkerProfile.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return _rows(
+        await _api.get('/api/mobile/workers/search${q.isEmpty ? '' : '?$q'}'),
+        WorkerProfile.fromJson);
   }
 
   Future<WorkerProfile> getWorker(int id) async {
-    final data =
-        await _api.get('/api/mobile/workers/$id') as Map<String, dynamic>;
-    return WorkerProfile.fromJson(data);
+    return _row(
+        await _api.get('/api/mobile/workers/$id'), WorkerProfile.fromJson);
   }
 
   /// Portfolio gallery image URLs for a contractor's profile.
   Future<List<String>> portfolioImages(int workerId) async {
     final data =
-        await _api.get('/api/mobile/workers/$workerId/portfolio') as List;
-    return data
-        .map((e) =>
-            (e is Map) ? (e['image_url'] as String?) ?? '' : e.toString())
-        .where((s) => s.isNotEmpty)
-        .toList();
+        _asList(await _api.get('/api/mobile/workers/$workerId/portfolio'));
+    return data.map((e) {
+      // The endpoint answers either a row per photo or a bare URL per photo
+      // depending on the deploy; anything else is dropped instead of raising.
+      final url = e is Map ? e['image_url'] : e;
+      return url is String ? url : '';
+    }).where((s) => s.isNotEmpty).toList();
   }
 
   /// Adds one picture to the signed-in contractor's own gallery.
@@ -82,9 +80,8 @@ class Repository {
   // ---- Projects ---------------------------------------------------------
   /// The signed-in contractor's own profile (for verification & portfolio).
   Future<WorkerProfile> myProfile() async {
-    final data =
-        await _api.get('/api/mobile/my/profile') as Map<String, dynamic>;
-    return WorkerProfile.fromJson(data);
+    return _row(
+        await _api.get('/api/mobile/my/profile'), WorkerProfile.fromJson);
   }
 
   /// Save the contractor's own profile. Only the fields that are supplied are
@@ -112,9 +109,8 @@ class Repository {
     if (isAvailable != null) body['is_available'] = isAvailable;
     if (wilaya != null) body['wilaya'] = wilaya;
     if (commune != null) body['commune'] = commune;
-    final data = await _api.patch('/api/mobile/my/profile', body: body)
-        as Map<String, dynamic>;
-    return WorkerProfile.fromJson(data);
+    return _row(await _api.patch('/api/mobile/my/profile', body: body),
+        WorkerProfile.fromJson);
   }
 
   /// Open projects for the contractor feed.
@@ -188,24 +184,19 @@ class Repository {
       if (status != null) 'status=${status.name}',
       'page=$page',
     ].join('&');
-    final data = await _api.get('/api/mobile/projects?$q') as List;
-    return data
-        .map((e) => Project.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return _rows(
+        await _api.get('/api/mobile/projects?$q'), Project.fromJson);
   }
 
   Future<Project> getProject(String id) async {
-    final data =
-        await _api.get('/api/mobile/projects/$id') as Map<String, dynamic>;
-    return Project.fromJson(data);
+    return _row(
+        await _api.get('/api/mobile/projects/$id'), Project.fromJson);
   }
 
   Future<List<Project>> myProjects({ProjectStatus? status}) async {
     final q = status != null ? '?status=${status.name}' : '';
-    final data = await _api.get('/api/mobile/my/projects$q') as List;
-    return data
-        .map((e) => Project.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return _rows(
+        await _api.get('/api/mobile/my/projects$q'), Project.fromJson);
   }
 
   Future<Project> createProject({
@@ -219,7 +210,7 @@ class Repository {
     required UrgencyLevel urgency,
     List<String> images = const [],
   }) async {
-    final data = await _api.post('/api/mobile/projects', body: {
+    return _row(await _api.post('/api/mobile/projects', body: {
       'title': title,
       'description': description,
       'category': category,
@@ -231,8 +222,7 @@ class Repository {
       // whose CHECK only accepts the snake_case values.
       'urgency': urgency.wire,
       'images': images,
-    }) as Map<String, dynamic>;
-    return Project.fromJson(data);
+    }), Project.fromJson);
   }
 
   /// Edits a posted project. Same fields and same validation as
@@ -254,7 +244,7 @@ class Repository {
     required UrgencyLevel urgency,
     List<String> images = const [],
   }) async {
-    final data = await _api.patch('/api/mobile/projects/$projectId', body: {
+    return _row(await _api.patch('/api/mobile/projects/$projectId', body: {
       'title': title,
       'description': description,
       'category': category,
@@ -264,8 +254,7 @@ class Repository {
       'budget_max': budgetMax,
       'urgency': urgency.wire,
       'images': images,
-    }) as Map<String, dynamic>;
-    return Project.fromJson(data);
+    }), Project.fromJson);
   }
 
   /// Cancels a posted project — the owner's own project only.
@@ -278,9 +267,8 @@ class Repository {
 
   // ---- Quotes -----------------------------------------------------------
   Future<List<Quote>> projectQuotes(String projectId) async {
-    final data =
-        await _api.get('/api/mobile/projects/$projectId/quotes') as List;
-    return data.map((e) => Quote.fromJson(e as Map<String, dynamic>)).toList();
+    return _rows(
+        await _api.get('/api/mobile/projects/$projectId/quotes'), Quote.fromJson);
   }
 
   Future<Quote> submitQuote({
@@ -289,13 +277,13 @@ class Repository {
     String? message,
     int? estimatedDays,
   }) async {
-    final data =
+    return _row(
         await _api.post('/api/mobile/projects/$projectId/quotes', body: {
       'amount': amount,
       'message': message,
       'estimated_days': estimatedDays,
-    }) as Map<String, dynamic>;
-    return Quote.fromJson(data);
+    }),
+        Quote.fromJson);
   }
 
   Future<void> acceptQuote(String projectId, int quoteId) async {
@@ -333,9 +321,8 @@ class Repository {
   }
 
   Future<List<Review>> workerReviews(int workerId) async {
-    final data =
-        await _api.get('/api/mobile/workers/$workerId/reviews') as List;
-    return data.map((e) => Review.fromJson(e as Map<String, dynamic>)).toList();
+    return _rows(
+        await _api.get('/api/mobile/workers/$workerId/reviews'), Review.fromJson);
   }
 
   // ---- Chat -------------------------------------------------------------
@@ -344,52 +331,44 @@ class Repository {
     String? projectId,
     int otherUserId = 0,
   }) async {
-    final data = await _api.post('/api/mobile/conversations', body: {
+    final data = _asMap(await _api.post('/api/mobile/conversations', body: {
       'project_id': projectId,
       'other_user_id': otherUserId,
-    }) as Map<String, dynamic>;
-    return data['id'] as int;
+    }));
+    return _asInt(data['id']);
   }
 
   Future<List<Conversation>> conversations() async {
-    final data = await _api.get('/api/mobile/conversations') as List;
-    return data
-        .map((e) => Conversation.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return _rows(
+        await _api.get('/api/mobile/conversations'), Conversation.fromJson);
   }
 
   Future<List<Message>> messages(int conversationId, {int after = 0}) async {
-    final data = await _api.get(
-            '/api/messages/$conversationId${after > 0 ? '?after=$after' : ''}')
-        as List;
-    return data
-        .map((e) => Message.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return _rows(
+        await _api.get(
+            '/api/messages/$conversationId${after > 0 ? '?after=$after' : ''}'),
+        Message.fromJson);
   }
 
   Future<Message> sendText(int conversationId, String text) async {
-    final data = await _api.post('/api/messages/$conversationId', body: {
+    return _row(await _api.post('/api/messages/$conversationId', body: {
       'content': text,
       'message_type': 'text',
-    }) as Map<String, dynamic>;
-    return Message.fromJson(data);
+    }), Message.fromJson);
   }
 
   Future<Message> sendImage(int conversationId, File image) async {
     final url = await _api.uploadPhoto(image);
-    final data = await _api.post('/api/messages/$conversationId', body: {
+    return _row(await _api.post('/api/messages/$conversationId', body: {
       'image_url': url,
       'message_type': 'image',
-    }) as Map<String, dynamic>;
-    return Message.fromJson(data);
+    }), Message.fromJson);
   }
 
   // ---- Notifications ----------------------------------------------------
   Future<List<AppNotification>> notifications() async {
-    final data = await _api.get('/api/notifications') as List;
-    return data
-        .map((e) => AppNotification.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return _rows(
+        await _api.get('/api/notifications'), AppNotification.fromJson);
   }
 
   /// Marks notifications read and returns the server's new unread count.
@@ -444,15 +423,14 @@ class Repository {
   /// The public price list. Works before sign-in, so a contractor can see what
   /// he would pay before he creates an account.
   Future<PlanCatalogue> planCatalogue() async {
-    final data = await _api.get('/api/mobile/plans') as Map<String, dynamic>;
-    return PlanCatalogue.fromJson(data);
+    return _row(
+        await _api.get('/api/mobile/plans'), PlanCatalogue.fromJson);
   }
 
   /// The live plan, this month's usage, and how to pay.
   Future<BillingCatalogue> subscription() async {
-    final data =
-        await _api.get('/api/mobile/subscription') as Map<String, dynamic>;
-    return BillingCatalogue.fromJson(data);
+    return _row(
+        await _api.get('/api/mobile/subscription'), BillingCatalogue.fromJson);
   }
 
   /// Declares a payment. Deliberately does NOT change the plan — only confirmed
@@ -471,7 +449,9 @@ class Repository {
       if (reference != null && reference.trim().isNotEmpty)
         'reference': reference.trim(),
     });
-    return data is Map ? Map<String, dynamic>.from(data) : const {};
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return data.map((k, v) => MapEntry('$k', v));
+    return const {};
   }
 
   /// Redeems a prepaid activation code — the path a contractor who paid cash
@@ -485,3 +465,51 @@ class Repository {
     return null;
   }
 }
+
+// ---- Response shape guards ----------------------------------------------
+//
+// One bad row used to be a silent failure. `jsonDecode` hands back whatever
+// the API sent, the repository cast it with `as List` / `as Map<String,
+// dynamic>`, and a drifted column — a null `id`, a string where a number
+// belongs — raised a `TypeError`. A `TypeError` is an `Error`, not an
+// `Exception`, so the screens' catch clauses never saw it and the user got a
+// dead button with no sentence on screen. These four helpers convert every
+// one of those shapes into the same Arabic, retryable [ApiException] the rest
+// of the app already renders through `errorCopy`.
+
+/// The response body as a JSON array, or Arabic copy when it is not one.
+List<dynamic> _asList(Object? value) {
+  if (value is List) return value;
+  throw ApiException(S.errUnexpected, cause: value);
+}
+
+/// The response body as a JSON object, or Arabic copy when it is not one.
+Map<String, dynamic> _asMap(Object? value) {
+  if (value is Map<String, dynamic>) return value;
+  throw ApiException(S.errUnexpected, cause: value);
+}
+
+/// An integer field, or Arabic copy when the column came back as something
+/// else (a null from a LEFT JOIN, a string from SQLite).
+int _asInt(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  throw ApiException(S.errUnexpected, cause: value);
+}
+
+/// One row, parsed by [fromJson]. A model cast that fails on a malformed row
+/// becomes the same sentence instead of a `TypeError` escaping to the screen.
+T _row<T>(Object? value, T Function(Map<String, dynamic>) fromJson) {
+  try {
+    return fromJson(_asMap(value));
+  } on ApiException {
+    rethrow;
+  } catch (e) {
+    throw ApiException(S.errUnexpected, cause: e);
+  }
+}
+
+/// A list of rows, parsed row by row so one malformed row cannot take the
+/// whole screen down with an `Error`.
+List<T> _rows<T>(Object? value, T Function(Map<String, dynamic>) fromJson) =>
+    [for (final row in _asList(value)) _row(row, fromJson)];

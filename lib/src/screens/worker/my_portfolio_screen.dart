@@ -152,7 +152,7 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('تمت إضافة الصورة إلى معرض أعمالك')),
       );
-    } on Exception catch (e) {
+    } catch (e) {
       if (!mounted) return;
       setState(() => _error = errorCopy(e, fallback: S.errUpload));
     } finally {

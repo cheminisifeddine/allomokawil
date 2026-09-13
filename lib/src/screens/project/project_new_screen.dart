@@ -158,7 +158,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('تم نشر مشروعك بنجاح')));
       }
-    } on Exception catch (e) {
+    } catch (e) {
       _toast(errorCopy(e));
     } finally {
       if (mounted) setState(() => _busy = false);

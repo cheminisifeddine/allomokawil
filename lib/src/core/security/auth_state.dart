@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/enums.dart';
 import '../../models/user.dart';
+import '../l10n/strings.dart';
 import '../network/api_client.dart';
 
 /// Holds the signed-in user and role, gates which home screen is shown,
@@ -87,14 +88,12 @@ class AuthState extends ChangeNotifier {
     required String password,
     bool rememberMe = false,
   }) async {
-    final res = await _api.post('/api/login', body: {
+    final session = _session(await _api.post('/api/login', body: {
       'phone': phone,
       'password': password,
       'remember_me': rememberMe,
-    }) as Map<String, dynamic>;
-    final token = res['token'] as String;
-    final user = User.fromJson(res['user'] as Map<String, dynamic>);
-    await _persist(token, user);
+    }));
+    await _persist(session.token, session.user);
   }
 
   Future<void> register({
@@ -104,16 +103,14 @@ class AuthState extends ChangeNotifier {
     required String password,
     required UserRole role,
   }) async {
-    final res = await _api.post('/api/register', body: {
+    final session = _session(await _api.post('/api/register', body: {
       'phone': phone,
       'email': email,
       'full_name': fullName,
       'password': password,
       'type': role.wire,
-    }) as Map<String, dynamic>;
-    final token = res['token'] as String;
-    final user = User.fromJson(res['user'] as Map<String, dynamic>);
-    await _persist(token, user);
+    }));
+    await _persist(session.token, session.user);
   }
 
   Future<void> _persist(String token, User user) async {
@@ -133,4 +130,36 @@ class AuthState extends ChangeNotifier {
     await prefs.remove(_userKey);
     notifyListeners();
   }
+}
+
+/// A signed-in session as the two things every caller needs: the bearer token
+/// and the account it belongs to.
+class _Session {
+  const _Session(this.token, this.user);
+
+  final String token;
+  final User user;
+}
+
+/// The `{token, user}` pair a successful auth answer must carry.
+///
+/// Both fields used to be read with a hard cast (`res['token'] as String`,
+/// `res['user'] as Map<String, dynamic>`), so a 200 whose body was an ack, a
+/// portal page or a row with a missing column raised a `TypeError` — an
+/// `Error`, invisible to the screens' `on Exception` clauses and to
+/// `errorCopy` — and the button simply did nothing. Now the wrong shape is the
+/// same Arabic, retryable sentence as every other API failure.
+_Session _session(Object? body) {
+  if (body is Map<String, dynamic>) {
+    final token = body['token'];
+    final user = body['user'];
+    if (token is String && token.isNotEmpty && user is Map<String, dynamic>) {
+      try {
+        return _Session(token, User.fromJson(user));
+      } catch (error) {
+        throw ApiException(S.errUnexpected, cause: error);
+      }
+    }
+  }
+  throw ApiException(S.errUnexpected, cause: body);
 }

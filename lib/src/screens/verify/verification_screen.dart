@@ -104,7 +104,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
         _profile = _repo.myProfile();
       });
       return;
-    } on Exception catch (e) {
+    } catch (e) {
       _$toast(errorCopy(e));
     } finally {
       if (mounted) setState(() => _busy = false);

@@ -77,7 +77,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
   Future<void> _complete(Project project) async {
     try {
       await widget.repo.completeProject(project.id);
-    } on Exception catch (e) {
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(errorCopy(e))));
@@ -126,7 +126,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     if (confirmed != true) return;
     try {
       await widget.repo.cancelProject(project.id);
-    } on Exception catch (e) {
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(errorCopy(e))));
@@ -410,7 +410,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                 .showSnackBar(const SnackBar(content: Text('تم إرسال عرضك')));
             _reload();
           }
-        } on Exception catch (e) {
+        } catch (e) {
           if (!mounted) return;
           // A 402 here is not a failure to retry — it is the paywall: the plan's
           // monthly quote allowance is spent. Offer the one action that unblocks

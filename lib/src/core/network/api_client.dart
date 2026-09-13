@@ -139,6 +139,20 @@ class ApiClient {
   dynamic _decode(http.Response res) {
     final body = res.body.isEmpty ? null : _tryJson(res.body);
     if (res.statusCode >= 200 && res.statusCode < 300) {
+      // A 2xx whose body is not JSON is never one of our payloads. It is a
+      // captive portal, an ISP notice or a Cloudflare interstitial — an HTML
+      // page the Worker never wrote. Returning that string used to make every
+      // caller's cast blow up with a `TypeError`, an `Error` that no
+      // `on Exception` clause in the screens can see, so the user tapped the
+      // button and watched nothing happen with no sentence explaining why.
+      if (body is String && body.isNotEmpty) {
+        throw ApiException(
+          S.errUnexpected,
+          statusCode: res.statusCode,
+          // Logging only, and bounded: a portal page can be kilobytes.
+          cause: body.length > 200 ? body.substring(0, 200) : body,
+        );
+      }
       return body;
     }
     throw ApiException(

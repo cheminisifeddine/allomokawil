@@ -120,7 +120,7 @@ class _AuthScreenState extends State<AuthScreen> {
           rememberMe: _remember);
       // The root gate listens to AuthState: unwind to it so it swaps in RoleHome.
       if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
-    } on Exception catch (e) {
+    } catch (e) {
       if (mounted) setState(() => _error = errorCopy(e));
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -166,7 +166,7 @@ class _AuthScreenState extends State<AuthScreen> {
       // Account created and the session persisted: unwind every auth screen so
       // the root gate (which listens to AuthState) shows the role-aware home.
       if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
-    } on Exception catch (e) {
+    } catch (e) {
       if (mounted) setState(() => _error = errorCopy(e));
     } finally {
       if (mounted) setState(() => _busy = false);

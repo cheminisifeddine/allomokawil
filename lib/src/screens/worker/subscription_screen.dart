@@ -566,7 +566,7 @@ class _CodeCard extends StatelessWidget {
                 wash: AppTheme.lineSoft,
                 size: AppTheme.s32,
               ),
-              const SizedBox(width: AppTheme.s12),
+              SizedBox(width: AppTheme.s12),
               Expanded(child: Text(S.planCodeTitle, style: AppTheme.h2)),
             ],
           ),
