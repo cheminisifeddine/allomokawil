@@ -10,16 +10,15 @@ exactly what happened when the mark was re-centred, so the generator is what
 keeps the artwork and the icons in step.
 
 What it emits, all from assets/brand/mark.png:
-  android mipmap-*/ic_launcher.png          legacy icon, TRANSPARENT, mark big
-  android mipmap-*/ic_launcher_round.png    round-mask variant
+  android mipmap-*/ic_launcher.png          legacy icon, WHITE plate, mark big
+  android mipmap-*/ic_launcher_round.png    round-mask variant, same plate
   android mipmap-*/ic_launcher_foreground.png  adaptive layer, inside the safe
                                             circle but as large as it can go
   android drawable-*/launch_image.png       splash mark, centred by the
                                             launch_background.xml layer list
-  ios AppIcon.appiconset/*.png              OPAQUE cream tile — iOS rejects an
+  ios AppIcon.appiconset/*.png              OPAQUE white tile — iOS rejects an
                                             icon with an alpha channel, so the
-                                            iOS set deliberately keeps a
-                                            background where Android drops it
+                                            plate is baked into every file
 
 Run: python3 tool/gen_icons.py [--check]
 """
