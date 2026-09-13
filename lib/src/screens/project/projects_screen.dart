@@ -101,7 +101,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('مشاريعي', style: AppTheme.h1.copyWith(fontSize: 18)),
+        title: Text('مشاريعي', style: AppTheme.bar),
       ),
       body: Column(
         children: [
@@ -297,7 +297,7 @@ class _TabPill extends StatelessWidget {
               Text(
                 label,
                 style: AppTheme.label.copyWith(
-                  fontSize: 14,
+                  fontSize: AppTheme.fsSmall,
                   color: selected ? AppTheme.onNavy : AppTheme.textPrimary,
                 ),
               ),

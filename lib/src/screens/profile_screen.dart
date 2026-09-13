@@ -22,7 +22,7 @@ class ProfileScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('حسابي', style: AppTheme.h1.copyWith(fontSize: 18)),
+        title: Text('حسابي', style: AppTheme.bar),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
@@ -214,7 +214,7 @@ class _SettingsRow extends StatelessWidget {
                 Text(
                   title,
                   style: AppTheme.label
-                      .copyWith(fontSize: 14.5, color: titleColor),
+                      .copyWith(fontSize: AppTheme.fsSmall, color: titleColor),
                 ),
                 if (value != null) ...[
                   const SizedBox(height: 3),
@@ -223,7 +223,7 @@ class _SettingsRow extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTheme.caption
-                        .copyWith(fontSize: 12.5, color: AppTheme.textMuted),
+                        .copyWith(fontSize: AppTheme.fsCaption, color: AppTheme.textMuted),
                   ),
                 ],
               ],

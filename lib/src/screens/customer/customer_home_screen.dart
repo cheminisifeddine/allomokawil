@@ -462,7 +462,7 @@ class _HomeHeader extends StatelessWidget {
                         Text(
                           'مرحباً بك',
                           style: AppTheme.caption.copyWith(
-                              fontSize: 12.5, color: AppTheme.onNavyMuted),
+                              fontSize: AppTheme.fsCaption, color: AppTheme.onNavyMuted),
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -470,7 +470,7 @@ class _HomeHeader extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: AppTheme.h1
-                              .copyWith(fontSize: 19, color: AppTheme.onNavy),
+                              .copyWith(fontSize: AppTheme.fsBar, color: AppTheme.onNavy),
                         ),
                       ],
                     ),
@@ -498,7 +498,7 @@ class _HomeHeader extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTheme.label.copyWith(
-                            fontSize: 12.5, color: AppTheme.onNavy),
+                            fontSize: AppTheme.fsCaption, color: AppTheme.onNavy),
                       ),
                     ),
                   ],
@@ -508,7 +508,7 @@ class _HomeHeader extends StatelessWidget {
               Text(
                 'ماذا تريد أن تنجز في منزلك؟',
                 style: AppTheme.body
-                    .copyWith(fontSize: 14.5, color: AppTheme.onNavyMuted),
+                    .copyWith(fontSize: AppTheme.fsSmall, color: AppTheme.onNavyMuted),
               ),
               const SizedBox(height: 14),
               _SearchBar(onTap: onSearch),
@@ -548,7 +548,7 @@ class _SearchBar extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppTheme.body
-                      .copyWith(fontSize: 15, color: AppTheme.textMuted),
+                      .copyWith(fontSize: AppTheme.fsBody, color: AppTheme.textMuted),
                 ),
               ),
             ],
@@ -595,13 +595,13 @@ class _PostProjectBanner extends StatelessWidget {
                     Text(
                       'انشر مشروعك مجاناً',
                       style: AppTheme.h2
-                          .copyWith(fontSize: 16.5, color: AppTheme.onNavy),
+                          .copyWith(fontSize: AppTheme.fsLead, color: AppTheme.onNavy),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       'استقبل عروض مقاولين موثوقين خلال أيام',
                       style: AppTheme.bodySoft.copyWith(
-                          fontSize: 12.5, color: AppTheme.onNavyMuted),
+                          fontSize: AppTheme.fsCaption, color: AppTheme.onNavyMuted),
                     ),
                   ],
                 ),
@@ -679,7 +679,7 @@ class _FirstRunProjectsHint extends StatelessWidget {
             child: Text(
               'ستظهر هنا مشاريعك بعد نشر أول مشروع',
               style: AppTheme.bodySoft
-                  .copyWith(fontSize: 13.5, color: AppTheme.textSecondary),
+                  .copyWith(fontSize: AppTheme.fsMeta, color: AppTheme.textSecondary),
             ),
           ),
         ],

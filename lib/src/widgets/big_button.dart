@@ -128,7 +128,7 @@ class OutlineButton extends StatelessWidget {
             ],
             Flexible(
               child: Text(label,
-                  style: AppTheme.button.copyWith(fontSize: 16),
+                  style: AppTheme.button.copyWith(fontSize: AppTheme.fsLead),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis),
             ),

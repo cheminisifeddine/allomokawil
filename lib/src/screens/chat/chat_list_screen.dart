@@ -151,7 +151,7 @@ class _ConversationTile extends StatelessWidget {
                   conv.otherUserName.isEmpty ? 'محادثة' : conv.otherUserName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: AppTheme.h2.copyWith(fontSize: 15.5),
+                  style: AppTheme.h2.copyWith(fontSize: AppTheme.fsBody),
                 ),
                 if (conv.lastMessageContent != null) ...[
                   const SizedBox(height: 3),
@@ -159,7 +159,7 @@ class _ConversationTile extends StatelessWidget {
                     conv.lastMessageContent!,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: AppTheme.bodySoft.copyWith(fontSize: 13.5),
+                    style: AppTheme.bodySoft.copyWith(fontSize: AppTheme.fsMeta),
                   ),
                 ],
               ],
@@ -174,7 +174,7 @@ class _ConversationTile extends StatelessWidget {
                 Text(
                   _relativeTime(conv.lastMessageAt!),
                   style: AppTheme.caption.copyWith(
-                      fontSize: 11.5, color: AppTheme.textMuted),
+                      fontSize: AppTheme.fsBadge, color: AppTheme.textMuted),
                 ),
               if (hasUnread) ...[
                 if (conv.lastMessageAt != null) const SizedBox(height: 7),
@@ -191,7 +191,7 @@ class _ConversationTile extends StatelessWidget {
                     conv.unreadCount > 99 ? '99+' : '${conv.unreadCount}',
                     textAlign: TextAlign.center,
                     style: AppTheme.label.copyWith(
-                        fontSize: 12, height: 1.2, color: AppTheme.navy),
+                        fontSize: AppTheme.fsCaption, height: 1.2, color: AppTheme.navy),
                   ),
                 ),
               ],

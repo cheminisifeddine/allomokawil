@@ -92,7 +92,7 @@ class _Welcome extends StatelessWidget {
           textAlign: TextAlign.center,
           style: AppTheme.h1.copyWith(
             color: AppTheme.navy,
-            fontSize: 30,
+            fontSize: AppTheme.fsHero,
             height: 1.2,
           ),
         ),
@@ -102,7 +102,7 @@ class _Welcome extends StatelessWidget {
           textAlign: TextAlign.center,
           style: AppTheme.body.copyWith(
             color: AppTheme.textSecondary,
-            fontSize: 15,
+            fontSize: AppTheme.fsBody,
             height: 1.5,
           ),
         ),
@@ -183,7 +183,7 @@ class _PromiseRow extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppTheme.label
-                    .copyWith(fontSize: 16, color: AppTheme.textPrimary),
+                    .copyWith(fontSize: AppTheme.fsLead, color: AppTheme.textPrimary),
               ),
               const SizedBox(height: 4),
               Text(
@@ -191,7 +191,7 @@ class _PromiseRow extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppTheme.caption
-                    .copyWith(color: AppTheme.textSecondary, fontSize: 13),
+                    .copyWith(color: AppTheme.textSecondary, fontSize: AppTheme.fsMeta),
               ),
             ],
           ),
@@ -238,7 +238,7 @@ class _StartBlock extends StatelessWidget {
           child: Text(
             'أنت مقاول أو حرفي؟ أنشئ حساب مقاول',
             textAlign: TextAlign.center,
-            style: AppTheme.label.copyWith(fontSize: 14, color: AppTheme.info),
+            style: AppTheme.label.copyWith(fontSize: AppTheme.fsSmall, color: AppTheme.info),
           ),
         ),
         const SizedBox(height: 4),
@@ -247,7 +247,7 @@ class _StartBlock extends StatelessWidget {
           textAlign: TextAlign.center,
           style: AppTheme.caption.copyWith(
             color: AppTheme.textMuted,
-            fontSize: 11.5,
+            fontSize: AppTheme.fsBadge,
             height: 1.4,
           ),
         ),

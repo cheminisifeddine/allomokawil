@@ -175,62 +175,135 @@ class AppTheme {
       ];
 
   // ── Type scale (Cairo) ─────────────────────────────────────────────────
+  // One ladder. Every font size the app renders is one of these eleven steps:
+  // a screen picks a step, it never types a number. Two sizes are *derived*
+  // from a measurement rather than chosen (the monogram inside an avatar disc,
+  // the rating number beside its star glyph) — those derivations live here
+  // too, and `test/type_scale_test.dart` fails the build if any other file
+  // types a `fontSize:` number.
+  //
+  // Why a ladder: 121 call sites were typing their own number next to a scale
+  // entry — `AppTheme.caption.copyWith(fontSize: 12)` next to a label at
+  // `fontSize: 11.5` — so "how big is a caption?" had no answer, and the same
+  // caption rendered at four different sizes across the app. The steps sit 1 dp
+  // apart through the reading band because Arabic text in this app lives
+  // between 11 and 19 dp, where a half-dp difference is invisible but still a
+  // difference; above that the steps are for figures, not prose.
+  static const double fsBadge = 11; // count pips, stat labels, overlines
+  static const double fsCaption = 12.5; // captions, dense metadata
+  static const double fsMeta = 13.5; // list metadata, secondary lines
+  static const double fsSmall = 14.5; // secondary body, control labels
+  static const double fsBody = 15.5; // the default reading size
+  static const double fsLead = 16.5; // card titles, leading body
+  static const double fsH2 = 17.5; // panel and section titles
+  static const double fsBar = 18.5; // app-bar titles, money figures
+  static const double fsH1 = 21; // screen heads
+  static const double fsDisplay = 23; // the hero figure
+  static const double fsHero = 30; // the landing promise
+
+  /// The ladder in order — for tests, and for the next person who needs a size.
+  static const List<double> scale = <double>[
+    fsBadge,
+    fsCaption,
+    fsMeta,
+    fsSmall,
+    fsBody,
+    fsLead,
+    fsH2,
+    fsBar,
+    fsH1,
+    fsDisplay,
+    fsHero,
+  ];
+
+  /// The ladder step closest to [size] — the only legal way to ask for a size
+  /// that is derived from a measurement rather than chosen.
+  static double nearest(double size) {
+    var best = scale.first;
+    for (final step in scale) {
+      if ((step - size).abs() < (best - size).abs()) best = step;
+    }
+    return best;
+  }
+
+  /// The monogram inside an avatar disc: [ratio] of the disc's diameter. 0.42
+  /// for a bare disc, 0.40 where the disc carries a ring.
+  static double monogram(double disc, {double ratio = 0.42}) => disc * ratio;
+
+  /// The rating number beside a star glyph, and the review count after it:
+  /// two and three steps under the glyph, snapped to the ladder.
+  static TextStyle ratingValue(double star) =>
+      label.copyWith(fontSize: nearest(star - 2), color: textPrimary);
+
+  static TextStyle ratingCount(double star) =>
+      caption.copyWith(fontSize: nearest(star - 3));
+
   static const TextStyle display = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
-      fontSize: 27,
+      fontSize: fsDisplay,
       fontWeight: FontWeight.w800,
       height: 1.35,
       color: textPrimary);
   static const TextStyle h1 = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
-      fontSize: 21,
+      fontSize: fsH1,
       fontWeight: FontWeight.w700,
       height: 1.4,
       color: textPrimary);
   static const TextStyle h2 = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
-      fontSize: 17.5,
+      fontSize: fsH2,
       fontWeight: FontWeight.w700,
       height: 1.45,
       color: textPrimary);
   static const TextStyle body = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
-      fontSize: 15.5,
+      fontSize: fsBody,
       fontWeight: FontWeight.w400,
       height: 1.65,
       color: textPrimary);
   static const TextStyle bodySoft = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
-      fontSize: 14.5,
+      fontSize: fsSmall,
       fontWeight: FontWeight.w400,
       height: 1.65,
       color: textSecondary);
   static const TextStyle label = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
-      fontSize: 14,
+      fontSize: fsSmall,
       fontWeight: FontWeight.w600,
       height: 1.4,
       color: textPrimary);
   static const TextStyle caption = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
-      fontSize: 12.5,
+      fontSize: fsCaption,
       fontWeight: FontWeight.w500,
       height: 1.4,
       color: textMuted);
   static const TextStyle button = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
-      fontSize: 17,
+      fontSize: fsH2,
       fontWeight: FontWeight.w700,
       height: 1.2,
       color: navy);
+
+  /// An app-bar title: a role, not a size. Screens that put a title in the bar
+  /// use this instead of shrinking `h1` by hand.
+  static const TextStyle bar = TextStyle(
+      fontFamily: 'Cairo',
+      decoration: TextDecoration.none,
+      fontSize: fsBar,
+      fontWeight: FontWeight.w700,
+      height: 1.4,
+      color: textPrimary);
 
   // ── ThemeData ──────────────────────────────────────────────────────────
   static ThemeData get light {
@@ -302,7 +375,7 @@ class AppTheme {
         titleTextStyle: TextStyle(
           fontFamily: 'Cairo',
           fontWeight: FontWeight.w700,
-          fontSize: 18,
+          fontSize: fsBar,
           color: textPrimary,
         ),
       ),
@@ -338,7 +411,7 @@ class AppTheme {
           foregroundColor: navy,
           minimumSize: const Size.fromHeight(tapMin),
           side: const BorderSide(color: line, width: 1.5),
-          textStyle: button.copyWith(fontSize: 16),
+          textStyle: button.copyWith(fontSize: fsLead),
           shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(rMd)),
         ),
@@ -346,7 +419,7 @@ class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: navy,
-          textStyle: label.copyWith(fontSize: 15),
+          textStyle: label.copyWith(fontSize: fsBody),
         ),
       ),
 
@@ -357,21 +430,21 @@ class AppTheme {
         contentPadding: fieldPad,
         hintStyle: const TextStyle(
             fontFamily: 'Cairo',
-            fontSize: 14.5,
+            fontSize: fsSmall,
             color: textMuted,
             fontWeight: FontWeight.w400),
         labelStyle: const TextStyle(
             fontFamily: 'Cairo',
-            fontSize: 14.5,
+            fontSize: fsSmall,
             color: textSecondary,
             fontWeight: FontWeight.w500),
         floatingLabelStyle: const TextStyle(
             fontFamily: 'Cairo',
-            fontSize: 14,
+            fontSize: fsSmall,
             color: navy,
             fontWeight: FontWeight.w700),
         errorStyle: const TextStyle(
-            fontFamily: 'Cairo', fontSize: 13, color: danger),
+            fontFamily: 'Cairo', fontSize: fsMeta, color: danger),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(fieldRadius),
           borderSide: const BorderSide(color: fieldLine),
@@ -405,8 +478,8 @@ class AppTheme {
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(rPill)),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        labelStyle: label.copyWith(fontSize: 14.5, color: textPrimary),
-        secondaryLabelStyle: label.copyWith(fontSize: 14.5, color: onNavy),
+        labelStyle: label.copyWith(fontSize: fsSmall, color: textPrimary),
+        secondaryLabelStyle: label.copyWith(fontSize: fsSmall, color: onNavy),
         showCheckmark: false,
         elevation: 0,
         pressElevation: 0,
@@ -433,11 +506,11 @@ class AppTheme {
         textColor: textPrimary,
         titleTextStyle: TextStyle(
             fontFamily: 'Cairo',
-            fontSize: 15.5,
+            fontSize: fsBody,
             fontWeight: FontWeight.w600,
             color: textPrimary),
         subtitleTextStyle: TextStyle(
-            fontFamily: 'Cairo', fontSize: 13.5, color: textSecondary),
+            fontFamily: 'Cairo', fontSize: fsMeta, color: textSecondary),
         contentPadding: cardPadRows,
       ),
 
@@ -467,9 +540,9 @@ class AppTheme {
         selectedItemColor: navy,
         unselectedItemColor: textMuted,
         selectedLabelStyle: TextStyle(
-            fontFamily: 'Cairo', fontSize: 12, fontWeight: FontWeight.w700),
+            fontFamily: 'Cairo', fontSize: fsCaption, fontWeight: FontWeight.w700),
         unselectedLabelStyle: TextStyle(
-            fontFamily: 'Cairo', fontSize: 12, fontWeight: FontWeight.w500),
+            fontFamily: 'Cairo', fontSize: fsCaption, fontWeight: FontWeight.w500),
         type: BottomNavigationBarType.fixed,
         elevation: 0,
       ),
@@ -482,7 +555,7 @@ class AppTheme {
         height: 68,
         labelTextStyle: WidgetStateProperty.resolveWith((states) => TextStyle(
               fontFamily: 'Cairo',
-              fontSize: 12,
+              fontSize: fsCaption,
               fontWeight: states.contains(WidgetState.selected)
                   ? FontWeight.w700
                   : FontWeight.w500,
@@ -499,7 +572,7 @@ class AppTheme {
         backgroundColor: navy,
         contentTextStyle: const TextStyle(
             fontFamily: 'Cairo',
-            fontSize: 14.5,
+            fontSize: fsSmall,
             color: onNavy,
             fontWeight: FontWeight.w600),
         shape: RoundedRectangleBorder(
@@ -532,9 +605,9 @@ class AppTheme {
         labelColor: navy,
         unselectedLabelColor: textMuted,
         labelStyle: TextStyle(
-            fontFamily: 'Cairo', fontSize: 15, fontWeight: FontWeight.w700),
+            fontFamily: 'Cairo', fontSize: fsBody, fontWeight: FontWeight.w700),
         unselectedLabelStyle: TextStyle(
-            fontFamily: 'Cairo', fontSize: 15, fontWeight: FontWeight.w500),
+            fontFamily: 'Cairo', fontSize: fsBody, fontWeight: FontWeight.w500),
         indicatorColor: accent,
         indicatorSize: TabBarIndicatorSize.tab,
         dividerColor: lineSoft,

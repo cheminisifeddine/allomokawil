@@ -255,14 +255,14 @@ class _Header extends StatelessWidget {
               children: [
                 Text('$count صورة في معرض أعمالك',
                     style: AppTheme.label
-                        .copyWith(fontSize: 14.5, color: AppTheme.success)),
+                        .copyWith(fontSize: AppTheme.fsSmall, color: AppTheme.success)),
                 const SizedBox(height: 2),
                 Text(
                   uploaded > 0
                       ? 'أضفت $uploaded صورة في هذه الجلسة.'
                       : 'هذه الصور يراها كل صاحب مشروع في ملفك.',
                   style: AppTheme.caption.copyWith(
-                      color: AppTheme.success, fontSize: 12, height: 1.5),
+                      color: AppTheme.success, fontSize: AppTheme.fsCaption, height: 1.5),
                 ),
               ],
             ),
@@ -332,7 +332,7 @@ class _AddTile extends StatelessWidget {
                       Text('أضف',
                           style: TextStyle(
                               fontFamily: 'Cairo',
-                              fontSize: 12,
+                              fontSize: AppTheme.fsCaption,
                               fontWeight: FontWeight.w700,
                               color: AppTheme.accentDeep)),
                     ],
@@ -395,7 +395,7 @@ class _TipsCard extends StatelessWidget {
               const SizedBox(width: 8),
               Text('نصائح لصور أفضل',
                   style: AppTheme.label
-                      .copyWith(fontSize: 14.5, color: AppTheme.info)),
+                      .copyWith(fontSize: AppTheme.fsSmall, color: AppTheme.info)),
             ],
           ),
           const SizedBox(height: 8),
@@ -422,7 +422,7 @@ class _TipsCard extends StatelessWidget {
           Text(
             'أعضاء ${Taxonomy.categories.length} مهنة يمكنهم إضافة صورهم.',
             style: AppTheme.caption
-                .copyWith(color: AppTheme.info, fontSize: 11, height: 1.5),
+                .copyWith(color: AppTheme.info, fontSize: AppTheme.fsBadge, height: 1.5),
           ),
         ],
       ),

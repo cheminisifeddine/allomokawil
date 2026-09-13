@@ -290,7 +290,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                       'عند الإيقاف يبقى ملفك ظاهراً لكن بدون استقبال طلبات',
                       style: TextStyle(
                         fontFamily: 'Cairo',
-                        fontSize: 12,
+                        fontSize: AppTheme.fsCaption,
                         color: AppTheme.textMuted,
                       ),
                     ),
@@ -312,7 +312,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                   _error!,
                   style: const TextStyle(
                     fontFamily: 'Cairo',
-                    fontSize: 12.5,
+                    fontSize: AppTheme.fsCaption,
                     height: 1.4,
                     color: AppTheme.danger,
                   ),
@@ -343,7 +343,7 @@ class _FieldLabel extends StatelessWidget {
       text,
       style: const TextStyle(
         fontFamily: 'Cairo',
-        fontSize: 12.5,
+        fontSize: AppTheme.fsCaption,
         fontWeight: FontWeight.w700,
         color: AppTheme.navy,
       ),
@@ -362,7 +362,7 @@ class _Hint extends StatelessWidget {
         text,
         style: const TextStyle(
           fontFamily: 'Cairo',
-          fontSize: 12.5,
+          fontSize: AppTheme.fsCaption,
           height: 1.6,
           color: AppTheme.textMuted,
         ),
@@ -395,7 +395,7 @@ class _Notice extends StatelessWidget {
               text,
               style: const TextStyle(
                 fontFamily: 'Cairo',
-                fontSize: 13.5,
+                fontSize: AppTheme.fsMeta,
                 height: 1.5,
                 color: AppTheme.danger,
               ),

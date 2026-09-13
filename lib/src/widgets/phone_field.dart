@@ -112,7 +112,7 @@ class _DzPhoneFieldState extends State<DzPhoneField> {
                 child: Text(
                   widget.label,
                   style: AppTheme.label
-                      .copyWith(fontSize: 15.5, color: AppTheme.textPrimary),
+                      .copyWith(fontSize: AppTheme.fsBody, color: AppTheme.textPrimary),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -180,7 +180,7 @@ class _DzPhoneFieldState extends State<DzPhoneField> {
                     error,
                     key: const Key('dz-phone-error'),
                     style: AppTheme.caption.copyWith(
-                        color: AppTheme.danger, fontSize: 13, height: 1.5),
+                        color: AppTheme.danger, fontSize: AppTheme.fsMeta, height: 1.5),
                   ),
                 ),
               ],

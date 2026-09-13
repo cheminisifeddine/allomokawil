@@ -367,7 +367,7 @@ class _TopBar extends StatelessWidget {
           Text(
             S.appName,
             style: AppTheme.label
-                .copyWith(fontSize: 17, color: AppTheme.textPrimary),
+                .copyWith(fontSize: AppTheme.fsH2, color: AppTheme.textPrimary),
           ),
           const SizedBox(width: 8),
           Image.asset(
@@ -472,7 +472,7 @@ class _Segment extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTheme.label.copyWith(
-                      fontSize: 15.5,
+                      fontSize: AppTheme.fsBody,
                       color: selected ? AppTheme.navy : AppTheme.textSecondary,
                     ),
                   ),
@@ -504,7 +504,7 @@ class _SwitchPrompt extends StatelessWidget {
           onPressed: onTap,
           child: Text(
             isSignUp ? S.loginTitle : S.createAccount,
-            style: AppTheme.label.copyWith(fontSize: 15, color: AppTheme.info),
+            style: AppTheme.label.copyWith(fontSize: AppTheme.fsBody, color: AppTheme.info),
           ),
         ),
       ],
@@ -556,7 +556,7 @@ class _FieldLabel extends StatelessWidget {
             child: Text(
               text,
               style: AppTheme.label
-                  .copyWith(fontSize: 15.5, color: AppTheme.textPrimary),
+                  .copyWith(fontSize: AppTheme.fsBody, color: AppTheme.textPrimary),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -599,7 +599,7 @@ class _RememberRow extends StatelessWidget {
                 child: Text(
                   S.rememberMe,
                   style: AppTheme.label
-                      .copyWith(fontSize: 15, color: AppTheme.textPrimary),
+                      .copyWith(fontSize: AppTheme.fsBody, color: AppTheme.textPrimary),
                 ),
               ),
             ],
@@ -657,7 +657,7 @@ class AuthNotice extends StatelessWidget {
             child: Text(
               message,
               style: AppTheme.label
-                  .copyWith(color: AppTheme.danger, fontSize: 14, height: 1.5),
+                  .copyWith(color: AppTheme.danger, fontSize: AppTheme.fsSmall, height: 1.5),
             ),
           ),
         ],
@@ -689,7 +689,7 @@ class _WorkerNote extends StatelessWidget {
             child: Text(
               'بعد التسجيل أضف بطاقة المقاول أو الحرفي ووثائقك ليظهر حسابك موثوقاً للعملاء.',
               style: AppTheme.caption
-                  .copyWith(color: AppTheme.info, fontSize: 13, height: 1.6),
+                  .copyWith(color: AppTheme.info, fontSize: AppTheme.fsMeta, height: 1.6),
             ),
           ),
         ],

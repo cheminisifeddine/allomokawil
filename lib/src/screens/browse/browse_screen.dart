@@ -342,7 +342,7 @@ class _FilterPill extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTheme.label.copyWith(
-                      fontSize: 13.5,
+                      fontSize: AppTheme.fsMeta,
                       color: selected
                           ? AppTheme.onNavy
                           : AppTheme.textPrimary,

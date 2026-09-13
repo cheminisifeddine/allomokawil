@@ -54,14 +54,14 @@ class WorkerCard extends StatelessWidget {
             worker.fullName,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: AppTheme.label.copyWith(fontSize: 14.5),
+            style: AppTheme.label,
           ),
           const SizedBox(height: 3),
           Text(
             _specialtyLabel(worker),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: AppTheme.caption.copyWith(fontSize: 12),
+            style: AppTheme.caption,
           ),
           const SizedBox(height: 8),
           Row(
@@ -72,14 +72,14 @@ class WorkerCard extends StatelessWidget {
                 child: Text('(${worker.totalReviews})',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: AppTheme.caption.copyWith(fontSize: 11.5)),
+                    style: AppTheme.caption.copyWith(fontSize: AppTheme.fsBadge)),
               ),
             ],
           ),
           if (worker.experienceYears > 0) ...[
             const SizedBox(height: 6),
             Text('${worker.experienceYears} سنة خبرة',
-                style: AppTheme.caption.copyWith(fontSize: 11.5)),
+                style: AppTheme.caption.copyWith(fontSize: AppTheme.fsBadge)),
           ],
         ],
       ),
@@ -106,7 +106,7 @@ class WorkerCard extends StatelessWidget {
                         worker.fullName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: AppTheme.h2.copyWith(fontSize: 16),
+                        style: AppTheme.h2.copyWith(fontSize: AppTheme.fsLead),
                       ),
                     ),
                     if (worker.verificationStatus ==
@@ -122,7 +122,7 @@ class WorkerCard extends StatelessWidget {
                   _specialtyLabel(worker),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: AppTheme.bodySoft.copyWith(fontSize: 13.5),
+                  style: AppTheme.bodySoft.copyWith(fontSize: AppTheme.fsMeta),
                 ),
                 const SizedBox(height: 8),
                 Row(
@@ -142,7 +142,7 @@ class WorkerCard extends StatelessWidget {
                           Taxonomy.wilayaName(worker.wilaya!),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: AppTheme.caption.copyWith(fontSize: 12),
+                          style: AppTheme.caption,
                         ),
                       ),
                     ],
@@ -223,7 +223,7 @@ class _Avatar extends StatelessWidget {
         initial,
         style: TextStyle(
           fontFamily: 'Cairo',
-          fontSize: size * 0.4,
+          fontSize: AppTheme.monogram(size, ratio: 0.4),
           fontWeight: FontWeight.w700,
           color: AppTheme.onNavy,
         ),
@@ -252,7 +252,7 @@ class _MiniTag extends StatelessWidget {
           const SizedBox(width: 4),
           Text(text,
               style: AppTheme.caption.copyWith(
-                  fontSize: 11.5, color: AppTheme.textSecondary)),
+                  fontSize: AppTheme.fsBadge, color: AppTheme.textSecondary)),
         ],
       ),
     );

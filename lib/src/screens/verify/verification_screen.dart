@@ -163,7 +163,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                               'نطلب هذه المستندات للتحقق من هويتك فقط ولحماية كل الأطراف. '
                               'تبقى صورك خاصة ثم تُحذف بعد المراجعة، ولا تظهر لأي طرف آخر.',
                               style: AppTheme.bodySoft.copyWith(
-                                  fontSize: 13.5, color: AppTheme.info),
+                                  fontSize: AppTheme.fsMeta, color: AppTheme.info),
                             ),
                           ),
                         ],
@@ -207,7 +207,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                       'إن كانت بحوزتك شهادة تكوين أو دبلوم حرفة فأضفها هنا. '
                       'تظهر في ملفك وترفع ثقة أصحاب المشاريع بك، خاصة إن كنت جديداً بلا تقييمات.',
                       style: AppTheme.bodySoft
-                          .copyWith(fontSize: 13.5, height: 1.6),
+                          .copyWith(fontSize: AppTheme.fsMeta, height: 1.6),
                     ),
                     const SizedBox(height: 12),
                     for (var i = 0; i < _certs.length; i++)
@@ -236,7 +236,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                         Expanded(
                           child: Text(
                             'تُراجع المستندات خلال 24-48 ساعة. تُحذف صور المستندات من الخادم بعد المراجعة.',
-                            style: AppTheme.caption.copyWith(fontSize: 11.5),
+                            style: AppTheme.caption.copyWith(fontSize: AppTheme.fsBadge),
                           ),
                         ),
                       ],
@@ -272,7 +272,7 @@ class _VerifiedBanner extends StatelessWidget {
           Expanded(
             child: Text('حسابك موثّق. يمكنك استقبال المشاريع.',
                 style: AppTheme.label
-                    .copyWith(fontSize: 14.5, color: AppTheme.success)),
+                    .copyWith(fontSize: AppTheme.fsSmall, color: AppTheme.success)),
           ),
         ],
       ),
@@ -309,7 +309,7 @@ class _ProgressCard extends StatelessWidget {
                   complete
                       ? 'كل المستندات جاهزة للإرسال'
                       : 'أكملت $done من $total مستندات',
-                  style: AppTheme.label.copyWith(fontSize: 14.5),
+                  style: AppTheme.label,
                 ),
               ),
             ],
@@ -401,13 +401,13 @@ class _DocCard extends StatelessWidget {
                                 size: 14, color: Colors.white)
                             : Text('${index! + 1}',
                                 style: AppTheme.caption.copyWith(
-                                    fontSize: 12, color: AppTheme.onNavy)),
+                                    fontSize: AppTheme.fsCaption, color: AppTheme.onNavy)),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           label,
-                          style: AppTheme.label.copyWith(fontSize: 14.5),
+                          style: AppTheme.label,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),

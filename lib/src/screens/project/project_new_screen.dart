@@ -208,7 +208,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
                       child: Text(
                         'املأ المعلومات وسيتواصل معك الحرفيون بعروضهم',
                         style: AppTheme.bodySoft
-                            .copyWith(fontSize: 13.5, color: AppTheme.info),
+                            .copyWith(fontSize: AppTheme.fsMeta, color: AppTheme.info),
                       ),
                     ),
                   ],
@@ -295,14 +295,14 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
                       child: Text(
                         _budgetError!,
                         style: AppTheme.caption
-                            .copyWith(fontSize: 12, color: AppTheme.danger),
+                            .copyWith(fontSize: AppTheme.fsCaption, color: AppTheme.danger),
                       ),
                     ),
                   ],
                 )
               else
                 Text('اتركها فارغة إذا لم تكن متأكداً من التكلفة',
-                    style: AppTheme.caption.copyWith(fontSize: 12)),
+                    style: AppTheme.caption),
 
               const _StepLabel(6, 'متى تريد البدء؟'),
               _UrgencySelector(
@@ -334,7 +334,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
                 child: Text(
                   'العنوان، التخصص والولاية مطلوبة',
                   style: AppTheme.caption
-                      .copyWith(fontSize: 12.5, color: AppTheme.accentDeep),
+                      .copyWith(fontSize: AppTheme.fsCaption, color: AppTheme.accentDeep),
                 ),
               ),
             PrimaryButton(
@@ -380,13 +380,13 @@ class _StepLabel extends StatelessWidget {
           ),
           const SizedBox(width: 9),
           Flexible(
-            child: Text(text, style: AppTheme.h2.copyWith(fontSize: 16)),
+            child: Text(text, style: AppTheme.h2.copyWith(fontSize: AppTheme.fsLead)),
           ),
           if (required) ...[
             const SizedBox(width: 5),
             Text('*',
                 style:
-                    AppTheme.h2.copyWith(fontSize: 16, color: AppTheme.danger)),
+                    AppTheme.h2.copyWith(fontSize: AppTheme.fsLead, color: AppTheme.danger)),
           ],
         ],
       ),
@@ -427,7 +427,7 @@ class _PickerField extends StatelessWidget {
                 child: Text(
                   value ?? hint,
                   style: AppTheme.body.copyWith(
-                    fontSize: 15,
+                    fontSize: AppTheme.fsBody,
                     color: empty ? AppTheme.textMuted : AppTheme.textPrimary,
                   ),
                 ),
@@ -502,7 +502,7 @@ class _WilayaSheetState extends State<_WilayaSheet> {
                           child: Text(
                             w.id,
                             style: AppTheme.label.copyWith(
-                                fontSize: 12.5, color: AppTheme.textSecondary),
+                                fontSize: AppTheme.fsCaption, color: AppTheme.textSecondary),
                           ),
                         ),
                         title: Text(w.name, style: AppTheme.label),
@@ -574,7 +574,7 @@ class _CommuneSheetState extends State<_CommuneSheet> {
                 Expanded(
                   child: Text(
                     widget.wilayaName,
-                    style: AppTheme.label.copyWith(fontSize: 15),
+                    style: AppTheme.label.copyWith(fontSize: AppTheme.fsBody),
                   ),
                 ),
                 if (!_loading)
@@ -753,7 +753,7 @@ class _UrgencyPill extends StatelessWidget {
               Text(
                 label,
                 style: AppTheme.label.copyWith(
-                  fontSize: 13.5,
+                  fontSize: AppTheme.fsMeta,
                   color: selected ? tint : AppTheme.textPrimary,
                 ),
               ),
@@ -807,7 +807,7 @@ class _ImageAttach extends StatelessWidget {
                               color: AppTheme.navy, size: 24),
                           const SizedBox(height: 6),
                           Text('أضف صورة',
-                              style: AppTheme.label.copyWith(fontSize: 12)),
+                              style: AppTheme.label.copyWith(fontSize: AppTheme.fsCaption)),
                         ],
                       ),
                     ),
@@ -855,7 +855,7 @@ class _ImageAttach extends StatelessWidget {
           images.isEmpty
               ? 'أضف صوراً لعملك — الصور الجيدة تجلب عروضاً أكثر'
               : '${images.length} صورة مضافة',
-          style: AppTheme.caption.copyWith(fontSize: 12),
+          style: AppTheme.caption,
         ),
       ],
     );

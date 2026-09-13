@@ -55,12 +55,7 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen> {
           ? AppBar(
               title: const Text(
                 'المنصة',
-                style: TextStyle(
-                  fontFamily: 'Cairo',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.textPrimary,
-                ),
+                style: AppTheme.bar,
               ),
               actions: [
                 IconButton(
@@ -395,7 +390,7 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
               title: Text(
                 w.name,
                 style: AppTheme.label
-                    .copyWith(fontSize: 15, color: AppTheme.textPrimary),
+                    .copyWith(fontSize: AppTheme.fsBody, color: AppTheme.textPrimary),
               ),
               onTap: () => Navigator.pop(context, w.id),
             ),
@@ -450,7 +445,7 @@ class _HeaderSection extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: AppTheme.label.copyWith(
-                              fontSize: 13, color: AppTheme.onNavyMuted),
+                              fontSize: AppTheme.fsMeta, color: AppTheme.onNavyMuted),
                         ),
                       ),
                       if (worker != null) _availabilityPill(worker),
@@ -542,7 +537,7 @@ class _HeaderSection extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppTheme.h2
-                    .copyWith(fontSize: 17, color: AppTheme.onNavy),
+                    .copyWith(fontSize: AppTheme.fsH2, color: AppTheme.onNavy),
               ),
               const SizedBox(height: 5),
               Text(
@@ -550,7 +545,7 @@ class _HeaderSection extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppTheme.bodySoft
-                    .copyWith(fontSize: 13, color: AppTheme.onNavyMuted),
+                    .copyWith(fontSize: AppTheme.fsMeta, color: AppTheme.onNavyMuted),
               ),
             ],
           ),
@@ -672,7 +667,7 @@ class _StatCard extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
-            style: AppTheme.h2.copyWith(fontSize: 15),
+            style: AppTheme.h2.copyWith(fontSize: AppTheme.fsBody),
           ),
           const SizedBox(height: 2),
           Text(
@@ -681,7 +676,7 @@ class _StatCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
             style:
-                AppTheme.caption.copyWith(fontSize: 10.5, color: AppTheme.textSecondary),
+                AppTheme.caption.copyWith(fontSize: AppTheme.fsBadge, color: AppTheme.textSecondary),
           ),
         ],
       ),
@@ -916,7 +911,7 @@ class _GettingStarted extends StatelessWidget {
                             : 'ابدأ باستقبال طلبات العمل',
                         style: const TextStyle(
                           fontFamily: 'Cairo',
-                          fontSize: 15.5,
+                          fontSize: AppTheme.fsBody,
                           fontWeight: FontWeight.w800,
                           color: AppTheme.navy,
                         ),
@@ -928,7 +923,7 @@ class _GettingStarted extends StatelessWidget {
                             : 'أكمل ملفك ليظهر اسمك أمام أصحاب المشاريع',
                         style: const TextStyle(
                           fontFamily: 'Cairo',
-                          fontSize: 12.5,
+                          fontSize: AppTheme.fsCaption,
                           height: 1.5,
                           color: AppTheme.textSecondary,
                         ),
@@ -959,7 +954,7 @@ class _GettingStarted extends StatelessWidget {
                   '$done من $total',
                   style: const TextStyle(
                     fontFamily: 'Cairo',
-                    fontSize: 12.5,
+                    fontSize: AppTheme.fsCaption,
                     fontWeight: FontWeight.w700,
                     color: AppTheme.textSecondary,
                   ),
@@ -1006,7 +1001,7 @@ class _SetupRow extends StatelessWidget {
               step.label,
               style: TextStyle(
                 fontFamily: 'Cairo',
-                fontSize: 13.5,
+                fontSize: AppTheme.fsMeta,
                 height: 1.4,
                 color: step.done ? AppTheme.textSecondary : AppTheme.navy,
                 fontWeight: step.done ? FontWeight.w600 : FontWeight.w700,
@@ -1167,7 +1162,7 @@ class _ToolTile extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppTheme.label
-                      .copyWith(fontSize: 15, color: AppTheme.textPrimary),
+                      .copyWith(fontSize: AppTheme.fsBody, color: AppTheme.textPrimary),
                 ),
                 const SizedBox(height: 3),
                 Text(

@@ -92,7 +92,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                         ),
                         child: Text(_label(_rating),
                             style: AppTheme.label.copyWith(
-                                fontSize: 15, color: AppTheme.accentDeep)),
+                                fontSize: AppTheme.fsBody, color: AppTheme.accentDeep)),
                       ),
                     ],
                   ),

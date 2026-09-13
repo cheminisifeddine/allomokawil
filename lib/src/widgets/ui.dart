@@ -125,7 +125,7 @@ class SectionTitle extends StatelessWidget {
                   children: [
                     Text(actionText!,
                         style: AppTheme.label.copyWith(
-                            fontSize: 13.5, color: AppTheme.info)),
+                            fontSize: AppTheme.fsMeta, color: AppTheme.info)),
                     const SizedBox(width: 2),
                     const Icon(Icons.arrow_back_ios_new_rounded,
                         size: 12, color: AppTheme.info),
@@ -237,7 +237,7 @@ class SecondaryButton extends StatelessWidget {
           ],
           Flexible(
             child: Text(label,
-                style: AppTheme.button.copyWith(fontSize: 16),
+                style: AppTheme.button.copyWith(fontSize: AppTheme.fsLead),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis),
           ),
@@ -277,7 +277,7 @@ class CategoryBadge extends StatelessWidget {
               label ?? Taxonomy.categoryName(slug),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: AppTheme.label.copyWith(fontSize: 12.5, color: tint),
+              style: AppTheme.label.copyWith(fontSize: AppTheme.fsCaption, color: tint),
             ),
           ),
         ],
@@ -352,7 +352,7 @@ class SelectableTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   // Explicit colour — this is the bug fix.
                   style: AppTheme.label.copyWith(
-                    fontSize: 12,
+                    fontSize: AppTheme.fsCaption,
                     height: 1.25,
                     color: selected ? AppTheme.navy : AppTheme.textPrimary,
                   ),
@@ -427,7 +427,7 @@ class StatusPill extends StatelessWidget {
             const SizedBox(width: 5),
           ],
           Text(label,
-              style: AppTheme.label.copyWith(fontSize: 12.5, color: color)),
+              style: AppTheme.label.copyWith(fontSize: AppTheme.fsCaption, color: color)),
         ],
       ),
     );
@@ -465,12 +465,12 @@ class RatingStars extends StatelessWidget {
         const SizedBox(width: 6),
         Text(
           rating.toStringAsFixed(1),
-          style: AppTheme.label.copyWith(fontSize: size - 2, color: AppTheme.textPrimary),
+          style: AppTheme.ratingValue(size),
         ),
         if (count != null) ...[
           const SizedBox(width: 4),
           Text('($count)',
-              style: AppTheme.caption.copyWith(fontSize: size - 3)),
+              style: AppTheme.ratingCount(size)),
         ],
       ],
     );
@@ -502,7 +502,7 @@ class InitialAvatar extends StatelessWidget {
         initial,
         style: TextStyle(
           fontFamily: 'Cairo',
-          fontSize: size * 0.42,
+          fontSize: AppTheme.monogram(size),
           fontWeight: FontWeight.w700,
           color: AppTheme.onNavy,
         ),
@@ -640,10 +640,10 @@ class InfoRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label,
-                    style: AppTheme.caption.copyWith(fontSize: 12)),
+                    style: AppTheme.caption),
                 const SizedBox(height: 2),
                 Text(value,
-                    style: AppTheme.label.copyWith(fontSize: 14.5),
+                    style: AppTheme.label,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis),
               ],

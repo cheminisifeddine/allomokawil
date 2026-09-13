@@ -306,7 +306,7 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Text(
               'رسائل غير مرسلة — اضغط لإعادة المحاولة',
               style: AppTheme.label
-                  .copyWith(fontSize: 12.5, color: AppTheme.accentDeep),
+                  .copyWith(fontSize: AppTheme.fsCaption, color: AppTheme.accentDeep),
             ),
           ),
           TextButton(
@@ -316,7 +316,7 @@ class _ChatScreenState extends State<ChatScreen> {
               foregroundColor: AppTheme.navy,
             ),
             child: Text('إرسال',
-                style: AppTheme.label.copyWith(fontSize: 14, color: AppTheme.navy)),
+                style: AppTheme.label.copyWith(fontSize: AppTheme.fsSmall, color: AppTheme.navy)),
           ),
         ],
       ),
@@ -447,7 +447,7 @@ class _DateDivider extends StatelessWidget {
           child: Text(
             _label,
             style: AppTheme.label
-                .copyWith(fontSize: 12, color: AppTheme.textSecondary),
+                .copyWith(fontSize: AppTheme.fsCaption, color: AppTheme.textSecondary),
           ),
         ),
       ),
@@ -496,7 +496,7 @@ class _Bubble extends StatelessWidget {
             child: Text(
               message.content ?? '',
               style: AppTheme.body.copyWith(
-                fontSize: 15,
+                fontSize: AppTheme.fsBody,
                 color: mine ? AppTheme.onNavy : AppTheme.textPrimary,
               ),
             ),
@@ -611,7 +611,7 @@ class _ImageViewer extends StatelessWidget {
           'الصورة',
           style: TextStyle(
             fontFamily: 'Cairo',
-            fontSize: 17,
+            fontSize: AppTheme.fsH2,
             fontWeight: FontWeight.w700,
             color: AppTheme.onNavy,
           ),

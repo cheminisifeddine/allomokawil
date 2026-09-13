@@ -107,7 +107,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                         _Photos(images: project.images),
                         const SizedBox(height: 18),
                         Text(project.title,
-                            style: AppTheme.display.copyWith(fontSize: 23)),
+                            style: AppTheme.display),
                         const SizedBox(height: 12),
                         _StatusRow(project: project),
                         if (project.description != null) ...[
@@ -363,7 +363,7 @@ class _MetaChip extends StatelessWidget {
           const SizedBox(width: 6),
           Text(text,
               style: AppTheme.caption
-                  .copyWith(fontSize: 12.5, color: AppTheme.textSecondary)),
+                  .copyWith(fontSize: AppTheme.fsCaption, color: AppTheme.textSecondary)),
         ],
       ),
     );
@@ -596,7 +596,7 @@ class _QuoteCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(quote.workerFullName,
-                        style: AppTheme.h2.copyWith(fontSize: 16),
+                        style: AppTheme.h2.copyWith(fontSize: AppTheme.fsLead),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 4),
@@ -627,7 +627,7 @@ class _QuoteCard extends StatelessWidget {
               children: [
                 Text('المبلغ: ${Money.dzd(quote.amount)}',
                     style: AppTheme.h2
-                        .copyWith(fontSize: 18, color: AppTheme.navy)),
+                        .copyWith(fontSize: AppTheme.fsBar, color: AppTheme.navy)),
                 if (quote.estimatedDays != null) ...[
                   const SizedBox(height: 6),
                   Row(
@@ -637,7 +637,7 @@ class _QuoteCard extends StatelessWidget {
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text('مدة الإنجاز: ${quote.estimatedDays} يوم',
-                            style: AppTheme.bodySoft.copyWith(fontSize: 13.5)),
+                            style: AppTheme.bodySoft.copyWith(fontSize: AppTheme.fsMeta)),
                       ),
                     ],
                   ),

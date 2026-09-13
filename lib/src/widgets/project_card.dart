@@ -30,7 +30,7 @@ class ProjectCard extends StatelessWidget {
                   project.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: AppTheme.h2.copyWith(fontSize: 15.5),
+                  style: AppTheme.h2.copyWith(fontSize: AppTheme.fsBody),
                 ),
                 const SizedBox(height: 7),
                 CategoryBadge(slug: project.category),
@@ -45,7 +45,7 @@ class ProjectCard extends StatelessWidget {
                         Taxonomy.wilayaName(project.wilaya),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: AppTheme.caption.copyWith(fontSize: 12.5),
+                        style: AppTheme.caption,
                       ),
                     ),
                   ],
@@ -84,7 +84,7 @@ class ProjectCard extends StatelessWidget {
                             Text(
                               'الميزانية',
                               style: AppTheme.label.copyWith(
-                                  fontSize: 12, color: AppTheme.accentDeep),
+                                  fontSize: AppTheme.fsCaption, color: AppTheme.accentDeep),
                             ),
                           ],
                         ),
@@ -94,7 +94,7 @@ class ProjectCard extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppTheme.label.copyWith(
-                                fontSize: 13, color: AppTheme.navy),
+                                fontSize: AppTheme.fsMeta, color: AppTheme.navy),
                           ),
                         ),
                       ],

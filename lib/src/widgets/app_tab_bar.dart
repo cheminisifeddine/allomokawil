@@ -140,7 +140,7 @@ class AppTabBar extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontFamily: 'Cairo',
-                      fontSize: 11,
+                      fontSize: AppTheme.fsBadge,
                       fontWeight: FontWeight.w700,
                       height: 1.1,
                       color: AppTheme.accentDeep,
@@ -182,7 +182,7 @@ class AppTabBar extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontFamily: 'Cairo',
-                    fontSize: 11,
+                    fontSize: AppTheme.fsBadge,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                     height: 1.1,
                     color: selected ? AppTheme.navy : AppTheme.textMuted,

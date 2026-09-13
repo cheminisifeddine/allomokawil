@@ -72,12 +72,7 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
           appBar: AppBar(
             title: const Text(
               'ملف المقاول',
-              style: TextStyle(
-                fontFamily: 'Cairo',
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.textPrimary,
-              ),
+              style: AppTheme.bar,
             ),
           ),
           body: Center(
@@ -199,7 +194,7 @@ class _CoverHeader extends StatelessWidget {
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: AppTheme.h1
-                                .copyWith(fontSize: 19, color: AppTheme.onNavy),
+                                .copyWith(fontSize: AppTheme.fsBar, color: AppTheme.onNavy),
                           ),
                           if (verified) ...[
                             const SizedBox(height: 8),
@@ -233,7 +228,7 @@ class _CoverHeader extends StatelessWidget {
                 Text(
                   '${worker.totalCompletedJobs} مشروع منجز • استجابة خلال ${worker.responseTimeHours ?? 0}h',
                   style: AppTheme.caption
-                      .copyWith(fontSize: 12.5, color: AppTheme.onNavyMuted),
+                      .copyWith(fontSize: AppTheme.fsCaption, color: AppTheme.onNavyMuted),
                 ),
               ],
             ),
@@ -521,7 +516,7 @@ class _ReviewCard extends StatelessWidget {
                   name.isEmpty ? 'زبون' : name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: AppTheme.label.copyWith(fontSize: 14),
+                  style: AppTheme.label,
                 ),
               ),
               const SizedBox(width: 8),
