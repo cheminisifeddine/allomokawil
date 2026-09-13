@@ -72,6 +72,12 @@ class S {
       'تحقّق من اتصالك بالإنترنت ثم أعد المحاولة.';
   static const errTimeout =
       'الخادم تأخّر في الرد. تحقّق من الشبكة ثم أعد المحاولة.';
+  /// A write whose outcome the app refuses to guess: the request left the
+  /// phone but no answer arrived inside the host timeout, and the network layer
+  /// will not re-send it to the second host because both hosts answer from the
+  /// same Worker (a re-send would post the project/quote/message twice).
+  static const errWriteUnconfirmed =
+      'انقطع الاتصال قبل تأكيد وصول طلبك. تحقّق من القائمة قبل إعادة المحاولة.';
   static const errServer =
       'خلل مؤقّت في الخادم. أعد المحاولة بعد لحظات، وإن تكرّر الأمر جرّب لاحقاً.';
   static const errUnauthorized = 'انتهت جلستك. سجّل الدخول من جديد للمتابعة.';

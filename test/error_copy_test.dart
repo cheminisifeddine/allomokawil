@@ -41,6 +41,7 @@ const Map<String, String> _sentences = {
   'errConflict': S.errConflict,
   'errTooLarge': S.errTooLarge,
   'errTooMany': S.errTooMany,
+  'errWriteUnconfirmed': S.errWriteUnconfirmed,
   'errUnexpected': S.errUnexpected,
   'errNoServer': S.errNoServer,
   'errUpload': S.errUpload,

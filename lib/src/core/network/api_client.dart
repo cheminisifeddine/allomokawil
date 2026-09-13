@@ -22,9 +22,10 @@ import '../l10n/strings.dart';
 /// networks, and it converts raw SocketExceptions into a friendly Arabic
 /// message instead of a stack trace on screen.
 class ApiClient {
-  ApiClient({http.Client? httpClient, List<String>? baseUrls})
+  ApiClient({http.Client? httpClient, List<String>? baseUrls, Duration? timeout})
       : _http = httpClient ?? http.Client(),
-        _baseUrls = List<String>.from(baseUrls ?? AppConfig.apiBaseUrls);
+        _baseUrls = List<String>.from(baseUrls ?? AppConfig.apiBaseUrls),
+        _timeout = timeout ?? defaultTimeout;
 
   final http.Client _http;
   final List<String> _baseUrls;
@@ -32,7 +33,12 @@ class ApiClient {
   /// Index of the host that last answered (starts on the primary).
   int _active = 0;
 
-  static const Duration _timeout = Duration(seconds: 20);
+  /// How long one host gets before its attempt counts as failed.
+  ///
+  /// Injectable so the write-safety rule below is testable without a test that
+  /// waits twenty real seconds for the timer to fire.
+  static const Duration defaultTimeout = Duration(seconds: 20);
+  final Duration _timeout;
 
   /// The bearer token every request carries, once a session exists.
   String? token;
@@ -58,10 +64,20 @@ class ApiClient {
 
   /// Runs [send] against each configured host until one answers, remembering
   /// the winner. Throws a friendly [ApiException] when all hosts fail.
+  ///
+  /// [idempotent] decides whether a *write* may try the second host. Both hosts
+  /// answer from the same Worker, so re-sending a request that already reached
+  /// it duplicates the row: one tap on «انشر مشروعك» whose answer never came
+  /// back inside [_timeout] would create the project twice, and its owner would
+  /// find two copies of it in «مشاريعي». The rule is therefore the conservative
+  /// one — a write moves to the other host only when the failure proves the
+  /// request never left the phone (see [_neverReached]), and otherwise the user
+  /// is told the outcome is unknown instead of being handed a guess.
   Future<http.Response> _withFailover(
     String path,
-    Future<http.Response> Function(Uri uri) send,
-  ) async {
+    Future<http.Response> Function(Uri uri) send, {
+    bool idempotent = false,
+  }) async {
     if (_baseUrls.isEmpty) {
       throw ApiException(S.errNoServer);
     }
@@ -82,14 +98,53 @@ class ApiClient {
       } on http.ClientException catch (e) {
         lastError = e;
       }
+      if (!idempotent && !_neverReached(lastError)) {
+        throw ApiException(S.errWriteUnconfirmed, cause: lastError);
+      }
     }
     throw ApiException(S.errOffline, cause: lastError);
   }
 
+  /// True when a failure proves the request never reached the server, so
+  /// re-sending it to the other host cannot duplicate anything.
+  ///
+  /// Two shapes qualify: a TLS handshake that never completed, and a host that
+  /// did not answer at the transport layer at all — no name resolved, the port
+  /// refused, or the network had no route. Everything else is ambiguous by
+  /// construction: a response that never arrived inside [_timeout], or a
+  /// connection dropped mid-flight, leaves the write *possibly delivered*, and
+  /// that is exactly the case that must not be retried.
+  ///
+  /// The messages are matched, not only the exception types, because
+  /// `package:http` wraps a `SocketException` in a `ClientException` that
+  /// *implements* `SocketException` (`io_client.dart`, http 1.6.0) — the text
+  /// survives the wrap, and it is the only thing that separates "could not
+  /// resolve" from "server went quiet".
+  bool _neverReached(Object? error) {
+    if (error is HandshakeException) return true;
+    final text = switch (error) {
+      SocketException e => e.message,
+      http.ClientException e => e.message,
+      _ => '',
+    }.toLowerCase();
+    const nothingSent = <String>[
+      'failed host lookup',
+      'name or service not known',
+      'nodename nor servname',
+      'no address associated',
+      'connection refused',
+      'network is unreachable',
+      'host is unreachable',
+      'no route to host',
+    ];
+    return nothingSent.any(text.contains);
+  }
+
   /// GET helper, throws [ApiException] on non-2xx.
   Future<dynamic> get(String path) async {
-    final res =
-        await _withFailover(path, (uri) => _http.get(uri, headers: _headers));
+    final res = await _withFailover(
+        path, (uri) => _http.get(uri, headers: _headers),
+        idempotent: true);
     return _decode(res);
   }
 
@@ -97,7 +152,10 @@ class ApiClient {
     final res = await _withFailover(
         path,
         (uri) => _http.post(uri,
-            headers: _headers, body: jsonEncode(body ?? {})));
+            headers: _headers, body: jsonEncode(body ?? {})),
+        // Never re-sent: every POST in this API creates something — a project,
+        // a quote, a message, a review, a subscription.
+        idempotent: false);
     return _decode(res);
   }
 
@@ -113,13 +171,18 @@ class ApiClient {
     final res = await _withFailover(
         path,
         (uri) => _http.patch(uri,
-            headers: _headers, body: jsonEncode(body ?? {})));
+            headers: _headers, body: jsonEncode(body ?? {})),
+        // A PATCH here writes a fixed set of fields to one row, so a re-send
+        // lands the same values: it cannot create a second row.
+        idempotent: true);
     return _decode(res);
   }
 
   Future<dynamic> delete(String path) async {
-    final res = await _withFailover(
-        path, (uri) => _http.delete(uri, headers: _headers));
+    final res = await _withFailover(path,
+        (uri) => _http.delete(uri, headers: _headers),
+        // HTTP-idempotent: a repeat leaves the same state behind.
+        idempotent: true);
     return _decode(res);
   }
 
