@@ -49,6 +49,15 @@ correctness gap — never a refactor for its own sake. One item per loop.
 **Never touch:** release signing config, any API token or secret, the Cloudflare
 deploy credentials, or `.github/workflows` secrets. No force-push, ever.
 
+**Before any `flutter test` / `flutter analyze` / Gradle build, check
+`pgrep -c java` and `pgrep -fc "[f]lutter"`.** Non-zero means another writer is
+building on this 7.8 GB, no-swap box and a second build gets OOM-killed. Take a
+non-build item instead. Note that a *hung* `flutter_tester` whose parent is
+`systemd` is an orphan from an earlier tick, not a live build: it sits at 0 %
+CPU and holds `build/unit_test_assets`, so **report it, do not kill it**, and
+do not start a test run over the top of it — on 13 Sep it blocked a tick this
+way for 37 minutes.
+
 **Honesty rule:** if an item turns out to be already implemented, already
 correct, or blocked on something outside the app, do not fake progress — mark it
 with the reason and move to the next one.
@@ -425,9 +434,37 @@ understand that is the single biggest "this app is foreign" signal.
       test proving the steps reach the engine. No reflow: PNG diff of all 15
       design shots shows content boxes within 1 logical px of baseline, and the
       landing CTA box is byte-identical in size (w1032 h168 @3x).
-- [ ] **Colour contrast re-verification.** After the pass, re-check every
+- [x] **Colour contrast re-verification.** After the pass, re-check every
       foreground/background pair at WCAG AA (4.5:1 body, 3:1 large) with
       pixel maths from real screenshots — the same method used previously.
+      **DONE `4376674`.** `tool/contrast_audit.py` reads the 23 colour tokens
+      straight out of `app_theme.dart` (so the audit can never go stale
+      against a copied palette) and reports 21/23 pairs at or above
+      threshold. All **20 text pairs pass**, tightest being `textMuted` on
+      `accentWash` 4.51, `success`/`danger` on their washes 4.51 and
+      `accentDeep` on `accentWash` 4.52 — and each was confirmed to be
+      **actually drawn**, not merely computed: sampling the 25 design PNGs in
+      `/tmp/shots` finds both colours of every passing pair, e.g. navy ink on
+      the gold CTA in 18/25 shots as 41 144 gold px against 4 868 ink px.
+      Re-run with `python3 tool/contrast_audit.py shots /tmp/shots`.
+      Of the two failures, `line` on `bg` (1.22:1) is **not** a defect — it is
+      a decorative hairline and card divider, outside WCAG 1.4.11, and it must
+      stay light or cards stop reading as calm. It is carried in the checker
+      so the ratio is on the record, and a later loop must not "fix" it. The
+      star glyph is the real finding: the next item.
+- [ ] **The star glyph is the weakest graphic in the app at 1.91:1.**
+      `AppTheme.star` (`#F2B01E`) on white measures 1.91:1, under the 3:1 that
+      WCAG 1.4.11 asks of a meaningful graphic, and it is really drawn in 5 of
+      the 25 design shots. Where a star row carries a rating the number beside
+      it is `textPrimary` (17.75:1), so the meaning survives — but in the
+      review picker the **empty** stars are `line` (1.22:1), which makes "how
+      many did I pick" the hardest thing on that screen to see. Darken the
+      glyph to the nearest gold that clears 3:1 on white while staying legible
+      on navy: `#C2870F` = 3.10:1 on white, 5.12:1 on navy (alternatives
+      `#B5790B` 3.68/4.32 and `#AD7208` 4.05/3.93; today's `#F2B01E` is
+      1.91/8.33).
+      *Done when:* the checker reports `star on bg` at 3.0 or better **and** a
+      fresh 412 px render shows filled and empty stars still telling apart.
 - [ ] **Touch targets ≥ 56 px** on every interactive element, measured from
       screenshots, including icon buttons.
 - [ ] **Press feedback + intentional motion.** Buttons visibly respond on press;
