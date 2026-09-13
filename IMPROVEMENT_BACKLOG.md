@@ -452,7 +452,7 @@ understand that is the single biggest "this app is foreign" signal.
       stay light or cards stop reading as calm. It is carried in the checker
       so the ratio is on the record, and a later loop must not "fix" it. The
       star glyph is the real finding: the next item.
-- [ ] **The star glyph is the weakest graphic in the app at 1.91:1.**
+- [x] **The star glyph is the weakest graphic in the app at 1.91:1.**
       `AppTheme.star` (`#F2B01E`) on white measures 1.91:1, under the 3:1 that
       WCAG 1.4.11 asks of a meaningful graphic, and it is really drawn in 5 of
       the 25 design shots. Where a star row carries a rating the number beside
@@ -465,6 +465,38 @@ understand that is the single biggest "this app is foreign" signal.
       1.91/8.33).
       *Done when:* the checker reports `star on bg` at 3.0 or better **and** a
       fresh 412 px render shows filled and empty stars still telling apart.
+      **DONE `4e4b634`.** Shipped as **#B5790B**, not the #C2870F this item
+      proposed — #C2870F still measured 2.82 / 2.90 on the wash tiles, which is
+      exactly where the star is drawn (the worker-home stat tile and the landing
+      promise row), so it was the wrong gold. #B5790B clears 3:1 on every
+      surface the app actually uses: white 3.68, `surfaceAlt` 3.43, `accentWash`
+      3.35, navy 4.32. The picker's unselected stars were drawn in the *hairline*
+      `line` token (1.22:1) — a rating scale the user could not see — and now have
+      their own `starEmpty` #8A8A91 (3.43 white / 3.20 `surfaceAlt`). The rating
+      also opened on five stars, so the fastest path through the screen published
+      a score nobody chose; it now opens empty and the submit path refuses an
+      untouched screen with an Arabic message. `controlLine` (3.25) joined the
+      same pass so outlined buttons keep a visible boundary on the white canvas.
+      *Re-checked by the loop 13 Sep 04:14 without a build* (another writer held
+      6 `flutter` processes on this box, so no analyzer/test run this tick):
+      `python3 tool/contrast_audit.py token` → **28/28 judged pairs pass, exit 0**,
+      `star on bg` 3.68, `star on accentWash` 3.35, `starEmpty on bg` 3.43,
+      `controlLine on bg` 3.25, and `line on bg` 1.22 carried as deliberately
+      decorative. The picker (`lib/src/screens/review/review_screen.dart:198`)
+      separates filled from empty by **glyph** as well as colour —
+      `star_rounded` vs `star_outline_rounded` — so the 1.07:1 between the two
+      golds is not what carries the meaning, and each star keeps a 48–58 px
+      target.
+      *Render evidence is the previous writer's, and this tick could not replace
+      it:* the commit records the 412 px bundle check (retired gold 506 px → 0,
+      new star 0 → 500 px on the review screen). **Warning for the next loop:
+      `/tmp/shots` is not trustworthy right now.** At 04:12 it held another
+      session's `HEAD~1` (pre-fix) render — `17_review.png` still shows 24,095 px
+      of the retired #F2B01E in five filled picker boxes, because that session
+      had checked out `HEAD~1 -- lib/` and redirected the shots there. Compare a
+      shot's mtime against the commit time before reading it as "after".
+      **Carry-over found here:** the same picker clamps its stars to 48 px, under
+      the 56 px the next item demands — check it when that item is taken.
 - [ ] **Touch targets ≥ 56 px** on every interactive element, measured from
       screenshots, including icon buttons.
 - [ ] **Press feedback + intentional motion.** Buttons visibly respond on press;
