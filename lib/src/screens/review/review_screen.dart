@@ -24,7 +24,11 @@ class ReviewScreen extends StatefulWidget {
 
 class _ReviewScreenState extends State<ReviewScreen> {
   final _comment = TextEditingController();
-  int _rating = 5;
+  // No pre-cast vote. This used to open on 5 stars, so the fastest path
+  // through the screen was "tap submit" and every rushed review was a
+  // five — the picker's own scale was never even drawn. It starts empty and
+  // `_submit` refuses to send nothing.
+  int _rating = 0;
   bool _busy = false;
 
   @override
@@ -34,6 +38,11 @@ class _ReviewScreenState extends State<ReviewScreen> {
   }
 
   Future<void> _submit() async {
+    if (_rating == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('اختر عدد النجوم أولاً')));
+      return;
+    }
     setState(() => _busy = true);
     try {
       await widget.repo.createReview(
@@ -121,7 +130,11 @@ class _ReviewScreenState extends State<ReviewScreen> {
                   spacing: 6,
                   runSpacing: 4,
                   children: [
-                    const RatingStars(rating: 5, size: 14),
+                    // One star is iconography for "reviews". Five of them next
+                    // to the word "trust" is a score nobody earned — and this
+                    // screen is where the user is about to set a real one.
+                    const Icon(Icons.star_rounded,
+                        size: 16, color: AppTheme.star),
                     Text('التقييمات تبني الثقة في السوق',
                         style: AppTheme.caption
                             .copyWith(color: AppTheme.textSecondary)),
@@ -137,6 +150,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
 
   String _label(int r) {
     switch (r) {
+      case 0:
+        return 'اختر تقييماً';
       case 1:
         return 'سيئ جداً';
       case 2:
@@ -180,7 +195,7 @@ class _StarPicker extends StatelessWidget {
                           ? Icons.star_rounded
                           : Icons.star_outline_rounded,
                       size: star * 0.78,
-                      color: n <= value ? AppTheme.star : AppTheme.line,
+                      color: n <= value ? AppTheme.star : AppTheme.starEmpty,
                     ),
                   ),
                 ),

@@ -114,7 +114,7 @@ class OutlineButton extends StatelessWidget {
         style: OutlinedButton.styleFrom(
           minimumSize: const Size.fromHeight(AppTheme.tapMin),
           foregroundColor: AppTheme.navy,
-          side: const BorderSide(color: AppTheme.line, width: 1.5),
+          side: const BorderSide(color: AppTheme.controlLine, width: 1.5),
           shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppTheme.rMd)),
         ),

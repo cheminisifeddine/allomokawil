@@ -112,11 +112,11 @@ class AppTabBar extends StatelessWidget {
                       color: AppTheme.accent,
                       shape: BoxShape.circle,
                       border: Border.all(color: AppTheme.surface, width: 4),
-                      boxShadow: const [
+                      boxShadow: [
                         BoxShadow(
-                          color: Color(0x4DF2B23E),
+                          color: AppTheme.accent.withValues(alpha: 0.30),
                           blurRadius: 18,
-                          offset: Offset(0, 6),
+                          offset: const Offset(0, 6),
                         ),
                       ],
                     ),

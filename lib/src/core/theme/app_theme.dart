@@ -49,7 +49,27 @@ class AppTheme {
   static const Color dangerWash = Color(0xFFFCEDEC);
   static const Color info = Color(0xFF2C6FBB);
   static const Color infoWash = Color(0xFFEAF2FB);
-  static const Color star = Color(0xFFF2B01E);
+
+  /// The rating star glyph — a meaningful graphic, so WCAG 1.4.11 asks it to
+  /// clear 3:1 against whatever it is drawn on. This is the nearest gold that
+  /// clears it on *every* surface the app uses: white 3.68, `surfaceAlt` 3.43,
+  /// `accentWash` 3.35 (the worker-home stat tile and the landing promise row
+  /// both put it on the wash), while staying legible on `navy` (4.32).
+  /// The previous #F2B01E measured 1.91 on white and 1.74 on the wash — the
+  /// star lost its silhouette and a filled row read as a smudge.
+  static const Color star = Color(0xFFB5790B);
+
+  /// Unselected stars of the rating input. This is the *track* of a control,
+  /// not a decorative divider: `line` (1.22:1) made the scale a user picks
+  /// from almost invisible, so it gets its own visible neutral. 3.43 on white,
+  /// 3.20 on `surfaceAlt`.
+  static const Color starEmpty = Color(0xFF8A8A91);
+
+  /// Boundary of an outlined control (secondary/outline button, unselected
+  /// chip). `line` is right for a card hairline but too faint to mark a tap
+  /// target — 1.22:1 made the button read as floating text. 3.25 on white,
+  /// 3.03 on `surfaceAlt`.
+  static const Color controlLine = Color(0xFF8A8F99);
 
   // ── Geometry ───────────────────────────────────────────────────────────
   /// Radii. A screen names a step; it never types a number.

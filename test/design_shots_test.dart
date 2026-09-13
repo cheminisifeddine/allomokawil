@@ -37,6 +37,7 @@ import 'package:allomokawil/src/screens/chat/chat_list_screen.dart';
 import 'package:allomokawil/src/screens/chat/chat_screen.dart';
 import 'package:allomokawil/src/screens/customer/customer_home_screen.dart';
 import 'package:allomokawil/src/screens/profile_screen.dart';
+import 'package:allomokawil/src/screens/review/review_screen.dart';
 import 'package:allomokawil/src/screens/project/project_detail_screen.dart';
 import 'package:allomokawil/src/screens/project/project_new_screen.dart';
 import 'package:allomokawil/src/screens/project/projects_screen.dart';
@@ -279,6 +280,7 @@ Future<void> _shoot(
   ApiClient api,
   AuthState auth, {
   Size logical = const Size(392, 850),
+  Future<void> Function(WidgetTester tester)? act,
 }) async {
   tester.view.physicalSize = logical * 2.75;
   tester.view.devicePixelRatio = 2.75;
@@ -311,6 +313,15 @@ Future<void> _shoot(
   // Let the screens' futures settle without waiting on infinite animations.
   for (var i = 0; i < 8; i++) {
     await tester.pump(const Duration(milliseconds: 80));
+  }
+
+  // An optional interaction before the capture — how a state that only exists
+  // after a tap (a half-picked rating) gets its own shot.
+  if (act != null) {
+    await act(tester);
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 80));
+    }
   }
 
   final boundary =
@@ -403,6 +414,27 @@ void main() {
     await _shoot(tester, '13_profile', const ProfileScreen(), s.api, s.auth);
     await _shoot(
         tester, '14_verification', const VerificationScreen(), s.api, s.auth);
+    // The rating input: the unselected stars are the track the user picks
+    // from, and they used to be drawn in `line` (1.22:1). This shot is the
+    // evidence that `AppTheme.starEmpty` reached the widget tree.
+    await _shoot(
+        tester,
+        '17_review',
+        ReviewScreen(
+            projectId: 'demo-project', workerId: 16, repo: Repository(s.api)),
+        s.api,
+        s.auth);
+    // …and the same screen after the user picks 2 of 5: the three stars still
+    // on the table have to be visible, because that is the scale they choose
+    // from. Tap the second star (index 1) in the RTL row.
+    await _shoot(
+        tester,
+        '18_review_2of5',
+        ReviewScreen(
+            projectId: 'demo-project', workerId: 16, repo: Repository(s.api)),
+        s.api,
+        s.auth,
+        act: (t) => t.tap(find.byIcon(Icons.star_outline_rounded).at(1)));
   });
 
   testWidgets('shots: notifications', (tester) async {

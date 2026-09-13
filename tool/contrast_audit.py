@@ -51,12 +51,27 @@ PAIRS = [
     ("success", "bg", "body"),
     ("danger", "bg", "body"),
     ("info", "bg", "body"),
+    # ── Meaningful graphics (WCAG 1.4.11, 3:1) ─────────────────────────────
+    # The star glyph is drawn on white, on `surfaceAlt` cards and on the
+    # `accentWash` tiles, so all three are checked.
     ("star", "bg", "graphic"),
+    ("star", "surfaceAlt", "graphic"),
+    ("star", "accentWash", "graphic"),
     ("star", "navy", "graphic"),
-    ("line", "bg", "graphic"),
+    # The unselected half of the rating input — a control track, not a divider.
+    ("starEmpty", "bg", "graphic"),
+    ("starEmpty", "surfaceAlt", "graphic"),
+    # Outline of a secondary button: the only thing marking the tap target.
+    ("controlLine", "bg", "graphic"),
+    ("controlLine", "surfaceAlt", "graphic"),
+    # Decorative only, judged at no threshold — carried so the ratio is on the
+    # record. `line` is the card hairline and the divider; it must stay light
+    # or the calm canvas dies. It is not the boundary of any control (that is
+    # `controlLine`) and it never carries meaning on its own.
+    ("line", "bg", "decor"),
 ]
 
-NEED = {"body": 4.5, "large": 3.0, "graphic": 3.0}
+NEED = {"body": 4.5, "large": 3.0, "graphic": 3.0, "decor": 0.0}
 
 
 def parse_palette(path):
@@ -164,8 +179,13 @@ def main():
         return 0
 
     print(f"palette: {len(palette)} tokens from {os.path.basename(THEME)}")
+    decor = 0
     for r in rows:
-        mark = "PASS" if r["pass"] else "FAIL"
+        if r["kind"] == "decor":
+            decor += 1
+            mark = "----"
+        else:
+            mark = "PASS" if r["pass"] else "FAIL"
         where = ""
         if args.mode == "shots":
             if r["present"]:
@@ -175,8 +195,11 @@ def main():
                 where = "  not drawn in any shot"
         print(f"  {mark}  {r['ratio']:5.2f} (need {r['need']})  "
               f"{r['fg']} on {r['bg']}{where}")
-    bad = [r for r in rows if not r["pass"]]
-    print(f"\n{len(rows) - len(bad)}/{len(rows)} pass, {len(bad)} below threshold")
+    judged = [r for r in rows if r["kind"] != "decor"]
+    bad = [r for r in judged if not r["pass"]]
+    print(f"\n{len(judged) - len(bad)}/{len(judged)} judged pairs pass, "
+          f"{len(bad)} below threshold"
+          + (f" ({decor} decorative pair(s) not judged)" if decor else ""))
     return 1 if bad else 0
 
 

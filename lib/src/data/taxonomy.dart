@@ -87,7 +87,7 @@ class Taxonomy {
       slug: 'renovation',
       name: 'ترميم وتجديد',
       icon: Icons.handyman_rounded,
-      tint: Color(0xFFC9821B),
+      tint: Color(0xFFB8790F),
       wash: Color(0xFFFDF3E3)
     ),
     (
@@ -122,7 +122,7 @@ class Taxonomy {
       slug: 'electrical',
       name: 'كهرباء وإنارة',
       icon: Icons.electrical_services_rounded,
-      tint: Color(0xFFC9920F),
+      tint: Color(0xFFA87A0A),
       wash: Color(0xFFFDF6E3)
     ),
     (
