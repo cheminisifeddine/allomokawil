@@ -559,6 +559,7 @@ class _PhotosState extends State<_Photos> {
               onPageChanged: (i) => setState(() => _index = i),
               itemBuilder: (context, i) => Image.network(
                 widget.images[i],
+                semanticLabel: 'صورة المشروع ${i + 1}',
                 width: double.infinity,
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => const _PhotoFallback(),

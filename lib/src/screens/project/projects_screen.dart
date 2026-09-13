@@ -10,6 +10,7 @@ import '../../models/project.dart';
 import '../../widgets/feed_search_field.dart';
 import '../../widgets/motion.dart';
 import '../../widgets/project_card.dart';
+import '../../widgets/a11y.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
 import 'project_detail_screen.dart';
@@ -277,7 +278,9 @@ class _TabPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      child: InkWell(
+      child: A11y.button(
+        selected: selected,
+        child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppTheme.rPill),
         child: AnimatedContainer(
@@ -308,7 +311,7 @@ class _TabPill extends StatelessWidget {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 }

@@ -8,6 +8,7 @@ import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
 import '../../models/worker.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/a11y.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
 import '../../widgets/worker_card.dart';
@@ -314,7 +315,9 @@ class _FilterPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      child: InkWell(
+      child: A11y.button(
+        selected: selected,
+        child: InkWell(
         borderRadius: BorderRadius.circular(AppTheme.rPill),
         onTap: onTap,
         child: AnimatedContainer(
@@ -354,7 +357,7 @@ class _FilterPill extends StatelessWidget {
             ),
           ),
         ),
-      ),
+      )),
     );
   }
 }

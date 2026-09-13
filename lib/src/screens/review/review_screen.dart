@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
+import '../../widgets/a11y.dart';
 import '../../widgets/ui.dart';
 import '../../core/l10n/error_copy.dart';
 
@@ -208,7 +209,10 @@ class _StarPicker extends StatelessWidget {
               SizedBox(
                 width: star,
                 height: star,
-                child: InkWell(
+                child: A11y.tap(
+                    label: A11y.star(n),
+                    selected: n <= value,
+                    child: InkWell(
                   onTap: () => onChanged(n),
                   borderRadius: BorderRadius.circular(AppTheme.rSm),
                   child: Center(
@@ -220,7 +224,7 @@ class _StarPicker extends StatelessWidget {
                       color: n <= value ? AppTheme.star : AppTheme.starEmpty,
                     ),
                   ),
-                ),
+                )),
               ),
           ],
         );

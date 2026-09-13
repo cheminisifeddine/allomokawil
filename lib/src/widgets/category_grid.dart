@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/motion.dart';
 import '../data/taxonomy.dart';
+import 'a11y.dart';
 import 'ui.dart';
 
 /// Horizontal strip of service categories.
@@ -63,7 +64,10 @@ class _CategoryStripTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      child: InkWell(
+      child: A11y.button(
+        selected: selected,
+        enabled: onTap != null,
+        child: InkWell(
         borderRadius: BorderRadius.circular(AppTheme.rMd),
         onTap: onTap,
         child: AnimatedContainer(
@@ -108,7 +112,7 @@ class _CategoryStripTile extends StatelessWidget {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 }

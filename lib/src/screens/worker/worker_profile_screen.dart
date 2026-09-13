@@ -156,6 +156,7 @@ class _CoverHeader extends StatelessWidget {
             child: hasCover
                 ? Image.network(
                     cover,
+                    semanticLabel: 'صورة غلاف الملف',
                     fit: BoxFit.cover,
                     errorBuilder: (_, __, ___) =>
                         const ColoredBox(color: AppTheme.navy),
@@ -405,6 +406,7 @@ class _PortfolioTile extends StatelessWidget {
       borderRadius: BorderRadius.circular(AppTheme.rMd),
       child: Image.network(
         url,
+        semanticLabel: 'صورة من أعمال المقاول',
         fit: BoxFit.cover,
         errorBuilder: (_, __, ___) => _fallback(),
         loadingBuilder: (context, child, progress) => progress == null

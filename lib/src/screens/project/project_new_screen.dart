@@ -15,6 +15,7 @@ import '../../data/taxonomy.dart';
 import '../../models/project.dart';
 import '../../widgets/category_grid.dart';
 import '../../widgets/number_field.dart';
+import '../../widgets/a11y.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
 import '../../core/l10n/error_copy.dart';
@@ -439,6 +440,7 @@ class _KeptPhoto extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppTheme.rMd),
           child: Image.network(
             url,
+            semanticLabel: 'صورة المشروع',
             width: 78,
             height: 78,
             fit: BoxFit.cover,
@@ -855,7 +857,9 @@ class _UrgencyPill extends StatelessWidget {
 
     return Material(
       color: Colors.transparent,
-      child: InkWell(
+      child: A11y.button(
+        selected: selected,
+        child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppTheme.rPill),
         child: AnimatedContainer(
@@ -887,7 +891,7 @@ class _UrgencyPill extends StatelessWidget {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 }
@@ -949,6 +953,7 @@ class _ImageAttach extends StatelessWidget {
                         borderRadius: BorderRadius.circular(AppTheme.rMd),
                         child: Image.file(
                           File(images[i].path),
+                          semanticLabel: 'صورة المشروع ${i + 1}',
                           width: 96,
                           height: 96,
                           fit: BoxFit.cover,
@@ -957,7 +962,9 @@ class _ImageAttach extends StatelessWidget {
                       Positioned(
                         top: 4,
                         left: 4,
-                        child: GestureDetector(
+                        child: A11y.tap(
+                          label: 'حذف الصورة ${i + 1}',
+                          child: GestureDetector(
                           onTap: () => onRemove(i),
                           // The disc stays 26 dp; the target around it is the
                           // full 56. This is the smallest control on the screen
@@ -978,7 +985,7 @@ class _ImageAttach extends StatelessWidget {
                               ),
                             ),
                           ),
-                        ),
+                        )),
                       ),
                     ],
                   ),

@@ -285,11 +285,13 @@ class _Avatar extends StatelessWidget {
       return InitialAvatar(name: conv.otherUserName, size: 52);
     }
     return ClipOval(
+      // Name and time are already on the row — the avatar is decoration.
       child: Image.network(
         url,
         width: 52,
         height: 52,
         fit: BoxFit.cover,
+        excludeFromSemantics: true,
         errorBuilder: (_, __, ___) =>
             InitialAvatar(name: conv.otherUserName, size: 52),
       ),

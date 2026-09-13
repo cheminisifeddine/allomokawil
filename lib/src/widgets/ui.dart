@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/motion.dart';
 import '../data/taxonomy.dart';
+import 'a11y.dart';
 import 'motion.dart';
 
 /// ─────────────────────────────────────────────────────────────────────────
@@ -328,7 +329,10 @@ class SelectableTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      child: InkWell(
+      child: A11y.button(
+        selected: selected,
+        enabled: onTap != null,
+        child: InkWell(
         borderRadius: BorderRadius.circular(AppTheme.rMd),
         onTap: onTap,
         child: AnimatedContainer(
@@ -376,7 +380,7 @@ class SelectableTile extends StatelessWidget {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 }
@@ -464,30 +468,38 @@ class RatingStars extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (var i = 1; i <= 5; i++)
-          Icon(
-            i <= rating.round()
-                ? Icons.star_rounded
-                : (i - 0.5 <= rating
-                    ? Icons.star_half_rounded
-                    : Icons.star_outline_rounded),
-            size: size,
-            color: AppTheme.star,
+    // Stars are geometry: read out one by one they are five meaningless icons
+    // and a bare number. The row is a leaf — the icons are excluded and the
+    // score is handed over as the sentence a person would say.
+    return Semantics(
+      container: true,
+      excludeSemantics: true,
+      label: A11y.rating(rating, count: count),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 1; i <= 5; i++)
+            Icon(
+              i <= rating.round()
+                  ? Icons.star_rounded
+                  : (i - 0.5 <= rating
+                      ? Icons.star_half_rounded
+                      : Icons.star_outline_rounded),
+              size: size,
+              color: AppTheme.star,
+            ),
+          const SizedBox(width: 6),
+          Text(
+            rating.toStringAsFixed(1),
+            style: AppTheme.ratingValue(size),
           ),
-        const SizedBox(width: 6),
-        Text(
-          rating.toStringAsFixed(1),
-          style: AppTheme.ratingValue(size),
-        ),
-        if (count != null) ...[
-          const SizedBox(width: 4),
-          Text('($count)',
-              style: AppTheme.ratingCount(size)),
+          if (count != null) ...[
+            const SizedBox(width: 4),
+            Text('($count)',
+                style: AppTheme.ratingCount(size)),
+          ],
         ],
-      ],
+      ),
     );
   }
 }

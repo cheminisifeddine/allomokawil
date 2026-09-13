@@ -103,6 +103,8 @@ class _Welcome extends StatelessWidget {
         // The mark on its own: no tile, no ring, nothing behind it.
         Image.asset(
           'assets/brand/mark.png',
+          // Decoration: the app name is printed right underneath it.
+          excludeFromSemantics: true,
           width: 200,
           fit: BoxFit.contain,
         ),

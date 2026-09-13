@@ -9,6 +9,7 @@ import '../../core/theme/motion.dart';
 import '../../data/repository.dart';
 import '../../models/plan.dart';
 import '../../widgets/skeletons.dart';
+import '../../widgets/a11y.dart';
 import '../../widgets/ui.dart';
 
 /// «اشتراكي» — the contractor's subscription, and the app's revenue surface.
@@ -381,7 +382,7 @@ class _PeriodToggle extends StatelessWidget {
         children: [
           for (final p in BillingPeriod.values)
             Expanded(
-              child: GestureDetector(
+              child: A11y.button(selected: p == period, child: GestureDetector(
                 onTap: () => onChanged(p),
                 behavior: HitTestBehavior.opaque,
                 child: AnimatedContainer(
@@ -425,7 +426,7 @@ class _PeriodToggle extends StatelessWidget {
                     ],
                   ),
                 ),
-              ),
+              )),
             ),
         ],
       ),
@@ -734,7 +735,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
               for (final m in widget.payment.methods)
                 Padding(
                   padding: const EdgeInsets.only(bottom: AppTheme.s8),
-                  child: GestureDetector(
+                  child: A11y.button(selected: m.id == method?.id, child: GestureDetector(
                     onTap: () => setState(() => _method = m),
                     behavior: HitTestBehavior.opaque,
                     child: AppCard(
@@ -757,7 +758,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                         ],
                       ),
                     ),
-                  ),
+                  )),
                 ),
               const SizedBox(height: AppTheme.s8),
               _PayInstructions(

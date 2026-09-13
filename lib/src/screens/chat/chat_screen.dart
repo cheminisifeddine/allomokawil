@@ -9,6 +9,7 @@ import '../../data/chat_outbox.dart';
 import '../../data/chat_time.dart';
 import '../../data/repository.dart';
 import '../../models/chat.dart';
+import '../../widgets/a11y.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
 
@@ -804,6 +805,7 @@ class _ImageBubble extends StatelessWidget {
             url,
             width: 220,
             fit: BoxFit.cover,
+            excludeFromSemantics: true,
             loadingBuilder: (context, child, progress) => progress == null
                 ? child
                 : const SkeletonBox(height: 170, width: 220, radius: 0),
@@ -813,6 +815,7 @@ class _ImageBubble extends StatelessWidget {
             File(url),
             width: 220,
             fit: BoxFit.cover,
+            excludeFromSemantics: true,
             errorBuilder: (_, __, ___) => const _ImageFallback(),
           );
 
@@ -820,7 +823,9 @@ class _ImageBubble extends StatelessWidget {
       color: AppTheme.surface,
       borderRadius: radius,
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
+      child: A11y.tap(
+        label: 'صورة في المحادثة، اضغط لعرضها بالحجم الكامل',
+        child: InkWell(
         onTap: onTap,
         child: Container(
           decoration: BoxDecoration(
@@ -829,7 +834,7 @@ class _ImageBubble extends StatelessWidget {
           ),
           child: ClipRRect(borderRadius: radius, child: image),
         ),
-      ),
+      )),
     );
   }
 }
@@ -890,9 +895,11 @@ class _ImageViewer extends StatelessWidget {
           maxScale: 4,
           child: isRemote
               ? Image.network(url,
+                  semanticLabel: 'الصورة بالحجم الكامل',
                   fit: BoxFit.contain,
                   errorBuilder: (_, __, ___) => const _ViewerFallback())
               : Image.file(File(url),
+                  semanticLabel: 'الصورة بالحجم الكامل',
                   fit: BoxFit.contain,
                   errorBuilder: (_, __, ___) => const _ViewerFallback()),
         ),

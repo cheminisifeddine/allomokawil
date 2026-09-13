@@ -633,6 +633,7 @@ class _DocCard extends StatelessWidget {
                 child: chosen
                     ? Image.file(
                         File(file!.path),
+                        semanticLabel: 'الصورة المختارة',
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => Center(
                           child: IconBubble(

@@ -126,6 +126,7 @@ class _Thumb extends StatelessWidget {
         child: img != null
             ? Image.network(
                 img,
+                semanticLabel: 'صورة المشروع',
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => _fallback(),
               )

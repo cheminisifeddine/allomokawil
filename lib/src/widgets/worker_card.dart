@@ -195,11 +195,14 @@ class _Avatar extends StatelessWidget {
   Widget build(BuildContext context) {
     if (worker.avatarUrl != null && worker.avatarUrl!.isNotEmpty) {
       return ClipOval(
+        // The card prints the name right beside the photo; the photo saying its
+        // own name too is the same fact read twice.
         child: Image.network(
           worker.avatarUrl!,
           width: size,
           height: size,
           fit: BoxFit.cover,
+          excludeFromSemantics: true,
           errorBuilder: (_, __, ___) => _initials(),
         ),
       );

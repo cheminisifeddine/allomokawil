@@ -373,6 +373,8 @@ class _TopBar extends StatelessWidget {
           const SizedBox(width: 8),
           Image.asset(
             'assets/brand/mark.png',
+            // Decoration: the app name sits next to it.
+            excludeFromSemantics: true,
             width: 44,
             fit: BoxFit.contain,
           ),

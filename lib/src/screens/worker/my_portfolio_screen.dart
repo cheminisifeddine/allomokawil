@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
 import '../../models/worker.dart';
+import '../../widgets/a11y.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
 import '../../core/l10n/error_copy.dart';
@@ -292,7 +293,8 @@ class _Gallery extends StatelessWidget {
       crossAxisSpacing: 10,
       children: [
         _AddTile(busy: busy, onTap: onAdd),
-        for (final url in images) _PhotoTile(url: url),
+        for (var i = 0; i < images.length; i++)
+          _PhotoTile(url: images[i], index: i),
       ],
     );
   }
@@ -309,7 +311,7 @@ class _AddTile extends StatelessWidget {
     return Material(
       color: AppTheme.accentWash,
       borderRadius: BorderRadius.circular(AppTheme.rMd),
-      child: InkWell(
+      child: A11y.button(enabled: !busy, child: InkWell(
         onTap: busy ? null : onTap,
         borderRadius: BorderRadius.circular(AppTheme.rMd),
         child: DecoratedBox(
@@ -339,15 +341,16 @@ class _AddTile extends StatelessWidget {
                   ),
           ),
         ),
-      ),
+      )),
     );
   }
 }
 
 class _PhotoTile extends StatelessWidget {
   final String url;
+  final int index;
 
-  const _PhotoTile({required this.url});
+  const _PhotoTile({required this.url, required this.index});
 
   @override
   Widget build(BuildContext context) {
@@ -355,6 +358,7 @@ class _PhotoTile extends StatelessWidget {
       borderRadius: BorderRadius.circular(AppTheme.rMd),
       child: Image.network(
         url,
+        semanticLabel: 'صورة من أعمالي ${index + 1}',
         fit: BoxFit.cover,
         errorBuilder: (_, __, ___) => const ColoredBox(
           color: AppTheme.lineSoft,
