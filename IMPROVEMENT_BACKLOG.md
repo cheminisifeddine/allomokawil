@@ -976,7 +976,7 @@ understand that is the single biggest "this app is foreign" signal.
 
 ## Phase 4 — Engineering hardening
 
-- [ ] **Stop the loop gate from seeding production.** `flutter test` runs the
+- [~] **Stop the loop gate from seeding production.** *(app-side half done; the purge is a handoff)* `flutter test` runs the
       three `test/live_*_e2e_test.dart` files on every tick, and each one
       registers a fresh customer + worker on the LIVE API and leaves them there.
       `GET /api/mobile/workers/search` (authenticated, 13 Sep) returns **40**
@@ -1007,8 +1007,33 @@ understand that is the single biggest "this app is foreign" signal.
       them needs a `DELETE` route in `finili/workers/mobile.ts` or a
       `wrangler d1 execute`, i.e. BACKEND-API/DEVOPS with the Cloudflare
       credentials — this loop does not hold them.
-- [ ] **Golden/screenshot tests** for the main screens so a design regression
-      fails CI rather than being noticed by the founder.
+- [x] **Golden/screenshot tests** for the main screens so a design regression
+      fails CI rather than being noticed by the founder. **DONE `9fad004`.**
+      The `/tmp` shots prove a screen looked right to the tick that rendered it
+      and nobody else ever sees them, so a regression still had to reach the
+      founder before the suite noticed. Eight main screens — landing, sign-in,
+      customer home, worker home, browse, chat thread, notifications, project
+      detail — are now captured by `_golden` in `test/design_shots_test.dart`
+      against committed baselines in `test/goldens/` (412 KB for the eight, the
+      real Cairo and MaterialIcons faces, 392x850 logical, dpr 1.0, Arabic
+      locale) and compared by every default `flutter test`.
+      `_golden` fails **before** the capture if the build threw, so a broken
+      layout can never be baselined as correct. `test/goldens/README.md` says
+      how to re-baseline (`--update-goldens`), where a failed run leaves its
+      masked diff, and why an engine upgrade is a regeneration rather than a
+      deletion of the test.
+      *Verified:* `flutter analyze` -> **No issues found!**; `flutter test` ->
+      **421 passed / 3 skipped** (420/3 before, the +1 is the new case) and a
+      second full run against the fresh baselines compares byte-identical, i.e.
+      the golden capture is deterministic on this box, not a flake waiting to
+      block the loop. The baselines are not blank: `pngscan.py
+      test/goldens/04_customer_home.png --color E8A33D` finds the publish tile
+      at logical x18-373 y260-347, the same geometry the hierarchy item
+      recorded for the live build.
+      *Left open, deliberately:* a Flutter upgrade will fail all eight at once
+      (that is the contract, not a bug), and the fixtures the new test renders
+      are still duplicated between `test/design_shots_test.dart` and the other
+      golden call sites if this is ever split into its own file.
 - [ ] **Every API call wrapped** so failure surfaces as an Arabic retryable
       state; assert no unhandled exception path remains.
 - [ ] **Semantics labels** on interactive elements for TalkBack/VoiceOver.
