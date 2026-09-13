@@ -499,6 +499,50 @@ understand that is the single biggest "this app is foreign" signal.
       the 56 px the next item demands — check it when that item is taken.
 - [ ] **Touch targets ≥ 56 px** on every interactive element, measured from
       screenshots, including icon buttons.
+      **Audited 13 Sep 04:55 — 15 real sub-56 sites, none fixed yet: no build
+      window this tick** (another session's Gradle APK build held the box at
+      94 % CPU / 2.7 GB, so no `analyze`, no `test`, no render).
+      New `tool/tap_target_audit.py` reads the source and prints every site whose
+      effective minimum touch dimension is provably below 56 dp; it exits 1 while
+      any remain. Every finding below was read and confirmed by hand:
+      * **8 × `IconButton` at the Material 3 default** — a 40×40 box with a
+        48×48 padded hit area, not 56: `icon_button.dart:1127`
+        `minimumSize: Size(40, 40)`, `:1155` `tapTargetSize:
+        theme.materialTapTargetSize`, which `theme_data.dart:404` defaults to
+        `padded` → `kMinInteractiveDimension = 48.0` (`constants.dart:27`).
+        Sites: `auth_screen.dart:359` (back), `auth_screen.dart:622` (reveal
+        password), `browse_screen.dart:190` and `feed_search_field.dart:56`
+        (clear search), `project_new_screen.dart:600` (clear commune search),
+        `my_portfolio_screen.dart:169` (refresh), `worker_home_screen.dart:63`
+        (verification), `notifications_bell.dart:74`. The theme sets neither a
+        global `iconButtonTheme` nor `materialTapTargetSize` (`grep` over `lib/`
+        finds nothing), which is the whole reason every one of these is 48.
+      * **4 × `TextButton` at the default** — 40 tall, 48 hit area
+        (`text_button.dart:554` `Size(64, 40)`): `auth_screen.dart:503`,
+        `landing_screen.dart:235`, `notifications_screen.dart:133`, and
+        `chat_screen.dart:312` (which also sets its own `Size(64, 44)`).
+        `textButtonTheme` is the one button theme with **no** `minimumSize`,
+        while `elevatedButtonTheme`, `filledButtonTheme` and
+        `outlinedButtonTheme` all inherit `Size.fromHeight(tapMin)` — so these
+        four are an oversight, not a decision.
+      * `notifications_screen.dart:211` — an empty-state action parked in a
+        fixed `SizedBox(width: 220, height: 46)`.
+      * `review_screen.dart:181` — the star picker floors at
+        `clamp(48.0, 58.0)`: 58 dp at 412 px, 48 on anything narrower. This is
+        the carry-over the star item left, and it is real.
+      Two false positives the first pass of the tool produced (a `SizedBox(height:
+      4)` spacer above a `TextButton`, and `serviceRadiusKm.clamp(1, 200)`) are
+      gone: an enclosing fixed box must still be *open* at the button's line, and a
+      `clamp` only counts when it sizes a dimension (star/size/height/width/box).
+      Fix, one pass: a global `iconButtonTheme` plus `minimumSize` on
+      `textButtonTheme` in `app_theme.dart` kills 13 of the 15, then the
+      `64×44`, the `height: 46` and the picker floor go to `AppTheme.tapMin`.
+      **An `IconButton` raised to 56 dp exactly fills the 56 dp `AppBar`
+      (`kToolbarHeight`), so this has to be re-rendered before it is believed** —
+      no screenshot this tick.
+      *Done when:* `python3 tool/tap_target_audit.py` exits 0 **and**
+      `test/tap_target_test.dart` measures ≥ 56 on the real hit rects of the main
+      screens.
 - [ ] **Press feedback + intentional motion.** Buttons visibly respond on press;
       screen transitions and list reveals use one consistent duration/curve
       instead of default jumps.
