@@ -1340,6 +1340,32 @@ understand that is the single biggest "this app is foreign" signal.
       on the release build; report a real number from a real device/emulator.
 - [ ] **Crash-free baseline.** Wire a lightweight error reporter and confirm it
       receives a deliberately thrown test error end-to-end.
+       *Implemented and pushed as `98a6ed9` (this tick) — one gate short of done.*
+      `lib/src/core/diagnostics/crash_log.dart` is plain Dart with no engine in it: a bounded
+      newest-last list of records, every stored field length-capped, a corrupt line dropped one
+      at a time, and nothing in the file able to throw. `crash_reporter.dart` chains
+      `FlutterError.onError` and `PlatformDispatcher.onError`, keeps the handler that was already
+      installed (the debug red screen survives) and returns what it returned, so the engine's own
+      reporting is untouched; writes go out serialised behind one future and a storage failure is
+      swallowed instead of becoming a second crash. `main.dart` installs and restores the reporter
+      before the first frame, and the existing boot guard now captures the startup failure it
+      already logged.
+       *Evidence that ran:* `flutter analyze` -> **No issues found!** (whole package, 125.4 s) and
+      `dart run tool/crash_log_check.dart` -> **9/9 PASS, exit 0** (cap, round-trip, four junk
+      lines, a 5000-char message clamped, schema cases). That script exists because the core is
+      engine-free — it is the only reason this tick could ship anything at all while the orphan
+      below held `build/unit_test_assets`.
+       *Why it is not ticked:* `test/crash_reporter_test.dart` (eight tests, including the
+      deliberately thrown `StateError('boom-42')` that has to reach the real `PrefsCrashStore`)
+      has not been executed, because the protocol forbids starting a test run over the orphan. A
+      green `flutter analyze` type-checks those tests but does not run them. **Next tick: run
+      `flutter test`; green means tick this item, red means the failure is in this file and
+      nowhere else.**
+       *Orphan watch (sixth tick, unchanged):* `flutter_tester` pid 226342, ppid 1033 =
+      `systemd --user`, 0.0 % CPU, 78 MB, alive 13,875 s, still holding this repo's own
+      `build/unit_test_assets`. Reported, not killed. One word from the founder ends this
+      recurring cost: may a tick `kill` a `flutter_tester` older than 30 min, parented by systemd,
+      at 0 % CPU, pointed at this repo's own assets?
 
 ---
 
