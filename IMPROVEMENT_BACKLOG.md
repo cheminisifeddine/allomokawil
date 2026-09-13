@@ -497,7 +497,7 @@ understand that is the single biggest "this app is foreign" signal.
       shot's mtime against the commit time before reading it as "after".
       **Carry-over found here:** the same picker clamps its stars to 48 px, under
       the 56 px the next item demands — check it when that item is taken.
-- [ ] **Touch targets ≥ 56 px** on every interactive element, measured from
+- [x] **Touch targets ≥ 56 px** on every interactive element, measured from
       screenshots, including icon buttons.
       **Audited 13 Sep 04:55 — 15 real sub-56 sites, none fixed yet: no build
       window this tick** (another session's Gradle APK build held the box at
@@ -641,9 +641,63 @@ understand that is the single biggest "this app is foreign" signal.
       Then `test/tap_target_test.dart` measures the 6 ADVISORY rects plus the
       19, because a hand sum is a *floor*, not a measurement.
 
+      **Fourth pass, 13 Sep 06:05–06:25 — the 19-site fix is written and the
+      tool is green; the gate is still owed.** The 05:58 tick edited the files
+      at 06:05:50 and ran the tool at 06:08:03, then the machine went down
+      (reboot logged 06:19:41; `executions.db` left that run `status=unknown`,
+      "owner exited before a durable terminal state"), so the edit survived
+      uncommitted. This tick resumed it instead of starting a new item:
+      `git status` shows exactly the six sites plus the theme
+      (`iconButtonTheme` 56 + `textButtonTheme` `Size.fromHeight(tapMin)` kill
+      13; `auth_screen.dart` switch 48→56, the photo ✕ to a 56 box,
+      `notifications_screen.dart` 46→56, `review_screen.dart` clamp floor
+      48→`tapMin`, `chat_screen.dart` `Size(64, 44)`→`Size(64, tapMin)`,
+      `ui.dart` «عرض الكل» in a 56 `SizedBox`, `project_new_screen.dart` pill to
+      v19 = 56.9) and `python3 tool/tap_target_audit.py` now prints
+      **0 provable fail(s)** and exits 0 (11 measured pass, 11 theme-covered,
+      6 layout-only).
+      New `test/tap_target_test.dart` (11 widget tests) does the half the tool
+      cannot: it renders the real screens and measures the rect, then taps
+      **1 dp inside the top edge** of the control — a control whose visible box
+      is bigger than its hit area fails there. Covered: both auth `IconButton`s,
+      the auth switch, the landing link, the empty-state action, the section
+      action («عرض الكل»), the urgency pill, a notification row, chat send, a
+      contractor card, the portfolio add tile, and the five stars at 392 dp and
+      320 dp.
+      **Not committed:** the gate could not run. A release APK build
+      (`/home/renia/build116`, `assembleRelease`) held the box from 06:25 with
+      ~160 MB free and no swap, so `flutter analyze` / `flutter test` would have
+      been OOM-killed and the kernel would have picked that build. Nothing is
+      ticked and nothing is committed; the next tick runs the gate on this tree
+      and commits it.
       *Done when:* `python3 tool/tap_target_audit.py` exits 0 **and**
       `test/tap_target_test.dart` measures ≥ 56 on the real hit rects of the main
       screens.
+      **Closed 13 Sep 07:22 — DONE `72f99ff`.** The 06:37 tick handed over the
+      written fix with the gate owed; this tick ran it and it was not green.
+      `flutter test` came back **341 passed, 0 failed** only after two real
+      repairs:
+      * the theme's `Size.fromHeight(tapMin)` is `Size(infinity, 56)` — an
+        infinite *min width* that throws `BoxConstraints forces an infinite
+        width` in an unbounded Row (the notifications AppBar trailing slot) and
+        failed 8 tests in `notification_center_test.dart`. `textButtonTheme` now
+        says `Size(tapMin, tapMin)`; 8 red → 0.
+      * the star picker's `clamp(56, 58)` could not be satisfied by its parent:
+        five 56 dp stars are 280 dp and the 320 dp card interior was 246, so the
+        row overflowed by 34 (RenderFlex). The picker now owns the card's full
+        width (card padding zero, label re-inset by hand) and the page inset
+        drops 20 → 8 below 360 dp. Rendered: **58 x 58 on all five stars at
+        both 320 and 392 dp**, no overflow.
+      Two of the three failures were the new test file's own bugs, fixed there:
+      the browse mock returned the single-worker Map for `/workers/search`
+      (matched by the earlier `/workers/` branch) so the screen showed its error
+      state, and the chat send button is the 56 dp round `_CircleAction`, not the
+      `TextButton` that only exists in the offline banner.
+      Measured rects now on the record: auth back/reveal 56, auth switch 56,
+      landing link 56, empty-state action 56, «عرض الكل» 56, urgency pill 59,
+      chat send 56, browse card 174, portfolio tile 112, notification row 108.8.
+      Gates: audit exit 0 (0 provable fails), `flutter analyze` "No issues
+      found!", `flutter test` 341/0.
 - [ ] **Press feedback + intentional motion.** Buttons visibly respond on press;
       screen transitions and list reveals use one consistent duration/curve
       instead of default jumps.
