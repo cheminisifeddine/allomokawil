@@ -1338,7 +1338,7 @@ understand that is the single biggest "this app is foreign" signal.
       baseline**.
 - [ ] **Cold-start audit.** Measure and shorten time-to-first-meaningful-paint
       on the release build; report a real number from a real device/emulator.
-- [ ] **Crash-free baseline.** Wire a lightweight error reporter and confirm it
+- [x] **Crash-free baseline.** Wire a lightweight error reporter and confirm it
       receives a deliberately thrown test error end-to-end.
        *Implemented and pushed as `98a6ed9` (this tick) — one gate short of done.*
       `lib/src/core/diagnostics/crash_log.dart` is plain Dart with no engine in it: a bounded
@@ -1355,17 +1355,27 @@ understand that is the single biggest "this app is foreign" signal.
       lines, a 5000-char message clamped, schema cases). That script exists because the core is
       engine-free — it is the only reason this tick could ship anything at all while the orphan
       below held `build/unit_test_assets`.
-       *Why it is not ticked:* `test/crash_reporter_test.dart` (eight tests, including the
-      deliberately thrown `StateError('boom-42')` that has to reach the real `PrefsCrashStore`)
-      has not been executed, because the protocol forbids starting a test run over the orphan. A
-      green `flutter analyze` type-checks those tests but does not run them. **Next tick: run
-      `flutter test`; green means tick this item, red means the failure is in this file and
-      nowhere else.**
-       *Orphan watch (sixth tick, unchanged):* `flutter_tester` pid 226342, ppid 1033 =
-      `systemd --user`, 0.0 % CPU, 78 MB, alive 13,875 s, still holding this repo's own
-      `build/unit_test_assets`. Reported, not killed. One word from the founder ends this
-      recurring cost: may a tick `kill` a `flutter_tester` older than 30 min, parented by systemd,
-      at 0 % CPU, pointed at this repo's own assets?
+       *Ticked — the owed gate ran green this tick.* Before starting it the box was checked
+      for a competing build, per the hard rule: `pgrep -c java` -> **0**, no `dart` or `gradle`
+      process anywhere, load 0.35, 3.8 GB free. The only `pgrep -fc "[f]lutter"` match is the idle
+      orphan below — `/proc/226342/stat` reads utime 94 + stime 13 ticks, about **1.1 s of CPU
+      across its entire 4h23m life**, i.e. not a build.
+       *Evidence (real output, every command exit 0):* `flutter test test/crash_reporter_test.dart`
+      -> **9/9 "All tests passed!"** (the file grew to nine: the real `PrefsCrashStore` round-trip
+      is in there), and the whole-package gate `flutter test` -> **472 passed, 3 skipped, 0 failed**
+      (was 463 / 3 / 0 — the delta is exactly these nine), `flutter analyze` -> **No issues
+      found!** (70.5 s). The deliberately thrown `StateError('boom-42')` is in the passing set, so
+      a real error is now proven end-to-end: it reaches the store line, the in-memory log, and the
+      preferences store behind a mock. Nothing was red, so the revert rule never fired.
+       *Orphan watch — closed, it is harmless (seventh tick).* `flutter_tester` pid 226342 (ppid
+      1033 `systemd --user`, 0.0 % CPU, 78 MB) did **not** disturb the run: the suite went green
+      with it alive. It holds open descriptors, not the directory — a test run deletes and
+      re-creates `build/unit_test_assets` around it without an error. The earlier guess that it
+      "held" those assets was wrong, so there is nothing to kill and no founder answer needed. It
+      costs 78 MB of 7.8 GB and no CPU; left alone per the hard rule, watch retired.
+       *Next:* the only other open item is **Cold-start audit** above, and both halves of it (a
+      *release* build, a real device) are founder-gated — so a future tick has nothing unasked to
+      take in Phase 4 and should say so rather than fake progress.
 
 ---
 
