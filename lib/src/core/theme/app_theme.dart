@@ -439,7 +439,24 @@ class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: navy,
+          // Size.fromHeight(tapMin) is Size(infinity, 56): the infinite *min
+          // width* is fine in a stretched Column, but a TextButton parked in an
+          // unbounded Row -- the notifications AppBar trailing slot -- throws
+          // "BoxConstraints forces an infinite width" and takes the whole
+          // toolbar layout down with it. A text link gets 56 tall and at least
+          // 56 wide, and nothing else. (flutter test 13 Sep: 8 red tests.)
+          minimumSize: const Size(tapMin, tapMin),
           textStyle: label.copyWith(fontSize: fsBody),
+        ),
+      ),
+      // Every IconButton in the app is 56 dp, not the Material default of a
+      // 40 dp box with a 48 dp hit area. This is the one place that can say so
+      // for all of them; a per-site `padding:` would have to be repeated 8
+      // times and would be forgotten by the next screen.
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          minimumSize: const Size(tapMin, tapMin),
+          tapTargetSize: MaterialTapTargetSize.padded,
         ),
       ),
 

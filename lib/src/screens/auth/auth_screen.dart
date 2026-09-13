@@ -452,7 +452,7 @@ class _Segment extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppTheme.rXl),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 160),
-            height: 48,
+            height: AppTheme.tapMin,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: selected ? AppTheme.surface : Colors.transparent,

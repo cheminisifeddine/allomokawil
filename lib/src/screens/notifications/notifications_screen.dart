@@ -207,7 +207,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 Center(
                   child: SizedBox(
                     width: 220,
-                    height: 46,
+                    height: AppTheme.tapMin,
                     child: OutlinedButton(
                       onPressed: onAction,
                       style: OutlinedButton.styleFrom(

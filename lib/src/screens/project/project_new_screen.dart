@@ -735,7 +735,9 @@ class _UrgencyPill extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppTheme.rPill),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
-          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
+          // v19 x2 + the 18.9 dp row = 56.9 dp: a pill that sets how urgent a
+          // project is has to be tappable by the same hand that types the title.
+          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 19),
           decoration: BoxDecoration(
             color: selected ? wash : AppTheme.surface,
             borderRadius: BorderRadius.circular(AppTheme.rPill),
@@ -832,15 +834,24 @@ class _ImageAttach extends StatelessWidget {
                         left: 4,
                         child: GestureDetector(
                           onTap: () => onRemove(i),
-                          child: Container(
-                            width: 26,
-                            height: 26,
-                            decoration: const BoxDecoration(
-                              color: AppTheme.danger,
-                              shape: BoxShape.circle,
+                          // The disc stays 26 dp; the target around it is the
+                          // full 56. This is the smallest control on the screen
+                          // where losing a photo means re-picking it.
+                          child: SizedBox(
+                            width: AppTheme.tapMin,
+                            height: AppTheme.tapMin,
+                            child: Center(
+                              child: Container(
+                                width: 26,
+                                height: 26,
+                                decoration: const BoxDecoration(
+                                  color: AppTheme.danger,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.close_rounded,
+                                    size: 16, color: AppTheme.onNavy),
+                              ),
                             ),
-                            child: const Icon(Icons.close_rounded,
-                                size: 16, color: AppTheme.onNavy),
                           ),
                         ),
                       ),

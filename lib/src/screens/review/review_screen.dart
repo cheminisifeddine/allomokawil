@@ -68,6 +68,11 @@ class _ReviewScreenState extends State<ReviewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Five 56 dp stars need 280 dp of clear width. A 392 dp phone spends 20 + 16
+    // per side on the page and the card and is comfortable; a 320 dp one only
+    // has 40 dp to give in total, so there the card drops its own inset and the
+    // page keeps 8. Measured on the rendered tree at both widths.
+    final pagePad = MediaQuery.sizeOf(context).width >= 360 ? 20.0 : 8.0;
     return Scaffold(
       appBar: AppBar(title: const Text('قيّم المقاول')),
       body: SafeArea(
@@ -75,7 +80,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 620),
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
+              padding: EdgeInsets.fromLTRB(pagePad, 14, pagePad, 28),
               children: [
                 Text('كيف كانت تجربتك مع المقاول؟',
                     textAlign: TextAlign.center, style: AppTheme.h1),
@@ -84,24 +89,35 @@ class _ReviewScreenState extends State<ReviewScreen> {
                     textAlign: TextAlign.center, style: AppTheme.bodySoft),
                 const SizedBox(height: 18),
                 AppCard(
-                  padding: AppTheme.cardPad,
+                  // The picker owns the whole card. At 320 dp the usual 16 dp
+                  // card inset left its Row 246 dp for five 56 dp targets and the
+                  // row overflowed by 34 dp (RenderFlex, 13 Sep), which the star
+                  // clamp could not fix by itself: 5 x 56 = 280 > 246. The label
+                  // below keeps the inset by hand, so the card still reads as one.
+                  padding: EdgeInsets.zero,
                   child: Column(
                     children: [
-                      _StarPicker(
-                        value: _rating,
-                        onChanged: (v) => setState(() => _rating = v),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        child: _StarPicker(
+                          value: _rating,
+                          onChanged: (v) => setState(() => _rating = v),
+                        ),
                       ),
                       const SizedBox(height: 10),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: AppTheme.accentWash,
-                          borderRadius: BorderRadius.circular(AppTheme.rPill),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: AppTheme.accentWash,
+                            borderRadius: BorderRadius.circular(AppTheme.rPill),
+                          ),
+                          child: Text(_label(_rating),
+                              style: AppTheme.label.copyWith(
+                                  fontSize: AppTheme.fsBody, color: AppTheme.accentDeep)),
                         ),
-                        child: Text(_label(_rating),
-                            style: AppTheme.label.copyWith(
-                                fontSize: AppTheme.fsBody, color: AppTheme.accentDeep)),
                       ),
                     ],
                   ),
@@ -178,7 +194,13 @@ class _StarPicker extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final star = (constraints.maxWidth / 5).clamp(48.0, 58.0).toDouble();
+        // Five stars, never below the 56 dp target, and never wider than the
+        // band the screen actually gives them (the card hands the picker its
+        // whole width; the clamp can only round the size up to 56, so any parent
+        // under 280 dp has to be fixed at the call site, not here).
+        final star = (constraints.maxWidth / 5)
+            .clamp(AppTheme.tapMin, 58.0)
+            .toDouble();
         return Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [

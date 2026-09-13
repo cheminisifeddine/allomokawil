@@ -100,7 +100,9 @@ class SectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(2, 18, 2, 10),
+      // The action is 56 dp tall now, so the band only grows 11 dp instead of
+      // 25: 10 + 56 + 4 = 70 against 18 + 30.9 + 10 = 58.9 before.
+      padding: const EdgeInsets.fromLTRB(2, 10, 2, 4),
       child: Row(
         children: [
           if (icon != null) ...[
@@ -119,17 +121,20 @@ class SectionTitle extends StatelessWidget {
             GestureDetector(
               onTap: onAction,
               behavior: HitTestBehavior.opaque,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                child: Row(
-                  children: [
-                    Text(actionText!,
-                        style: AppTheme.label.copyWith(
-                            fontSize: AppTheme.fsMeta, color: AppTheme.info)),
-                    const SizedBox(width: 2),
-                    const Icon(Icons.arrow_back_ios_new_rounded,
-                        size: 12, color: AppTheme.info),
-                  ],
+              child: SizedBox(
+                height: AppTheme.tapMin,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Row(
+                    children: [
+                      Text(actionText!,
+                          style: AppTheme.label.copyWith(
+                              fontSize: AppTheme.fsMeta, color: AppTheme.info)),
+                      const SizedBox(width: 2),
+                      const Icon(Icons.arrow_back_ios_new_rounded,
+                          size: 12, color: AppTheme.info),
+                    ],
+                  ),
                 ),
               ),
             ),

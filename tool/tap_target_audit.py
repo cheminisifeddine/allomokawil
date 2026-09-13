@@ -24,12 +24,24 @@ R3  A `SizedBox`/`AnimatedContainer`/`Container` with `height: h` < 56 that
 R4  `.clamp(lo, hi)` on a line that sizes a dimension (star/size/height/
     width/box/tap) whose floor `lo` is < 56. A clamp on a business value
     (a service radius, a count) is not a tap target and is ignored.
-R5  The theme must raise IconButton globally, otherwise R1 fires per site.
+R5  The theme must raise IconButton globally: `iconButtonTheme` with a
+    `minimumSize` of at least 56. With that in place an unadorned `IconButton(`
+    is a 56 dp target and is reported COVERED instead of failed -- and if the
+    theme entry is missing or smaller, the tool fails on the theme itself.
 R6  A `TextButton` is 40 tall / 48 padded by default (SDK default `minimumSize`
-    Size(64, 40)), and `textButtonTheme` is the one button theme that sets no
-    `minimumSize`, so every site that does not set its own is below 56 — unlike
+    Size(64, 40)), so every site that does not set its own is below 56 — unlike
     Elevated/Outlined/Filled, which inherit `Size.fromHeight(tapMin)` from the
-    theme.
+    theme. `textButtonTheme` carries the same `minimumSize` now; as with R5, a
+    site that rides on it is COVERED, and a theme that loses it fails the tool.
+
+The token
+---------
+`AppTheme.tapMin` is 56, and the rules below read it as 56 rather than ignoring
+it. Before, a control sized by the token was invisible to R3/R4/R7 (the regexes
+wanted a literal) and had to be hand-measured into MEASURED; now
+`SizedBox(width: AppTheme.tapMin, height: AppTheme.tapMin)` is *provably* 56 and
+a token clamp floor is provably at the target. A dimension written as any other
+named constant is still out of reach and stays ADVISORY.
 
 R7  A hand-rolled tap -- `InkWell(` / `GestureDetector(` with a non-null
     `onTap:` -- whose own child is a box with an explicit dimension below 56.
@@ -67,9 +79,18 @@ MIN = 56.0
 
 ICON_BTN = re.compile(r"\bIconButton\(")
 ICON_BTN_ESCAPE = re.compile(r"\b(constraints:|padding:|style:)\s")
-MIN_SIZE = re.compile(r"minimumSize:\s*(?:const\s+)?Size\(\s*([\d.]+)\s*,\s*([\d.]+)\s*\)")
-SIZED_H = re.compile(r"\b(?:height|maxHeight):\s*([\d.]+)")
-CLAMP = re.compile(r"\.clamp\(\s*([\d.]+)\s*,\s*([\d.]+)\s*\)")
+# `AppTheme.tapMin` is the 56 dp target written as a token: a dimension spelled
+# with it is as provable as a literal one.
+DIM = r"(?:AppTheme\.tapMin|([\d.]+))"
+MIN_SIZE = re.compile(
+    r"minimumSize:\s*(?:const\s+)?Size\(\s*" + DIM + r"\s*,\s*" + DIM + r"\s*\)")
+SIZED_H = re.compile(r"\b(?:height|maxHeight):\s*" + DIM)
+CLAMP = re.compile(r"\.clamp\(\s*" + DIM + r"\s*,\s*" + DIM + r"\s*\)")
+
+
+def dim(m, group=1):
+    """The 56 behind a DIM match, or the literal that was written."""
+    return 56.0 if m.group(group) is None else float(m.group(group))
 BUTTON = re.compile(r"\b(?:OutlinedButton|ElevatedButton|TextButton|FilledButton)\(")
 TEXT_BUTTON = re.compile(r"\bTextButton\(")
 CALL_HEAD = ("me")
@@ -79,8 +100,8 @@ TAP = re.compile(r"\bon(?:Tap|Pressed):\s*(?!null)")
 # --- R7/R8: hand-rolled taps and framework-default 48 dp controls -----------
 TAP_WIDGET = re.compile(r"\b(InkWell|GestureDetector)\(")
 BOX = re.compile(r"\b(?:SizedBox|AnimatedContainer|Container)\(")
-EXPLICIT_W = re.compile(r"\bwidth:\s*([\d.]+)\b")
-EXPLICIT_H = re.compile(r"\bheight:\s*([\d.]+)\b")
+EXPLICIT_W = re.compile(r"\bwidth:\s*" + DIM + r"\b")
+EXPLICIT_H = re.compile(r"\bheight:\s*" + DIM + r"\b")
 PAD_SYM = re.compile(r"padding:\s*(?:const\s+)?EdgeInsets\.symmetric\(([^)]*)\)")
 PAD_ALL = re.compile(r"padding:\s*(?:const\s+)?EdgeInsets\.all\(([\d.]+)\)")
 VERT = re.compile(r"vertical:\s*([\d.]+)")
@@ -113,13 +134,12 @@ OWN_ARGS = re.compile(r"\bchild:|\bchildren:")
 # reported STALE and the tool exits 1, so the table can never rot in silence.
 FAIL_, PASS_ = "FAIL", "PASS"
 MEASURED = [
-    # v6 padding x2 + max(icon 12, label 13.5 x height 1.4 = 18.9); the row is
-    # 30.9 tall and the tap is centred inside it.
-    ("lib/src/widgets/ui.dart", 119, "GestureDetector(", FAIL_,
-     "6x2 + max(12, 13.5x1.4=18.9) = 30.9"),
-    # Wrap, so nothing stretches it: v13 padding x2 + max(icon 17, 18.9) = 44.9.
-    ("lib/src/screens/project/project_new_screen.dart", 733, "InkWell(", FAIL_,
-     "13x2 + max(17, 13.5x1.4=18.9) = 44.9"),
+    # ui.dart:119 is no longer here on purpose: the «عرض الكل» tap is wrapped in
+    # a `SizedBox(height: AppTheme.tapMin)`, which R7 now reads as 56 and proves
+    # on its own. The pill below sits in a `Wrap`, so nothing stretches it and
+    # only its own padding can settle it.
+    ("lib/src/screens/project/project_new_screen.dart", 733, "InkWell(", PASS_,
+     "19x2 + max(17, 13.5x1.4=18.9) = 56.9"),
     # Checkbox is 48 dp padded (kMinInteractiveDimension) and the row adds v6.
     ("lib/src/screens/auth/auth_screen.dart", 581, "InkWell(", PASS_,
      "48 (Checkbox, padded) + 6x2 = 60.0"),
@@ -141,8 +161,9 @@ MEASURED = [
      "enclosing SizedBox(height: tapMin 56) = 56.0"),
     ("lib/src/widgets/app_tab_bar.dart", 165, "GestureDetector(", PASS_,
      "Container(height: 60) bar = 60.0"),
-    # Every call site passes height 92 (auth tiles) or double.infinity (grid).
-    ("lib/src/widgets/ui.dart", 316, "InkWell(", PASS_,
+    # Every call site passes height 92 (auth tiles) or double.infinity (grid);
+    # the default is 104. The line moved when the section title above grew.
+    ("lib/src/widgets/ui.dart", 321, "InkWell(", PASS_,
      "call sites pass 92 (auth) or double.infinity (grid)"),
 ]
 
@@ -190,8 +211,37 @@ def dart_files(root):
                 yield os.path.join(base, n)
 
 
+SIZE_ARGS = re.compile(
+    r"minimumSize:\s*(?:const\s+)?Size(?:\.fromHeight)?\(\s*([^)]*)\)")
+DIM_TOKEN = re.compile(r"AppTheme\.tapMin|\btapMin\b|([\d.]+)")
+
+
+def theme_minimum(src, key):
+    """Smallest dimension in the `minimumSize` of a theme key, or None.
+
+    Reads `Size(a, b)` and `Size.fromHeight(a)`; either spelling of the
+    `tapMin` token counts as 56, so the theme's own guarantee is checked with
+    numbers, not with the presence of a string.
+    """
+    i = src.find(key)
+    if i < 0:
+        return None
+    m = SIZE_ARGS.search(src[i:i + 900])
+    if not m:
+        return None
+    dims = [56.0 if g is None else float(g)
+            for g in (x.group(1) for x in DIM_TOKEN.finditer(m.group(1)))]
+    return min(dims) if dims else None
+
+
 def audit(root):
-    fails, unknown = [], []
+    fails, unknown, covered = [], [], []
+    theme = os.path.join(root, "lib/src/core/theme/app_theme.dart")
+    icon_min = text_min = None
+    if os.path.exists(theme):
+        tsrc = open(theme, encoding="utf-8").read()
+        icon_min = theme_minimum(tsrc, "iconButtonTheme")
+        text_min = theme_minimum(tsrc, "textButtonTheme")
     for path in dart_files(root):
         rel = os.path.relpath(path, root)
         src = open(path, encoding="utf-8").read()
@@ -212,17 +262,21 @@ def audit(root):
             body = src[m.end():i]
             if ICON_BTN_ESCAPE.search(body):
                 continue  # author set a size on purpose; R2/R3 judge it
+            if icon_min is not None and icon_min >= MIN:
+                covered.append((rel, line_no, "IconButton raised by the theme",
+                                f"iconButtonTheme minimumSize {icon_min:g}"))
+                continue
             fails.append((rel, line_no, "IconButton at SDK default",
                           "40x40 box, 48x48 padded hit area < 56"))
 
         for m in MIN_SIZE.finditer(src):
-            w, h = float(m.group(1)), float(m.group(2))
+            w, h = dim(m, 1), dim(m, 2)
             if h < MIN:
                 fails.append((rel, src.count("\n", 0, m.start()) + 1,
                               "minimumSize", f"{w:g}x{h:g}"))
 
         for m in CLAMP.finditer(src):
-            lo = float(m.group(1))
+            lo = dim(m, 1)
             head = lines[src.count("\n", 0, m.start())].lower()  # 0-based: the clamp line
             if not re.search(r"(star|size|height|width|box|dim|tap|target)", head):
                 continue  # clamps a value (a radius, a count), not a tap box
@@ -241,7 +295,8 @@ def audit(root):
                 # an enclosing box must still be open when the button starts
                 if sum(l.count("(") - l.count(")") for l in lines[k - 1:line_no - 1]) <= 0:
                     continue
-                sizes = [float(x) for x in SIZED_H.findall("".join(lines[k - 1:line_no]))]
+                sizes = [dim(x) for x
+                         in SIZED_H.finditer("".join(lines[k - 1:line_no]))]
                 if sizes and min(sizes) < MIN:
                     fails.append((rel, line_no, "button inside fixed box",
                                   f"height {min(sizes):g} < 56"))
@@ -261,16 +316,23 @@ def audit(root):
             site = src[m.end():i]
             if "minimumSize" in site:
                 continue  # judged by R2 instead
+            if text_min is not None and text_min >= MIN:
+                covered.append((rel, line_no, "TextButton raised by the theme",
+                                f"textButtonTheme minimumSize {text_min:g}"))
+                continue
             fails.append((rel, line_no, "TextButton at SDK default",
                           "40 tall box, 48 hit area < 56 (textButtonTheme sets no minimumSize)"))
 
-    theme = os.path.join(root, "lib/src/core/theme/app_theme.dart")
-    if os.path.exists(theme):
-        tsrc = open(theme, encoding="utf-8").read()
-        if "iconButtonTheme" not in tsrc:
-            fails.append((os.path.relpath(theme, root), 0,
-                          "no global IconButtonTheme",
-                          "R1 therefore fires at every IconButton site"))
+    rel_theme = os.path.relpath(theme, root)
+    if icon_min is None:
+        fails.append((rel_theme, 0, "no global IconButtonTheme",
+                      "R1 therefore fires at every IconButton site"))
+    elif icon_min < MIN:
+        fails.append((rel_theme, 0, "IconButtonTheme under the target",
+                      f"minimumSize {icon_min:g} < {MIN:g}"))
+    if text_min is None or text_min < MIN:
+        fails.append((rel_theme, 0, "textButtonTheme under the target",
+                      f"minimumSize {text_min} -> TextButtons stay 40 tall"))
 
     advisory = []
     for path in dart_files(root):
@@ -305,8 +367,8 @@ def audit(root):
             own = DECOR_CALL.sub(" ", own)
             h = EXPLICIT_H.search(own)
             w = EXPLICIT_W.search(own)
-            hh = float(h.group(1)) if h else None
-            ww = float(w.group(1)) if w else None
+            hh = dim(h) if h else None
+            ww = dim(w) if w else None
             if hh is not None and hh < MIN:
                 fails.append((rel, line_no, "hand-rolled tap box",
                               f"height {hh:g} < 56 ({m.group(1)})"))
@@ -325,12 +387,12 @@ def audit(root):
 
     taps = sum(len(TAP.findall(open(p, encoding="utf-8").read()))
                for p in dart_files(root))
-    return fails, taps, advisory
+    return fails, taps, advisory, covered
 
 
 def main():
     root = sys.argv[1] if len(sys.argv) > 1 else "."
-    fails, taps, advisory = audit(root)
+    fails, taps, advisory, covered = audit(root)
     static_fails = len(fails)
     settled, stale, advisory = resolve_measured(root, advisory)
     measured_fails = [(r, l, "measured by hand", why)
@@ -351,7 +413,7 @@ def main():
                 out.append(row)
         return out
 
-    fails, advisory = dedupe(fails), dedupe(advisory)
+    fails, advisory, covered = dedupe(fails), dedupe(advisory), dedupe(covered)
     for rel, line, rule, detail in fails:
         loc = f"{rel}:{line}" if line else rel
         print(f"FAIL      {loc:66} {rule:28} {detail}")
@@ -360,14 +422,17 @@ def main():
         print(f"ADVISORY  {loc:66} {rule:28} {detail}")
     for rel, line, rule, detail in measured_pass:
         print(f"MEASURED  {f'{rel}:{line}':66} {rule:28} {detail}")
+    for rel, line, rule, detail in covered:
+        print(f"COVERED   {f'{rel}:{line}':66} {rule:28} {detail}")
     for rel, line, anchor, why in stale:
         print(f"STALE     {f'{rel}:{line}':66} {'measurement rotted':28} "
               f"{anchor} -- {why}")
 
     print(f"\n{len(fails)} provable fail(s) ({static_fails} from the rules, "
           f"{len(measured_fails)} measured by hand), {len(measured_pass)} "
-          f"measured pass, {len(advisory)} site(s) whose size only a widget"
-          " measurement can settle.")
+          f"measured pass, {len(covered)} covered by the theme, "
+          f"{len(advisory)} site(s) whose size only a widget measurement can"
+          " settle.")
     if stale:
         print(f"Exit 1: {len(stale)} STALE hand measurement(s) -- a construct"
               " moved and its recorded verdict no longer describes it.")

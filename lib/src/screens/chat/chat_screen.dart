@@ -312,7 +312,7 @@ class _ChatScreenState extends State<ChatScreen> {
           TextButton(
             onPressed: _sendText,
             style: TextButton.styleFrom(
-              minimumSize: const Size(64, 44),
+              minimumSize: const Size(64, AppTheme.tapMin),
               foregroundColor: AppTheme.navy,
             ),
             child: Text('إرسال',
