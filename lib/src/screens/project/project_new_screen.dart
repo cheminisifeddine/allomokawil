@@ -31,7 +31,13 @@ import '../../core/l10n/error_copy.dart';
 ///  * The publish button lives in a sticky bottom bar, so the primary action is
 ///    always on screen instead of buried under a long scroll.
 class ProjectNewScreen extends StatefulWidget {
-  const ProjectNewScreen({super.key});
+  /// Null = post a new project. A project = edit that one (same form, same
+  /// validation, PATCH instead of POST) — the owner may only edit while the
+  /// project is still `open`, which the API enforces and the detail screen
+  /// only offers the button when it holds.
+  final Project? initial;
+
+  const ProjectNewScreen({super.key, this.initial});
 
   @override
   State<ProjectNewScreen> createState() => _ProjectNewScreenState();
@@ -49,7 +55,14 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
   String? _wilaya;
   UrgencyLevel _urgency = UrgencyLevel.flexible;
   final List<XFile> _images = [];
+
+  /// Photos the project already has, as URLs. They are never re-uploaded; an
+  /// edit sends them back untouched so dropping one in the UI really removes
+  /// it from the project instead of silently re-adding it.
+  final List<String> _keptImages = [];
   bool _busy = false;
+
+  bool get _isEdit => widget.initial != null;
 
   bool _scopeReady = false;
 
@@ -60,6 +73,18 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
     if (_scopeReady) return;
     _scopeReady = true;
     _repo = Repository(AppScope.of(context).api);
+    final existing = widget.initial;
+    if (existing != null) {
+      _title.text = existing.title;
+      _desc.text = existing.description ?? '';
+      _budgetMin.text = existing.budgetMin?.toString() ?? '';
+      _budgetMax.text = existing.budgetMax?.toString() ?? '';
+      _commune.text = existing.commune ?? '';
+      _category = existing.category;
+      _wilaya = existing.wilaya;
+      _urgency = existing.urgency;
+      _keptImages.addAll(existing.images);
+    }
   }
 
   @override
@@ -95,6 +120,28 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
         final url = await _repo.uploadDocument(File(f.path));
         urls.add(url);
       }
+      final allImages = <String>[..._keptImages, ...urls];
+      final editing = widget.initial;
+      if (editing != null) {
+        await _repo.updateProject(
+          editing.id,
+          title: _title.text.trim(),
+          description: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
+          category: _category!,
+          wilaya: _wilaya,
+          commune: _commune.text.trim().isEmpty ? null : _commune.text.trim(),
+          budgetMin: _budgetMinValue,
+          budgetMax: _budgetMaxValue,
+          urgency: _urgency,
+          images: allImages,
+        );
+        if (mounted) {
+          Navigator.of(context).pop(true);
+          ScaffoldMessenger.of(context)
+              .showSnackBar(const SnackBar(content: Text('تم حفظ التعديل')));
+        }
+        return;
+      }
       await _repo.createProject(
         title: _title.text.trim(),
         description: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
@@ -107,7 +154,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
         images: urls,
       );
       if (mounted) {
-        Navigator.of(context).pop();
+        Navigator.of(context).pop(true);
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('تم نشر مشروعك بنجاح')));
       }
@@ -185,7 +232,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
         _title.text.trim().isNotEmpty && _category != null && _wilaya != null;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('انشر مشروعك')),
+      appBar: AppBar(title: Text(_isEdit ? 'عدّل مشروعك' : 'انشر مشروعك')),
       body: SafeArea(
         bottom: false,
         child: SingleChildScrollView(
@@ -202,12 +249,18 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.tips_and_updates_rounded,
-                        color: AppTheme.info, size: 22),
+                    Icon(
+                        _isEdit
+                            ? Icons.edit_note_rounded
+                            : Icons.tips_and_updates_rounded,
+                        color: AppTheme.info,
+                        size: 22),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'املأ المعلومات وسيتواصل معك الحرفيون بعروضهم',
+                        _isEdit
+                            ? 'عدّل ما تريد ثم اضغط حفظ — لا يمكن التعديل بعد اختيار مقاول'
+                            : 'املأ المعلومات وسيتواصل معك الحرفيون بعروضهم',
                         style: AppTheme.bodySoft
                             .copyWith(fontSize: AppTheme.fsMeta, color: AppTheme.info),
                       ),
@@ -312,6 +365,23 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
               ),
 
               const _StepLabel(7, 'صور المشروع'),
+              if (_keptImages.isNotEmpty) ...[
+                Text('الصور المحفوظة', style: AppTheme.bodySoft),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (var i = 0; i < _keptImages.length; i++)
+                      _KeptPhoto(
+                        url: _keptImages[i],
+                        onRemove: () =>
+                            setState(() => _keptImages.removeAt(i)),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
               _ImageAttach(
                 images: _images,
                 onPick: _pickImages,
@@ -339,14 +409,68 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
                 ),
               ),
             PrimaryButton(
-              label: 'نشر المشروع',
-              icon: Icons.send_rounded,
+              label: _isEdit ? 'احفظ التعديل' : 'نشر المشروع',
+              icon: _isEdit ? Icons.save_rounded : Icons.send_rounded,
               loading: _busy,
               onPressed: _submit,
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// One photo the project already has, shown while editing so it can be
+/// dropped. Network images are fine to fail here: the project's own URL is
+/// what it is, and a broken one still has to be removable.
+class _KeptPhoto extends StatelessWidget {
+  final String url;
+  final VoidCallback onRemove;
+
+  const _KeptPhoto({required this.url, required this.onRemove});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppTheme.rMd),
+          child: Image.network(
+            url,
+            width: 78,
+            height: 78,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => Container(
+              width: 78,
+              height: 78,
+              color: AppTheme.surfaceAlt,
+              child: const Icon(Icons.broken_image_outlined,
+                  color: AppTheme.textMuted),
+            ),
+          ),
+        ),
+        Positioned(
+          top: -6,
+          left: -6,
+          child: Semantics(
+            label: 'حذف الصورة',
+            button: true,
+            child: InkWell(
+              onTap: onRemove,
+              customBorder: const CircleBorder(),
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: const BoxDecoration(
+                    color: AppTheme.danger, shape: BoxShape.circle),
+                child: const Icon(Icons.close_rounded,
+                    color: AppTheme.onNavy, size: 14),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

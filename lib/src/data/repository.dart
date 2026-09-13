@@ -234,6 +234,47 @@ class Repository {
     return Project.fromJson(data);
   }
 
+  /// Edits a posted project. Same fields and same validation as
+  /// [createProject] because it is the same form — the API refuses the edit
+  /// once a contractor has been chosen, so this is only sent while `open`.
+  ///
+  /// `images` is always sent: the screen holds the pictures the project
+  /// already has plus anything just attached, so an edit can drop a photo as
+  /// well as add one.
+  Future<Project> updateProject(
+    String projectId, {
+    required String title,
+    String? description,
+    required String category,
+    String? wilaya,
+    String? commune,
+    int? budgetMin,
+    int? budgetMax,
+    required UrgencyLevel urgency,
+    List<String> images = const [],
+  }) async {
+    final data = await _api.patch('/api/mobile/projects/$projectId', body: {
+      'title': title,
+      'description': description,
+      'category': category,
+      'wilaya': wilaya,
+      'commune': commune,
+      'budget_min': budgetMin,
+      'budget_max': budgetMax,
+      'urgency': urgency.wire,
+      'images': images,
+    }) as Map<String, dynamic>;
+    return Project.fromJson(data);
+  }
+
+  /// Cancels a posted project — the owner's own project only.
+  ///
+  /// Server-side this also withdraws every pending quote and notifies the
+  /// chosen contractor, so the app does not have to unpick the offers itself.
+  Future<void> cancelProject(String projectId) async {
+    await _api.post('/api/mobile/projects/$projectId/cancel');
+  }
+
   // ---- Quotes -----------------------------------------------------------
   Future<List<Quote>> projectQuotes(String projectId) async {
     final data =

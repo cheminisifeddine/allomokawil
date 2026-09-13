@@ -29,6 +29,7 @@ import 'package:allomokawil/src/core/security/auth_state.dart';
 import 'package:allomokawil/src/core/theme/app_theme.dart';
 import 'package:allomokawil/src/data/repository.dart';
 import 'package:allomokawil/src/models/enums.dart';
+import 'package:allomokawil/src/models/project.dart';
 import 'package:allomokawil/src/screens/auth/auth_screen.dart';
 import 'package:allomokawil/src/screens/landing/landing_screen.dart';
 import 'package:allomokawil/src/screens/notifications/notifications_screen.dart';
@@ -458,6 +459,44 @@ void main() {
         s.api,
         s.auth,
         act: (t) => t.tap(find.byIcon(Icons.star_outline_rounded).at(1)));
+  });
+
+  // The owner's own project: the two actions he did not have before, and the
+  // form the edit one opens. A client could publish a project from the app and
+  // never touch it again — no fix for a typo, no way out of a project he no
+  // longer wants. Both states are captured here because both are new.
+  testWidgets('shots: owner edit + cancel', (tester) async {
+    final s = await boot();
+    // The action row sits under the quote list, so the capture scrolls to it.
+    // A shot of the top of the page would prove nothing about a row 900 px
+    // further down.
+    await _shoot(
+      tester,
+      '19_project_owner_actions',
+      ProjectDetailScreen(
+          projectId: _project['id'] as String, repo: Repository(s.api)),
+      s.api,
+      s.auth,
+      act: (t) async {
+        for (var i = 0; i < 3; i++) {
+          await t.drag(find.byType(ListView).first, const Offset(0, -320));
+          await t.pump(const Duration(milliseconds: 60));
+        }
+      },
+    );
+    // The publish form in edit mode, prefilled from the project, with the
+    // photos it already has shown as removable tiles above the picker.
+    await _shoot(
+      tester,
+      '20_project_edit',
+      ProjectNewScreen(
+          initial: Project.fromJson({
+        ..._project,
+        'images': <String>['https://cdn.test/kept.jpg'],
+      })),
+      s.api,
+      s.auth,
+    );
   });
 
   testWidgets('shots: notifications', (tester) async {

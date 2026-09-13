@@ -14,6 +14,7 @@ import '../../widgets/ui.dart';
 import '../browse/browse_screen.dart';
 import '../chat/chat_screen.dart';
 import '../review/review_screen.dart';
+import 'project_new_screen.dart';
 import '../../core/l10n/error_copy.dart';
 import '../../widgets/skeletons.dart';
 
@@ -82,6 +83,56 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     }
     if (!mounted) return;
     _openReview(project);
+    _reload();
+  }
+
+  /// Owner edits his own project. The form is the publish form in edit mode,
+  /// so the create-time validation is not duplicated: it is the same fields,
+  /// the same budget rules and the same required title/category/wilaya. It
+  /// answers `true` when it actually saved, and the project is re-read only
+  /// then — a form the user backed out of must not repaint the page.
+  Future<void> _edit(Project project) async {
+    final saved = await Navigator.of(context).push<bool>(MaterialPageRoute(
+      builder: (_) => ProjectNewScreen(initial: project),
+    ));
+    if (saved == true && mounted) _reload();
+  }
+
+  /// Owner cancels his own project. Destructive and irreversible from the app,
+  /// so it asks first, in Arabic, and says what happens to the bids.
+  Future<void> _cancel(Project project) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('إلغاء المشروع؟'),
+        content: const Text(
+            'سيتم إلغاء المشروع وسحب كل العروض المنتظرة، ولن يستطيع الحرفيون التقديم عليه. لا يمكن التراجع.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('تراجع'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppTheme.danger),
+            child: const Text('نعم، ألغِ المشروع'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await widget.repo.cancelProject(project.id);
+    } on Exception catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(errorCopy(e))));
+      }
+      return;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('تم إلغاء المشروع')));
     _reload();
   }
 
@@ -183,6 +234,14 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                           onAccept: _accept,
                           onBid: () => _showBidSheet(project),
                         ),
+                        if (_isOwner) ...[
+                          const SizedBox(height: 16),
+                          _OwnerActions(
+                            project: project,
+                            onEdit: () => _edit(project),
+                            onCancel: () => _cancel(project),
+                          ),
+                        ],
                         if (!_isOwner) ...[
                           const SizedBox(height: 16),
                           SecondaryButton(
@@ -720,6 +779,53 @@ class _QuoteCard extends StatelessWidget {
 }
 
 /// Secondary helper kept for reuse — same signature, now built on the UI kit.
+/// The owner's two management actions, under his own project.
+///
+/// Both are gated on the state the API actually accepts: editing is only
+/// possible while `open` (after a contractor is chosen the job is a contract
+/// he bid on), and cancelling only while the job is not already finished or
+/// cancelled. Rendering a button the server would refuse is how the app
+/// teaches users that its buttons lie, so a state with no allowed action
+/// renders nothing at all.
+class _OwnerActions extends StatelessWidget {
+  final Project project;
+  final VoidCallback onEdit;
+  final VoidCallback onCancel;
+
+  const _OwnerActions({
+    required this.project,
+    required this.onEdit,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final status = project.status;
+    if (status == ProjectStatus.completed ||
+        status == ProjectStatus.cancelled) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (status == ProjectStatus.open)
+          SecondaryButton(
+            label: 'عدّل المشروع',
+            icon: Icons.edit_outlined,
+            onPressed: onEdit,
+          ),
+        if (status == ProjectStatus.open) const SizedBox(height: 10),
+        TextButton.icon(
+          onPressed: onCancel,
+          style: TextButton.styleFrom(foregroundColor: AppTheme.danger),
+          icon: const Icon(Icons.cancel_outlined, size: 18),
+          label: const Text('إلغاء المشروع'),
+        ),
+      ],
+    );
+  }
+}
+
 class OutlineButtonOnly extends StatelessWidget {
   final String label;
   final VoidCallback onPressed;
