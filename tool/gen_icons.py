@@ -59,7 +59,11 @@ ROUND_INK_RADIUS = 0.44      # of a 48dp legacy round icon
 ADAPTIVE_INK_RADIUS = 0.3056  # of the 108dp adaptive canvas == 33dp safe radius
 SPLASH_FILL = 1.00
 IOS_FILL = 0.72  # iOS icons want breathing room inside their rounded square
-IOS_BG = (245, 244, 241, 255)  # opaque cream; iOS forbids transparency
+# The founder's call: a white tile behind the mark. The artwork is dark ink with
+# gold accents, so on a transparent icon it disappears against a dark launcher
+# wallpaper. White keeps the mark clear and matches the white first screen.
+ICON_BG = (255, 255, 255, 255)
+IOS_BG = ICON_BG  # iOS forbids an alpha channel in AppIcon anyway
 
 
 def load_mark() -> Image.Image:
@@ -82,14 +86,14 @@ def place(mark: Image.Image, size: int, fill: float, bg=None) -> Image.Image:
     return canvas
 
 
-def place_by_radius(mark: Image.Image, size: int, radius_frac: float) -> Image.Image:
+def place_by_radius(mark: Image.Image, size: int, radius_frac: float, bg=None) -> Image.Image:
     """Scale the mark so its farthest ink pixel sits at radius_frac of `size`."""
     target_r = size * radius_frac
     r = max_ink_radius(mark)
     scale = target_r / r if r else 1.0
     w = max(1, int(round(mark.width * scale)))
     h = max(1, int(round(mark.height * scale)))
-    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    canvas = Image.new("RGBA", (size, size), bg or (0, 0, 0, 0))
     resized = mark.resize((w, h), Image.Resampling.LANCZOS)
     canvas.paste(resized, ((size - w) // 2, (size - h) // 2), resized)
     return canvas
@@ -125,10 +129,10 @@ def main() -> int:
         out_dir.mkdir(parents=True, exist_ok=True)
 
         legacy_size = int(round(48 * dpr))
-        legacy = place(mark, legacy_size, LEGACY_FILL)
+        legacy = place(mark, legacy_size, LEGACY_FILL, bg=ICON_BG)
         legacy.save(out_dir / "ic_launcher.png")
 
-        rnd = place_by_radius(mark, legacy_size, ROUND_INK_RADIUS)
+        rnd = place_by_radius(mark, legacy_size, ROUND_INK_RADIUS, bg=ICON_BG)
         rnd.save(out_dir / "ic_launcher_round.png")
 
         fg_size = int(round(108 * dpr))
@@ -144,19 +148,23 @@ def main() -> int:
               f"adaptive {fg_size:3d}px [{ink_report(fg)}]  "
               f"round [{ink_report(rnd)}]")
 
-    # The adaptive background must be invisible: the founder asked for the bare
-    # logo, and a cream tile is exactly the white box he reported.
+    # The adaptive background is the white tile the founder asked for: the mark is
+    # dark ink with gold accents, so it needs a light plate behind it on API 26+.
     bg_xml = RES / "values" / "ic_launcher_background.xml"
     bg_xml.parent.mkdir(parents=True, exist_ok=True)
     bg_xml.write_text(
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
         "<resources>\n"
-        "    <!-- Transparent on purpose: the mark should stand alone, with no\n"
-        "         tile behind it. See tool/gen_icons.py. -->\n"
-        "    <color name=\"ic_launcher_background\">#00000000</color>\n"
+        "    <!-- White plate behind the mark so the dark artwork stays legible on\n"
+        "         any wallpaper. See tool/gen_icons.py. -->\n"
+        "    <color name=\"ic_launcher_background\">#FFFFFF</color>\n"
         "</resources>\n"
     )
-    print(f"  wrote {bg_xml.relative_to(REPO)} (transparent)")
+    night = RES / "values-night" / "ic_launcher_background.xml"
+    if night.exists():
+        night.write_text(bg_xml.read_text())
+        print(f"  wrote {night.relative_to(REPO)} (white, night too)")
+    print(f"  wrote {bg_xml.relative_to(REPO)} (white)")
 
     # iOS: opaque, because an AppIcon with an alpha channel is rejected.
     if IOS.exists():

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Transparent on purpose: the mark should stand alone, with no
-         tile behind it. See tool/gen_icons.py. -->
-    <color name="ic_launcher_background">#00000000</color>
+    <!-- White plate behind the mark so the dark artwork stays legible on
+         any wallpaper. See tool/gen_icons.py. -->
+    <color name="ic_launcher_background">#FFFFFF</color>
 </resources>
