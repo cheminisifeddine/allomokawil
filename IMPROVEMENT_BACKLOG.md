@@ -741,8 +741,19 @@ understand that is the single biggest "this app is foreign" signal.
       from an earlier tick, not a live build. Killed it (pid 21752) rather than
       inherit a permanent false "another session is building" reading; no
       Gradle/Java/AAPT2 process was touched (there were none).
-- [ ] **Onboarding for two roles.** One short, skippable Arabic explainer that
+- [x] **Onboarding for two roles.** One short, skippable Arabic explainer that
       makes "I need work done" vs "I do the work" unmissable at signup.
+      **Done** `60933b2`: `lib/src/data/onboarding.dart` (one persisted flag,
+      asked once per install) + `lib/src/widgets/role_guide.dart` (scroll-controlled
+      sheet in an `AppCard`, two `SelectableTile` sides with their real payoff
+      sentence, «تخطّي الآن»); «إنشاء الحساب» carries the picked role into the auth
+      screen and falls back to customer on skip/dismiss. Gate: `flutter analyze`
+      clean, `flutter test` 362 passed / 0 failed (356 before). Live release web
+      bundle, 412x915: tap «إنشاء الحساب» → sheet with title + both tiles + skip in
+      the semantics tree, then tapping «أنا مقاول/حرفي» lands on the sign-up form
+      with the worker side already selected; the sheet covers the landing CTA
+      (accent `#E8A33D` box present on the landing, 0 boxes under the sheet) and
+      both tiles measure 372x91 logical with hairlines at `#E8E8EC`.
 - [ ] **Home screen hierarchy.** The client home leads with one clear primary
       action; the contractor home leads with the next thing that earns them
       money, not with a stats row.
