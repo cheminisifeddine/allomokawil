@@ -1165,7 +1165,7 @@ understand that is the single biggest "this app is foreign" signal.
       asset is a build-time problem, and its `then` has no `onError`), and the
       model internals (`models/plan.dart`, `models/user.dart`, …), which are now
       only ever reached through `_row` / `_rows` / `_session`.
-- [ ] **Semantics labels** on interactive elements for TalkBack/VoiceOver.
+- [x] **Semantics labels** on interactive elements for TalkBack/VoiceOver.
       *Audited 13 Sep 15:52, read-only — no build this tick: a leaked
       `flutter_tester` (pid 226342) held `build/unit_test_assets`; see the
       protocol note.* Nothing was implemented, so the checkbox stays open; the
@@ -1295,6 +1295,47 @@ understand that is the single biggest "this app is foreign" signal.
         Founder question unchanged: may a tick reap a `flutter_tester` older than 30 min
         with `ppid` = systemd and 0 % CPU that is pointed at this repo's own
         `unit_test_assets`? One `kill 226342` answers it.
+      *Tick 18:19, 13 Sep — done, gate green.* `3de834b`, pushed. The eight-golden-screen sweep
+      lives in `test/design_shots_test.dart` ("no main screen has a tappable node with no name"):
+      for each of the eight main screens it walks
+      `tester.semantics.simulatedAccessibilityTraversal()` and fails on any node that has a tap
+      action and is silent in all three channels a reader uses — `label`, `hint`, `tooltip`,
+      read from the node's **data** (a merged node keeps its own label empty and carries the
+      child's in its data, which is what the platform is handed; reading `node.label` is what made
+      the first version report nine false positives).
+       *Two more nameless controls than the hand audit found.* The sign-in remember-me row was the
+      tenth: its `InkWell` node held the tap action, the `Checkbox` node was checked and nameless,
+      and the visible «تذكرني» was a *sibling* text node. Fixed with one `MergeSemantics` naming
+      the toggle, visible text `ExcludeSemantics`'d so the sentence is not read twice, and pinned
+      by its own test — named once, tappable, and it announces its checked state. The eleventh is
+      **filed, see below**.
+       *What else had to be fixed to reach green:* `A11y.star` spelled its fixed «من 5» in ASCII
+      while `A11y.rating` spelled «من ٥», so the star row contradicted its own score line (fixed,
+      Arabic-Indic denominator); the eight `SemanticsHandle`s in `a11y_semantics_test.dart` were
+      disposed from `addTearDown`, which runs *after* the framework's end-of-body handle check
+      (`widget_tester.dart:453`), so that file had never once passed — all eight disposed inline
+      now; `lib/src/app.dart:125` typed a raw `13.5` where the ladder's step is `fsMeta` (inherited
+      red from `4c29d45`, one token, no pixel moves).
+       *Evidence (real output):* `flutter analyze` -> **No issues found!**; `flutter test` ->
+      **463 passed, 3 skipped, 0 failed** (was 451 passed / 11 failed at 17:0x). The goldens in the
+      same file still match, so this item moved no pixel — the whole change is tree-level.
+       *Filed, design-gated — the sign-in password box (`node 27`) has no accessible name, and no
+      Dart API can give it one:* a Material text field takes its name only from its own
+      decoration's hint Text (`input_decorator.dart` merges the hint up into the field node), and a
+      hint is **painted**. Measured, not assumed: a `Semantics` label on the field's prefix icon
+      does not merge — it adds a second, duplicate label node (the sweep's own dump showed it) —
+      and a transparent hint names the box but puts a second `Text` in the tree, which broke
+      `tap_target_test.dart`'s `find.text('الاسم الكامل')`. So the fix is one line in `authInput`
+      and it is a **visual** decision (placeholder inside the field) that UI-UX owns; the sweep
+      therefore fails on any nameless *control* and **pins** the one nameless *field* by node id
+      and rect, so a new nameless box breaks the test instead of hiding.
+       *Orphan watch (fifth tick, unchanged):* `flutter_tester` pid 226342, ppid 1033 =
+      `systemd --user`, 0.0 % CPU, still holding `build/unit_test_assets`. Reported, not killed.
+      Your one-word answer would end this recurring cost: may a tick `kill` a `flutter_tester` older
+      than 30 min, parented by systemd, at 0 % CPU, pointed at this repo's own assets?
+       *Next:* the item below (**Cold-start audit**) needs a *release* build and a real device, both
+      founder-gated, so the first thing a tick can take unasked is Phase 4's **crash-free
+      baseline**.
 - [ ] **Cold-start audit.** Measure and shorten time-to-first-meaningful-paint
       on the release build; report a real number from a real device/emulator.
 - [ ] **Crash-free baseline.** Wire a lightweight error reporter and confirm it
