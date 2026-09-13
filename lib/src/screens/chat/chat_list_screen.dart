@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/chat_outbox.dart';
 import '../../data/notification_copy.dart';
 import '../../data/repository.dart';
 import '../../models/chat.dart';
@@ -29,11 +30,16 @@ class ChatListScreen extends StatefulWidget {
   /// instead of this screen guessing where the marketplace is.
   final VoidCallback? onDiscover;
 
+  /// The queue shared with the threads this inbox opens. Injectable so a test
+  /// can drive both screens from one store.
+  final ChatOutbox? outbox;
+
   const ChatListScreen({
     super.key,
     required this.repo,
     this.initial,
     this.onDiscover,
+    this.outbox,
   });
 
   @override
@@ -42,15 +48,47 @@ class ChatListScreen extends StatefulWidget {
 
 class _ChatListScreenState extends State<ChatListScreen> {
   late Future<List<Conversation>> _future;
+  late final ChatOutbox _outbox;
+
+  /// Conversation id -> messages that are still only on this phone. The inbox is
+  /// the last place a user can notice that a message never left: without this,
+  /// an unsent message is invisible from every screen except the thread it was
+  /// written in.
+  Map<int, int> _queued = const <int, int>{};
 
   @override
   void initState() {
     super.initState();
+    _outbox = widget.outbox ?? ChatOutbox();
     _future = widget.initial ?? widget.repo.conversations();
+    _loadQueued();
+  }
+
+  /// Reads the outbox; a store that will not open leaves the badges empty.
+  Future<void> _loadQueued() async {
+    final counts = await _outbox.countsByConversation();
+    if (!mounted) return;
+    setState(() => _queued = counts);
   }
 
   void _reload() {
     setState(() => _future = widget.repo.conversations());
+    _loadQueued();
+  }
+
+  /// Leaving a thread can change what is still owed, so the badges are re-read
+  /// on the way back.
+  Future<void> _openThread(Conversation conv) async {
+    await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ChatScreen(
+              conversationId: conv.id,
+              otherUserId: 0,
+              otherName: conv.otherUserName,
+              repo: widget.repo,
+              outbox: _outbox,
+            )));
+    if (!mounted) return;
+    _reload();
   }
 
   @override
@@ -85,15 +123,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
                 itemBuilder: (context, i) => _ConversationTile(
                   conv: convs[i],
-                  onTap: () => Navigator.of(context)
-                      .push(MaterialPageRoute(
-                          builder: (_) => ChatScreen(
-                                conversationId: convs[i].id,
-                                otherUserId: 0,
-                                otherName: convs[i].otherUserName,
-                                repo: widget.repo,
-                              )))
-                      .then((_) => _reload()),
+                  queued: _queued[convs[i].id] ?? 0,
+                  onTap: () => _openThread(convs[i]),
                 ),
               ),
             );
@@ -131,7 +162,14 @@ class _ConversationTile extends StatelessWidget {
   final Conversation conv;
   final VoidCallback onTap;
 
-  const _ConversationTile({required this.conv, required this.onTap});
+  /// Messages of this conversation the server has not stored yet.
+  final int queued;
+
+  const _ConversationTile({
+    required this.conv,
+    required this.onTap,
+    this.queued = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -177,6 +215,38 @@ class _ConversationTile extends StatelessWidget {
                   style: AppTheme.caption.copyWith(
                       fontSize: AppTheme.fsBadge, color: AppTheme.textMuted),
                 ),
+              if (queued > 0) ...[
+                if (hasUnread || conv.lastMessageAt != null)
+                  const SizedBox(height: 7),
+                Tooltip(
+                  message: queuedCountLabel(queued),
+                  child: Container(
+                    constraints: const BoxConstraints(minWidth: 24),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppTheme.accentWash,
+                      borderRadius: BorderRadius.circular(AppTheme.rPill),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.cloud_off_rounded,
+                            size: 12, color: AppTheme.accentDeep),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$queued',
+                          textAlign: TextAlign.center,
+                          style: AppTheme.label.copyWith(
+                              fontSize: AppTheme.fsBadge,
+                              height: 1.2,
+                              color: AppTheme.accentDeep),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
               if (hasUnread) ...[
                 if (conv.lastMessageAt != null) const SizedBox(height: 7),
                 Container(

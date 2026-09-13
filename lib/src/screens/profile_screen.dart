@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/app_scope.dart';
 import '../core/theme/app_theme.dart';
+import '../data/chat_outbox.dart';
 import '../data/taxonomy.dart';
 import '../models/enums.dart';
 import '../widgets/ui.dart';
@@ -119,6 +120,9 @@ class ProfileScreen extends StatelessWidget {
           AppCard(
             padding: EdgeInsets.zero,
             onTap: () async {
+              // Signing out of a phone must not leave the previous account's
+              // unsent messages on it.
+              await ChatOutbox().clear();
               await scope.auth.logout();
             },
             child: const _SettingsRow(

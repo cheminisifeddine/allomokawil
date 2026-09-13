@@ -5,19 +5,27 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/chat_outbox.dart';
 import '../../data/chat_time.dart';
 import '../../data/repository.dart';
 import '../../models/chat.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
 
-/// Thread chat: text + image (queue-on-retry when offline).
+/// Thread chat: text + image. A message the server refuses is written to this
+/// device's outbox *before* the first attempt, so leaving the thread — or the
+/// phone killing the app in the background — cannot lose it. See
+/// `lib/src/data/chat_outbox.dart`.
 class ChatScreen extends StatefulWidget {
   final int? conversationId;
   final String? projectId;
   final int otherUserId;
   final String otherName;
   final Repository repo;
+
+  /// The queue that keeps an unsent message across a restart. Injectable so a
+  /// test can hand in its own store instead of the real preferences file.
+  final ChatOutbox? outbox;
 
   const ChatScreen({
     super.key,
@@ -26,6 +34,7 @@ class ChatScreen extends StatefulWidget {
     required this.otherUserId,
     this.otherName = '',
     required this.repo,
+    this.outbox,
   });
 
   @override
@@ -54,13 +63,28 @@ class _ChatScreenState extends State<ChatScreen> {
   List<Message> get _unsent =>
       _messages.where((m) => m.sendState == SendState.failed).toList();
 
+  /// The queue of messages this device still owes the server. Survives leaving
+  /// the thread and a cold start; see `data/chat_outbox.dart`.
+  late final ChatOutbox _outbox = widget.outbox ?? ChatOutbox();
+
+  /// Local bubble id -> the queue record behind it, so a confirmed send knows
+  /// exactly which record to forget.
+  final Map<int, String> _queuedIds = <int, String>{};
+
   @override
   void initState() {
     super.initState();
     _bootstrap();
   }
 
+  /// Opens the thread, then redraws and flushes whatever this phone still owes
+  /// it.
+  ///
+  /// The queue is restored whether or not the server answered: a message the
+  /// user already wrote has to appear on a dead connection, with its retry line,
+  /// instead of being replaced by an error page that hides it.
   Future<void> _bootstrap() async {
+    var refused = false;
     try {
       var convId = widget.conversationId;
       convId ??= await widget.repo.openConversation(
@@ -70,8 +94,65 @@ class _ChatScreenState extends State<ChatScreen> {
       _convId = convId;
       await _load();
     } catch (_) {
-      if (mounted) setState(() => _error = true);
+      refused = true;
     }
+    await _restoreQueued();
+    if (!mounted) return;
+    setState(() {
+      if (refused) _error = true;
+      _loading = false;
+    });
+    _jumpToBottom();
+    await _flushQueued();
+  }
+
+  /// Puts the stored queue back in the thread, oldest first, each one drawn as a
+  /// bubble the server does not have yet — the same shape the user saw when the
+  /// send failed, so nothing looks as if it evaporated overnight.
+  Future<void> _restoreQueued() async {
+    final convId = _convId;
+    if (convId == null) return;
+    final pending = await _outbox.pendingFor(convId);
+    if (pending.isEmpty || !mounted) return;
+    setState(() {
+      for (final p in pending) {
+        final bubble = Message(
+          id: _nextLocalId--,
+          conversationId: convId,
+          senderId: _me,
+          content: p.text,
+          imageUrl: p.imagePath,
+          type: p.isImage ? MessageType.image : MessageType.text,
+          isRead: 0,
+          createdAt: p.createdAt,
+          sendState: SendState.failed,
+        );
+        _queuedIds[bubble.id] = p.id;
+        _messages = [..._messages, bubble];
+      }
+    });
+  }
+
+  /// One attempt per queued message when the thread opens, without a snackbar
+  /// each: an automatic retry is not news, and the bubble's own line already
+  /// says what happened to it.
+  Future<void> _flushQueued() async {
+    for (final m in _unsent) {
+      await _deliver(m, announce: false);
+    }
+  }
+
+  /// Writes one bubble into the queue and remembers which record owns it.
+  /// Called *before* the first network attempt, which is the whole point.
+  Future<void> _enqueue(Message bubble, {String? text, String? imagePath}) async {
+    final convId = _convId;
+    if (convId == null) return; // no thread yet: nowhere to attach it
+    final record = await _outbox.add(
+      conversationId: convId,
+      text: text,
+      imagePath: imagePath,
+    );
+    _queuedIds[bubble.id] = record.id;
   }
 
   Future<void> _load() async {
@@ -102,6 +183,10 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty) return;
     _input.clear();
     final local = _localBubble(text: text);
+    // Written down before the first attempt: if the phone loses the network,
+    // the user taps back, or Android kills the app mid-request, the message is
+    // still on the device with a way to send it.
+    await _enqueue(local, text: text);
     setState(() => _messages = [..._messages, local]);
     _jumpToBottom();
     await _deliver(local);
@@ -124,11 +209,40 @@ class _ChatScreenState extends State<ChatScreen> {
   /// Sends one bubble and swaps the local copy for the server row **by local
   /// id** — the old code appended the server row and left the optimistic bubble
   /// in place, so every retry showed the user his message twice.
-  Future<void> _deliver(Message local) async {
+  Future<void> _deliver(Message local, {bool announce = true}) async {
+    final convId = _convId;
+    if (convId == null) {
+      // No thread to send into (opening it failed): say so and keep the text.
+      if (mounted) {
+        setState(() => _replace(
+            local.id, local.copyWith(sendState: SendState.failed)));
+      }
+      if (announce) _toast(_retryCopy);
+      return;
+    }
+    // A queued photo whose file the system cleaned up can never be sent: forget
+    // the record instead of retrying a missing file on every open, and say the
+    // one useful thing — pick it again.
+    final path = local.imageUrl;
+    if (local.type == MessageType.image &&
+        path != null &&
+        !File(path).existsSync()) {
+      await _forget(local);
+      if (!mounted) return;
+      setState(
+          () => _replace(local.id, local.copyWith(sendState: SendState.failed)));
+      if (announce) {
+        _toast('لم تعد الصورة موجودة على الجهاز — اختر الصورة من جديد وأرسلها');
+      }
+      return;
+    }
     try {
       final sent = local.type == MessageType.image
-          ? await widget.repo.sendImage(_convId!, File(local.imageUrl!))
-          : await widget.repo.sendText(_convId!, local.content ?? '');
+          ? await widget.repo.sendImage(convId, File(local.imageUrl!))
+          : await widget.repo.sendText(convId, local.content ?? '');
+      // The server has the row: the phone no longer owes it. Order matters —
+      // forgetting first would lose the message if the app died right here.
+      await _forget(local);
       if (!mounted) return;
       setState(
           () => _replace(local.id, sent.copyWith(sendState: SendState.sent)));
@@ -136,9 +250,20 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
       setState(
           () => _replace(local.id, local.copyWith(sendState: SendState.failed)));
-      _toast('تعذّر الإرسال — الرسالة محفوظة، اضغط عليها لإعادة المحاولة');
+      if (announce) _toast(_retryCopy);
     }
     _jumpToBottom();
+  }
+
+  /// «تعذّر الإرسال» alone used to hide the one fact that matters — the words
+  /// are still on the phone.
+  static const String _retryCopy =
+      'تعذّر الإرسال — الرسالة محفوظة في الهاتف، اضغط عليها لإعادة المحاولة';
+
+  /// Drops [local]'s queue record, if it has one.
+  Future<void> _forget(Message local) async {
+    final id = _queuedIds.remove(local.id);
+    if (id != null) await _outbox.remove(id);
   }
 
   /// Puts [next] where the bubble with [localId] was, keeping the clock already
@@ -171,6 +296,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final file = await picker.pickImage(source: ImageSource.gallery);
     if (file == null) return;
     final local = _localBubble(imagePath: file.path);
+    await _enqueue(local, imagePath: file.path);
     setState(() => _messages = [..._messages, local]);
     _jumpToBottom();
     await _deliver(local);
@@ -210,9 +336,13 @@ class _ChatScreenState extends State<ChatScreen> {
       appBar: AppBar(
           title:
               Text(widget.otherName.isEmpty ? 'الرسائل' : widget.otherName)),
+      // With a dead connection the error page is only honest when there is
+      // nothing of the user's own to show. A queued message fills the thread and
+      // the composer stays open, so he can keep writing — it all goes out when
+      // the network returns.
       body: _loading
           ? const SkeletonChatThread()
-          : _error
+          : (_error && _unsent.isEmpty)
               ? EmptyView(
                   icon: Icons.wifi_off_rounded,
                   title: 'تعذّر جلب الرسائل',
@@ -222,6 +352,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 )
               : Column(
                   children: [
+                    if (_error) _offlineStrip(),
                     Expanded(child: _thread()),
                     if (_unsent.isNotEmpty) _pendingBanner(),
                     _composer(),
@@ -304,6 +435,31 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // ── Offline banner ──────────────────────────────────────────────────────
+  /// Shown above a thread that could not be fetched, so the queued bubbles below
+  /// it are never mistaken for the whole conversation.
+  Widget _offlineStrip() {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppTheme.surfaceAlt,
+        border: Border(bottom: BorderSide(color: AppTheme.line)),
+      ),
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+      child: Row(
+        children: [
+          const Icon(Icons.wifi_off_rounded,
+              size: 16, color: AppTheme.textSecondary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'لا يوجد اتصال — ستُرسل رسائلك المحفوظة عند عودة الشبكة',
+              style: AppTheme.caption.copyWith(color: AppTheme.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _pendingBanner() {
     return Container(
       decoration: const BoxDecoration(
@@ -316,6 +472,25 @@ class _ChatScreenState extends State<ChatScreen> {
           const Icon(Icons.cloud_off_rounded,
               size: 18, color: AppTheme.accentDeep),
           const SizedBox(width: 8),
+          // The count, only when it is worth counting: one message is already
+          // described by the sentence beside it.
+          if (_unsent.length > 1) ...<Widget>[
+            Container(
+              constraints: const BoxConstraints(minWidth: 24),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppTheme.accent,
+                borderRadius: BorderRadius.circular(AppTheme.rPill),
+              ),
+              child: Text(
+                '${_unsent.length}',
+                textAlign: TextAlign.center,
+                style: AppTheme.label.copyWith(
+                    fontSize: AppTheme.fsCaption, height: 1.2, color: AppTheme.navy),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
           Expanded(
             child: Text(
               'رسائل غير مرسلة — اضغط لإعادة المحاولة',
