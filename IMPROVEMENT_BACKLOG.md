@@ -1036,6 +1036,59 @@ understand that is the single biggest "this app is foreign" signal.
       golden call sites if this is ever split into its own file.
 - [ ] **Every API call wrapped** so failure surfaces as an Arabic retryable
       state; assert no unhandled exception path remains.
+      *Audited 13 Sep 12:37, read-only (no build this tick) — the defect is real
+      and it is two layers deep.*
+      **Layer 1 — the network layer can raise an `Error`, not an `Exception`.**
+      `ApiClient._decode` (`lib/src/core/network/api_client.dart:139`) returns
+      `_tryJson(res.body)`, and `_tryJson` (`:150`) swallows the `FormatException`
+      and hands back the **raw string** for any 2xx body that is not JSON — a
+      Cloudflare interstitial, a captive-portal page, an Algerian ISP proxy
+      notice. Every repository method then casts that value unguarded:
+      `lib/src/data/repository.dart:20` `as List`, `:46` and `:85`
+      `as Map<String, dynamic>`, `:190`, `:198`, `:388` … 29 such casts in the
+      file, each raising **`TypeError`**, which implements `Error`, not
+      `Exception`.
+      **Layer 2 — nine catch sites cannot see it.** `on Exception catch (e)` does
+      not match `TypeError`. The nine: `auth_screen.dart:123` (login),
+      `auth_screen.dart:169` (register), `review_screen.dart:59`,
+      `verification_screen.dart:107`, `my_portfolio_screen.dart:155`,
+      `project_detail_screen.dart:77`, `:126`, `:410`,
+      `project_new_screen.dart:161`. Their `finally` blocks still clear the
+      spinner, so the failure is not a permanent hang — it is **silence**: the
+      request dies, `_error` stays null, and the user taps إنشاء الحساب and
+      watches nothing happen, with no sentence telling him why. The same
+      `TypeError` escapes from the unguarded model casts
+      (`models/chat.dart:37-39`, `models/notification.dart:26-28`,
+      `models/user.dart:26-29`, `models/quote_review.dart:30-44`,
+      `models/project.dart:98-101`, `models/worker.dart:85-87`) whenever a
+      fetched row carries a null or a string where an int/String is expected.
+      *Already correct — do not re-do it:* `errorCopy`
+      (`core/l10n/error_copy.dart:54`) takes `Object?` and always lands on
+      Arabic, and all 18 `FutureBuilder` read paths (`hasError` → `EmptyView`
+      with إعادة المحاولة) handle an `Error` correctly because `snap.hasError`
+      is type-blind. The gap is the **action/write paths plus the network
+      layer**, nothing else.
+      *Planned edit for the next build-capable tick (mechanical, one commit):*
+      1. `_decode`: a non-empty 2xx body that did not parse as JSON becomes
+         `ApiException(S.errUnexpected, statusCode: …, cause: …)` instead of
+         leaking the raw string upward.
+      2. The 29 `as …` casts in `repository.dart` go through a shared
+         `_asList`/`_asMap` pair that throws the same Arabic `ApiException` when
+         the shape is wrong, so a drifted row is a sentence, not a `TypeError`.
+      3. The nine `on Exception catch (e)` become `catch (e)` — `errorCopy`
+         already accepts `Object?`, so nothing else moves.
+      4. Regression tests: a stub `http.Client` answering 200 with `text/html`,
+         and one answering 200 with a row missing `id`; both must surface an
+         `ApiException` carrying Arabic copy, and the existing widget gate must
+         still show the auth button re-enabling with a sentence on screen.
+      *Why it did not ship this tick:* the build-safety gate. A `flutter_tester`
+      orphan (pid 128251, ppid 1 = `systemd --user`, started 11:45:15, 52 min
+      elapsed, 0.1 % CPU, 135 MB RSS) is holding
+      `/home/renia/allomokawil/build/unit_test_assets`; `flutter test` over the
+      top of it is exactly the 37-minute stall recorded earlier in this file. Per
+      the protocol the orphan is **reported, not killed**, so this tick took the
+      audit-only path and touched no Dart. It needs a human `kill 128251` (or the
+      next tick, if it has exited by then) before item 3 can be implemented.
 - [ ] **Semantics labels** on interactive elements for TalkBack/VoiceOver.
 - [ ] **Cold-start audit.** Measure and shorten time-to-first-meaningful-paint
       on the release build; report a real number from a real device/emulator.
