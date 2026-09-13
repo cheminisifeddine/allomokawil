@@ -8,6 +8,7 @@ import '../../data/project_search.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
 import '../../models/enums.dart';
+import '../../models/plan.dart';
 import '../../models/project.dart';
 import '../../models/worker.dart';
 import '../../widgets/app_tab_bar.dart';
@@ -23,6 +24,7 @@ import '../project/project_detail_screen.dart';
 import '../project/projects_screen.dart';
 import '../verify/verification_screen.dart';
 import 'my_portfolio_screen.dart';
+import 'subscription_screen.dart';
 import 'profile_edit_screen.dart';
 import '../../core/l10n/error_copy.dart';
 
@@ -526,6 +528,13 @@ class _HeaderSection extends StatelessWidget {
             // His three doors, one row instead of three full-width tiles.
             if (!loading && worker != null)
               _ToolStrip(worker: worker, onEdit: onEdit),
+            // The subscription row sits directly under his tools. The app now
+            // earns from the contractor, so his plan, its remaining quota and
+            // the way to pay must be one tap from home — not buried in a menu.
+            if (!loading && worker != null) ...[
+              const SizedBox(height: AppTheme.s12),
+              _PlanEntry(worker: worker),
+            ],
           ],
         );
       },
@@ -1200,5 +1209,73 @@ class _VerificationBadge extends StatelessWidget {
       return const _ToolBadge(label: 'مرفوضة', color: AppTheme.danger);
     }
     return const _ToolBadge(label: 'غير موثّق', color: AppTheme.accentDeep);
+  }
+}
+
+/// The subscription row on the contractor's home.
+///
+/// A full-width row rather than a fourth tool tile: this is the one line in the
+/// app that asks him for money, so it has to say something specific — which plan
+/// is live and how many quotes are left this month — instead of showing an icon
+/// and hoping he taps. It reads the same endpoint the subscription screen writes
+/// to, so the two can never disagree.
+class _PlanEntry extends StatelessWidget {
+  const _PlanEntry({required this.worker});
+
+  final WorkerProfile worker;
+
+  @override
+  Widget build(BuildContext context) {
+    final repo = Repository(AppScope.of(context).api);
+    return FutureBuilder<BillingCatalogue>(
+      future: repo.subscription(),
+      builder: (context, snap) {
+        final current = snap.data?.current;
+        String line;
+        Color tone = AppTheme.textSecondary;
+        if (snap.connectionState != ConnectionState.done) {
+          line = 'جارٍ التحميل...';
+        } else if (current == null) {
+          line = 'خطتك وحدود العروض وتفعيل الاشتراك';
+        } else if (current.hasUnlimitedQuotes) {
+          line = '${current.nameAr} مفعّل — عروض غير محدودة';
+          tone = AppTheme.success;
+        } else {
+          final left = current.quotesLeft ?? 0;
+          line = left == 0
+              ? '${current.nameAr} — استنفدت عروض هذا الشهر'
+              : '${current.nameAr} — بقي $left من ${current.quoteLimit} عروض هذا الشهر';
+          tone = current.isQuotaSpent ? AppTheme.danger : AppTheme.accentDeep;
+        }
+        return AppCard(
+          key: const Key('worker-plan-entry'),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const SubscriptionScreen()),
+          ),
+          child: Row(
+            children: [
+              const IconBubble(
+                icon: Icons.workspace_premium_rounded,
+                tint: AppTheme.navy,
+                wash: AppTheme.accentWash,
+              ),
+              const SizedBox(width: AppTheme.s12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(S.planTitle, style: AppTheme.h2),
+                    const SizedBox(height: AppTheme.s4),
+                    Text(line,
+                        style: AppTheme.caption.copyWith(color: tone)),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_left_rounded, color: AppTheme.textSecondary),
+            ],
+          ),
+        );
+      },
+    );
   }
 }

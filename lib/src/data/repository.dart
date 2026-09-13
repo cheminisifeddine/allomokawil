@@ -3,6 +3,7 @@ import 'dart:io';
 import '../core/network/api_client.dart';
 import '../models/chat.dart';
 import '../models/notification.dart';
+import '../models/plan.dart';
 import '../models/project.dart';
 import '../models/quote_review.dart';
 import '../models/worker.dart';
@@ -433,4 +434,54 @@ class Repository {
   }
 
   Future<String> uploadDocument(File file) => _api.uploadPhoto(file);
+
+  // ---- Subscription (contractor billing) ---------------------------------
+  //
+  // The founder's model is subscription-only: the مقاول pays for a plan,
+  // and nobody takes a commission on an order or a percentage of a project.
+  // These four calls are the whole surface the app needs for that.
+
+  /// The public price list. Works before sign-in, so a contractor can see what
+  /// he would pay before he creates an account.
+  Future<PlanCatalogue> planCatalogue() async {
+    final data = await _api.get('/api/mobile/plans') as Map<String, dynamic>;
+    return PlanCatalogue.fromJson(data);
+  }
+
+  /// The live plan, this month's usage, and how to pay.
+  Future<BillingCatalogue> subscription() async {
+    final data =
+        await _api.get('/api/mobile/subscription') as Map<String, dynamic>;
+    return BillingCatalogue.fromJson(data);
+  }
+
+  /// Declares a payment. Deliberately does NOT change the plan — only confirmed
+  /// money flips a plan, so a contractor cannot talk his way into a paid tier
+  /// by posting to this endpoint.
+  Future<Map<String, dynamic>> requestSubscription({
+    required String plan,
+    required BillingPeriod period,
+    required String method,
+    String? reference,
+  }) async {
+    final data = await _api.post('/api/mobile/subscription', body: {
+      'plan': plan,
+      'period': period.wire,
+      'method': method,
+      if (reference != null && reference.trim().isNotEmpty)
+        'reference': reference.trim(),
+    });
+    return data is Map ? Map<String, dynamic>.from(data) : const {};
+  }
+
+  /// Redeems a prepaid activation code — the path a contractor who paid cash
+  /// or by BaridiMob actually uses. Answers the plan id that is now live.
+  Future<String?> redeemActivationCode(String code) async {
+    final data = await _api.post('/api/mobile/subscription/redeem',
+        body: {'code': code.trim().toUpperCase()});
+    if (data is Map && data['plan'] is Map) {
+      return '${(data['plan'] as Map)['id']}';
+    }
+    return null;
+  }
 }

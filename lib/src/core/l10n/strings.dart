@@ -106,4 +106,41 @@ class S {
       'لم نتمكّن من الوصول إلى صورك. افتح إعدادات الهاتف وامنح إذن الصور ثم أعد المحاولة.';
   static const errCameraPermission =
       'لم نتمكّن من فتح الكاميرا. افتح إعدادات الهاتف وامنح إذن الكاميرا ثم أعد المحاولة.';
+
+  /// A 402 carries the server's own Arabic sentence when it has one, and this
+  /// is the fallback: it names the cause and points at the screen that fixes it.
+  static const errPlanLimit =
+      'خطتك الحالية لا تسمح بهذا الإجراء. افتح «اشتراكي» لترقية الاشتراك ثم أعد المحاولة.';
+
+  // Subscription (اشتراك المقاول).
+  static const planTitle = 'اشتراكي';
+  static const planNoteFallback =
+      'الاشتراك فقط: بدون عمولة على الطلبات وبدون أي نسبة من سعر المشروع.';
+  static const planCurrent = 'خطتك الحالية';
+  static const planChoose = 'اختر خطتك';
+  static const planFree = 'مجاني';
+  static const planPerMonth = 'شهرياً';
+  static const planPerYear = 'سنوياً';
+  static const planFreeSuffixMonthly = 'تدفع شهرياً';
+  static const planFreeSuffixYearly = 'تدفع سنوياً';
+  static const planYearlyHint = 'سنة كاملة بسعر عشرة أشهر';
+  static const planUpgrade = 'ترقية الاشتراك';
+  static const planRenew = 'تجديد الاشتراك';
+  static const planPendingTitle = 'طلبك قيد المراجعة';
+  static const planPendingBody =
+      'استلمنا طلبك. يُفعَّل الاشتراك بعد تأكيد الدفع، وسيصلك إشعار عند التفعيل.';
+  static const planPayTitle = 'طريقة الدفع';
+  static const planReferenceLabel = 'رقم العملية في الإشعار (اختياري)';
+  static const planCodeTitle = 'عندك رمز تفعيل؟';
+  static const planCodeHint = 'أدخل الرمز هنا';
+  static const planActivate = 'تفعيل';
+  static const planCodeOk = 'تم تفعيل اشتراكك';
+  static const planRequestOk = 'أرسلنا طلبك، ويُفعَّل بعد تأكيد الدفع';
+  static const planSupportFallback =
+      'لا توجد تفاصيل دفع منشورة بعد. تواصل معنا لتفعيل اشتراكك يدوياً.';
+  static const planLoadFailed = 'تعذّر تحميل خطط الاشتراك';
+  static const planQuotaTitle = 'انتهت حصة هذا الشهر';
+  static const planQuotaBody =
+      'وصلت إلى الحد المجاني في العروض. رقّي اشتراكك لتُرسل عروضاً بلا حد.';
+  static const planRetry = 'إعادة المحاولة';
 }

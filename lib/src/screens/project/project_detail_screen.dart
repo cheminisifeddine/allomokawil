@@ -14,8 +14,11 @@ import '../../widgets/ui.dart';
 import '../browse/browse_screen.dart';
 import '../chat/chat_screen.dart';
 import '../review/review_screen.dart';
+import '../worker/subscription_screen.dart';
 import 'project_new_screen.dart';
 import '../../core/l10n/error_copy.dart';
+import '../../core/l10n/strings.dart';
+import '../../core/network/api_client.dart';
 import '../../widgets/skeletons.dart';
 
 /// Full project view: info, photos, and the quotes workflow.
@@ -408,13 +411,46 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
             _reload();
           }
         } on Exception catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context)
-                .showSnackBar(SnackBar(content: Text(errorCopy(e))));
+          if (!mounted) return;
+          // A 402 here is not a failure to retry — it is the paywall: the plan's
+          // monthly quote allowance is spent. Offer the one action that unblocks
+          // him (increase the plan) instead of a sentence he cannot act on.
+          if (e is ApiException && e.statusCode == 402) {
+            await _offerUpgrade();
+            return;
           }
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(errorCopy(e))));
         }
       }
     }
+  }
+
+  /// The paywall turned into a next step: the dialog states the limit, and the
+  /// button opens «اشتراكي» where a month or a year can be chosen.
+  Future<void> _offerUpgrade() async {
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(S.planQuotaTitle),
+        content: const Text(S.planQuotaBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('لاحقاً'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text(S.planUpgrade),
+          ),
+        ],
+      ),
+    );
+    if (go != true || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const SubscriptionScreen()),
+    );
+    _reload();
   }
 }
 

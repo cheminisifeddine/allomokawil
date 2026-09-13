@@ -30,6 +30,16 @@ abstract interface class ArabicCopyError implements Exception {
   String get message;
 }
 
+/// A failure that still knows the HTTP status it came from.
+///
+/// Needed because copy and status can disagree: a 402 whose JSON body arrived
+/// empty (or as an HTML error page from a proxy) is not Arabic, so it cannot be
+/// shown — but the status alone is enough to pick the right sentence, and
+/// "raise your plan" is a far better answer than "unexpected error".
+abstract interface class StatusCopyError implements Exception {
+  int? get statusCode;
+}
+
 /// One Arabic letter, across the ranges Flutter can shape.
 final RegExp _arabic = RegExp(
     r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]');
@@ -49,10 +59,17 @@ bool isArabicCopy(String text) => _arabic.hasMatch(text);
 String errorCopy(Object? error, {String? fallback}) {
   final generic = fallback ?? S.errUnexpected;
   if (error == null) return generic;
+  // Read the status once: a failure that carries one can still be answered
+  // correctly even when its body held no usable copy — see [StatusCopyError].
+  final status = error is StatusCopyError ? error.statusCode : null;
   if (error is ArabicCopyError) {
     // Curated by the network layer per status code, unless something upstream
     // replaced the body with non-Arabic text.
-    return isArabicCopy(error.message) ? error.message : generic;
+    if (isArabicCopy(error.message)) return error.message;
+    // Nothing usable arrived in the body. If the failure still carries its
+    // status, the status decides: a body-less 402 is a paywall, not a mystery.
+    if (status != null) return apiErrorCopy(status, null);
+    return generic;
   }
   if (error is String) return isArabicCopy(error) ? error : generic;
   // Order matters: TimeoutException is not an IOException, and
@@ -110,6 +127,9 @@ bool apiErrorCopyPrefersServerText(int status) {
   switch (status) {
     case 400:
     case 401:
+    // 402 is our paywall: the server's sentence names the plan and the quota
+    // that was hit — strictly more precise than a generic "upgrade" line.
+    case 402:
     case 403:
     case 409:
     case 422:
@@ -133,6 +153,8 @@ String _curated(int status) {
       return S.errTimeout;
     case 409:
       return S.errConflict;
+    case 402:
+      return S.errPlanLimit;
     case 413:
       return S.errTooLarge;
     case 429:

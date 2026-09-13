@@ -156,9 +156,10 @@ class ApiClient {
   }
 }
 
-class ApiException implements Exception, ArabicCopyError {
+class ApiException implements Exception, ArabicCopyError, StatusCopyError {
   @override
   final String message;
+  @override
   final int? statusCode;
 
   /// Original network error, kept for logging only — never shown to the user.
