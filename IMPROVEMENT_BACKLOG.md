@@ -788,9 +788,45 @@ understand that is the single biggest "this app is foreign" signal.
       (danger ink counted under the refused bubble). 378 total. Found by pixel
       scan: the retry line was centred mid-thread because a Container with
       `alignment:` expands to its widest constraint — fixed.
-- [ ] **Chat image round-trip, live.** Upload a real photo to R2 through the app
+- [x] **Chat image round-trip, live.** Upload a real photo to R2 through the app
       and fetch the stored object back from the API to prove the URL the bubble
       renders is the one the server kept.
+      **DONE `38e5fb4`.** `test/live_chat_image_e2e_test.dart` drives
+      `Repository.sendImage` — the app's own path, multipart `POST /api/upload`
+      into R2 and then `POST /api/messages/:id` — with a 64x64 PNG built byte by
+      byte inside the file (signature, IHDR, IDAT, IEND, no fixture, readable by
+      `file(1)`), between two accounts created through the real sign-up
+      endpoint. Then it asks the API, not the app, what it kept:
+      `GET /api/messages/:id` returns exactly one image row carrying the same
+      `image_url` the upload produced; a plain `HttpClient` (no app code, no
+      auth, the way another phone or a browser reaches it) downloads that URL
+      and gets `200`, `image/png`, 7,831 bytes, byte-for-byte equal to the local
+      file; and a real `ChatScreen` mounted on that thread builds a
+      `NetworkImage` whose URL is exactly the stored one.
+      **The item paid for itself — it found a real bug, fixed in the same
+      commit.** `ApiClient.uploadPhoto` sent every photo as
+      `application/octet-stream` (`MultipartFile.fromPath`'s default), and the
+      Worker stores the declared type on the R2 object, so `GET /api/images/...`
+      answered `application/octet-stream` for a PNG: the first live run failed
+      on exactly that assertion (`Expected: 'image/png' Actual:
+      'application/octet-stream'`) while the bytes were already identical. A
+      browser given that URL downloads the picture instead of showing it, and
+      nothing downstream can tell a photo from a document. `photoMediaType()`
+      now reads the type off the extension (jpg/jpeg/png/webp/gif/heic, unknown
+      stays octet-stream rather than a guess) and, because all four upload paths
+      share that one call, chat images, portfolio shots, the avatar and the
+      verification documents all gain the right label. Re-ran live: `GET 200
+      image/png 7831 bytes digest=a1c1aa9e`, the same digest that went up.
+      `test/upload_content_type_test.dart` pins the fix offline — a loopback
+      `HttpServer` receives the real multipart body for a PNG and an upper-case
+      `IMG_2024.JPG`, plus the extension map.
+      Gate: `flutter analyze` — No issues found!; `flutter test` **383 passed**
+      (378 before).
+      *Follow-up, not this repo:* objects already in R2 keep the wrong type, and
+      the Worker's `file.type || "image/jpeg"` fallback can never fire because
+      the client always declares one — hand BACKEND-API an extension-based
+      fallback for `application/octet-stream`. *Live-only by design:* each run
+      creates two real accounts and a few KB in R2.
 - [x] **Notifications screen + unread badge** driven by the existing API, with
       Arabic copy per event type (new quote, quote accepted, new message,
       project completed). **Done** `001b178`, live API `45920a3e`: the centre
