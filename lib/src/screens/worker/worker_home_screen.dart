@@ -10,6 +10,7 @@ import '../../models/enums.dart';
 import '../../models/project.dart';
 import '../../models/worker.dart';
 import '../../widgets/app_tab_bar.dart';
+import '../../widgets/notifications_bell.dart';
 import '../../widgets/big_button.dart';
 import '../../widgets/feed_search_field.dart';
 import '../../widgets/project_card.dart';
@@ -58,12 +59,12 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen> {
                 style: AppTheme.bar,
               ),
               actions: [
+                const NotificationsBell(),
                 IconButton(
                   icon: const Icon(Icons.badge_outlined),
                   tooltip: 'التوثيق والملف',
-                  onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => const VerificationScreen())),
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const VerificationScreen())),
                 ),
               ],
             )
@@ -284,8 +285,8 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
             const SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(18, 2, 18, 2),
-                child: LinearProgressIndicator(
-                    minHeight: 3, color: AppTheme.navy),
+                child:
+                    LinearProgressIndicator(minHeight: 3, color: AppTheme.navy),
               ),
             ),
           const SliverToBoxAdapter(
@@ -299,7 +300,8 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
             future: _projects,
             builder: (context, snap) {
               if (snap.connectionState != ConnectionState.done) {
-                return const SliverToBoxAdapter(child: Shimmer(child: _ProjectsSkeleton()));
+                return const SliverToBoxAdapter(
+                    child: Shimmer(child: _ProjectsSkeleton()));
               }
               if (snap.hasError) {
                 return SliverToBoxAdapter(
@@ -314,14 +316,14 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
                 );
               }
               // Prefer the widened rows when a search has already pulled them.
-              final loaded =
-                  _wideRows ?? snap.data ?? const <Project>[];
+              final loaded = _wideRows ?? snap.data ?? const <Project>[];
               final projects = narrowProjects(loaded, _query);
               if (projects.isEmpty) {
                 // The multi-page fetch is still in flight — that is not yet a
                 // verdict, so show the loading shape rather than "no results".
                 if (_widening) {
-                  return const SliverToBoxAdapter(child: Shimmer(child: _ProjectsSkeleton()));
+                  return const SliverToBoxAdapter(
+                      child: Shimmer(child: _ProjectsSkeleton()));
                 }
                 if (_query.trim().isNotEmpty) {
                   return SliverToBoxAdapter(
@@ -351,9 +353,8 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
                         : 'لم يُنشر أي مشروع في تخصصك بعد.\n'
                             'حدّث الصفحة أو عد لاحقاً.',
                     actionLabel: filtered ? 'اعرض كل المشاريع' : 'تحديث',
-                    actionIcon: filtered
-                        ? Icons.apps_rounded
-                        : Icons.refresh_rounded,
+                    actionIcon:
+                        filtered ? Icons.apps_rounded : Icons.refresh_rounded,
                     onAction: filtered ? _clearFilters : _reload,
                   ),
                 );
@@ -389,8 +390,8 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
               leading: const Icon(Icons.location_on_outlined),
               title: Text(
                 w.name,
-                style: AppTheme.label
-                    .copyWith(fontSize: AppTheme.fsBody, color: AppTheme.textPrimary),
+                style: AppTheme.label.copyWith(
+                    fontSize: AppTheme.fsBody, color: AppTheme.textPrimary),
               ),
               onTap: () => Navigator.pop(context, w.id),
             ),
@@ -445,7 +446,8 @@ class _HeaderSection extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: AppTheme.label.copyWith(
-                              fontSize: AppTheme.fsMeta, color: AppTheme.onNavyMuted),
+                              fontSize: AppTheme.fsMeta,
+                              color: AppTheme.onNavyMuted),
                         ),
                       ),
                       if (worker != null) _availabilityPill(worker),
@@ -464,7 +466,8 @@ class _HeaderSection extends StatelessWidget {
                     _identity(worker),
                     if (worker.verificationStatus ==
                             VerificationStatus.verified ||
-                        (worker.wilaya != null && worker.wilaya!.isNotEmpty)) ...[
+                        (worker.wilaya != null &&
+                            worker.wilaya!.isNotEmpty)) ...[
                       const SizedBox(height: 14),
                       Wrap(
                         spacing: 8,
@@ -477,7 +480,8 @@ class _HeaderSection extends StatelessWidget {
                                 color: AppTheme.success,
                                 wash: AppTheme.successWash,
                                 icon: Icons.verified_rounded),
-                          if (worker.wilaya != null && worker.wilaya!.isNotEmpty)
+                          if (worker.wilaya != null &&
+                              worker.wilaya!.isNotEmpty)
                             StatusPill(
                                 label: Taxonomy.wilayaName(worker.wilaya!),
                                 color: AppTheme.info,
@@ -544,8 +548,8 @@ class _HeaderSection extends StatelessWidget {
                 _specialtyLabel(w),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: AppTheme.bodySoft
-                    .copyWith(fontSize: AppTheme.fsMeta, color: AppTheme.onNavyMuted),
+                style: AppTheme.bodySoft.copyWith(
+                    fontSize: AppTheme.fsMeta, color: AppTheme.onNavyMuted),
               ),
             ],
           ),
@@ -558,7 +562,8 @@ class _HeaderSection extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SkeletonBox(width: 52, height: 52, radius: 26, color: SkeletonTone.base),
+            SkeletonBox(
+                width: 52, height: 52, radius: 26, color: SkeletonTone.base),
             SizedBox(width: 13),
             Expanded(
               child: Column(
@@ -675,8 +680,8 @@ class _StatCard extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
-            style:
-                AppTheme.caption.copyWith(fontSize: AppTheme.fsBadge, color: AppTheme.textSecondary),
+            style: AppTheme.caption.copyWith(
+                fontSize: AppTheme.fsBadge, color: AppTheme.textSecondary),
           ),
         ],
       ),
@@ -734,8 +739,9 @@ class _FilterBar extends StatelessWidget {
               selected: wilaya != null,
               onTap: onWilaya,
               child: StatusPill(
-                label:
-                    wilaya == null ? 'كل الولايات' : Taxonomy.wilayaName(wilaya!),
+                label: wilaya == null
+                    ? 'كل الولايات'
+                    : Taxonomy.wilayaName(wilaya!),
                 color: AppTheme.info,
                 wash: AppTheme.infoWash,
                 icon: Icons.location_on_rounded,
@@ -815,17 +821,27 @@ class _ProjectsSkeleton extends StatelessWidget {
                 child: const Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SkeletonBox(width: 76, height: 76, radius: AppTheme.rSm, color: SkeletonTone.base),
+                    SkeletonBox(
+                        width: 76,
+                        height: 76,
+                        radius: AppTheme.rSm,
+                        color: SkeletonTone.base),
                     SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          SkeletonBox(width: 160, height: 15, color: SkeletonTone.base),
+                          SkeletonBox(
+                              width: 160, height: 15, color: SkeletonTone.base),
                           SizedBox(height: 10),
-                          SkeletonBox(width: 96, height: 26, radius: 999, color: SkeletonTone.base),
+                          SkeletonBox(
+                              width: 96,
+                              height: 26,
+                              radius: 999,
+                              color: SkeletonTone.base),
                           SizedBox(height: 12),
-                          SkeletonBox(width: 120, height: 11, color: SkeletonTone.base),
+                          SkeletonBox(
+                              width: 120, height: 11, color: SkeletonTone.base),
                         ],
                       ),
                     ),
@@ -862,8 +878,8 @@ class _GettingStarted extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final steps = <_SetupStep>[
-      _SetupStep('أضف تخصصاتك', Icons.handyman_rounded,
-          worker.specialties.isNotEmpty),
+      _SetupStep(
+          'أضف تخصصاتك', Icons.handyman_rounded, worker.specialties.isNotEmpty),
       _SetupStep('اكتب نبذة تعريفية عنك', Icons.notes_rounded,
           (worker.bio ?? '').trim().isNotEmpty),
       _SetupStep('حدّد أسعارك ونطاق خدمتك', Icons.payments_rounded,
@@ -889,7 +905,8 @@ class _GettingStarted extends StatelessWidget {
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    color: complete ? AppTheme.successWash : AppTheme.accentWash,
+                    color:
+                        complete ? AppTheme.successWash : AppTheme.accentWash,
                     borderRadius: BorderRadius.circular(AppTheme.rSm),
                   ),
                   child: Icon(
@@ -1161,8 +1178,8 @@ class _ToolTile extends StatelessWidget {
                   title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: AppTheme.label
-                      .copyWith(fontSize: AppTheme.fsBody, color: AppTheme.textPrimary),
+                  style: AppTheme.label.copyWith(
+                      fontSize: AppTheme.fsBody, color: AppTheme.textPrimary),
                 ),
                 const SizedBox(height: 3),
                 Text(

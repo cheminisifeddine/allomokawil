@@ -13,6 +13,14 @@ class S {
   static const retry = 'إعادة المحاولة';
   static const loading = 'جارٍ التحميل...';
 
+  // Notifications
+  static const notifications = 'الإشعارات';
+  static const markAllRead = 'تعليم الكل كمقروء';
+  static const newTag = 'جديد';
+  static const noNotifications = 'لا توجد إشعارات بعد';
+  static const noNotificationsHint =
+      'ستظهر هنا عروض الأسعار والرسائل وتحديثات مشاريعك.';
+
   // Auth
   static const loginTitle = 'تسجيل الدخول';
   static const loginSubtitle = 'أهلاً بعودتك إلى الو مقاول';
@@ -60,8 +68,10 @@ class S {
   // Latin letter or loses its instruction.
   static const errOffline =
       'تعذّر الاتصال بالخادم. تأكّد من اتصالك بالإنترنت ثم أعد المحاولة.';
-  static const errCheckConnection = 'تحقّق من اتصالك بالإنترنت ثم أعد المحاولة.';
-  static const errTimeout = 'الخادم تأخّر في الرد. تحقّق من الشبكة ثم أعد المحاولة.';
+  static const errCheckConnection =
+      'تحقّق من اتصالك بالإنترنت ثم أعد المحاولة.';
+  static const errTimeout =
+      'الخادم تأخّر في الرد. تحقّق من الشبكة ثم أعد المحاولة.';
   static const errServer =
       'خلل مؤقّت في الخادم. أعد المحاولة بعد لحظات، وإن تكرّر الأمر جرّب لاحقاً.';
   static const errUnauthorized = 'انتهت جلستك. سجّل الدخول من جديد للمتابعة.';
@@ -75,12 +85,14 @@ class S {
       'تغيّر هذا العنصر من مكان آخر. حدّث القائمة ثم أعد المحاولة.';
   static const errTooLarge =
       'الملف أكبر من الحد المسموح. اختر ملفاً أصغر ثم أعد المحاولة.';
-  static const errTooMany = 'طلبات كثيرة في وقت قصير. انتظر دقيقة ثم أعد المحاولة.';
+  static const errTooMany =
+      'طلبات كثيرة في وقت قصير. انتظر دقيقة ثم أعد المحاولة.';
   static const errUnexpected =
       'حدث خطأ غير متوقع. أعد المحاولة، وإن تكرّر الأمر أغلق التطبيق وافتحه من جديد.';
   static const errNoServer =
       'التطبيق غير مضبوط على عنوان الخادم. حدّث التطبيق من المتجر ثم أعد المحاولة.';
-  static const errUpload = 'تعذّر رفع الملف. تأكّد من الإنترنت ثم أعد المحاولة.';
+  static const errUpload =
+      'تعذّر رفع الملف. تأكّد من الإنترنت ثم أعد المحاولة.';
   static const errPickFailed =
       'لم نتمكّن من إتمام العملية على الصورة. أعد المحاولة، وإن تكرّر الأمر اختر صورة أخرى.';
   static const errPhotoPermission =

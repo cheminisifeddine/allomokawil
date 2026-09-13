@@ -10,6 +10,7 @@ import '../../models/chat.dart';
 import '../../models/project.dart';
 import '../../models/worker.dart';
 import '../../widgets/app_tab_bar.dart';
+import '../../widgets/notifications_bell.dart';
 import '../../widgets/category_grid.dart';
 import '../../widgets/client_start_card.dart';
 import '../../widgets/project_card.dart';
@@ -293,7 +294,8 @@ class _ExploreView extends StatelessWidget {
           future: topWorkers,
           builder: (context, snap) {
             if (snap.connectionState != ConnectionState.done) {
-              return const SliverToBoxAdapter(child: Shimmer(child: _WorkerStripSkeleton()));
+              return const SliverToBoxAdapter(
+                  child: Shimmer(child: _WorkerStripSkeleton()));
             }
             if (snap.hasError) {
               return SliverToBoxAdapter(
@@ -462,19 +464,21 @@ class _HomeHeader extends StatelessWidget {
                         Text(
                           'مرحباً بك',
                           style: AppTheme.caption.copyWith(
-                              fontSize: AppTheme.fsCaption, color: AppTheme.onNavyMuted),
+                              fontSize: AppTheme.fsCaption,
+                              color: AppTheme.onNavyMuted),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           name ?? S.appName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: AppTheme.h1
-                              .copyWith(fontSize: AppTheme.fsBar, color: AppTheme.onNavy),
+                          style: AppTheme.h1.copyWith(
+                              fontSize: AppTheme.fsBar, color: AppTheme.onNavy),
                         ),
                       ],
                     ),
                   ),
+                  const NotificationsBell(onNavy: true),
                 ],
               ),
               const SizedBox(height: 14),
@@ -498,7 +502,8 @@ class _HomeHeader extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTheme.label.copyWith(
-                            fontSize: AppTheme.fsCaption, color: AppTheme.onNavy),
+                            fontSize: AppTheme.fsCaption,
+                            color: AppTheme.onNavy),
                       ),
                     ),
                   ],
@@ -507,8 +512,8 @@ class _HomeHeader extends StatelessWidget {
               const SizedBox(height: 12),
               Text(
                 'ماذا تريد أن تنجز في منزلك؟',
-                style: AppTheme.body
-                    .copyWith(fontSize: AppTheme.fsSmall, color: AppTheme.onNavyMuted),
+                style: AppTheme.body.copyWith(
+                    fontSize: AppTheme.fsSmall, color: AppTheme.onNavyMuted),
               ),
               const SizedBox(height: 14),
               _SearchBar(onTap: onSearch),
@@ -547,8 +552,8 @@ class _SearchBar extends StatelessWidget {
                   'ابحث عن حرفي أو تخصص...',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: AppTheme.body
-                      .copyWith(fontSize: AppTheme.fsBody, color: AppTheme.textMuted),
+                  style: AppTheme.body.copyWith(
+                      fontSize: AppTheme.fsBody, color: AppTheme.textMuted),
                 ),
               ),
             ],
@@ -594,14 +599,15 @@ class _PostProjectBanner extends StatelessWidget {
                   children: [
                     Text(
                       'انشر مشروعك مجاناً',
-                      style: AppTheme.h2
-                          .copyWith(fontSize: AppTheme.fsLead, color: AppTheme.onNavy),
+                      style: AppTheme.h2.copyWith(
+                          fontSize: AppTheme.fsLead, color: AppTheme.onNavy),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       'استقبل عروض مقاولين موثوقين خلال أيام',
                       style: AppTheme.bodySoft.copyWith(
-                          fontSize: AppTheme.fsCaption, color: AppTheme.onNavyMuted),
+                          fontSize: AppTheme.fsCaption,
+                          color: AppTheme.onNavyMuted),
                     ),
                   ],
                 ),
@@ -678,8 +684,8 @@ class _FirstRunProjectsHint extends StatelessWidget {
           Expanded(
             child: Text(
               'ستظهر هنا مشاريعك بعد نشر أول مشروع',
-              style: AppTheme.bodySoft
-                  .copyWith(fontSize: AppTheme.fsMeta, color: AppTheme.textSecondary),
+              style: AppTheme.bodySoft.copyWith(
+                  fontSize: AppTheme.fsMeta, color: AppTheme.textSecondary),
             ),
           ),
         ],
@@ -712,9 +718,17 @@ class _WorkerStripSkeleton extends StatelessWidget {
             children: const [
               Row(
                 children: [
-                  SkeletonBox(height: 46, width: 46, radius: 23, color: SkeletonTone.base),
+                  SkeletonBox(
+                      height: 46,
+                      width: 46,
+                      radius: 23,
+                      color: SkeletonTone.base),
                   Spacer(),
-                  SkeletonBox(height: 18, width: 18, radius: 9, color: SkeletonTone.base),
+                  SkeletonBox(
+                      height: 18,
+                      width: 18,
+                      radius: 9,
+                      color: SkeletonTone.base),
                 ],
               ),
               SizedBox(height: 14),
@@ -750,17 +764,24 @@ class _ProjectStripSkeleton extends StatelessWidget {
               decoration: AppTheme.cardDecoration,
               child: Row(
                 children: const [
-                  SkeletonBox(height: 76, width: 76, radius: AppTheme.rSm, color: SkeletonTone.base),
+                  SkeletonBox(
+                      height: 76,
+                      width: 76,
+                      radius: AppTheme.rSm,
+                      color: SkeletonTone.base),
                   SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SkeletonBox(height: 14, width: 150, color: SkeletonTone.base),
+                        SkeletonBox(
+                            height: 14, width: 150, color: SkeletonTone.base),
                         SizedBox(height: 10),
-                        SkeletonBox(height: 12, width: 110, color: SkeletonTone.base),
+                        SkeletonBox(
+                            height: 12, width: 110, color: SkeletonTone.base),
                         SizedBox(height: 10),
-                        SkeletonBox(height: 12, width: 78, color: SkeletonTone.base),
+                        SkeletonBox(
+                            height: 12, width: 78, color: SkeletonTone.base),
                       ],
                     ),
                   ),

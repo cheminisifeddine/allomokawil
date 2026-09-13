@@ -34,26 +34,26 @@ class Repository {
       if (query != null && query.trim().isNotEmpty)
         'q=${Uri.encodeQueryComponent(query.trim())}',
     ].join('&');
-    final data =
-        await _api.get('/api/mobile/workers/search${q.isEmpty ? '' : '?$q'}')
-            as List;
+    final data = await _api
+        .get('/api/mobile/workers/search${q.isEmpty ? '' : '?$q'}') as List;
     return data
         .map((e) => WorkerProfile.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
   Future<WorkerProfile> getWorker(int id) async {
-    final data = await _api.get('/api/mobile/workers/$id')
-        as Map<String, dynamic>;
+    final data =
+        await _api.get('/api/mobile/workers/$id') as Map<String, dynamic>;
     return WorkerProfile.fromJson(data);
   }
 
   /// Portfolio gallery image URLs for a contractor's profile.
   Future<List<String>> portfolioImages(int workerId) async {
-    final data = await _api.get('/api/mobile/workers/$workerId/portfolio')
-        as List;
+    final data =
+        await _api.get('/api/mobile/workers/$workerId/portfolio') as List;
     return data
-        .map((e) => (e is Map) ? (e['image_url'] as String?) ?? '' : e.toString())
+        .map((e) =>
+            (e is Map) ? (e['image_url'] as String?) ?? '' : e.toString())
         .where((s) => s.isNotEmpty)
         .toList();
   }
@@ -81,8 +81,8 @@ class Repository {
   // ---- Projects ---------------------------------------------------------
   /// The signed-in contractor's own profile (for verification & portfolio).
   Future<WorkerProfile> myProfile() async {
-    final data = await _api.get('/api/mobile/my/profile')
-        as Map<String, dynamic>;
+    final data =
+        await _api.get('/api/mobile/my/profile') as Map<String, dynamic>;
     return WorkerProfile.fromJson(data);
   }
 
@@ -194,8 +194,8 @@ class Repository {
   }
 
   Future<Project> getProject(String id) async {
-    final data = await _api.get('/api/mobile/projects/$id')
-        as Map<String, dynamic>;
+    final data =
+        await _api.get('/api/mobile/projects/$id') as Map<String, dynamic>;
     return Project.fromJson(data);
   }
 
@@ -234,11 +234,9 @@ class Repository {
 
   // ---- Quotes -----------------------------------------------------------
   Future<List<Quote>> projectQuotes(String projectId) async {
-    final data = await _api.get('/api/mobile/projects/$projectId/quotes')
-        as List;
-    return data
-        .map((e) => Quote.fromJson(e as Map<String, dynamic>))
-        .toList();
+    final data =
+        await _api.get('/api/mobile/projects/$projectId/quotes') as List;
+    return data.map((e) => Quote.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   Future<Quote> submitQuote({
@@ -247,8 +245,8 @@ class Repository {
     String? message,
     int? estimatedDays,
   }) async {
-    final data = await _api.post('/api/mobile/projects/$projectId/quotes',
-        body: {
+    final data =
+        await _api.post('/api/mobile/projects/$projectId/quotes', body: {
       'amount': amount,
       'message': message,
       'estimated_days': estimatedDays,
@@ -272,8 +270,8 @@ class Repository {
     required int rating,
     String? comment,
   }) async {
-    final data = await _api.post('/api/mobile/projects/$projectId/review',
-        body: {
+    final data =
+        await _api.post('/api/mobile/projects/$projectId/review', body: {
       'worker_id': workerId,
       'rating': rating,
       'comment': comment,
@@ -282,11 +280,9 @@ class Repository {
   }
 
   Future<List<Review>> workerReviews(int workerId) async {
-    final data = await _api.get('/api/mobile/workers/$workerId/reviews')
-        as List;
-    return data
-        .map((e) => Review.fromJson(e as Map<String, dynamic>))
-        .toList();
+    final data =
+        await _api.get('/api/mobile/workers/$workerId/reviews') as List;
+    return data.map((e) => Review.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   // ---- Chat -------------------------------------------------------------
@@ -341,6 +337,27 @@ class Repository {
     return data
         .map((e) => AppNotification.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  /// Marks notifications read and returns the server's new unread count.
+  ///
+  /// With no [ids] every notification is cleared — that is the
+  /// «تعليم الكل كمقروء» action. The count comes back so the caller never has
+  /// to guess what the database now holds.
+  Future<int> markNotificationsRead({List<int>? ids}) async {
+    final data = await _api.post(
+      '/api/notifications/read',
+      body: ids == null
+          ? const <String, Object?>{}
+          : <String, Object?>{'ids': ids},
+    );
+    if (data is num) {
+      return data.toInt();
+    }
+    if (data is Map && data['unread'] is num) {
+      return (data['unread'] as num).toInt();
+    }
+    return 0;
   }
 
   Future<int> unreadCount() async {
