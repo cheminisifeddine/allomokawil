@@ -417,8 +417,14 @@ understand that is the single biggest "this app is foreign" signal.
       the remaining 200 off-grid literal insets (mostly icon/skeleton micro
       padding) and the fact that on the white canvas `bg == surface`, so cards
       are separated by the hairline alone.
-- [ ] **Typography scale from Cairo.** Define title/body/caption sizes once and
-      remove every hardcoded `fontSize` at call sites.
+- [x] **Typography scale from Cairo.** DONE `f589ae0`. Eleven-step ladder in
+      `app_theme.dart` (`fsBadge` 11 -> `fsHero` 30), every role style composed
+      from it, 121 call-site literals across 24 files replaced with tokens, and
+      a new `test/type_scale_test.dart` (8 tests) that fails the build if any
+      file outside the theme types a `fontSize` number again — plus a raster
+      test proving the steps reach the engine. No reflow: PNG diff of all 15
+      design shots shows content boxes within 1 logical px of baseline, and the
+      landing CTA box is byte-identical in size (w1032 h168 @3x).
 - [ ] **Colour contrast re-verification.** After the pass, re-check every
       foreground/background pair at WCAG AA (4.5:1 body, 3:1 large) with
       pixel maths from real screenshots — the same method used previously.
