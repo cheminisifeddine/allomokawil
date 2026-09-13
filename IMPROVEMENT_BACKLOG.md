@@ -778,9 +778,19 @@ understand that is the single biggest "this app is foreign" signal.
 
 ## Phase 3 — Functional completeness (parity with web v1)
 
-- [ ] **Chat: timestamps, day separators, send state.** Image messages too —
-      including a real R2 round-trip with an actual uploaded photo, verified by
-      fetching the stored object back.
+- [x] **Chat: timestamps, day separators, send state.** Image messages too.
+      **Done** `5e73ec0`: one shared clock (`lib/src/data/chat_time.dart`, local
+      time from the D1 UTC stamp, Arabic اليوم/أمس/weekday labels, one divider per
+      day and never on a null stamp), `Message.sendState`, spinner/tick/red
+      «لم تُرسل — أعد المحاولة» under every bubble (image bubbles included) with
+      per-message and per-composer retry, inbox rows on the same clock. 9 tests
+      in `test/chat_timeline_test.dart`, shot `/tmp/shots/chat_delivery.png`
+      (danger ink counted under the refused bubble). 378 total. Found by pixel
+      scan: the retry line was centred mid-thread because a Container with
+      `alignment:` expands to its widest constraint — fixed.
+- [ ] **Chat image round-trip, live.** Upload a real photo to R2 through the app
+      and fetch the stored object back from the API to prove the URL the bubble
+      renders is the one the server kept.
 - [x] **Notifications screen + unread badge** driven by the existing API, with
       Arabic copy per event type (new quote, quote accepted, new message,
       project completed). **Done** `001b178`, live API `45920a3e`: the centre
