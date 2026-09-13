@@ -13,6 +13,14 @@ class WorkerProfile {
   final int serviceRadiusKm;
   final bool isAvailable;
   final VerificationStatus verificationStatus;
+  /// How many documents are sitting in the admin queue for this profile.
+  ///
+  /// `verificationStatus` cannot answer "did my documents arrive?" on its own:
+  /// a brand-new profile is stored as 'pending', exactly like a submitted
+  /// dossier. Without this count the UI has to guess, and it guesses wrong in
+  /// both directions (empty form for a man who uploaded everything, false
+  /// "under review" for a man who uploaded nothing).
+  final int verificationPendingDocs;
   final double avgRating;
   final int totalReviews;
   final int totalCompletedJobs;
@@ -34,6 +42,7 @@ class WorkerProfile {
     required this.serviceRadiusKm,
     required this.isAvailable,
     required this.verificationStatus,
+    this.verificationPendingDocs = 0,
     required this.avgRating,
     required this.totalReviews,
     required this.totalCompletedJobs,
@@ -70,6 +79,8 @@ class WorkerProfile {
       serviceRadiusKm: (json['service_radius_km'] as num?)?.toInt() ?? 0,
       isAvailable: (json['is_available'] as num?)?.toInt() == 1,
       verificationStatus: _vd(json['verification_status'] as String?),
+      verificationPendingDocs:
+          (json['verification_pending_docs'] as num?)?.toInt() ?? 0,
       avgRating: (json['avg_rating'] as num?)?.toDouble() ?? 0,
       totalReviews: (json['total_reviews'] as num?)?.toInt() ?? 0,
       totalCompletedJobs: (json['total_completed_jobs'] as num?)?.toInt() ?? 0,
@@ -80,6 +91,13 @@ class WorkerProfile {
       commune: json['commune'] as String?,
     );
   }
+
+  /// True only when documents have really been filed and are awaiting review.
+  /// Single source of truth for the verification screen and the two home
+  /// surfaces, so they can never disagree about the same profile.
+  bool get dossierUnderReview =>
+      verificationStatus == VerificationStatus.pending &&
+      verificationPendingDocs > 0;
 
   static VerificationStatus _vd(String? v) {
     switch (v) {

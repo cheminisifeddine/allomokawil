@@ -466,9 +466,12 @@ class _HeaderSection extends StatelessWidget {
                     _identity(worker),
                     if (worker.verificationStatus ==
                             VerificationStatus.verified ||
+                        worker.dossierUnderReview ||
+                        worker.verificationStatus ==
+                            VerificationStatus.rejected ||
                         (worker.wilaya != null &&
                             worker.wilaya!.isNotEmpty)) ...[
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 16),
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
@@ -480,6 +483,22 @@ class _HeaderSection extends StatelessWidget {
                                 color: AppTheme.success,
                                 wash: AppTheme.successWash,
                                 icon: Icons.verified_rounded),
+                          // The header used to fall silent here, so a man who had
+                          // just uploaded his papers saw nothing at all and
+                          // started over. Say where the dossier stands.
+                          if (worker.dossierUnderReview)
+                            const StatusPill(
+                                label: 'قيد المراجعة',
+                                color: AppTheme.info,
+                                wash: AppTheme.infoWash,
+                                icon: Icons.hourglass_top_rounded),
+                          if (worker.verificationStatus ==
+                              VerificationStatus.rejected)
+                            const StatusPill(
+                                label: 'مستنداتك مرفوضة',
+                                color: AppTheme.danger,
+                                wash: AppTheme.dangerWash,
+                                icon: Icons.report_gmailerrorred_rounded),
                           if (worker.wilaya != null &&
                               worker.wilaya!.isNotEmpty)
                             StatusPill(
@@ -884,8 +903,16 @@ class _GettingStarted extends StatelessWidget {
           (worker.bio ?? '').trim().isNotEmpty),
       _SetupStep('حدّد أسعارك ونطاق خدمتك', Icons.payments_rounded,
           worker.priceRangeMin != null && worker.priceRangeMax != null),
-      _SetupStep('وثّق حسابك بالبطاقة والهوية', Icons.verified_user_rounded,
-          worker.verificationStatus == VerificationStatus.verified),
+      // A submitted dossier is the contractor's part DONE — the rest is on us.
+      // Leaving this step unticked while the papers were already in the queue
+      // is what made the whole screen read as "you have not uploaded anything".
+      _SetupStep(
+          worker.dossierUnderReview
+              ? 'مستنداتك قيد المراجعة'
+              : 'وثّق حسابك بالبطاقة والهوية',
+          Icons.verified_user_rounded,
+          worker.verificationStatus == VerificationStatus.verified ||
+              worker.dossierUnderReview),
     ];
     final done = steps.where((s) => s.done).length;
     final total = steps.length;
@@ -1077,11 +1104,27 @@ class _ProToolsRow extends StatelessWidget {
             trailing: worker.verificationStatus == VerificationStatus.verified
                 ? const Icon(Icons.verified_rounded,
                     size: 20, color: AppTheme.success)
-                : const StatusPill(
-                    label: 'غير موثّق',
-                    color: AppTheme.accentDeep,
-                    wash: AppTheme.accentWash,
-                  ),
+                // This tile said "غير موثّق" to every contractor who was not yet
+                // approved — including the ones whose papers were already in the
+                // queue. That single word is what made a successful upload look
+                // like nothing had been sent.
+                : worker.dossierUnderReview
+                    ? const StatusPill(
+                        label: 'قيد المراجعة',
+                        color: AppTheme.info,
+                        wash: AppTheme.infoWash,
+                      )
+                    : worker.verificationStatus == VerificationStatus.rejected
+                        ? const StatusPill(
+                            label: 'مرفوضة',
+                            color: AppTheme.danger,
+                            wash: AppTheme.dangerWash,
+                          )
+                        : const StatusPill(
+                            label: 'غير موثّق',
+                            color: AppTheme.accentDeep,
+                            wash: AppTheme.accentWash,
+                          ),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const VerificationScreen()),
             ),

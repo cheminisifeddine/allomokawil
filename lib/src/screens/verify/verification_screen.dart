@@ -93,11 +93,17 @@ class _VerificationScreenState extends State<VerificationScreen> {
         documents.add({'document_type': 'certificate', 'document_url': url});
       }
       await _repo.submitVerification(worker.id, documents);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('تم إرسال مستنداتك، بانتظار المراجعة')));
-        Navigator.of(context).pop();
-      }
+      if (!mounted) return;
+      // Stay put and re-read the profile. The point is that he SEES the
+      // dossier turn into "under review" — popping straight back home was how
+      // a successful upload came to look like nothing had happened.
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('تم إرسال مستنداتك، بانتظار المراجعة')));
+      setState(() {
+        _busy = false;
+        _profile = _repo.myProfile();
+      });
+      return;
     } on Exception catch (e) {
       _$toast(errorCopy(e));
     } finally {
@@ -131,8 +137,14 @@ class _VerificationScreenState extends State<VerificationScreen> {
             );
           }
           final worker = snap.data!;
-          final verified =
-              worker.verificationStatus == VerificationStatus.verified;
+          final status = worker.verificationStatus;
+          final verified = status == VerificationStatus.verified;
+          // Deliberately NOT `status == pending`: a brand-new profile is stored
+          // as pending too, so keying off the status alone would tell a man who
+          // has sent nothing that he is under review. Documents actually
+          // sitting in the queue are what make it true.
+          final underReview = worker.dossierUnderReview;
+          final rejected = status == VerificationStatus.rejected;
           final done = _docs.where((d) => d.$2 != null).length;
           return Center(
             child: ConstrainedBox(
@@ -142,7 +154,13 @@ class _VerificationScreenState extends State<VerificationScreen> {
                 children: [
                   if (verified)
                     const _VerifiedBanner()
+                  else if (underReview)
+                    _UnderReviewPanel(onRefresh: _retry)
                   else ...[
+                    if (rejected) ...[
+                      const _RejectedBanner(),
+                      const SizedBox(height: 12),
+                    ],
                     Text(
                       'لكي تظهر للموكلين وتحصل على شارة "موثّق"، أرفق المستندات التالية.',
                       style: AppTheme.body,
@@ -247,6 +265,138 @@ class _VerificationScreenState extends State<VerificationScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// What a contractor sees after a successful submission.
+///
+/// This is the receipt: what we received, that a second upload is not needed,
+/// and when to expect an answer. Without it the app answered "did my documents
+/// arrive?" with three empty slots.
+class _UnderReviewPanel extends StatelessWidget {
+  const _UnderReviewPanel({required this.onRefresh});
+
+  final VoidCallback onRefresh;
+
+  static const List<(IconData, String)> _received = [
+    (Icons.badge_outlined, 'بطاقة المقاول (auto-entrepreneur)'),
+    (Icons.photo_camera_front_outlined, 'صورة شخصية (سيلفي)'),
+    (Icons.credit_card_outlined, 'بطاقة التعريف (وجه)'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AppCard(
+          color: AppTheme.infoWash,
+          borderColor: AppTheme.infoWash,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const IconBubble(
+                icon: Icons.hourglass_top_rounded,
+                tint: AppTheme.info,
+                wash: AppTheme.surface,
+                size: 44,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('مستنداتك قيد المراجعة',
+                        style: AppTheme.label.copyWith(
+                            fontSize: AppTheme.fsLead, color: AppTheme.info)),
+                    const SizedBox(height: 8),
+                    Text(
+                      'استلمنا مستنداتك ولا تحتاج لإعادة إرسالها. '
+                      'يراجعها فريقنا خلال 24-48 ساعة.',
+                      style: AppTheme.bodySoft.copyWith(
+                          fontSize: AppTheme.fsMeta,
+                          height: 1.6,
+                          color: AppTheme.info),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        const SectionTitle('ما استلمناه', icon: Icons.inventory_2_outlined),
+        AppCard(
+          child: Column(
+            children: [
+              for (var i = 0; i < _received.length; i++) ...[
+                Row(
+                  children: [
+                    const Icon(Icons.check_circle_rounded,
+                        size: 20, color: AppTheme.success),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(_received[i].$2, style: AppTheme.body),
+                    ),
+                    Text('تم الاستلام',
+                        style: AppTheme.caption.copyWith(
+                            fontSize: AppTheme.fsBadge,
+                            color: AppTheme.success)),
+                  ],
+                ),
+                if (i != _received.length - 1)
+                  const Divider(height: 20, color: AppTheme.lineSoft),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        SecondaryButton(
+          label: 'تحديث الحالة',
+          icon: Icons.refresh_rounded,
+          onPressed: onRefresh,
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'ستصلك إشعار عند القبول أو إن احتجنا تصحيحاً. '
+          'لا يمكن الإرسال مرة أخرى وأنت قيد المراجعة.',
+          style: AppTheme.caption.copyWith(fontSize: AppTheme.fsBadge),
+        ),
+      ],
+    );
+  }
+}
+
+/// Shown when a reviewer refused an earlier submission. The form below is the
+/// resubmission path, so this banner only has to say what happened.
+class _RejectedBanner extends StatelessWidget {
+  const _RejectedBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      color: AppTheme.dangerWash,
+      borderColor: AppTheme.dangerWash,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const IconBubble(
+            icon: Icons.report_gmailerrorred_rounded,
+            tint: AppTheme.danger,
+            wash: AppTheme.surface,
+            size: 44,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'لم تُقبل مستنداتك السابقة. تأكد أن الصور واضحة وأنها كلها لك، ثم أعد الإرسال.',
+              style: AppTheme.body.copyWith(
+                  fontSize: AppTheme.fsMeta, color: AppTheme.danger),
+            ),
+          ),
+        ],
       ),
     );
   }

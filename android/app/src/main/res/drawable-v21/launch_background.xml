@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
+<!-- The pre-Flutter frame. It used to be a blank white screen; now it shows the
+     bare mark, centred, matching the icons and the first screen. Forced to
+     white in both variants so a dark-mode device cannot turn the navy mark
+     invisible. On Android 12+ the platform draws its own splash from the app
+     icon instead, which is the same bare mark. See tool/gen_icons.py. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="?android:colorBackground" />
-
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
+    <item android:drawable="@android:color/white" />
+    <item>
         <bitmap
             android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+            android:src="@drawable/launch_image" />
+    </item>
 </layer-list>
