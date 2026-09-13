@@ -754,9 +754,27 @@ understand that is the single biggest "this app is foreign" signal.
       with the worker side already selected; the sheet covers the landing CTA
       (accent `#E8A33D` box present on the landing, 0 boxes under the sheet) and
       both tiles measure 372x91 logical with hairlines at `#E8E8EC`.
-- [ ] **Home screen hierarchy.** The client home leads with one clear primary
+- [x] **Home screen hierarchy.** The client home leads with one clear primary
       action; the contractor home leads with the next thing that earns them
       money, not with a stats row.
+      **Done** `efcca03`: `customer_home_screen.dart` moved the
+      «انشر مشروعك مجاناً» banner (key `client-post-cta`) to the first sliver and
+      repainted it as the accent tile `PrimaryButton` uses — navy ink on
+      `#E8A33D` — instead of a hairline card, because it sat third, behind a
+      category grid and a contractor strip that look the same to every visitor;
+      the first-run guide still stands it down. `worker_home_screen.dart`
+      replaced the three 112 dp stat cards with one `_StatsLine` under the name
+      inside the identity card, and collapsed the three workshop tiles into a
+      single row of compact keyed tiles (`worker-tools-portfolio|documents|edit`),
+      which lifts the market feed ~250 dp; the work-photos tile no longer prints
+      a literal `$n صور` (the label was an escaped dollar — real bug). Added
+      `WorkerProfile.hasHistory` so the screen stops re-deriving the
+      never-been-hired rule. Gate: `flutter analyze` clean, `flutter test` 369
+      passed / 0 failed (362 before), `test/home_hierarchy_test.dart` (7 tests,
+      geometry not prose). Render evidence: design_shots rasters re-shot 08:42 at
+      392x850 — pngscan finds the accent tile at logical y 260-348 on the client
+      home with «التخصصات» below it at 379, and the contractor's workshop row as
+      one band at y 322-397 with the photo count in the badge.
 
 ## Phase 3 — Functional completeness (parity with web v1)
 
