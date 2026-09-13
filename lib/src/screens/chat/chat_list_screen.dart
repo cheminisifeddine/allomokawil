@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/notification_copy.dart';
 import '../../data/repository.dart';
 import '../../models/chat.dart';
 import '../../models/enums.dart';
@@ -172,7 +173,7 @@ class _ConversationTile extends StatelessWidget {
             children: [
               if (conv.lastMessageAt != null)
                 Text(
-                  _relativeTime(conv.lastMessageAt!),
+                  relativeTimeAr(conv.lastMessageAt),
                   style: AppTheme.caption.copyWith(
                       fontSize: AppTheme.fsBadge, color: AppTheme.textMuted),
                 ),
@@ -224,16 +225,4 @@ class _Avatar extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Short, low-literacy-friendly relative time in Arabic.
-String _relativeTime(DateTime time) {
-  final diff = DateTime.now().difference(time);
-  if (diff.inMinutes < 1) return 'الآن';
-  if (diff.inMinutes < 60) return 'قبل ${diff.inMinutes} د';
-  if (diff.inHours < 24) return 'قبل ${diff.inHours} س';
-  if (diff.inDays < 7) return 'قبل ${diff.inDays} ي';
-  final dd = time.day.toString().padLeft(2, '0');
-  final mm = time.month.toString().padLeft(2, '0');
-  return '$dd/$mm';
 }

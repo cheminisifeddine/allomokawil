@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/chat_time.dart';
 import '../../data/repository.dart';
 import '../../models/chat.dart';
 import '../../widgets/ui.dart';
@@ -41,8 +42,17 @@ class _ChatScreenState extends State<ChatScreen> {
   List<Message> _messages = [];
   bool _loading = true;
   bool _error = false;
-  // Stashed sends when offline — retried with the send button.
-  final List<Message> _pending = [];
+
+  /// Local bubble ids count *down* from -1: a bubble this device drew before the
+  /// server answered can never be mistaken for a stored row (real ids are
+  /// positive).
+  int _nextLocalId = -1;
+
+  /// Bubbles the server refused. They stay in the thread with their text, so
+  /// the composer's «إرسال» button can send them again instead of the message
+  /// disappearing behind a toast.
+  List<Message> get _unsent =>
+      _messages.where((m) => m.sendState == SendState.failed).toList();
 
   @override
   void initState() {
@@ -86,58 +96,73 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _sendText() async {
     final text = _input.text.trim();
-    if (text.isEmpty && _pending.isEmpty) return;
-    _input.clear();
-    final isOffline = _pending.isNotEmpty;
-    if (isOffline) {
-      // Retry queued messages first.
-      for (final p in List.of(_pending)) {
-        await _retry(p);
-      }
-    }
+    if (text.isEmpty && _unsent.isEmpty) return;
+    // Anything the server refused goes first, so the thread keeps its order.
+    if (_unsent.isNotEmpty) await _retryUnsent();
     if (text.isEmpty) return;
+    _input.clear();
+    final local = _localBubble(text: text);
+    setState(() => _messages = [..._messages, local]);
+    _jumpToBottom();
+    await _deliver(local);
+  }
+
+  /// A bubble drawn from this device, already in the thread: the user sees his
+  /// own words the instant he sends them, marked as still travelling.
+  Message _localBubble({String? text, String? imagePath}) => Message(
+        id: _nextLocalId--,
+        conversationId: _convId ?? 0,
+        senderId: _me,
+        content: text,
+        imageUrl: imagePath,
+        type: imagePath == null ? MessageType.text : MessageType.image,
+        isRead: 0,
+        createdAt: DateTime.now(),
+        sendState: SendState.sending,
+      );
+
+  /// Sends one bubble and swaps the local copy for the server row **by local
+  /// id** — the old code appended the server row and left the optimistic bubble
+  /// in place, so every retry showed the user his message twice.
+  Future<void> _deliver(Message local) async {
     try {
-      final msg = await widget.repo.sendText(_convId!, text);
-      setState(() => _messages = [..._messages, msg]);
+      final sent = local.type == MessageType.image
+          ? await widget.repo.sendImage(_convId!, File(local.imageUrl!))
+          : await widget.repo.sendText(_convId!, local.content ?? '');
+      if (!mounted) return;
+      setState(
+          () => _replace(local.id, sent.copyWith(sendState: SendState.sent)));
     } catch (_) {
-      // Offline: queue locally so the user's text isn't lost.
-      setState(() {
-        _messages = [
-          ..._messages,
-          Message.fromJson({
-            'id': DateTime.now().millisecondsSinceEpoch,
-            'conversation_id': _convId ?? 0,
-            'sender_id': _me,
-            'content': text,
-            'message_type': 'text',
-            'is_read': 0,
-          }),
-        ];
-        _pending.add(Message.fromJson({
-          'id': DateTime.now().millisecondsSinceEpoch,
-          'conversation_id': _convId ?? 0,
-          'sender_id': _me,
-          'content': text,
-          'message_type': 'text',
-          'is_read': 0,
-        }));
-      });
-      _toast('أنت غير متصل — سيتم إرسال الرسالة لاحقاً');
+      if (!mounted) return;
+      setState(
+          () => _replace(local.id, local.copyWith(sendState: SendState.failed)));
+      _toast('تعذّر الإرسال — الرسالة محفوظة، اضغط عليها لإعادة المحاولة');
     }
     _jumpToBottom();
   }
 
-  Future<void> _retry(Message msg) async {
-    try {
-      final sent = msg.type == MessageType.image
-          ? await widget.repo.sendImage(_convId!, File(msg.imageUrl!))
-          : await widget.repo.sendText(_convId!, msg.content ?? '');
-      setState(() {
-        _pending.remove(msg);
-        _messages = [..._messages, sent];
-      });
-    } catch (_) {
-      // still offline, keep queued
+  /// Puts [next] where the bubble with [localId] was, keeping the clock already
+  /// on screen when the server row arrives without a timestamp.
+  void _replace(int localId, Message next) {
+    _messages = [
+      for (final m in _messages)
+        if (m.id != localId)
+          m
+        else
+          next.copyWith(createdAt: next.createdAt ?? m.createdAt),
+    ];
+  }
+
+  /// One bubble's «أعد المحاولة» tap.
+  Future<void> _retryOne(Message m) async {
+    setState(() => _replace(m.id, m.copyWith(sendState: SendState.sending)));
+    await _deliver(m);
+  }
+
+  /// Sends every bubble the server refused, oldest first.
+  Future<void> _retryUnsent() async {
+    for (final m in _unsent) {
+      await _retryOne(m);
     }
   }
 
@@ -145,37 +170,10 @@ class _ChatScreenState extends State<ChatScreen> {
     final picker = ImagePicker();
     final file = await picker.pickImage(source: ImageSource.gallery);
     if (file == null) return;
-    final tmp = File(file.path);
-    setState(() {
-      _messages = [
-        ..._messages,
-        Message.fromJson({
-          'id': DateTime.now().millisecondsSinceEpoch,
-          'conversation_id': _convId ?? 0,
-          'sender_id': _me,
-          'image_url': tmp.path,
-          'message_type': 'image',
-          'is_read': 0,
-        }),
-      ];
-    });
-    try {
-      final sent = await widget.repo.sendImage(_convId!, tmp);
-      setState(() {
-        _messages = [..._messages, sent];
-      });
-    } catch (_) {
-      _pending.add(Message.fromJson({
-        'id': DateTime.now().millisecondsSinceEpoch,
-        'conversation_id': _convId ?? 0,
-        'sender_id': _me,
-        'image_url': tmp.path,
-        'message_type': 'image',
-        'is_read': 0,
-      }));
-      _toast('أنت غير متصل — سترسل الصورة لاحقاً');
-    }
+    final local = _localBubble(imagePath: file.path);
+    setState(() => _messages = [..._messages, local]);
     _jumpToBottom();
+    await _deliver(local);
   }
 
   void _toast(String msg) {
@@ -190,17 +188,14 @@ class _ChatScreenState extends State<ChatScreen> {
     ));
   }
 
-  /// True when a day separator should be printed above message [index].
-  bool _needsDateDivider(int index) {
-    final current = _messages[index].createdAt;
-    if (current == null) return false;
-    if (index == 0) return true;
-    final previous = _messages[index - 1].createdAt;
-    if (previous == null) return true;
-    return current.year != previous.year ||
-        current.month != previous.month ||
-        current.day != previous.day;
-  }
+  /// True when a day separator should be printed above message [index]. The
+  /// ruling itself lives in `chat_time.dart`, where it is unit-tested without a
+  /// widget tree — it used to compare raw UTC fields here, which filed a
+  /// message sent after 23:00 UTC under the wrong day.
+  bool _needsDateDivider(int index) => needsDayDivider(
+        index == 0 ? null : _messages[index - 1].createdAt,
+        _messages[index].createdAt,
+      );
 
   @override
   void dispose() {
@@ -228,7 +223,7 @@ class _ChatScreenState extends State<ChatScreen> {
               : Column(
                   children: [
                     Expanded(child: _thread()),
-                    if (_pending.isNotEmpty) _pendingBanner(),
+                    if (_unsent.isNotEmpty) _pendingBanner(),
                     _composer(),
                   ],
                 ),
@@ -274,14 +269,33 @@ class _ChatScreenState extends State<ChatScreen> {
       itemBuilder: (context, i) {
         final m = _messages[i];
         final url = m.imageUrl;
+        final mine = m.senderId == _me;
+        final at = m.createdAt;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (_needsDateDivider(i)) _DateDivider(date: m.createdAt!),
+            if (_needsDateDivider(i)) _DateDivider(label: chatDayLabel(at!)),
             _Bubble(
               message: m,
-              mine: m.senderId == _me,
+              mine: mine,
               onImageTap: url == null ? null : () => _openImage(url),
+            ),
+            // The clock under every bubble, and the delivery state on my own:
+            // a spinner while it travels, a tick once the server has it, and a
+            // red line that sends it again when it never arrived. A user who
+            // cannot tell a delivered message from a lost one re-sends it — or
+            // worse, assumes the contractor read the address.
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Align(
+                alignment: mine ? Alignment.centerLeft : Alignment.centerRight,
+                child: _BubbleMeta(
+                  message: m,
+                  mine: mine,
+                  onRetry:
+                      m.sendState == SendState.failed ? () => _retryOne(m) : null,
+                ),
+              ),
             ),
           ],
         );
@@ -417,21 +431,10 @@ class _CircleAction extends StatelessWidget {
 
 /// Pill date separator between days.
 class _DateDivider extends StatelessWidget {
-  final DateTime date;
+  /// «اليوم» / «أمس» / `dd/MM/yyyy`, already ruled by [chatDayLabel].
+  final String label;
 
-  const _DateDivider({required this.date});
-
-  String get _label {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final that = DateTime(date.year, date.month, date.day);
-    final days = today.difference(that).inDays;
-    if (days == 0) return 'اليوم';
-    if (days == 1) return 'أمس';
-    final dd = date.day.toString().padLeft(2, '0');
-    final mm = date.month.toString().padLeft(2, '0');
-    return '$dd/$mm/${date.year}';
-  }
+  const _DateDivider({required this.label});
 
   @override
   Widget build(BuildContext context) {
@@ -445,11 +448,101 @@ class _DateDivider extends StatelessWidget {
             borderRadius: BorderRadius.circular(AppTheme.rPill),
           ),
           child: Text(
-            _label,
+            label,
             style: AppTheme.label
                 .copyWith(fontSize: AppTheme.fsCaption, color: AppTheme.textSecondary),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The line under one bubble: the clock, plus the delivery state on my own
+/// messages — a spinner while it travels, a tick once the server stored it, and
+/// a 56 dp tappable line («لم تُرسل — أعد المحاولة») when it never arrived.
+class _BubbleMeta extends StatelessWidget {
+  final Message message;
+  final bool mine;
+  final VoidCallback? onRetry;
+
+  const _BubbleMeta({required this.message, required this.mine, this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final at = message.createdAt;
+    final clock = at == null ? '' : chatClock(at);
+
+    if (onRetry != null) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onRetry,
+          borderRadius: BorderRadius.circular(AppTheme.rPill),
+          // No `alignment:` on this Container on purpose: a Container with an
+          // alignment expands to the widest constraint it is given, which
+          // centred this line in the middle of the thread instead of under the
+          // bubble it is about. The Row's own cross-axis centring keeps it
+          // vertically centred inside the 56 dp tap target.
+          child: Container(
+            constraints: const BoxConstraints(minHeight: AppTheme.tapMin),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline_rounded,
+                    size: 18, color: AppTheme.danger),
+                const SizedBox(width: 6),
+                // Flexible, because this line is the last thing between a lost
+                // message and the user: it may ellipsise on a narrow screen,
+                // it must never paint a striped overflow box.
+                Flexible(
+                  child: Text(
+                    'لم تُرسل — أعد المحاولة',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTheme.label.copyWith(
+                        fontSize: AppTheme.fsCaption, color: AppTheme.danger),
+                  ),
+                ),
+                if (clock.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Text(clock, style: AppTheme.caption.copyWith(
+                      fontSize: AppTheme.fsBadge, color: AppTheme.textMuted)),
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final sending = mine && message.sendState == SendState.sending;
+    if (clock.isEmpty && !sending) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (clock.isNotEmpty)
+            Text(clock,
+                style: AppTheme.caption.copyWith(
+                    fontSize: AppTheme.fsBadge, color: AppTheme.textMuted)),
+          if (sending) ...[
+            if (clock.isNotEmpty) const SizedBox(width: 5),
+            const SizedBox(
+              width: 11,
+              height: 11,
+              child: CircularProgressIndicator(
+                  strokeWidth: 1.6, color: AppTheme.textMuted),
+            ),
+          ] else if (mine && clock.isNotEmpty) ...[
+            const SizedBox(width: 4),
+            // A sent mark, not a read receipt: this app has no read receipts,
+            // so a green «read» tick would be a claim the product cannot keep.
+            const Icon(Icons.check_rounded, size: 14, color: AppTheme.textMuted),
+          ],
+        ],
       ),
     );
   }
