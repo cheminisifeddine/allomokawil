@@ -932,10 +932,11 @@ understand that is the single biggest "this app is foreign" signal.
       lane, the worker serves the live web app too, and this loop never touches
       the deploy credentials. Until that lands, the two new buttons on a
       project an owner opens will 404. One command, then the item is live.
-- [ ] **Offline behaviour.** Cache wilaya/specialty lists so the app opens with
+- [x] **Offline behaviour.** Cache wilaya/specialty lists so the app opens with
       content on a dead connection, and queue a chat message for retry instead
       of losing it.
-      *Half done, 13 Sep — the chat half is shipped, the taxonomy half is not.*
+      *Closed 13 Sep — the chat half shipped in `4a3f1cd`, the taxonomy half is
+      verified and pinned below.*
       The chat half: `4a3f1cd`. A refused send used to exist only as a list in
       memory inside the open thread, so tapping back or an Android kill lost it
       silently. Now `lib/src/data/chat_outbox.dart` writes the message to
@@ -953,8 +954,25 @@ understand that is the single biggest "this app is foreign" signal.
       danger-red retry lines). Also `430d807`: the tap-target audit's ten hand
       measurements had rotted after a week of edits — re-read and rebased, the
       audit exits 0 again (11 measured pass).
-      **Remaining half:** cache the wilaya/specialty taxonomy so a cold start on
-      a dead connection still shows the picker's lists — untouched, next tick.
+      **Taxonomy half, 13 Sep — closed (`daed50a`), and it needed no cache.** The
+      lists were never fetched: the 58 wilayas and 16 trades are compiled into
+      `lib/src/data/taxonomy.dart`, and the 1,541 communes are a 54 KB
+      `assets/data/communes_dz.json` read through `rootBundle` — a grep of `lib/`
+      for a wilaya/commune/taxonomy request returns nothing. So a cold start on a
+      dead connection already showed every list, but nothing in the suite said
+      so, and one wire-up to the network would have turned a bundled list into a
+      spinner that never fills. `test/offline_taxonomy_test.dart` pins it: five
+      widget tests drive `BrowseScreen` and `ProjectNewScreen` against a
+      `MockClient` whose every request throws `SocketException` (the dart:io
+      error for "network is unreachable"), and `_attempts` proves the fetch was
+      really tried and really failed — the browse filter keeps all 58 wilayas and
+      its sheet, the 8 trade chips are reachable by scrolling the row, the
+      publish form still lists all 16 trades, the wilaya picker searches
+      ('وهرا' → وهران) and selects, and the commune picker fills from the bundled
+      asset (>=1500 communes parsed with no signal). The screens are pumped with
+      the real Arabic locale and theme, so the RTL layout walked is the shipped
+      one. Gate: `flutter analyze` clean, `flutter test` **420 passed / 3
+      skipped**.
 
 ## Phase 4 — Engineering hardening
 
@@ -971,6 +989,24 @@ understand that is the single biggest "this app is foreign" signal.
       founder-gated on the second: tag the live files and keep them out of the
       default gate (`dart_test.yaml` + `@Tags(['live'])`, run on demand), and
       get a one-off admin-only purge for the accounts already in the table.
+      *Half done, 13 Sep (`32ecf86`) — the gate no longer seeds production.* The
+      three `test/live_*_e2e_test.dart` files now carry `@Tags(['live'])` (`Tags`
+      comes from `flutter_test`, so no new dependency), `dart_test.yaml` skips
+      that tag with the reason printed in the run, and the register file's stale
+      run hint names the tagged command. Verified with the skip live on an
+      explicit path: `flutter test test/live_register_e2e_test.dart` prints
+      `Skip: live: registers real accounts on the production API — run with
+      'flutter test --tags live --run-skipped'` and `All tests skipped` in 0s, so
+      no request left the box; the full gate is **420 passed, 3 skipped** (the
+      three live suites are skipped — their 5 cases no longer count as passes,
+      the 5 new offline-taxonomy cases take their place, so the count holds at
+      420), and `--tags live --run-skipped` still reaches the loader. On demand:
+      `flutter test --tags live --run-skipped`.
+      **Remaining half, and it is a handoff:** the ~30 junk contractors are still
+      in the production table and still in the feed a client browses. Removing
+      them needs a `DELETE` route in `finili/workers/mobile.ts` or a
+      `wrangler d1 execute`, i.e. BACKEND-API/DEVOPS with the Cloudflare
+      credentials — this loop does not hold them.
 - [ ] **Golden/screenshot tests** for the main screens so a design regression
       fails CI rather than being noticed by the founder.
 - [ ] **Every API call wrapped** so failure surfaces as an Arabic retryable
