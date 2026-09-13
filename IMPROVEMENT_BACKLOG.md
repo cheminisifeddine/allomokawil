@@ -1442,6 +1442,67 @@ understand that is the single biggest "this app is foreign" signal.
 
 ---
 
+## Phase 5 — a write lands once, or the user is told it did not
+
+Opened 13 Sep 21:52 because every phase above is ticked or handed off. The first
+item came out of a read-only audit of the network layer, not from a wish list:
+it is a correctness gap that duplicates a user's data.
+
+- [x] **A timed-out write was re-sent to the other host.** `ApiClient` carries
+      two base URLs (`allomokawil.colisify.com`, then
+      `finili.medsaidkichene.workers.dev`) and `_withFailover` moved **every**
+      verb to the second host on any transport failure — DNS, TLS, connection
+      reset, and a response that never arrived inside the 20 s timeout. Both
+      hosts answer from the **same Worker**, so the second attempt is not a
+      retry of a request that failed, it is a second copy of a request that may
+      already have succeeded: a 20 s stall on the primary during
+      `POST /api/mobile/projects` created the project twice, and its owner saw
+      two identical cards in «مشاريعي». Same exposure on every POST in
+      `repository.dart` — quotes, chat messages, reviews, the verification pile,
+      subscriptions. Nothing pinned the old behaviour; the three tests in
+      `api_client_failover_test.dart` only covered GET.
+      **DONE `5a7052a`.** Failover is now method-aware. `_neverReached` decides
+      whether the failure *proves* the request never left the phone — a TLS
+      handshake that never completed, or a transport-level failure (no name
+      resolved, connection refused, no route) — and only then does a POST try
+      the second host. Anything ambiguous (timeout, reset mid-flight) throws the
+      new `S.errWriteUnconfirmed` — «انقطع الاتصال قبل تأكيد وصول طلبك. تحقّق من
+      القائمة قبل إعادة المحاولة.» — so the user learns the outcome is unknown
+      instead of being handed a duplicate. GET/PATCH/DELETE keep the old
+      behaviour (PATCH writes a fixed field set to one row; DELETE is
+      HTTP-idempotent). The host timeout is an injectable parameter now
+      (`defaultTimeout` keeps the shipped 20 s) so the rule is testable without
+      a test that waits twenty real seconds.
+      *Evidence (real output):* `flutter analyze` -> **No issues found!** (42.7 s);
+      `flutter test` -> **487 passed / 3 skipped / 0 failed** (was 482/3/0; the +5
+      are the new cases — POST timeout reaches **one** host only, POST whose host
+      does not resolve still fails over, refused connection still fails over, GET
+      timeout still fails over, and the app's own `createProject` posts exactly
+      once against a stalling host). The new sentence is inside the
+      `error_copy_test.dart` invariant list, so it cannot lose its instruction or
+      grow a Latin letter. No pixels moved: this is the transport layer, no
+      screenshot applies.
+      *Rejected alternative:* marking the POST with an `Idempotency-Key` and
+      letting the backend dedupe — correct, but it needs the Worker to store and
+      check the key, i.e. BACKEND-API, and the duplication was live today.
+- [ ] **The screen must show the truth after an unconfirmed write, not just
+      the sentence.** The new copy tells the user to check the list before
+      retrying, but a screen that keeps its stale list is asking him to check
+      something that is not on screen. The write screens (publish a project, bid,
+      chat send, review, verification) should refetch their list the moment
+      `errWriteUnconfirmed` is caught, so the user can see for himself whether
+      the row landed. Small: one reload per write screen behind a typed check on
+      the failure message, plus a test that a stalled publish refetches and shows
+      the row when the API does have it.
+- [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent writes.**
+      The app cannot make `POST /api/mobile/projects` safe to retry on its own.
+      A `Idempotency-Key` request header, stored with the created row and
+      checked before insert, would let the client fail over to the second host on
+      a timeout without duplicating anything and without asking the user to
+      guess. Until then the app refuses to re-send and says so.
+
+---
+
 ## Completed
 
 ### Phase 0 — first-run experience: CLOSED 12 Sep
