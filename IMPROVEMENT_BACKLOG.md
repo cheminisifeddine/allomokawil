@@ -58,6 +58,18 @@ CPU and holds `build/unit_test_assets`, so **report it, do not kill it**, and
 do not start a test run over the top of it — on 13 Sep it blocked a tick this
 way for 37 minutes.
 
+**Note (13 Sep 15:52) — `flutter test` leaks a tester, and the orphan rule has a
+cost.** pid 226342 was spawned by the 15:13 gate run, watched that run finish
+and commit `7f46d08` at 15:18, and was still alive at 15:52: `ppid` 1, 0.0 %
+CPU, `wchan ep_poll`, holding fd 9 = `build/unit_test_assets`, waiting on a
+stdin pipe whose writer is gone. It will not exit on its own. Per the rule above
+it was reported, not killed, so this tick took the audit-only path and lost no
+work — that is now the third tick this class of block has cost. The open
+question for the founder: may a tick reap a `flutter_tester` that is older than
+30 minutes, `ppid=1`, 0 % CPU and pointed at this repo's own
+`build/unit_test_assets`? If yes, unblocking is `kill 226342`, one command,
+today.
+
 **Honesty rule:** if an item turns out to be already implemented, already
 correct, or blocked on something outside the app, do not fake progress — mark it
 with the reason and move to the next one.
@@ -1154,6 +1166,70 @@ understand that is the single biggest "this app is foreign" signal.
       model internals (`models/plan.dart`, `models/user.dart`, …), which are now
       only ever reached through `_row` / `_rows` / `_session`.
 - [ ] **Semantics labels** on interactive elements for TalkBack/VoiceOver.
+      *Audited 13 Sep 15:52, read-only — no build this tick: a leaked
+      `flutter_tester` (pid 226342) held `build/unit_test_assets`; see the
+      protocol note.* Nothing was implemented, so the checkbox stays open; the
+      next build-capable tick has the whole job below.
+      *Already right (verified by reading the build methods):* the bottom nav
+      sets `Semantics(button: true, label:, selected:)` on both the raised
+      centre action and every destination (`app_tab_bar.dart:101`, `:161`), the
+      bell does the same (`notifications_bell.dart:68`), the auth role switch
+      sets `button` + `selected` (`auth_screen.dart:446`), all 11 `IconButton`s
+      carry a `tooltip` (Flutter turns a tooltip into a label), the two chat
+      composer actions are wrapped in `Tooltip`, the decorative hero
+      `CustomPaint` emits no semantics node at all, and the publish form's
+      first photo-remove is labelled `حذف الصورة`
+      (`project_new_screen.dart:457`).
+      *What TalkBack cannot reach today — nine findings, `lib/` read, not
+      guessed:*
+      1. `screens/review/review_screen.dart:207-224` — the five stars are bare
+         `InkWell`s around an `Icon` (no `Text` inside), i.e. five unlabelled
+         tappables: **the rating form is unusable with a screen reader.** Needs
+         one button per star, label «n من ٥», `selected: n <= value`.
+      2. `screens/project/project_new_screen.dart:960-978` — the *second*
+         remove-photo control (red disc on the photo strip) is a raw
+         `GestureDetector` with no label, while the identical action at `:457`
+         is labelled. Same action, two behaviours.
+      3. `screens/chat/chat_screen.dart:823-832` — an image bubble: a tappable
+         that opens the photo, with no label and no `semanticLabel` on the
+         `Image`.
+      4. `widgets/ui.dart:453 RatingStars` — the rating on every card is five
+         raw `Icon`s plus a bare `4.5` + `(3)`: TalkBack reads a number with no
+         meaning and five junk nodes. Should be one node
+         («التقييم ٤.٥ من ٥، ٣ مراجعات») with the icons excluded.
+      5. `widgets/category_grid.dart:66` — the trade tile announces its text but
+         never `button: true` / `selected:` (unlike `app_tab_bar`).
+      6. `screens/worker/my_portfolio_screen.dart:312` — the add tile (label
+         «أضف») goes silent while an upload is in flight: `onTap` becomes null
+         and the child is a bare spinner, so the tile the user just tapped has
+         no name and no button role while it works.
+      7. `screens/worker/subscription_screen.dart:384` and `:737` — plan picker
+         and payment-method picker: text without `button: true` / `selected:`.
+      8. `screens/project/projects_screen.dart:280`,
+         `screens/browse/browse_screen.dart:317`,
+         `screens/project/project_new_screen.dart:858` — the filter pills, same
+         shape as 7.
+      9. `semanticLabel` occurs **zero** times in `lib/`: every
+         `Image.network` / `Image.file` in the app is announced as "image" with
+         no content.
+      *Plan — one commit, next build-capable tick:*
+      a. New `lib/src/widgets/a11y.dart`: `A11y.tap({required String label,
+         bool? selected, bool enabled = true, required Widget child})` →
+         `Semantics(button: true, …, child:)`, plus `A11y.rating(double,
+         {int? count})` (the Arabic rating sentence) and the image-label helper.
+         One helper, so no screen re-invents it — the house already uses this
+         `Semantics(button: true, …)` shape in four places.
+      b. Apply at the nine sites and set `semanticLabel` on photos with a real
+         Arabic description, never a bare «صورة».
+      c. New `test/semantics_coverage_test.dart`: `tester.ensureSemantics()` +
+         `tester.semantics` (Flutter 3.47.2, so the modern API is there —
+         `grep -rn "ensureSemantics\|SemanticsTester" test/` is currently **0
+         hits**, the suite has never asserted a single semantics node). Assert
+         (i) every node carrying a tap action on the eight golden-covered
+         screens has a non-empty label, walked from the semantics tree rather
+         than a hand list, (ii) the star picker exposes five labelled buttons
+         with the right `selected` flags, (iii) `RatingStars` exposes exactly
+         one node.
 - [ ] **Cold-start audit.** Measure and shorten time-to-first-meaningful-paint
       on the release build; report a real number from a real device/emulator.
 - [ ] **Crash-free baseline.** Wire a lightweight error reporter and confirm it
