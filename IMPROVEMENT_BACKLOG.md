@@ -1034,7 +1034,7 @@ understand that is the single biggest "this app is foreign" signal.
       (that is the contract, not a bug), and the fixtures the new test renders
       are still duplicated between `test/design_shots_test.dart` and the other
       golden call sites if this is ever split into its own file.
-      *Flake found and fixed 13 Sep (this tick).* The claim above — "not a
+      *Flake found and fixed 13 Sep, `b789c23`.* The claim above — "not a
       flake waiting to block the loop" — was wrong, and the gate went red on
       its own: the next `flutter test` after `9fad004` printed
       **420 passed / 3 skipped / 1 failed**, `goldens/15_notifications.png`
@@ -1053,6 +1053,8 @@ understand that is the single biggest "this app is foreign" signal.
       and fails if any `NotificationsScreen(` call site stops passing a clock.
       `15_notifications.png` re-baselined; the diff old->new is 1235 px confined
       to x230-304, i.e. the time column only, no layout moved.
+      Full gate after the fix: `flutter analyze` -> No issues found!,
+      `flutter test` -> **423 passed / 3 skipped / 0 failed**.
       *Left open, deliberately:* `12_chat` has the same class of dependency one
       layer deeper — `chatClock` prints local `HH:mm` by design, so under
       `TZ=Pacific/Kiritimati` or `TZ=Pacific/Midway` that baseline diffs 125 px
