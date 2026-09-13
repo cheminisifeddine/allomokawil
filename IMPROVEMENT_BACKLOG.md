@@ -900,7 +900,38 @@ understand that is the single biggest "this app is foreign" signal.
       reviewer's `admin_notes` never leaves the admin UI. The app cannot show
       *why* a document was refused until the mobile API exposes the document
       rows. Hand to BACKEND-API.
-- [ ] **Project edit + cancel** for the owner, with the same validation as create.
+- [x] **Project edit + cancel** for the owner, with the same validation as create.
+      **DONE `c4f32d6` (app) + `795b0c4` (API).** A client could post a project
+      from the app and never touch it again — no fix for a typo, no way out of a
+      job he no longer wants — while the web app could do both.
+      *App:* the owner's action row under his own project's quotes holds
+      «عدّل المشروع» and «إلغاء المشروع», gated on what the API accepts (edit
+      only while `open`, cancel only while not finished/cancelled) so no button
+      can lie; cancelling confirms first and names what happens to the pending
+      bids. `ProjectNewScreen(initial:)` turns the publish form into the edit
+      form — prefilled, «عدّل مشروعك», «احفظ التعديل», PATCH instead of POST —
+      with the same validation, not a copy of it, and the project's existing
+      photos as removable tiles above the picker.
+      *API (`finili/workers/mobile.ts`):* `PATCH /mobile/projects/:id`
+      (owner-only, refused once the project leaves `open`, create's validation
+      field for field, `images` kept when the key is absent) and
+      `POST /mobile/projects/:id/cancel` (`status='cancelled'`, pending quotes
+      → `withdrawn`, chosen contractor notified — the web action's own three
+      writes). `PATCH` added to the CORS allow-methods list.
+      *Verified:* `flutter analyze` → **No issues found!**; `flutter test` →
+      **406 passed / 0 failed** (398 before; 8 new in
+      `test/project_edit_cancel_test.dart` pinning the wire calls, the prefill
+      and all four lifecycle states); `npx tsc --noEmit -p
+      tsconfig.cloudflare.json` → clean. Pixels, not reasoning:
+      `/tmp/shots/19_project_owner_actions.png` shows the edit label in
+      `#16213E` at x603-679 y1761-1798 and the cancel label in `#C33F39` at
+      x487-566 y2337-2369 inside a 1176x2550 capture, and
+      `/tmp/shots/20_project_edit.png` is the prefilled form.
+      *Open, and it is a handoff:* the mobile API change is committed and
+      pushed but **not deployed** — `npm run deploy` in `finili` is DEVOPS'
+      lane, the worker serves the live web app too, and this loop never touches
+      the deploy credentials. Until that lands, the two new buttons on a
+      project an owner opens will 404. One command, then the item is live.
 - [ ] **Offline behaviour.** Cache wilaya/specialty lists so the app opens with
       content on a dead connection, and queue a chat message for retry instead
       of losing it.
