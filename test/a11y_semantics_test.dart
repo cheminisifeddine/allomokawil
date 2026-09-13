@@ -90,7 +90,9 @@ void main() {
     testWidgets('an icon-only control is named and stays tappable',
         (tester) async {
       final handle = tester.ensureSemantics();
-      addTearDown(handle.dispose);
+      // `WidgetTester` verifies the handles at the end of the body, before
+      // `addTearDown` runs: the handle has to be disposed here or the test
+      // fails with "A SemanticsHandle was active at the end of the test".
       var taps = 0;
       await _pump(
         tester,
@@ -117,12 +119,12 @@ void main() {
       await tester.tap(find.bySemanticsLabel('حذف الصورة 1'));
       await tester.pump();
       expect(taps, 1);
+      handle.dispose();
     });
 
     testWidgets('a control that prints its own name is not named twice',
         (tester) async {
       final handle = tester.ensureSemantics();
-      addTearDown(handle.dispose);
       await _pump(
         tester,
         Material(
@@ -140,11 +142,11 @@ void main() {
       expect(_tap(hit.single), isTrue);
       expect(_isButton(hit.single), isTrue);
       expect(_selected(hit.single), Tristate.isTrue);
+      handle.dispose();
     });
 
     testWidgets('a disabled control says so', (tester) async {
       final handle = tester.ensureSemantics();
-      addTearDown(handle.dispose);
       await _pump(
         tester,
         Material(
@@ -157,6 +159,7 @@ void main() {
       final node = _nodes(tester).firstWhere((n) => n.label.contains('أضف'));
       expect(_enabled(node), Tristate.isFalse);
       expect(_tap(node), isFalse);
+      handle.dispose();
     });
   });
 
@@ -164,7 +167,6 @@ void main() {
     testWidgets('is one sentence, with no stray icons or bare number',
         (tester) async {
       final handle = tester.ensureSemantics();
-      addTearDown(handle.dispose);
       await _pump(tester, const RatingStars(rating: 4.5, count: 3));
 
       final named = _nodes(tester).where((n) => n.label.isNotEmpty).toList();
@@ -172,15 +174,16 @@ void main() {
           reason: 'five icons and a bare 4.5 are what this replaced');
       expect(named.single.label, 'التقييم 4.5 من ٥، 3 مراجعات');
       expect(_tap(named.single), isFalse, reason: 'a rating is not a button');
+      handle.dispose();
     });
 
     testWidgets('drops the count when there is none', (tester) async {
       final handle = tester.ensureSemantics();
-      addTearDown(handle.dispose);
       await _pump(tester, const RatingStars(rating: 5));
       final named = _nodes(tester).where((n) => n.label.isNotEmpty).toList();
       expect(named, hasLength(1));
       expect(named.single.label, 'التقييم 5.0 من ٥');
+      handle.dispose();
     });
   });
 
@@ -193,7 +196,6 @@ void main() {
 
     testWidgets('five stars, each named and tappable', (tester) async {
       final handle = tester.ensureSemantics();
-      addTearDown(handle.dispose);
       await pumpReview(tester);
 
       final stars = _nodes(tester)
@@ -209,11 +211,11 @@ void main() {
       }
       expect(stars.where((n) => _selected(n) == Tristate.isTrue), isEmpty,
           reason: 'the form opens with no vote cast');
+      handle.dispose();
     });
 
     testWidgets('the chosen stars say they are on', (tester) async {
       final handle = tester.ensureSemantics();
-      addTearDown(handle.dispose);
       await pumpReview(tester);
 
       await tester.tap(find.bySemanticsLabel('4 من ٥'));
@@ -229,16 +231,17 @@ void main() {
       expect(on, ['1 من ٥', '2 من ٥', '3 من ٥', '4 من ٥']);
       expect(stars.map((n) => _selected(n) == Tristate.isTrue).toList(),
           [true, true, true, true, false]);
+      handle.dispose();
     });
 
     testWidgets('nothing on this screen is an unnamed tap target',
         (tester) async {
       final handle = tester.ensureSemantics();
-      addTearDown(handle.dispose);
       await pumpReview(tester);
       final silent = _nodes(tester).where((n) => _tap(n) && n.label.isEmpty);
       expect(silent, isEmpty,
           reason: 'a reader can reach these but cannot say what they are');
+      handle.dispose();
     });
   });
 }

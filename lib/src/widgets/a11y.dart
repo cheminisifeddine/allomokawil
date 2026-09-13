@@ -65,7 +65,20 @@ class A11y {
   }
 
   /// One star of the rating form, the way a person says it: «٣ من ٥».
-  static String star(int n, {int of = 5}) => '$n من $of';
+  static String star(int n, {int of = 5}) => '$n من ${_spoken(of)}';
+
+  /// A numeral the way the rest of these sentences spell a fixed word: the
+  /// score line already reads «من ٥» ([rating]), and a star that said «من 5»
+  /// made the same word two different things in one screen-reader pass.
+  static String _spoken(int value) => value
+      .toString()
+      .split('')
+      .map((d) => _arabicDigits[int.parse(d)])
+      .join();
+
+  static const List<String> _arabicDigits = <String>[
+    '٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩',
+  ];
 
   /// The rating row as one sentence instead of five icons and a bare number.
   static String rating(double value, {int? count}) {

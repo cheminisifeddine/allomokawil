@@ -571,6 +571,17 @@ class _FieldLabel extends StatelessWidget {
 }
 
 /// Gentle "remember me" row with a full-width tap target.
+///
+/// One control to a screen reader, not three. As it stood this row emitted an
+/// `InkWell` node with a tap action and no label, a `Checkbox` node that was
+/// tappable and checked but nameless — `Checkbox` reads `widget.semanticLabel`
+/// and this call site passed none — and the visible «تذكرني» as a *sibling*
+/// text node, so a reader reached a nameless toggle and was never told what it
+/// turns on.
+///
+/// [MergeSemantics] folds the row into one node, the `Checkbox` names it, and
+/// the visible `Text` is wrapped in [ExcludeSemantics] so the sentence is not
+/// read twice — reading a control twice is worse than not reading it at all.
 class _RememberRow extends StatelessWidget {
   final bool value;
   final ValueChanged<bool> onChanged;
@@ -579,33 +590,38 @@ class _RememberRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppTheme.rSm),
-        onTap: () => onChanged(!value),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
-          child: Row(
-            children: [
-              Checkbox(
-                value: value,
-                onChanged: (v) => onChanged(v ?? false),
-                activeColor: AppTheme.accent,
-                checkColor: AppTheme.navy,
-                side: const BorderSide(color: AppTheme.line, width: 1.6),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppTheme.rXs)),
-              ),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  S.rememberMe,
-                  style: AppTheme.label
-                      .copyWith(fontSize: AppTheme.fsBody, color: AppTheme.textPrimary),
+    return MergeSemantics(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppTheme.rSm),
+          onTap: () => onChanged(!value),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+            child: Row(
+              children: [
+                Checkbox(
+                  value: value,
+                  semanticLabel: S.rememberMe,
+                  onChanged: (v) => onChanged(v ?? false),
+                  activeColor: AppTheme.accent,
+                  checkColor: AppTheme.navy,
+                  side: const BorderSide(color: AppTheme.line, width: 1.6),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.rXs)),
                 ),
-              ),
-            ],
+                const SizedBox(width: 4),
+                Expanded(
+                  child: ExcludeSemantics(
+                    child: Text(
+                      S.rememberMe,
+                      style: AppTheme.label
+                          .copyWith(fontSize: AppTheme.fsBody, color: AppTheme.textPrimary),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

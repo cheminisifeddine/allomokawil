@@ -371,7 +371,12 @@ Future<void> _shoot(
 /// a Flutter upgrade fails every golden exactly once, on purpose: look at the
 /// diff, then re-baseline. A screen that throws is failed *before* the capture,
 /// otherwise the golden would pin a broken layout as correct.
-Future<void> _golden(
+/// Builds one main screen the way the app builds it, and settles it.
+///
+/// Shared by the pixel gate and the accessibility sweep below, so the two can
+/// never disagree about what a "main screen" is: a screen added to
+/// [_mainScreens] gets a baseline *and* a named-control check, or neither.
+Future<GlobalKey> _pumpScreen(
   WidgetTester tester,
   String name,
   Widget screen,
@@ -407,8 +412,47 @@ Future<void> _golden(
   expect(tester.takeException(), isNull,
       reason: '$name threw while building — fix the layout before re-baselining');
 
+  return key;
+}
+
+Future<void> _golden(
+  WidgetTester tester,
+  String name,
+  Widget screen,
+  ApiClient api,
+  AuthState auth, {
+  Size logical = const Size(392, 850),
+}) async {
+  final key =
+      await _pumpScreen(tester, name, screen, api, auth, logical: logical);
   await expectLater(find.byKey(key), matchesGoldenFile('goldens/$name.png'));
 }
+
+/// The eight screens a user actually lands on — one list, two gates.
+///
+/// It exists so neither gate can quietly stop covering a screen: the golden
+/// pass and the accessibility sweep both walk *this*, and a screen that is not
+/// here is in neither.
+List<(String, Widget)> _mainScreens(Repository repo) => [
+      ('00_landing', const LandingScreen()),
+      ('01_signin', const AuthScreen(mode: AuthMode.signIn)),
+      ('04_customer_home', const CustomerHomeScreen()),
+      ('08_worker_home', const WorkerHomeScreen()),
+      ('10_browse', const BrowseScreen()),
+      (
+        '12_chat',
+        ChatScreen(
+            conversationId: 5,
+            otherUserId: 31,
+            otherName: 'مقاول تجربة',
+            repo: repo),
+      ),
+      ('15_notifications', NotificationsScreen(clock: () => _pinnedClock)),
+      (
+        '07_project_detail',
+        ProjectDetailScreen(projectId: _project['id'] as String, repo: repo),
+      ),
+    ];
 
 /// The clock every capture that shows a relative time is measured against.
 ///
@@ -596,32 +640,97 @@ void main() {
   testWidgets('goldens: the main screens', (tester) async {
     final s = await boot();
     final repo = Repository(s.api);
-    await _golden(tester, '00_landing', const LandingScreen(), s.api, s.auth);
-    await _golden(tester, '01_signin',
-        const AuthScreen(mode: AuthMode.signIn), s.api, s.auth);
-    await _golden(
-        tester, '04_customer_home', const CustomerHomeScreen(), s.api, s.auth);
-    await _golden(
-        tester, '08_worker_home', const WorkerHomeScreen(), s.api, s.auth);
-    await _golden(tester, '10_browse', const BrowseScreen(), s.api, s.auth);
-    await _golden(
-        tester,
-        '12_chat',
-        ChatScreen(
-            conversationId: 5,
-            otherUserId: 31,
-            otherName: 'مقاول تجربة',
-            repo: repo),
-        s.api,
-        s.auth);
-    await _golden(tester, '15_notifications',
-        NotificationsScreen(clock: () => _pinnedClock), s.api, s.auth);
-    await _golden(
-        tester,
-        '07_project_detail',
-        ProjectDetailScreen(projectId: _project['id'] as String, repo: repo),
-        s.api,
-        s.auth);
+    for (final (name, screen) in _mainScreens(repo)) {
+      await _golden(tester, name, screen, s.api, s.auth);
+    }
+  });
+
+  // ── The sweep, so "every control is named" is not a hand-written list ─────
+  // `a11y_semantics_test.dart` proves the nine controls the 13 Sep audit found
+  // are named. This proves the rest are: it walks the semantics tree a reader
+  // actually walks, over all eight main screens, and fails on any node that
+  // carries a tap action yet has no name — something a reader can reach and
+  // cannot describe. It reads the *tree*, not the source, so a control built
+  // any way at all has to answer for itself.
+  //
+  // It earned its keep before it existed: reading the SDK while writing it
+  // found the remember-me `Checkbox` on the sign-in screen tappable and nameless
+  // (checkboxes take a `semanticLabel` and that call site passed none), which is
+  // the kind of thing a nine-item hand audit misses.
+  testWidgets('no main screen has a tappable node with no name',
+      (tester) async {
+    final handle = tester.ensureSemantics();
+    final s = await boot();
+    final repo = Repository(s.api);
+
+    final silent = <String, List<String>>{};
+    final silentFields = <String>[];
+    for (final (name, screen) in _mainScreens(repo)) {
+      await _pumpScreen(tester, name, screen, s.api, s.auth);
+      final unnamed = <String>[];
+      for (final node in tester.semantics.simulatedAccessibilityTraversal()) {
+        final d = node.getSemanticsData();
+        if (!d.hasAction(SemanticsAction.tap)) continue;
+        // A reader takes the name from whichever channel the control used:
+        // `label` (Semantics, or the visible text), `hint` (a field's
+        // placeholder) or `tooltip` (an icon-only button). Empty in all three
+        // is silence. Note this reads the node's *data*, not `node.label`: a
+        // merged node keeps its own label empty and carries the child's in its
+        // data, and the data is what the platform is handed.
+        final spoken = <String>[d.label, d.hint, d.tooltip]
+            .where((t) => t.trim().isNotEmpty);
+        if (spoken.isNotEmpty) continue;
+        final found = '$name node ${node.id} @ ${node.rect}';
+        // Text fields are counted apart: see the pinned note below.
+        if (d.flagsCollection.isTextField) {
+          silentFields.add(found);
+        } else {
+          unnamed.add(found);
+        }
+      }
+      if (unnamed.isNotEmpty) silent[name] = unnamed;
+    }
+
+    expect(silent, isEmpty,
+        reason: 'a reader can reach these but cannot say what they are');
+
+    // One box on the sign-in form has no accessible name, and no Dart API can
+    // give it one: a Material text field is named only by its own decoration's
+    // hint Text (`_RenderDecoration` merges the hint up; a `Semantics` wrapper
+    // on the field or on its prefix icon adds a second node instead — checked
+    // in this screen's own tree). Its visible label therefore has to sit above
+    // the box, which is how UI-UX drew this form, or the form has to show a
+    // placeholder inside it. That is a design call, filed in the backlog, so
+    // the count is pinned here: a *new* nameless box fails this test.
+    expect(silentFields, <String>[
+      '01_signin node 27 @ Rect.fromLTRB(0.0, 0.0, 322.0, 62.0)',
+    ], reason: 'the nameless-field debt changed — fix it or re-file it');
+    handle.dispose();
+  });
+
+  // The rule above catches what a rule can catch. This pins the one control it
+  // found by hand, so the fix cannot rot: the remember-me `Checkbox` on the
+  // sign-in screen. `Checkbox` reads `semanticLabel` into the node it makes and
+  // the call site passed none, leaving the row a tappable node with nothing to
+  // say — on a golden screen, so every user met it.
+  testWidgets('the remember-me box on 01_signin is named and announces its state',
+      (tester) async {
+    final handle = tester.ensureSemantics();
+    final s = await boot();
+    await _pumpScreen(tester, '01_signin', const AuthScreen(mode: AuthMode.signIn),
+        s.api, s.auth);
+
+    final row = tester.semantics
+        .simulatedAccessibilityTraversal()
+        .where((n) => n.getSemanticsData().label.contains('تذكرني'))
+        .toList();
+    expect(row, hasLength(1), reason: 'the box must be named exactly once');
+    final d = row.single.getSemanticsData();
+    expect(d.hasAction(SemanticsAction.tap), isTrue,
+        reason: 'a reader that hears the name has to be able to change it');
+    expect(d.flagsCollection.isChecked, isNotNull,
+        reason: 'a tick box must announce whether it is ticked');
+    handle.dispose();
   });
 
   // ── The flake that took the gate red ──────────────────────────────────────
