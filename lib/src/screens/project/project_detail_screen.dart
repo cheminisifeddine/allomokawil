@@ -63,14 +63,38 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
   }
 
   /// Owner closes the job, then rates the contractor.
+  ///
+  /// Two repairs in the review flow live here. The call is inside a `try` now:
+  /// it used to run bare, so a failed close (offline, project already closed by
+  /// the web app) surfaced as an unhandled error *and* still pushed the rating
+  /// form — whose submit the API then refuses with «المشروع لم يكتمل بعد».
+  /// And the detail screen reloads afterwards, so its own status flips to
+  /// «منجز» instead of still claiming the job is running behind the form.
   Future<void> _complete(Project project) async {
-    await widget.repo.completeProject(project.id);
-    if (mounted) {
-      final workerId = project.selectedWorkerId ?? 0;
-      Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => ReviewScreen(
-              projectId: project.id, workerId: workerId, repo: widget.repo)));
+    try {
+      await widget.repo.completeProject(project.id);
+    } on Exception catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(errorCopy(e))));
+      }
+      return;
     }
+    if (!mounted) return;
+    _openReview(project);
+    _reload();
+  }
+
+  /// Opens the rating form for this project's chosen contractor.
+  ///
+  /// The review POST upserts on (project, customer), so opening this twice can
+  /// only ever edit the one rating — never add a second, invented one.
+  void _openReview(Project project) {
+    final workerId = project.selectedWorkerId;
+    if (workerId == null) return;
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ReviewScreen(
+            projectId: project.id, workerId: workerId, repo: widget.repo)));
   }
 
   @override
@@ -199,6 +223,23 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
           label: 'أكمل المشروع وتقييم',
           icon: Icons.task_alt_rounded,
           onPressed: () => _complete(project),
+        ),
+      );
+    }
+    // A finished job used to be a dead end for its owner: the only door into
+    // the rating form was the tap that closed the job. Back out of that screen
+    // once (or close the job from the web app) and the project offered no
+    // primary action at all — the review the entire trust model rests on could
+    // never be written. This is also the "change my rating" path, because the
+    // endpoint updates the row it already has for this project and customer.
+    if (_isOwner &&
+        project.status == ProjectStatus.completed &&
+        project.selectedWorkerId != null) {
+      return StickyCta(
+        child: PrimaryButton(
+          label: 'قيّم المقاول',
+          icon: Icons.star_rounded,
+          onPressed: () => _openReview(project),
         ),
       );
     }

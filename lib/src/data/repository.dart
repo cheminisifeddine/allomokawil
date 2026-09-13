@@ -226,7 +226,9 @@ class Repository {
       'commune': commune,
       'budget_min': budgetMin,
       'budget_max': budgetMax,
-      'urgency': urgency.name,
+      // `.wire`, not `.name`: the API writes this straight into a column
+      // whose CHECK only accepts the snake_case values.
+      'urgency': urgency.wire,
       'images': images,
     }) as Map<String, dynamic>;
     return Project.fromJson(data);
@@ -264,19 +266,28 @@ class Repository {
   }
 
   // ---- Reviews ----------------------------------------------------------
-  Future<Review> createReview({
+  /// Publishes the customer's rating for a finished job.
+  ///
+  /// The endpoint answers `{ok: true}` and nothing else — it does not echo the
+  /// review row back. This used to hand that ack to `Review.fromJson`, which
+  /// reads `id` with a hard cast, so the real response threw a `_TypeError`
+  /// ("type 'Null' is not a subtype of type 'int'"). A `TypeError` is an
+  /// `Error`, not an `Exception`, so the screen's `on Exception` catch never
+  /// saw it either: the server stored the rating while the app showed no
+  /// confirmation and stayed on the form. Nothing here parses an ack; the
+  /// caller reads the result the way every other viewer does, through
+  /// [workerReviews] and [getWorker].
+  Future<void> createReview({
     required String projectId,
     required int workerId,
     required int rating,
     String? comment,
   }) async {
-    final data =
-        await _api.post('/api/mobile/projects/$projectId/review', body: {
+    await _api.post('/api/mobile/projects/$projectId/review', body: {
       'worker_id': workerId,
       'rating': rating,
       'comment': comment,
-    }) as Map<String, dynamic>;
-    return Review.fromJson(data);
+    });
   }
 
   Future<List<Review>> workerReviews(int workerId) async {

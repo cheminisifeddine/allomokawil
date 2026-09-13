@@ -1,5 +1,9 @@
 // The rating contract: a review that nobody chose is not a review.
 //
+// Note on the mock below: it answers `{"ok":true}`, byte for byte what the live
+// Worker returns. It used to return a fabricated Review row, which hid a real
+// client bug (`Review.fromJson`'s `id as int` on an ack with no `id`).
+//
 // `_rating` opened at 5, so the fastest path through the screen — tap the
 // orange button — published a five-star review on behalf of a user who never
 // looked at the picker. For a marketplace whose entire promise is "the rating
@@ -27,10 +31,11 @@ class _Recorder {
         httpClient: MockClient((req) async {
           if (req.url.path.endsWith('/review')) {
             reviews.add(jsonDecode(req.body) as Map<String, dynamic>);
-            return http.Response(
-                '{"id":1,"worker_id":16,"rating":2,"comment":null,'
-                '"created_at":"2026-09-13T00:00:00Z"}',
-                201,
+            // The real Worker answers the review POST with `{ok: true}`
+            // (mobile.ts). The old mock here invented a Review row, which is
+            // exactly why the client's hard cast on `id` survived a green
+            // suite while every live review threw.
+            return http.Response('{"ok":true}', 200,
                 headers: {'content-type': 'application/json'});
           }
           return http.Response('{"error":"unexpected"}', 404,

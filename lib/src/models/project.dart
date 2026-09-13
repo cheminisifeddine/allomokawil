@@ -4,7 +4,50 @@ import '../core/format/money.dart';
 enum ProjectStatus { open, inProgress, completed, cancelled }
 
 /// How urgent the client's project is. Mirrors `UrgencyLevel`.
-enum UrgencyLevel { flexible, withinWeek, withinMonth, urgent }
+enum UrgencyLevel {
+  flexible,
+  withinWeek,
+  withinMonth,
+  urgent;
+
+  /// The only string this level may be sent as.
+  ///
+  /// The Dart names are camelCase and the `projects.urgency` column is
+  /// snake_case with a CHECK constraint listing the four snake values, so
+  /// `POST /api/mobile/projects` has to send this, never `name`. It did send
+  /// `name`, which meant the two commonest answers — «خلال أسبوع» and
+  /// «خلال شهر» — violated the constraint and came back as a bare 500 the
+  /// screen could only render as "خدمة غير متاحة، أعد المحاولة".
+  /// Measured against the live API (13 Sep): `withinWeek` and `withinMonth`
+  /// → 500, `within_week`, `within_month`, `urgent`, `flexible` → 201.
+  String get wire {
+    switch (this) {
+      case UrgencyLevel.flexible:
+        return 'flexible';
+      case UrgencyLevel.withinWeek:
+        return 'within_week';
+      case UrgencyLevel.withinMonth:
+        return 'within_month';
+      case UrgencyLevel.urgent:
+        return 'urgent';
+    }
+  }
+
+  /// The inverse of [wire]. Anything unrecognised is read as [flexible] — the
+  /// column's own default — so an unknown value can never crash a feed.
+  static UrgencyLevel fromWire(String? v) {
+    switch (v) {
+      case 'within_week':
+        return UrgencyLevel.withinWeek;
+      case 'within_month':
+        return UrgencyLevel.withinMonth;
+      case 'urgent':
+        return UrgencyLevel.urgent;
+      default:
+        return UrgencyLevel.flexible;
+    }
+  }
+}
 
 /// A client-posted project. Mirrors `Project` from finili types.
 class Project {
@@ -67,18 +110,10 @@ class Project {
     );
   }
 
-  static UrgencyLevel _urgen(String? v) {
-    switch (v) {
-      case 'within_week':
-        return UrgencyLevel.withinWeek;
-      case 'within_month':
-        return UrgencyLevel.withinMonth;
-      case 'urgent':
-        return UrgencyLevel.urgent;
-      default:
-        return UrgencyLevel.flexible;
-    }
-  }
+  /// Reading and writing urgency are the same table, so they cannot drift:
+  /// `UrgencyLevel.fromWire` is the inverse of `UrgencyLevel.wire`, and the
+  /// publish path uses the same getter.
+  static UrgencyLevel _urgen(String? v) => UrgencyLevel.fromWire(v);
 
   static ProjectStatus _status(String? v) {
     switch (v) {
