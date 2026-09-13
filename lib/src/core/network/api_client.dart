@@ -119,7 +119,8 @@ class ApiClient {
     final res = await _withFailover('/api/upload', (uri) async {
       final req = http.MultipartRequest('POST', uri);
       if (_token != null) req.headers['Authorization'] = 'Bearer $_token';
-      req.files.add(await http.MultipartFile.fromPath('file', file.path));
+      req.files.add(await http.MultipartFile.fromPath('file', file.path,
+          contentType: photoMediaType(file.path)));
       final streamed = await req.send();
       return http.Response.fromStream(streamed);
     });
@@ -167,4 +168,42 @@ class ApiException implements Exception, ArabicCopyError {
 
   @override
   String toString() => message;
+}
+
+/// The media type of a photo, read off its file extension.
+///
+/// `MultipartFile.fromPath` labels a part `application/octet-stream` whenever
+/// it is not told otherwise, and the Worker stores the declared type on the R2
+/// object. So before this helper every photo the app uploaded — chat images,
+/// portfolio shots, the avatar and the verification documents — was kept as an
+/// unnamed binary: `GET /api/images/...` answered `application/octet-stream`
+/// for a PNG, which makes a browser download the URL instead of showing it and
+/// leaves anything downstream (the web app, a link preview, an image cache)
+/// unable to tell a photo from a document. Same class of bug as the upload
+/// route that used to answer 401 for every photo: the bytes were fine, the
+/// label was not.
+///
+/// Measured on the deployed Worker: the identical 64x64 PNG came back
+/// `application/octet-stream` before this change and `image/png` after it.
+http.MediaType photoMediaType(String path) {
+  final dot = path.lastIndexOf('.');
+  final ext = dot < 0 ? '' : path.substring(dot + 1).toLowerCase();
+  switch (ext) {
+    case 'jpg':
+    case 'jpeg':
+      return http.MediaType('image', 'jpeg');
+    case 'png':
+      return http.MediaType('image', 'png');
+    case 'webp':
+      return http.MediaType('image', 'webp');
+    case 'gif':
+      return http.MediaType('image', 'gif');
+    case 'heic':
+    case 'heif':
+      return http.MediaType('image', 'heic');
+    default:
+      // No extension, or one we do not know: say the honest thing rather than
+      // declare a type the object may not be.
+      return http.MediaType('application', 'octet-stream');
+  }
 }
