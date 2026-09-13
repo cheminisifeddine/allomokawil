@@ -21,6 +21,18 @@ class WorkerProfile {
   /// both directions (empty form for a man who uploaded everything, false
   /// "under review" for a man who uploaded nothing).
   final int verificationPendingDocs;
+  /// Whether the identity half of the dossier (ID card + selfie) has already
+  /// been accepted by a reviewer.
+  ///
+  /// `verificationStatus` is all-or-nothing: documents are approved one row at
+  /// a time and the profile only flips to 'verified' once every row is
+  /// approved. In between, a contractor whose ID was accepted and whose
+  /// contractor card was refused saw the same blank form as a man who had sent
+  /// nothing — the API was sending both flags and the app threw them away.
+  final bool identityVerified;
+  /// Whether the documents half (contractor card + certificates) has been
+  /// accepted. See [identityVerified].
+  final bool certificateVerified;
   final double avgRating;
   final int totalReviews;
   final int totalCompletedJobs;
@@ -43,6 +55,8 @@ class WorkerProfile {
     required this.isAvailable,
     required this.verificationStatus,
     this.verificationPendingDocs = 0,
+    this.identityVerified = false,
+    this.certificateVerified = false,
     required this.avgRating,
     required this.totalReviews,
     required this.totalCompletedJobs,
@@ -81,6 +95,9 @@ class WorkerProfile {
       verificationStatus: _vd(json['verification_status'] as String?),
       verificationPendingDocs:
           (json['verification_pending_docs'] as num?)?.toInt() ?? 0,
+      identityVerified: (json['is_identity_verified'] as num?)?.toInt() == 1,
+      certificateVerified:
+          (json['is_certificate_verified'] as num?)?.toInt() == 1,
       avgRating: (json['avg_rating'] as num?)?.toDouble() ?? 0,
       totalReviews: (json['total_reviews'] as num?)?.toInt() ?? 0,
       totalCompletedJobs: (json['total_completed_jobs'] as num?)?.toInt() ?? 0,

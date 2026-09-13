@@ -199,7 +199,14 @@ const _notifications = [
 http.Response _json(Object body) => http.Response(jsonEncode(body), 200,
     headers: {'content-type': 'application/json'});
 
-ApiClient _fakeApi({bool emptyNotifications = false}) => ApiClient(
+ApiClient _fakeApi({
+  bool emptyNotifications = false,
+  /// Overrides the contractor profile the screens read back. The verification
+  /// screen has more than one real state (fresh / filed / half-accepted /
+  /// verified) and each one is a different screen, so a shot needs to choose.
+  Map<String, Object?>? profile,
+}) =>
+    ApiClient(
       baseUrls: ['https://x.test'],
       httpClient: MockClient((req) async {
         final p = req.url.path;
@@ -235,7 +242,7 @@ ApiClient _fakeApi({bool emptyNotifications = false}) => ApiClient(
         if (p.contains('/workers/')) return _json(_worker);
         if (p.contains('/workers')) return _json([_worker]);
         if (p.contains('/conversations')) return _json([_conversation]);
-        if (p.contains('/my/profile')) return _json(_worker);
+        if (p.contains('/my/profile')) return _json(profile ?? _worker);
         return _json(<Object>[]);
       }),
     );
@@ -414,6 +421,22 @@ void main() {
     await _shoot(tester, '13_profile', const ProfileScreen(), s.api, s.auth);
     await _shoot(
         tester, '14_verification', const VerificationScreen(), s.api, s.auth);
+    // The half-accepted dossier — identity approved, contractor card refused.
+    // This is the state the all-or-nothing status flag cannot describe, and it
+    // is the one that used to render as the same blank form a man who had sent
+    // nothing sees. The shot is the evidence that the accepted half is named.
+    await _shoot(
+        tester,
+        '18_verification_partial',
+        const VerificationScreen(),
+        _fakeApi(profile: {
+          ..._worker,
+          'verification_status': 'pending',
+          'is_identity_verified': 1,
+          'is_certificate_verified': 0,
+          'verification_pending_docs': 0,
+        }),
+        s.auth);
     // The rating input: the unselected stars are the track the user picks
     // from, and they used to be drawn in `line` (1.22:1). This shot is the
     // evidence that `AppTheme.starEmpty` reached the widget tree.

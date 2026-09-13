@@ -155,8 +155,20 @@ class _VerificationScreenState extends State<VerificationScreen> {
                   if (verified)
                     const _VerifiedBanner()
                   else if (underReview)
-                    _UnderReviewPanel(onRefresh: _retry)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _PartsStatusCard(worker: worker),
+                        const SizedBox(height: 16),
+                        _UnderReviewPanel(onRefresh: _retry),
+                      ],
+                    )
                   else ...[
+                    // Read the real per-part state back BEFORE the form: he
+                    // needs to know which half of the dossier is already
+                    // accepted before he is asked to send anything again.
+                    _PartsStatusCard(worker: worker),
+                    const SizedBox(height: 16),
                     if (rejected) ...[
                       const _RejectedBanner(),
                       const SizedBox(height: 12),
@@ -426,6 +438,105 @@ class _VerifiedBanner extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Which half of the dossier the reviewer has already accepted.
+///
+/// The reviewer approves documents one row at a time, so a profile can sit in
+/// `pending` with its identity already approved and its contractor card
+/// refused. The all-or-nothing status flag cannot describe that, and the screen
+/// used to fall back to a blank form — a man who had sent everything correctly
+/// was asked for it all again with no explanation. These two rows read the two
+/// flags the API already returns (`is_identity_verified`,
+/// `is_certificate_verified`) so the screen says which part is done.
+///
+/// Deliberately no inference: an unverified part reads "بانتظار التحقق", which
+/// is true whether the documents are still queued or were refused, and never
+/// contradicts the receipt panel above it.
+class _PartsStatusCard extends StatelessWidget {
+  const _PartsStatusCard({required this.worker});
+
+  final WorkerProfile worker;
+
+  @override
+  Widget build(BuildContext context) {
+    final underReview = worker.dossierUnderReview;
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.fact_check_outlined, size: 20, color: AppTheme.navy),
+              SizedBox(width: 8),
+              Expanded(child: Text('حالة ملفك', style: AppTheme.label)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          _part(
+            icon: Icons.badge_outlined,
+            label: 'الهوية (بطاقة التعريف + سيلفي)',
+            ok: worker.identityVerified,
+          ),
+          const Divider(height: 18, color: AppTheme.lineSoft),
+          _part(
+            icon: Icons.workspace_premium_rounded,
+            label: 'بطاقة المقاول والشهادات',
+            ok: worker.certificateVerified,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            underReview
+                ? 'تُقبل المستندات واحداً واحداً، وسيتغيّر هذا الجدول مع كل قبول.'
+                : 'تُقبل المستندات واحداً واحداً. أي جزء لم يُقبل بعد يمكنك إعادة رفعه من الأسفل.',
+            style: AppTheme.caption.copyWith(
+                fontSize: AppTheme.fsBadge, height: 1.6),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _part({
+    required IconData icon,
+    required String label,
+    required bool ok,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: ok ? AppTheme.success : AppTheme.textMuted),
+        const SizedBox(width: 10),
+        Expanded(child: Text(label, style: AppTheme.body)),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: ok ? AppTheme.successWash : AppTheme.surfaceAlt,
+            borderRadius: BorderRadius.circular(AppTheme.rPill),
+            border: Border.all(color: ok ? AppTheme.success : AppTheme.line),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                ok ? Icons.check_circle_rounded : Icons.hourglass_empty_rounded,
+                size: 13,
+                color: ok ? AppTheme.success : AppTheme.textMuted,
+              ),
+              const SizedBox(width: 5),
+              Text(
+                ok ? 'موثّقة' : 'بانتظار التحقق',
+                style: AppTheme.caption.copyWith(
+                  fontSize: AppTheme.fsBadge,
+                  color: ok ? AppTheme.success : AppTheme.textMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

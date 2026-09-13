@@ -32,6 +32,8 @@ import 'package:allomokawil/src/screens/verify/verification_screen.dart';
 Map<String, Object?> _profile({
   String status = 'pending',
   int pendingDocs = 0,
+  int identity = 0,
+  int cert = 0,
 }) =>
     {
       'id': 5,
@@ -46,6 +48,8 @@ Map<String, Object?> _profile({
       'is_available': 1,
       'verification_status': status,
       'verification_pending_docs': pendingDocs,
+      'is_identity_verified': identity,
+      'is_certificate_verified': cert,
       'avg_rating': 4.5,
       'total_reviews': 3,
       'total_completed_jobs': 4,
@@ -130,6 +134,26 @@ void main() {
       expect(legacy.verificationPendingDocs, 0);
       expect(legacy.dossierUnderReview, isFalse);
     });
+
+    // The reviewer approves documents one row at a time, so a profile can sit
+    // in `pending` with its identity already accepted and its contractor card
+    // refused. `verification_status` cannot describe that; these two flags can.
+    test('the two per-part flags are read off the wire', () {
+      final part = WorkerProfile.fromJson(_profile(identity: 1, cert: 0));
+      expect(part.identityVerified, isTrue);
+      expect(part.certificateVerified, isFalse);
+      expect(part.verificationStatus, VerificationStatus.pending,
+          reason: 'a half-accepted dossier is still pending, not verified');
+    });
+
+    test('a backend that omits the flags can never claim a part is verified',
+        () {
+      final legacy = WorkerProfile.fromJson(_profile()
+        ..remove('is_identity_verified')
+        ..remove('is_certificate_verified'));
+      expect(legacy.identityVerified, isFalse);
+      expect(legacy.certificateVerified, isFalse);
+    });
   });
 
   group('what the contractor actually reads', () {
@@ -170,6 +194,57 @@ void main() {
       final shown = _shown(tester).join('\n');
       expect(shown.contains('حسابك موثّق'), isTrue);
       expect(_hasUploadForm(tester), isFalse);
+    });
+
+    testWidgets('a fresh contractor sees which halves are still unverified',
+        (tester) async {
+      await _pump(tester, _api(_profile()));
+      final shown = _shown(tester).join('\n');
+      expect(shown.contains('حالة ملفك'), isTrue);
+      expect(shown.contains('الهوية'), isTrue);
+      expect(shown.contains('بانتظار التحقق'), isTrue);
+      expect(shown.contains('موثّقة'), isFalse,
+          reason: 'nothing has been accepted yet');
+    });
+
+    // The bug this closes: an all-or-nothing status made a half-accepted
+    // dossier look identical to one that was never sent, so the man who had
+    // already proved his identity was asked for all three documents again with
+    // no explanation and no way to tell what was wrong.
+    testWidgets('a half-accepted dossier names the accepted half', (tester) async {
+      await _pump(tester, _api(_profile(identity: 1, cert: 0)));
+      final shown = _shown(tester).join('\n');
+      expect(shown.contains('حالة ملفك'), isTrue);
+      expect(shown.contains('موثّقة'), isTrue,
+          reason: 'the accepted half must be named as accepted');
+      expect(shown.contains('بانتظار التحقق'), isTrue,
+          reason: 'the other half must not look accepted');
+      expect(_hasUploadForm(tester), isTrue,
+          reason: 'the refused half must stay re-uploadable');
+      expect(shown.contains('مستنداتك قيد المراجعة'), isFalse,
+          reason: 'he is not waiting on a queue, he has work to redo');
+    });
+
+    testWidgets('a dossier in the queue keeps its per-part table', (tester) async {
+      await _pump(tester, _api(_profile(pendingDocs: 3, identity: 1, cert: 0)));
+      final shown = _shown(tester).join('\n');
+      expect(shown.contains('مستنداتك قيد المراجعة'), isTrue);
+      expect(shown.contains('حالة ملفك'), isTrue,
+          reason: 'it must still say which half is already accepted');
+      expect(shown.contains('موثّقة'), isTrue);
+      expect(shown.contains('بانتظار التحقق'), isTrue);
+      expect(shown.contains('إعادة رفعه من الأسفل'), isFalse,
+          reason: 'under review there is nothing to re-upload');
+    });
+
+    testWidgets('a fully verified contractor gets no per-part table',
+        (tester) async {
+      await _pump(tester, _api(_profile(status: 'verified', identity: 1, cert: 1)));
+      final shown = _shown(tester).join('\n');
+      expect(shown.contains('حسابك موثّق'), isTrue);
+      expect(shown.contains('حالة ملفك'), isFalse,
+          reason: 'the green banner already says it, twice is noise');
+      expect(shown.contains('بانتظار التحقق'), isFalse);
     });
   });
 }
