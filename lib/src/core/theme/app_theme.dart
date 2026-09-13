@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'motion.dart';
+
 /// ─────────────────────────────────────────────────────────────────────────
 ///  ALLO MOKAWIL — DESIGN SYSTEM
 /// ─────────────────────────────────────────────────────────────────────────
@@ -362,6 +364,21 @@ class AppTheme {
       scaffoldBackgroundColor: bg,
       fontFamily: 'Cairo',
       splashFactory: InkSparkle.splashFactory,
+      // One tempo for every push. Without this, Material decides: a 300 ms zoom
+      // on Android, a fade-forwards on the newest Android, a horizontal slide
+      // on iOS — three different speeds for the same screen, none of them the
+      // 200 ms a revealed list row uses. The app's own transition runs on
+      // AppMotion.screen everywhere.
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: <TargetPlatform, PageTransitionsBuilder>{
+          TargetPlatform.android: AppPageTransitionsBuilder(),
+          TargetPlatform.fuchsia: AppPageTransitionsBuilder(),
+          TargetPlatform.iOS: AppPageTransitionsBuilder(),
+          TargetPlatform.linux: AppPageTransitionsBuilder(),
+          TargetPlatform.macOS: AppPageTransitionsBuilder(),
+          TargetPlatform.windows: AppPageTransitionsBuilder(),
+        },
+      ),
     );
 
     return base.copyWith(

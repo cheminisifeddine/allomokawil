@@ -14,6 +14,7 @@ import '../../core/app_scope.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/text/dz_phone.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/motion.dart';
 import '../../models/enums.dart';
 import '../../widgets/phone_field.dart';
 import '../../widgets/ui.dart';
@@ -451,7 +452,7 @@ class _Segment extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(AppTheme.rXl),
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
+            duration: AppMotion.fast,
             height: AppTheme.tapMin,
             alignment: Alignment.center,
             decoration: BoxDecoration(

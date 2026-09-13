@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme/app_theme.dart';
+import 'motion.dart';
 
 /// Large, high-contrast primary button with a >= 56px touch target —
 /// the backbone of the app's friendly, low-literacy UX.
@@ -88,7 +89,12 @@ class _KitPrimary extends StatelessWidget {
               ],
             ),
     );
-    return expanded ? SizedBox(width: double.infinity, child: btn) : btn;
+    // Filled key, and the visual half of "my thumb landed": the button
+    // shrinks 3% while a finger is on it (see Pressable).
+    final pressable = Pressable(enabled: !loading && onPressed != null, child: btn);
+    return expanded
+        ? SizedBox(width: double.infinity, child: pressable)
+        : pressable;
   }
 }
 
@@ -109,30 +115,34 @@ class OutlineButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      child: OutlinedButton(
-        onPressed: onPressed,
-        style: OutlinedButton.styleFrom(
-          minimumSize: const Size.fromHeight(AppTheme.tapMin),
-          foregroundColor: AppTheme.navy,
-          side: const BorderSide(color: AppTheme.controlLine, width: 1.5),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppTheme.rMd)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (icon != null) ...[
-              Icon(icon, size: 20, color: AppTheme.navy),
-              const SizedBox(width: 8),
+      // Same press answer as BigButton — a screen never mixes the two.
+      child: Pressable(
+        enabled: onPressed != null,
+        child: OutlinedButton(
+          onPressed: onPressed,
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(AppTheme.tapMin),
+            foregroundColor: AppTheme.navy,
+            side: const BorderSide(color: AppTheme.controlLine, width: 1.5),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppTheme.rMd)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 20, color: AppTheme.navy),
+                const SizedBox(width: 8),
+              ],
+              Flexible(
+                child: Text(label,
+                    style: AppTheme.button.copyWith(fontSize: AppTheme.fsLead),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+              ),
             ],
-            Flexible(
-              child: Text(label,
-                  style: AppTheme.button.copyWith(fontSize: AppTheme.fsLead),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-            ),
-          ],
+          ),
         ),
       ),
     );

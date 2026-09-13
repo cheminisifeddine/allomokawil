@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/app_scope.dart';
 import '../../core/text/arabic_search.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/motion.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
 import '../../models/worker.dart';
@@ -317,7 +318,7 @@ class _FilterPill extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppTheme.rPill),
         onTap: onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
+          duration: AppMotion.fast,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
             color: selected ? AppTheme.navy : wash,

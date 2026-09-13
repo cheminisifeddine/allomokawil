@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme/app_theme.dart';
+import '../core/theme/motion.dart';
 import '../data/taxonomy.dart';
+import 'motion.dart';
 
 /// ─────────────────────────────────────────────────────────────────────────
 ///  Shared UI kit for Allo Mokawil.
@@ -202,7 +204,12 @@ class PrimaryButton extends StatelessWidget {
               ],
             ),
     );
-    return expanded ? SizedBox(width: double.infinity, child: btn) : btn;
+    // Both shared buttons answer a press with the same 3% shrink, so a screen
+    // that mixes them still moves as one thing.
+    final pressable = Pressable(enabled: enabled, child: btn);
+    return expanded
+        ? SizedBox(width: double.infinity, child: pressable)
+        : pressable;
   }
 }
 
@@ -249,7 +256,10 @@ class SecondaryButton extends StatelessWidget {
         ],
       ),
     );
-    return expanded ? SizedBox(width: double.infinity, child: btn) : btn;
+    final pressable = Pressable(enabled: onPressed != null, child: btn);
+    return expanded
+        ? SizedBox(width: double.infinity, child: pressable)
+        : pressable;
   }
 }
 
@@ -322,7 +332,7 @@ class SelectableTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppTheme.rMd),
         onTap: onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
+          duration: AppMotion.fast,
           height: height,
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
           decoration: BoxDecoration(

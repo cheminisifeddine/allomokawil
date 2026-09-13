@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/motion.dart';
 import '../../data/project_search.dart';
 import '../../data/repository.dart';
 import '../../models/enums.dart';
 import '../../models/project.dart';
 import '../../widgets/feed_search_field.dart';
+import '../../widgets/motion.dart';
 import '../../widgets/project_card.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
@@ -154,13 +156,15 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
                     itemCount: projects.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (context, i) => ProjectCard(
-                      project: projects[i],
-                      onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                              builder: (_) => ProjectDetailScreen(
-                                  projectId: projects[i].id,
-                                  repo: widget.repo))),
+                    itemBuilder: (context, i) => Reveal(
+                      child: ProjectCard(
+                        project: projects[i],
+                        onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                                builder: (_) => ProjectDetailScreen(
+                                    projectId: projects[i].id,
+                                    repo: widget.repo))),
+                      ),
                     ),
                   );
                 },
@@ -277,7 +281,7 @@ class _TabPill extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppTheme.rPill),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
+          duration: AppMotion.fast,
           height: 56,
           padding: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme/app_theme.dart';
+import '../core/theme/motion.dart';
 import '../data/taxonomy.dart';
 import 'ui.dart';
 
@@ -66,7 +67,7 @@ class _CategoryStripTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppTheme.rMd),
         onTap: onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
+          duration: AppMotion.fast,
           width: 96,
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
           decoration: BoxDecoration(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme/app_theme.dart';
+import '../core/theme/motion.dart';
 import 'ui.dart';
 
 /// ─────────────────────────────────────────────────────────────────────────
@@ -48,7 +49,7 @@ class Shimmer extends StatefulWidget {
 class _ShimmerState extends State<Shimmer> with SingleTickerProviderStateMixin {
   late final AnimationController _sweep = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 1300),
+    duration: AppMotion.shimmer,
   );
 
   @override

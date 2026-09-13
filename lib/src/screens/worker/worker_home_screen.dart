@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/app_scope.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/motion.dart';
 import '../../data/project_search.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
@@ -804,7 +805,7 @@ class _ChipShell extends StatelessWidget {
         child: Center(
           // Full-height (56px) tap target, the pill keeps its natural size.
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
+            duration: AppMotion.fast,
             padding: const EdgeInsets.all(3),
             decoration: BoxDecoration(
               color: selected ? AppTheme.accentWash : AppTheme.surface,

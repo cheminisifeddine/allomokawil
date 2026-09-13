@@ -7,6 +7,7 @@ import '../../data/notification_copy.dart';
 import '../../data/repository.dart';
 import '../../models/notification.dart';
 import '../project/project_detail_screen.dart';
+import '../../widgets/motion.dart';
 
 /// Notification centre: every quote, acceptance, message and review the user
 /// has received, newest first, with the unread ones marked.
@@ -164,7 +165,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       itemCount: _items.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (_, i) => _tile(_items[i]),
+      // Rows fade up on first build (AppMotion.reveal). The list is short, so
+      // every row reveals together — no stagger, no row left waiting on a timer.
+      itemBuilder: (_, i) => Reveal(child: _tile(_items[i])),
     );
   }
 

@@ -8,6 +8,7 @@ import '../../core/app_scope.dart';
 import '../../core/text/arabic_search.dart';
 import '../../core/text/dz_number.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/motion.dart';
 import '../../data/communes.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
@@ -734,7 +735,7 @@ class _UrgencyPill extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppTheme.rPill),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
+          duration: AppMotion.fast,
           // v19 x2 + the 18.9 dp row = 56.9 dp: a pill that sets how urgent a
           // project is has to be tappable by the same hand that types the title.
           padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 19),
