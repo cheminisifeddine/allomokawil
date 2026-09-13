@@ -87,6 +87,13 @@ class S {
       'الملف أكبر من الحد المسموح. اختر ملفاً أصغر ثم أعد المحاولة.';
   static const errTooMany =
       'طلبات كثيرة في وقت قصير. انتظر دقيقة ثم أعد المحاولة.';
+
+  /// Shown when the notification list could not be fetched — the list is empty
+  /// because the request failed, not because nothing happened, and the copy has
+  /// to say which of the two it is.
+  static const noNotificationsErrorHint =
+      'تعذّر الاتصال بالخادم. تحقّق من الشبكة ثم أعد المحاولة.';
+
   static const errUnexpected =
       'حدث خطأ غير متوقع. أعد المحاولة، وإن تكرّر الأمر أغلق التطبيق وافتحه من جديد.';
   static const errNoServer =

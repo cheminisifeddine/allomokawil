@@ -155,7 +155,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         icon:
             failed ? Icons.cloud_off_rounded : Icons.notifications_none_rounded,
         title: failed ? _error! : S.noNotifications,
-        hint: failed ? S.noNotificationsHint : S.noNotificationsHint,
+        hint: failed ? S.noNotificationsErrorHint : S.noNotificationsHint,
         actionLabel: failed ? S.retry : S.back,
         onAction: failed ? _load : () => Navigator.of(context).maybePop(),
       );
@@ -176,46 +176,60 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     required String actionLabel,
     required VoidCallback onAction,
   }) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(32, 72, 32, 32),
-      children: [
-        Icon(icon, size: 54, color: AppTheme.textMuted),
-        const SizedBox(height: 18),
-        Text(
-          title,
-          textAlign: TextAlign.center,
-          style: AppTheme.h2
-              .copyWith(fontSize: AppTheme.fsH2, color: AppTheme.textPrimary),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          hint,
-          textAlign: TextAlign.center,
-          style: AppTheme.body.copyWith(
-              fontSize: AppTheme.fsMeta, color: AppTheme.textSecondary),
-        ),
-        const SizedBox(height: 22),
-        Center(
-          child: SizedBox(
-            width: 220,
-            height: 46,
-            child: OutlinedButton(
-              onPressed: onAction,
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: AppTheme.line),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppTheme.rSm),
+    // Centred in the space that is actually there, but kept a scroll view so
+    // pull-to-refresh still has something to pull: a short screen scrolls
+    // instead of overflowing.
+    return LayoutBuilder(
+      builder: (context, constraints) => ListView(
+        padding: const EdgeInsets.all(32),
+        children: [
+          ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight - 64),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 54, color: AppTheme.textMuted),
+                const SizedBox(height: 18),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: AppTheme.h2.copyWith(
+                      fontSize: AppTheme.fsH2, color: AppTheme.textPrimary),
                 ),
-              ),
-              child: Text(
-                actionLabel,
-                style: AppTheme.button.copyWith(
-                    fontSize: AppTheme.fsSmall, color: AppTheme.textPrimary),
-              ),
+                const SizedBox(height: 8),
+                Text(
+                  hint,
+                  textAlign: TextAlign.center,
+                  style: AppTheme.body.copyWith(
+                      fontSize: AppTheme.fsMeta, color: AppTheme.textSecondary),
+                ),
+                const SizedBox(height: 22),
+                Center(
+                  child: SizedBox(
+                    width: 220,
+                    height: 46,
+                    child: OutlinedButton(
+                      onPressed: onAction,
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppTheme.line),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppTheme.rSm),
+                        ),
+                      ),
+                      child: Text(
+                        actionLabel,
+                        style: AppTheme.button.copyWith(
+                            fontSize: AppTheme.fsSmall,
+                            color: AppTheme.textPrimary),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
