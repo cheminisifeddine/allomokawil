@@ -18,7 +18,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/l10n/strings.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/onboarding.dart';
 import '../../models/enums.dart';
+import '../../widgets/role_guide.dart';
 import '../../widgets/ui.dart';
 import '../auth/auth_screen.dart';
 
@@ -30,6 +32,24 @@ class LandingScreen extends StatelessWidget {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => AuthScreen(mode: mode, role: role)),
     );
+  }
+
+  /// «إنشاء الحساب» is the one button that has to answer a question the visitor
+  /// cannot answer himself: is he the one who needs work done, or the one who
+  /// does it? The form asks it too, but only after a phone number has been typed,
+  /// so a first-time visitor gets the explainer once, here. Whatever he answers —
+  /// or if he skips — the tap still ends on the same sign-up form.
+  Future<void> _startSignUp(BuildContext context) async {
+    var role = UserRole.customer;
+    final seen = await roleGuideSeen();
+    if (!context.mounted) return;
+    if (!seen) {
+      final picked = await showRoleGuide(context);
+      await markRoleGuideSeen();
+      if (picked != null) role = picked;
+    }
+    if (!context.mounted) return;
+    _openAuth(context, AuthMode.signUp, role: role);
   }
 
   @override
@@ -54,7 +74,7 @@ class LandingScreen extends StatelessWidget {
                       const _Welcome(),
                       const _Promises(),
                       _StartBlock(
-                        onCreate: () => _openAuth(context, AuthMode.signUp),
+                        onCreate: () => _startSignUp(context),
                         onSignIn: () => _openAuth(context, AuthMode.signIn),
                         onContractor: () => _openAuth(context, AuthMode.signUp,
                             role: UserRole.worker),

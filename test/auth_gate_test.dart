@@ -137,6 +137,13 @@ void main() {
     await tester.tap(find.byKey(const Key('landing-create-account')));
     await tester.pumpAndSettle();
 
+    // The first tap asks the one question a brand-new visitor cannot answer for
+    // himself — which side of the app he is on — and the form then opens with
+    // that answer already selected. The explainer has its own file
+    // (test/role_guide_test.dart); here it only has to be stepped through.
+    await tester.tap(find.byKey(const Key('role-guide-customer')));
+    await tester.pumpAndSettle();
+
     // One screen holds both halves, and the account type is asked HERE.
     expect(find.text('أنشئ حسابك في دقيقة'), findsOneWidget);
     expect(find.text('نوع الحساب'), findsOneWidget);
