@@ -836,9 +836,20 @@ understand that is the single biggest "this app is foreign" signal.
       live types are mapped and any unknown type falls back to «إشعار» rather
       than the raw key. 11 tests (295 total); live E2E 27/27, production
       scrubbed. Next: colour contrast re-verification.
-- [ ] **Reviews flow after completion.** Star picker + comment, submitted to the
-      API, then reflected in the contractor's average — with a test that the
-      average updates. **No fake or seeded reviews, ever.**
+- [x] **Reviews flow after completion.** DONE `4a67eaa` — the star picker now
+      survives the live `{"ok": true}` ack (it parsed the response as a full
+      `Review`, so the int cast threw a `_TypeError` past the screen's
+      `on Exception`: the rating was stored and the user saw a failure), and a
+      closed job the client owns shows «قيّم المقاول` so the form is reachable
+      after the completing tap instead of only during it. The same commit fixed
+      the publish path: `urgency` went out as `urgency.name`, which the
+      `projects.urgency` CHECK rejects for «خلال أسبوع» and «خلال شهر» — the
+      live API answered 500. `UrgencyLevel.wire` is now the only writer.
+      `test/review_submit_test.dart`, `test/project_publish_urgency_test.dart`,
+      `test/live_review_e2e_test.dart` (live: project → quote → accept →
+      complete → rate, avg 4.0 / 1 review; re-rate → 2.0 / 1 review, an edit,
+      not a second row). No fake or seeded reviews anywhere in the fixtures.
+      Next: verification flow end-to-end.
 - [x] **Contractor portfolio upload** from camera/gallery to R2, with progress,
       retry, and Arabic permission rationale strings. **DONE `f083d71`** —
       `lib/src/screens/worker/my_portfolio_screen.dart`; camera and gallery both
