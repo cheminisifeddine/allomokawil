@@ -134,36 +134,40 @@ OWN_ARGS = re.compile(r"\bchild:|\bchildren:")
 # reported STALE and the tool exits 1, so the table can never rot in silence.
 FAIL_, PASS_ = "FAIL", "PASS"
 MEASURED = [
+    # Refreshed 2026-09-13: every line below was re-read at its new
+    # position after a week of edits, so the arithmetic could be checked
+    # against the construct it describes. The anchor is what proves it —
+    # if a construct moves again this table says STALE, not PASS.
     # ui.dart:119 is no longer here on purpose: the «عرض الكل» tap is wrapped in
     # a `SizedBox(height: AppTheme.tapMin)`, which R7 now reads as 56 and proves
     # on its own. The pill below sits in a `Wrap`, so nothing stretches it and
     # only its own padding can settle it.
-    ("lib/src/screens/project/project_new_screen.dart", 733, "InkWell(", PASS_,
+    ("lib/src/screens/project/project_new_screen.dart", 858, "InkWell(", PASS_,
      "19x2 + max(17, 13.5x1.4=18.9) = 56.9"),
     # Checkbox is 48 dp padded (kMinInteractiveDimension) and the row adds v6.
-    ("lib/src/screens/auth/auth_screen.dart", 581, "InkWell(", PASS_,
+    ("lib/src/screens/auth/auth_screen.dart", 582, "InkWell(", PASS_,
      "48 (Checkbox, padded) + 6x2 = 60.0"),
-    ("lib/src/screens/auth/auth_screen.dart", 588, "Checkbox(", PASS_,
+    ("lib/src/screens/auth/auth_screen.dart", 589, "Checkbox(", PASS_,
      "48 inside the 60 dp row above"),
     # SizedBox(height: 60) + horizontal ListView -> tight cross axis = 60.
-    ("lib/src/screens/browse/browse_screen.dart", 316, "InkWell(", PASS_,
+    ("lib/src/screens/browse/browse_screen.dart", 317, "InkWell(", PASS_,
      "enclosing SizedBox(height: 60) = 60.0"),
-    ("lib/src/screens/chat/chat_screen.dart", 405, "InkWell(", PASS_,
+    ("lib/src/screens/chat/chat_screen.dart", 594, "InkWell(", PASS_,
      "SizedBox(width/height: tapMin 56) = 56.0"),
-    ("lib/src/screens/customer/customer_home_screen.dart", 540, "InkWell(", PASS_,
+    ("lib/src/screens/customer/customer_home_screen.dart", 537, "InkWell(", PASS_,
      "BoxConstraints(minHeight: tapMin 56) = 56.0"),
-    ("lib/src/screens/customer/customer_home_screen.dart", 578, "InkWell(", PASS_,
+    ("lib/src/screens/customer/customer_home_screen.dart", 583, "InkWell(", PASS_,
      "16x2 + 56 dp dot = 88.0"),
     # fieldPad is vertical 18; body is 15.5 x height 1.65 = 25.6.
-    ("lib/src/screens/project/project_new_screen.dart", 416, "InkWell(", PASS_,
+    ("lib/src/screens/project/project_new_screen.dart", 541, "InkWell(", PASS_,
      "18x2 + 15.5x1.65=25.6 = 61.6"),
-    ("lib/src/screens/worker/worker_home_screen.dart", 801, "InkWell(", PASS_,
+    ("lib/src/screens/worker/worker_home_screen.dart", 752, "InkWell(", PASS_,
      "enclosing SizedBox(height: tapMin 56) = 56.0"),
     ("lib/src/widgets/app_tab_bar.dart", 165, "GestureDetector(", PASS_,
      "Container(height: 60) bar = 60.0"),
     # Every call site passes height 92 (auth tiles) or double.infinity (grid);
     # the default is 104. The line moved when the section title above grew.
-    ("lib/src/widgets/ui.dart", 321, "InkWell(", PASS_,
+    ("lib/src/widgets/ui.dart", 331, "InkWell(", PASS_,
      "call sites pass 92 (auth) or double.infinity (grid)"),
 ]
 
