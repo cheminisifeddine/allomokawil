@@ -935,6 +935,26 @@ understand that is the single biggest "this app is foreign" signal.
 - [ ] **Offline behaviour.** Cache wilaya/specialty lists so the app opens with
       content on a dead connection, and queue a chat message for retry instead
       of losing it.
+      *Half done, 13 Sep — the chat half is shipped, the taxonomy half is not.*
+      The chat half: `4a3f1cd`. A refused send used to exist only as a list in
+      memory inside the open thread, so tapping back or an Android kill lost it
+      silently. Now `lib/src/data/chat_outbox.dart` writes the message to
+      `SharedPreferences` **before** the first attempt and forgets it only after
+      the server confirms the row; the thread restores and auto-flushes the
+      queue, shows a `لا يوجد اتصال — ستُرسل رسائلك المحفوظة عند عودة الشبكة`
+      strip with the queued bubbles and keeps the composer instead of replacing
+      the screen with an error page, and the banner counts them; the inbox marks
+      the conversation that still owes one (`queuedCountLabel`: 1 / 2 / 3-10 /
+      11+); signing out drops the queue. Evidence: `flutter analyze` clean,
+      `flutter test` **420 passed** (407 before this tick), renders
+      `/tmp/shots/chat_queued_offline.png` + `/tmp/shots/inbox_queued.png`
+      (badge pill #FDF3E3 at x105-233 y317-372 with the cloud glyph in
+      #9B6415 and the count in #16213E; queue banner #FDF3E3 y3283-3474; two
+      danger-red retry lines). Also `430d807`: the tap-target audit's ten hand
+      measurements had rotted after a week of edits — re-read and rebased, the
+      audit exits 0 again (11 measured pass).
+      **Remaining half:** cache the wilaya/specialty taxonomy so a cold start on
+      a dead connection still shows the picker's lists — untouched, next tick.
 
 ## Phase 4 — Engineering hardening
 
