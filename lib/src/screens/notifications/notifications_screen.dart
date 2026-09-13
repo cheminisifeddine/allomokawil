@@ -16,10 +16,21 @@ import '../../widgets/motion.dart';
 /// happened while it was away: each row says what happened, when, and opens
 /// the thing it is about.
 class NotificationsScreen extends StatefulWidget {
-  const NotificationsScreen({super.key, this.repo});
+  const NotificationsScreen({super.key, this.repo, this.clock});
 
   /// Injected by tests and by callers that already hold a repository.
   final Repository? repo;
+
+  /// The wall clock the relative timestamps are measured against.
+  ///
+  /// `relativeTimeAr` renders «قبل ساعة» from the *difference* to now, so a
+  /// screen that always reads `DateTime.now()` labels the same row differently
+  /// as the hours pass. That is right for a person and fatal for the golden
+  /// gate, which pins pixels: the notifications baseline drifted 171 px on an
+  /// hour boundary and failed ~50 minutes after it was captured, taking the
+  /// whole `flutter test` gate red with it. Tests hand in a fixed clock;
+  /// production leaves this null and reads the real time.
+  final DateTime Function()? clock;
 
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
@@ -240,7 +251,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final look = NotificationLook.of(n.type);
     final unread = n.isRead == 0;
     final body = n.body ?? '';
-    final when = relativeTimeAr(n.createdAt);
+    final when = relativeTimeAr(n.createdAt, now: widget.clock?.call());
     return Material(
       color: AppTheme.surface,
       borderRadius: BorderRadius.circular(AppTheme.rMd),

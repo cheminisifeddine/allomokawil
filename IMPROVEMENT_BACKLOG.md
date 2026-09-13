@@ -1034,6 +1034,32 @@ understand that is the single biggest "this app is foreign" signal.
       (that is the contract, not a bug), and the fixtures the new test renders
       are still duplicated between `test/design_shots_test.dart` and the other
       golden call sites if this is ever split into its own file.
+      *Flake found and fixed 13 Sep (this tick).* The claim above — "not a
+      flake waiting to block the loop" — was wrong, and the gate went red on
+      its own: the next `flutter test` after `9fad004` printed
+      **420 passed / 3 skipped / 1 failed**, `goldens/15_notifications.png`
+      "Pixel test failed, 0.05%, 171px diff". Cause: the rows on that screen
+      carry a *relative* time, `relativeTimeAr(createdAt)` measures it against
+      `DateTime.now()`, and the baseline was captured at 12:19 — so the hour
+      boundary rewrote «قبل 11 ساعة» into «قبل 12 ساعة» and moved 171 px inside
+      the label column (diff bbox x230-281 y152-280; the other seven baselines
+      were untouched). Correct for a user, fatal for a pixel gate.
+      `NotificationsScreen` now takes `clock:` (the same kind of seam as its
+      existing `repo:`), `test/design_shots_test.dart` hands every capture the
+      fixed `_pinnedClock = DateTime.utc(2026, 9, 13, 3, 0)` — UTC so the
+      baseline does not also inherit the box's timezone — and two new tests
+      guard it: one asserts the rendered labels are the pinned ones
+      («قبل ساعة» for 01:12Z against 03:00Z), the other reads this harness back
+      and fails if any `NotificationsScreen(` call site stops passing a clock.
+      `15_notifications.png` re-baselined; the diff old->new is 1235 px confined
+      to x230-304, i.e. the time column only, no layout moved.
+      *Left open, deliberately:* `12_chat` has the same class of dependency one
+      layer deeper — `chatClock` prints local `HH:mm` by design, so under
+      `TZ=Pacific/Kiritimati` or `TZ=Pacific/Midway` that baseline diffs 125 px
+      in two clock labels while `15_notifications` passes. Not a layout bug and
+      not fixable by re-baselining: it needs an injectable formatter in the
+      thread, or the suite always run in CET. Written up in
+      `test/goldens/README.md` either way.
 - [ ] **Every API call wrapped** so failure surfaces as an Arabic retryable
       state; assert no unhandled exception path remains.
       *Audited 13 Sep 12:37, read-only (no build this tick) — the defect is real

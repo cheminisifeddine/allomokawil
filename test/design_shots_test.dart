@@ -410,6 +410,20 @@ Future<void> _golden(
   await expectLater(find.byKey(key), matchesGoldenFile('goldens/$name.png'));
 }
 
+/// The clock every capture that shows a relative time is measured against.
+///
+/// Notification rows render «قبل ساعة» from the distance to *now*, so a shot
+/// taken against the real clock is only correct for the hour it was taken in.
+/// `15_notifications` was baselined that way and the gate went red 50 minutes
+/// later on a 171 px diff — the hour, not the layout, had changed. Pinning the
+/// clock makes both the PNG and the baseline time-independent.
+///
+/// UTC, not local: `parseServerTime` hands back an absolute instant, so only
+/// the instant of `now` matters — a local `DateTime(2026, 9, 13, 3, 0)` would
+/// label the rows 48 minutes old under CET and an hour and 48 under UTC, i.e.
+/// the baseline would depend on the machine's timezone as well as its clock.
+final DateTime _pinnedClock = DateTime.utc(2026, 9, 13, 3, 0);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(_loadFonts);
@@ -562,7 +576,7 @@ void main() {
   testWidgets('shots: notifications', (tester) async {
     final s = await boot();
     await _shoot(
-        tester, '15_notifications', const NotificationsScreen(), s.api, s.auth);
+        tester, '15_notifications', NotificationsScreen(clock: () => _pinnedClock), s.api, s.auth);
 
     // The same screen with nothing in it: a brand-new account sees exactly
     // this, so the empty state has to stand on its own without any rows.
@@ -571,8 +585,8 @@ void main() {
     await emptyAuth.restore();
     await emptyAuth.login(
         phone: '0773000000', password: 'secret123', rememberMe: true);
-    await _shoot(tester, '16_notifications_empty', const NotificationsScreen(),
-        emptyApi, emptyAuth);
+    await _shoot(tester, '16_notifications_empty',
+        NotificationsScreen(clock: () => _pinnedClock), emptyApi, emptyAuth);
   });
 
   // ── The design gate ───────────────────────────────────────────────────────
@@ -600,13 +614,46 @@ void main() {
             repo: repo),
         s.api,
         s.auth);
-    await _golden(
-        tester, '15_notifications', const NotificationsScreen(), s.api, s.auth);
+    await _golden(tester, '15_notifications',
+        NotificationsScreen(clock: () => _pinnedClock), s.api, s.auth);
     await _golden(
         tester,
         '07_project_detail',
         ProjectDetailScreen(projectId: _project['id'] as String, repo: repo),
         s.api,
         s.auth);
+  });
+
+  // ── The flake that took the gate red ──────────────────────────────────────
+  // Two tests, because one is not enough. The first proves the screen really
+  // obeys an injected clock (the labels below are what the baseline pixels
+  // contain, and a real clock would print «قبل 11 ساعة» instead). The second
+  // proves every capture in this file still hands one in: dropping the argument
+  // would not fail today, it would fail tomorrow at the top of some hour, which
+  // is how a flaky gate wastes a night.
+  testWidgets('the notifications labels come from the injected clock, not the hour',
+      (tester) async {
+    final s = await boot();
+    await _shoot(tester, '15_notifications_pinned',
+        NotificationsScreen(clock: () => _pinnedClock), s.api, s.auth);
+    expect(find.text('قبل ساعة'), findsOneWidget,
+        reason: 'row 41 is 01:12Z against the pinned 03:00Z — 1h48 ago');
+    expect(find.text('أمس'), findsOneWidget,
+        reason: 'row 38 is a day and a half old at the pinned clock');
+    expect(find.text('قبل ساعة'), findsOneWidget);
+  });
+
+  test('every relative-time capture in this file pins the clock', () {
+    // Split so this test does not find its own needle in the file it reads.
+    const needle = 'Notifications' 'Screen(';
+    final source = File('test/design_shots_test.dart').readAsStringSync();
+    final callSites = source.split(needle).skip(1).toList();
+    expect(callSites, isNotEmpty,
+        reason: 'the harness stopped capturing the notifications screen');
+    for (final site in callSites) {
+      expect(site.substring(0, 40), contains('clock:'),
+          reason: 'a capture here would drift on the hour boundary and take '
+              'the whole gate red — hand the screen a fixed `clock:`');
+    }
   });
 }
