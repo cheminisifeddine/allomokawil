@@ -444,9 +444,15 @@ understand that is the single biggest "this app is foreign" signal.
 - [ ] **Chat: timestamps, day separators, send state.** Image messages too —
       including a real R2 round-trip with an actual uploaded photo, verified by
       fetching the stored object back.
-- [ ] **Notifications screen + unread badge** driven by the existing API, with
+- [x] **Notifications screen + unread badge** driven by the existing API, with
       Arabic copy per event type (new quote, quote accepted, new message,
-      project completed).
+      project completed). **Done** `001b178`, live API `45920a3e`: the centre
+      lists newest-first with unread rows marked, a row opens the project it is
+      about, and «تعليم الكل كمقروء» clears the pip. `POST
+      /api/notifications/read` added (the pip had no way to clear); the five
+      live types are mapped and any unknown type falls back to «إشعار» rather
+      than the raw key. 11 tests (295 total); live E2E 27/27, production
+      scrubbed. Next: colour contrast re-verification.
 - [ ] **Reviews flow after completion.** Star picker + comment, submitted to the
       API, then reflected in the contractor's average — with a test that the
       average updates. **No fake or seeded reviews, ever.**
