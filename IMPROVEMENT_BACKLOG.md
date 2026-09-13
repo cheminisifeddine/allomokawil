@@ -540,6 +540,51 @@ understand that is the single biggest "this app is foreign" signal.
       **An `IconButton` raised to 56 dp exactly fills the 56 dp `AppBar`
       (`kToolbarHeight`), so this has to be re-rendered before it is believed** —
       no screenshot this tick.
+      **Second audit, 13 Sep ~05:15 — the theme fix alone cannot finish this
+      item, because 17 of the app's 119 tap sites are hand-rolled.** The first
+      pass only judged `IconButton`, `TextButton` and fixed boxes, so it missed
+      every `InkWell`/`GestureDetector` whose hit area *is* its child:
+      `tool/tap_target_audit.py` gained **R7** (a tap whose own box declares a
+      literal dimension below 56) and **R8** (framework controls at the 48 dp
+      `kMinInteractiveDimension`), plus an ADVISORY bucket for sites whose size
+      only layout decides. It now runs `python3 tool/tap_target_audit.py` →
+      **17 provable fails, 18 advisory**, exit 1. The two R7 fails are real and
+      were read by hand:
+      * **`project_new_screen.dart:833` — the ✕ on a picked photo is a 26×26
+        `Container` behind a `GestureDetector`.** The smallest and most
+        mistappable control in the app, and it sits on the publish screen where
+        losing a photo means re-picking it. A 56 dp target with the 26 dp disc
+        painted inside.
+      * **`auth_screen.dart:455` — the account-type switch («حساب جديد» /
+        «تسجيل الدخول») is an `AnimatedContainer(height: 48)`.** That is the
+        control Phase 0 was built around, and it is 8 dp short of the target on
+        a screen the founder asked to make *easy*.
+      The ADVISORY rows are not proof of a defect and must not be "fixed" on
+      suspicion — the three checked by hand and **cleared** are the tab-bar
+      destinations (`app_tab_bar.dart:165`, 60 dp bar and the centre action is
+      58 dp), the category tile (`category_grid.dart:65`, 96 wide × ~102 tall)
+      and `SelectableTile` (`ui.dart:316`, default height 104). Still to
+      measure: `ui.dart:119` (عرض الكل ≈ 32 dp), the browse filter pills
+      (`browse_screen.dart:316`, v12 padding ≈ 43 dp), `chat_screen.dart:405`
+      and `:555`, `worker_card.dart:275`, `project_new_screen.dart:416` and
+      `:733`, `customer_home_screen.dart:540` and `:578`,
+      `my_portfolio_screen.dart:312`, `worker_home_screen.dart:801`,
+      `review_screen.dart:189` — and the one `Checkbox` (`auth_screen.dart:588`)
+      passes by 4 dp only because its row adds v6 padding (48 + 12 = 60).
+      One-pass fix for the 17, in this order: a global `iconButtonTheme`
+      (`minimumSize` 56 + `tapTargetSize`) and `minimumSize` on
+      `textButtonTheme` in `app_theme.dart` kill 13, then
+      `auth_screen.dart:455` 48 → `AppTheme.tapMin`, the photo ✕ to 56,
+      `notifications_screen.dart:211` `height: 46` → `AppTheme.tapMin`,
+      `review_screen.dart:181` clamp floor 48 → `AppTheme.tapMin`, and
+      `chat_screen.dart:315` `Size(64, 44)` → `AppTheme.tapMin`.
+      **No build ran this tick** (another session's Gradle daemon 2.8 GB +
+      Kotlin daemon 0.5 GB against 7.8 GB with 293 MB available and no swap, so
+      `flutter test` would have been OOM-killed and the kernel would have picked
+      the daemon): the tool is Python and needed no build. `flutter analyze`,
+      `flutter test` and the 412 px render are still owed before this item is
+      ticked, and `test/tap_target_test.dart` must measure the real hit rects of
+      the ADVISORY rows, not just the 17.
       *Done when:* `python3 tool/tap_target_audit.py` exits 0 **and**
       `test/tap_target_test.dart` measures ≥ 56 on the real hit rects of the main
       screens.

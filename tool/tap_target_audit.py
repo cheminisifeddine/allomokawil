@@ -31,11 +31,23 @@ R6  A `TextButton` is 40 tall / 48 padded by default (SDK default `minimumSize`
     Elevated/Outlined/Filled, which inherit `Size.fromHeight(tapMin)` from the
     theme.
 
-What it cannot judge: a tap target whose size comes from a Row/Column layout
-(no explicit number) or from a theme installed elsewhere. Those sites are
-counted and listed as "unknown", never silently passed.
+R7  A hand-rolled tap -- `InkWell(` / `GestureDetector(` with a non-null
+    `onTap:` -- whose own child is a box with an explicit dimension below 56.
+    The hit area of a hand-rolled tap *is* its child, so `Container(width: 26,
+    height: 26)` behind a `GestureDetector` is a 26 dp target no matter what
+    the theme says; `iconButtonTheme` and `textButtonTheme` cannot reach it.
+    A dimension that comes from layout (Expanded/Row/Column/Padding) is not
+    judged -- those sites are listed as ADVISORY with their padding numbers.
 
-Exit code is 1 when a failure is found, 0 when the tree is clean.
+R8  `Checkbox(` / `Switch(` / `Radio(` at the framework default are 48 dp
+    padded (kMinInteractiveDimension), below 56, but only *if* nothing around
+    them is bigger. ADVISORY, not a failure: the row that wraps the app's one
+    checkbox adds v6 padding and is genuinely 60 dp tall.
+
+Exit code is 1 while a *provable* sub-56 site remains. ADVISORY sites are
+printed but do not fail the tool: their size can only be settled by measuring
+the real hit rect in a widget test (`test/tap_target_test.dart`), and a static
+tool that guesses would send the next loop to "fix" a control that is fine.
 Usage:  python3 tool/tap_target_audit.py [repo_root]
 """
 import os
@@ -54,6 +66,45 @@ TEXT_BUTTON = re.compile(r"\bTextButton\(")
 CALL_HEAD = ("me")
 BOX_OPEN = re.compile(r"\b(?:SizedBox|AnimatedContainer|Container)\(")
 TAP = re.compile(r"\bon(?:Tap|Pressed):\s*(?!null)")
+
+# --- R7/R8: hand-rolled taps and framework-default 48 dp controls -----------
+TAP_WIDGET = re.compile(r"\b(InkWell|GestureDetector)\(")
+BOX = re.compile(r"\b(?:SizedBox|AnimatedContainer|Container)\(")
+EXPLICIT_W = re.compile(r"\bwidth:\s*([\d.]+)\b")
+EXPLICIT_H = re.compile(r"\bheight:\s*([\d.]+)\b")
+PAD_SYM = re.compile(r"padding:\s*(?:const\s+)?EdgeInsets\.symmetric\(([^)]*)\)")
+PAD_ALL = re.compile(r"padding:\s*(?:const\s+)?EdgeInsets\.all\(([\d.]+)\)")
+VERT = re.compile(r"vertical:\s*([\d.]+)")
+HORIZ = re.compile(r"horizontal:\s*([\d.]+)")
+# A widget in this list between the tap and its box means the hit area is not
+# the box alone -- layout decides, so the site becomes ADVISORY, never a FAIL.
+LAYOUT_BETWEEN = re.compile(
+    r"\b(?:Padding|Column|Row|Expanded|Flexible|Stack|Align|Center|Wrap|"
+    r"ListView|Positioned|Table|Spacer|SafeArea|SingleChildScrollView|"
+    r"IntrinsicHeight|ConstrainedBox)\(")
+DEFAULT48 = re.compile(r"\b(Checkbox|Switch|Radio)\(")
+# A `width:` inside a Border/BorderSide/BorderRadius is a stroke or a curve, not
+# a size, and a `SizedBox` further down is somebody else's box: only the box's own
+# argument list counts.
+DECOR_CALL = re.compile(
+    r"\b(?:Border|BorderSide|BorderRadius|BoxShadow|BoxConstraints)\.[A-Za-z]+\([^()]*\)")
+OWN_ARGS = re.compile(r"\bchild:|\bchildren:")
+
+
+
+def call_body(src, open_idx):
+    """Body of the constructor call whose '(' sits at open_idx."""
+    depth, i = 0, open_idx
+    while i < len(src):
+        c = src[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth == 0:
+                return src[open_idx + 1:i], i
+        i += 1
+    return src[open_idx + 1:], len(src)
 
 
 def dart_files(root):
@@ -145,30 +196,94 @@ def audit(root):
                           "no global IconButtonTheme",
                           "R1 therefore fires at every IconButton site"))
 
+    advisory = []
+    for path in dart_files(root):
+        rel = os.path.relpath(path, root)
+        src2 = open(path, encoding="utf-8").read()
+
+        for m in TAP_WIDGET.finditer(src2):
+            line_no = src2.count("\n", 0, m.start()) + 1
+            body, _end = call_body(src2, m.end() - 1)
+            if not re.search(r"\bon(?:Tap|Pressed):\s*(?!null)", body):
+                continue  # not a tap
+            box = BOX.search(body)
+            detail_pad = ""
+            pm = PAD_SYM.search(body)
+            am = PAD_ALL.search(body)
+            if pm:
+                v = VERT.search(pm.group(1))
+                detail_pad = f", padding v{v.group(1) if v else '?'}"
+            elif am:
+                detail_pad = f", padding {am.group(1)}"
+            if box is None:
+                advisory.append((rel, line_no, "hand-rolled tap, no box",
+                                 "hit area comes from layout" + detail_pad))
+                continue
+            prefix = body[:box.start()]
+            if LAYOUT_BETWEEN.search(prefix):
+                advisory.append((rel, line_no, "hand-rolled tap, box not root",
+                                 "layout between tap and box" + detail_pad))
+                continue
+            box_body, _ = call_body(src2, m.end() + box.end() - 1)
+            own = OWN_ARGS.split(box_body, 1)[0]
+            own = DECOR_CALL.sub(" ", own)
+            h = EXPLICIT_H.search(own)
+            w = EXPLICIT_W.search(own)
+            hh = float(h.group(1)) if h else None
+            ww = float(w.group(1)) if w else None
+            if hh is not None and hh < MIN:
+                fails.append((rel, line_no, "hand-rolled tap box",
+                              f"height {hh:g} < 56 ({m.group(1)})"))
+            elif ww is not None and ww < MIN:
+                fails.append((rel, line_no, "hand-rolled tap box",
+                              f"width {ww:g} < 56 ({m.group(1)})"))
+            elif hh is None and ww is None:
+                advisory.append((rel, line_no, "hand-rolled tap, sized by layout",
+                                 "no explicit dimension" + detail_pad))
+
+        for m in DEFAULT48.finditer(src2):
+            advisory.append((os.path.relpath(path, root),
+                             src2.count("\n", 0, m.start()) + 1,
+                             "framework control at 48 dp padded",
+                             f"{m.group(1)}: fine only if its row is >= 56 dp"))
+
     taps = sum(len(TAP.findall(open(p, encoding="utf-8").read()))
                for p in dart_files(root))
-    return fails, taps
+    return fails, taps, advisory
 
 
 def main():
     root = sys.argv[1] if len(sys.argv) > 1 else "."
-    fails, taps = audit(root)
+    fails, taps, advisory = audit(root)
     fails.sort(key=lambda f: (f[0], f[1]))
+    advisory.sort(key=lambda f: (f[0], f[1]))
     print(f"tap-target audit — {taps} tap sites, minimum {MIN:g} dp")
-    if not fails:
-        print("clean: no static sub-56 tap target found")
-        return 0
-    seen = set()
+
+    def dedupe(rows):
+        seen, out = set(), []
+        for row in rows:
+            key = (row[0], row[1], row[2])
+            if key not in seen:
+                seen.add(key)
+                out.append(row)
+        return out
+
+    fails, advisory = dedupe(fails), dedupe(advisory)
     for rel, line, rule, detail in fails:
-        key = (rel, line, rule)
-        if key in seen:
-            continue
-        seen.add(key)
         loc = f"{rel}:{line}" if line else rel
-        print(f"FAIL  {loc:66} {rule:28} {detail}")
-    print(f"\n{len(seen)} finding(s). Static audit: a site whose size comes from"
-          " layout is not judged here — measure it in a widget test.")
-    return 1
+        print(f"FAIL      {loc:66} {rule:28} {detail}")
+    for rel, line, rule, detail in advisory:
+        loc = f"{rel}:{line}" if line else rel
+        print(f"ADVISORY  {loc:66} {rule:28} {detail}")
+    print(f"\n{len(fails)} provable fail(s), {len(advisory)} site(s) whose size"
+          " only a widget measurement can settle.")
+    if fails:
+        print("Exit 1: fix the provable sites (or drop them under 56 with a"
+              " theme/global change) before this item can be ticked.")
+        return 1
+    print("Exit 0: no provably sub-56 tap target left. ADVISORY rows are not"
+          " proof of anything — pin them in test/tap_target_test.dart.")
+    return 0
 
 
 if __name__ == "__main__":
