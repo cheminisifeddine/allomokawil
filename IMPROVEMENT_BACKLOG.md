@@ -1062,7 +1062,7 @@ understand that is the single biggest "this app is foreign" signal.
       not fixable by re-baselining: it needs an injectable formatter in the
       thread, or the suite always run in CET. Written up in
       `test/goldens/README.md` either way.
-- [ ] **Every API call wrapped** so failure surfaces as an Arabic retryable
+- [x] **Every API call wrapped** so failure surfaces as an Arabic retryable
       state; assert no unhandled exception path remains.
       *Audited 13 Sep 12:37, read-only (no build this tick) — the defect is real
       and it is two layers deep.*
@@ -1117,6 +1117,42 @@ understand that is the single biggest "this app is foreign" signal.
       the protocol the orphan is **reported, not killed**, so this tick took the
       audit-only path and touched no Dart. It needs a human `kill 128251` (or the
       next tick, if it has exited by then) before item 3 can be implemented.
+      **DONE `7f46d08`.** The orphan was gone by 15:04 and no other writer held
+      the tree, so the four-step plan above shipped in one commit.
+      1. `_decode` now throws `ApiException(S.errUnexpected, statusCode: …,
+      cause: <first 200 chars of the page>)` for any non-empty 2xx body that did
+      not parse as JSON; an empty 2xx stays `null`, so the ack endpoints are
+      untouched.
+      2. All 31 shape casts in `repository.dart` go through `_asList` / `_asMap`
+      / `_asInt` / `_row` / `_rows`. `_row` also wraps the model call, so a
+      drifted column (`id: null`, `user_wilaya: 16`) is a sentence, not a
+      `TypeError`. `portfolioImages` still accepts the bare-URL-per-photo shape
+      the API answers with (the mock in `home_hierarchy_test.dart` pins it) and
+      drops anything else instead of raising.
+      3. The nine `on Exception catch (e)` are `catch (e)` — `errorCopy` takes
+      `Object?`, so a stray `Error` now lands on the same Arabic sentence.
+      4. `auth_state` reads `{token, user}` through `_session()`: a 200 ack or a
+      user row missing a column throws Arabic and leaves no half-session behind.
+      *Verified:* `flutter analyze` -> **No issues found!** (a redundant `const`
+      the previous subscription commit had added at
+      `subscription_screen.dart:569` was dropped — that was the only issue);
+      `flutter test` -> **447 passed / 3 skipped / 0 failed** (423/3 before; the
+      new `test/api_shape_guard_test.dart` holds 14 cases). The widget case
+      drives the real sign-in form against an HTML 200 and asserts the Arabic
+      sentence is on screen and `PrimaryButton.onPressed` is non-null again —
+      the button that used to do nothing now explains itself. No layout changed,
+      so there is no screenshot for this item: the evidence is the widget tree,
+      not pixels.
+      *Also caught by the gate, worth knowing:* the first version of the guards
+      dropped the bare-string portfolio rows and turned the contractor home's
+      «3 صور» tile into «0 صور»; `home_hierarchy_test.dart` failed and the fix
+      went in before the commit. That is why the whole suite runs every tick.
+      *Left open, deliberately, and named so nobody re-audits it:* the only raw
+      casts left in `lib/` are `data/communes.dart:56-64`, which parses the
+      **bundled** `assets/data/communes_dz.json` (not an API call — a malformed
+      asset is a build-time problem, and its `then` has no `onError`), and the
+      model internals (`models/plan.dart`, `models/user.dart`, …), which are now
+      only ever reached through `_row` / `_rows` / `_session`.
 - [ ] **Semantics labels** on interactive elements for TalkBack/VoiceOver.
 - [ ] **Cold-start audit.** Measure and shorten time-to-first-meaningful-paint
       on the release build; report a real number from a real device/emulator.
