@@ -1254,6 +1254,47 @@ understand that is the single biggest "this app is foreign" signal.
          than a hand list, (ii) the star picker exposes five labelled buttons
          with the right `selected` flags, (iii) `RatingStars` exposes exactly
          one node.
+      *Tick 17:38, 13 Sep — read-only again (no build possible), and it found a **tenth
+      control the nine-item audit missed, on a golden screen.***
+      Build-safety gate blocked every build this tick: a release APK build is live
+      (`/home/renia/tools/build_118.sh` -> `flutter build apk --release --split-per-abi`,
+      pid 275691, 41 min elapsed, `aapt2` working at 0.6 % CPU), the box sits at **664 MB
+      free with no swap** and load 7.8, so no `flutter test` was started — the loser of two
+      concurrent builds here is somebody else's release.
+      What this tick *did* establish by reading, not by asserting:
+      * All nine findings are genuinely wired in `987e2a4`: **13** `A11y.*` call sites
+        (`ui.dart` x2, `category_grid.dart`, `review_screen.dart` x2, `chat_screen.dart`,
+        `my_portfolio_screen.dart`, `subscription_screen.dart` x2, `project_new_screen.dart`
+        x2, `projects_screen.dart`, `browse_screen.dart`) and **10** `semanticLabel`s (was
+        0). Both photo-removers are labelled (`project_new_screen.dart:457` and `:968`), so
+        finding 2 is closed, not half-closed.
+      * **The sweep as planned would go red on `01_signin`.** `auth_screen.dart:591`
+        (`_RememberRow`, rendered only in sign-in mode) builds
+        `Checkbox(value:, onChanged:, activeColor:, checkColor:, side:, shape:)` with **no
+        `semanticLabel`**. `checkbox.dart:615` is literally
+        `Semantics(label: widget.semanticLabel, checked: ...)`, and Flutter's own
+        `test/material/checkbox_test.dart:183-196` pins that this node carries
+        `hasCheckedState: true` **and** `hasTapAction: true`. So it is a tappable, unnamed
+        toggle: the exact defect class this item exists to kill. The visible «تذكرني» is a
+        *sibling* `Text` node (`S.rememberMe`, `strings.dart:52`), never read with it.
+        *Fix for the next build-capable tick — one node, not two:* `MergeSemantics` around
+        the row's existing `InkWell`, `semanticLabel: 'تذكرني'` on the `Checkbox`, and the
+        visible `Text` wrapped in `ExcludeSemantics` (otherwise the sentence lands twice,
+        which is worse than once).
+      * Same class, off-golden, one line when someone is in that file: the service-radius
+        `Slider` (`worker/profile_edit_screen.dart:250`) is named with its *value*
+        («12 كم», from `slider.dart:1960-1962`) instead of its purpose — it passes the
+        sweep, so it is polish, not a defect.
+      * Next tick, in this order: (1) the checkbox fix above, (2) full `flutter analyze` +
+        `flutter test`, (3) add the eight-screen sweep to `_golden` in
+        `test/design_shots_test.dart`, (4) tick this box with the hash. Nothing else on the
+        item is open.
+      * Orphan watch: `flutter_tester` pid 226342, ppid 1033 = `systemd --user`, **2 h 26 m**
+        old, 0.0 % CPU, still holding `build/unit_test_assets`. Reported, not killed, per
+        the rule — but it is the second orphan and the **fourth tick** this class has cost.
+        Founder question unchanged: may a tick reap a `flutter_tester` older than 30 min
+        with `ppid` = systemd and 0 % CPU that is pointed at this repo's own
+        `unit_test_assets`? One `kill 226342` answers it.
 - [ ] **Cold-start audit.** Measure and shorten time-to-first-meaningful-paint
       on the release build; report a real number from a real device/emulator.
 - [ ] **Crash-free baseline.** Wire a lightweight error reporter and confirm it
