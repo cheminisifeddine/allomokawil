@@ -48,6 +48,15 @@ Exit code is 1 while a *provable* sub-56 site remains. ADVISORY sites are
 printed but do not fail the tool: their size can only be settled by measuring
 the real hit rect in a widget test (`test/tap_target_test.dart`), and a static
 tool that guesses would send the next loop to "fix" a control that is fine.
+R9  A row the rules above had to leave ADVISORY is settled by hand when every
+    number in its sum is declared in the source -- see MEASURED below. Those
+    rows are reported as MEASURED pass / fail with the arithmetic written out,
+    and the anchor on each row is re-checked every run (a moved construct prints
+    STALE and fails the tool rather than quietly scoring a control it no longer
+    describes). A hand measurement is still a measurement of a *floor*: it says
+    the control cannot be smaller than the sum, never that a widget test is
+    unnecessary -- test/tap_target_test.dart still pins the real hit rects.
+
 Usage:  python3 tool/tap_target_audit.py [repo_root]
 """
 import os
@@ -90,6 +99,73 @@ DECOR_CALL = re.compile(
     r"\b(?:Border|BorderSide|BorderRadius|BoxShadow|BoxConstraints)\.[A-Za-z]+\([^()]*\)")
 OWN_ARGS = re.compile(r"\bchild:|\bchildren:")
 
+
+
+# --- hand-measured verdicts --------------------------------------------------
+# The rules above only see the numbers declared on the control itself, so a
+# hand-rolled tap whose size comes from the layout around it lands in ADVISORY
+# and is deliberately left alone -- "a static tool that guesses would send the
+# next loop to fix a control that is fine". These entries are the other way
+# round: every number in the sum is written down in the source (by token, never
+# a copied literal), so the effective minimum dimension is arithmetic. Each row
+# is (file, line, anchor, verdict, arithmetic). The anchor is re-checked against
+# that source line on every run: if the construct has moved, the entry is
+# reported STALE and the tool exits 1, so the table can never rot in silence.
+FAIL_, PASS_ = "FAIL", "PASS"
+MEASURED = [
+    # v6 padding x2 + max(icon 12, label 13.5 x height 1.4 = 18.9); the row is
+    # 30.9 tall and the tap is centred inside it.
+    ("lib/src/widgets/ui.dart", 119, "GestureDetector(", FAIL_,
+     "6x2 + max(12, 13.5x1.4=18.9) = 30.9"),
+    # Wrap, so nothing stretches it: v13 padding x2 + max(icon 17, 18.9) = 44.9.
+    ("lib/src/screens/project/project_new_screen.dart", 733, "InkWell(", FAIL_,
+     "13x2 + max(17, 13.5x1.4=18.9) = 44.9"),
+    # Checkbox is 48 dp padded (kMinInteractiveDimension) and the row adds v6.
+    ("lib/src/screens/auth/auth_screen.dart", 581, "InkWell(", PASS_,
+     "48 (Checkbox, padded) + 6x2 = 60.0"),
+    ("lib/src/screens/auth/auth_screen.dart", 588, "Checkbox(", PASS_,
+     "48 inside the 60 dp row above"),
+    # SizedBox(height: 60) + horizontal ListView -> tight cross axis = 60.
+    ("lib/src/screens/browse/browse_screen.dart", 316, "InkWell(", PASS_,
+     "enclosing SizedBox(height: 60) = 60.0"),
+    ("lib/src/screens/chat/chat_screen.dart", 405, "InkWell(", PASS_,
+     "SizedBox(width/height: tapMin 56) = 56.0"),
+    ("lib/src/screens/customer/customer_home_screen.dart", 540, "InkWell(", PASS_,
+     "BoxConstraints(minHeight: tapMin 56) = 56.0"),
+    ("lib/src/screens/customer/customer_home_screen.dart", 578, "InkWell(", PASS_,
+     "16x2 + 56 dp dot = 88.0"),
+    # fieldPad is vertical 18; body is 15.5 x height 1.65 = 25.6.
+    ("lib/src/screens/project/project_new_screen.dart", 416, "InkWell(", PASS_,
+     "18x2 + 15.5x1.65=25.6 = 61.6"),
+    ("lib/src/screens/worker/worker_home_screen.dart", 801, "InkWell(", PASS_,
+     "enclosing SizedBox(height: tapMin 56) = 56.0"),
+    ("lib/src/widgets/app_tab_bar.dart", 165, "GestureDetector(", PASS_,
+     "Container(height: 60) bar = 60.0"),
+    # Every call site passes height 92 (auth tiles) or double.infinity (grid).
+    ("lib/src/widgets/ui.dart", 316, "InkWell(", PASS_,
+     "call sites pass 92 (auth) or double.infinity (grid)"),
+]
+
+
+def resolve_measured(root, advisory):
+    """Split ADVISORY rows into 'a declared number settles this' and the rest.
+
+    Returns (settled, stale, remaining advisory). A settled row is
+    (rel, line, verdict, arithmetic); a stale one is (rel, line, anchor, why).
+    """
+    settled, stale = [], []
+    keys = {(f, l) for f, l, _a, _v, _w in MEASURED}
+    for rel, line, anchor, verdict, why in MEASURED:
+        try:
+            body = open(os.path.join(root, rel), encoding="utf-8").read().split("\n")
+        except OSError:
+            stale.append((rel, line, anchor, "the file is gone"))
+            continue
+        if line < 1 or line > len(body) or anchor not in body[line - 1]:
+            stale.append((rel, line, anchor, "the construct is no longer on that line"))
+            continue
+        settled.append((rel, line, verdict, why))
+    return settled, stale, [a for a in advisory if (a[0], a[1]) not in keys]
 
 
 def call_body(src, open_idx):
@@ -255,6 +331,13 @@ def audit(root):
 def main():
     root = sys.argv[1] if len(sys.argv) > 1 else "."
     fails, taps, advisory = audit(root)
+    static_fails = len(fails)
+    settled, stale, advisory = resolve_measured(root, advisory)
+    measured_fails = [(r, l, "measured by hand", why)
+                      for r, l, v, why in settled if v == FAIL_]
+    measured_pass = [(r, l, "measured pass", why)
+                     for r, l, v, why in settled if v == PASS_]
+    fails = fails + measured_fails
     fails.sort(key=lambda f: (f[0], f[1]))
     advisory.sort(key=lambda f: (f[0], f[1]))
     print(f"tap-target audit — {taps} tap sites, minimum {MIN:g} dp")
@@ -275,8 +358,20 @@ def main():
     for rel, line, rule, detail in advisory:
         loc = f"{rel}:{line}" if line else rel
         print(f"ADVISORY  {loc:66} {rule:28} {detail}")
-    print(f"\n{len(fails)} provable fail(s), {len(advisory)} site(s) whose size"
-          " only a widget measurement can settle.")
+    for rel, line, rule, detail in measured_pass:
+        print(f"MEASURED  {f'{rel}:{line}':66} {rule:28} {detail}")
+    for rel, line, anchor, why in stale:
+        print(f"STALE     {f'{rel}:{line}':66} {'measurement rotted':28} "
+              f"{anchor} -- {why}")
+
+    print(f"\n{len(fails)} provable fail(s) ({static_fails} from the rules, "
+          f"{len(measured_fails)} measured by hand), {len(measured_pass)} "
+          f"measured pass, {len(advisory)} site(s) whose size only a widget"
+          " measurement can settle.")
+    if stale:
+        print(f"Exit 1: {len(stale)} STALE hand measurement(s) -- a construct"
+              " moved and its recorded verdict no longer describes it.")
+        return 1
     if fails:
         print("Exit 1: fix the provable sites (or drop them under 56 with a"
               " theme/global change) before this item can be ticked.")

@@ -585,6 +585,62 @@ understand that is the single biggest "this app is foreign" signal.
       `flutter test` and the 412 px render are still owed before this item is
       ticked, and `test/tap_target_test.dart` must measure the real hit rects of
       the ADVISORY rows, not just the 17.
+      **Third audit, 13 Sep ~05:30 — the 18 unknown rows are settled by
+      arithmetic now, and two of them are real defects.** No build window again
+      (Gradle daemon 2.9 GB + Kotlin daemon 0.5 GB resident, `pgrep -c java` = 2,
+      805 MB available, no swap), so this tick touched only Python and this file.
+      `tool/tap_target_audit.py` gained an R9 `MEASURED` table: a row whose every
+      number is declared in the source (by token, never a copied literal) is now
+      *summed* instead of shrugged at, printed as `MEASURED pass` with the
+      arithmetic written out, and each entry carries an anchor regex that is
+      re-checked against its source line on every run — if the construct moves,
+      the row prints `STALE … measurement rotted` and the tool exits 1 rather
+      than quietly scoring a control it no longer describes. That guard was
+      proved by probe: shifting one entry's line by 11 printed the STALE row and
+      exited 1.
+      Result: **19 provable fails** = 17 from the rules + 2 found by hand:
+      * `lib/src/widgets/ui.dart:119` — the «عرض الكل» action on every section
+        title is **30.9 dp** tall: `GestureDetector` → `Padding` v6 ×2 = 12 plus
+        `max(icon 12, label 13.5 × height 1.4 = 18.9)`, and the `Row` gives it
+        loose cross-axis constraints, so the tap *is* the text. Third smallest
+        target in the app and it sits on every home strip.
+      * `lib/src/screens/project/project_new_screen.dart:733` — the urgency pill
+        («عاجل جداً» and friends) is **44.9 dp**: `AnimatedContainer` v13 ×2 = 26
+        + `max(icon 17, 18.9)`, inside a `Wrap`, so nothing stretches it. That is
+        the control that sets how fast a project is meant to be done.
+      **10 rows measured PASS**, which is the point of measuring instead of
+      guessing: `browse_screen.dart:316` was suspected at "v12 padding ≈ 43 dp"
+      and is really **60** — it lives in `SizedBox(height: 60)` + a horizontal
+      `ListView`, whose cross axis is tight. The rest: the remember-me row
+      `auth_screen.dart:581`/`:588` 60 (48 dp padded Checkbox + v6 ×2), the chat
+      photo/camera button `:405` 56, the customer search bar `:540` 56, the
+      post-project banner `:578` 88, the wilaya field `project_new:416` 61.6
+      (fieldPad v18 ×2 + body 15.5 × 1.65), the worker filter chip
+      `worker_home:801` 56, the tab destination `app_tab_bar:165` 60, and
+      `SelectableTile` `ui.dart:316` ≥ 92 (call sites pass 92 or
+      `double.infinity`).
+      **6 rows still need a widget measurement** and must not be "fixed" on
+      suspicion: `chat_screen.dart:555` (photo bubble — height comes from the
+      image), `notifications_screen.dart:244` (tile height from its text),
+      `review_screen.dart:189`, `my_portfolio_screen.dart:312` (`GridView.count`
+      3 columns), `ui.dart:76` (`AppCard` padding + arbitrary child) and
+      `worker_card.dart:275` (`_Pressable`).
+      **One-pass fix list is now complete — 19 sites, in this order:** a global
+      `iconButtonTheme` (`minimumSize` 56 + `tapTargetSize`) and `minimumSize:
+      Size.fromHeight(tapMin)` on `textButtonTheme` in `app_theme.dart` kill 13
+      (the theme row + 8 `IconButton` + 4 `TextButton`); then
+      `auth_screen.dart:450` 48 → `AppTheme.tapMin`;
+      `project_new_screen.dart:833` photo ✕ 26 → a 56 dp box;
+      `notifications_screen.dart:211` `height: 46` → `AppTheme.tapMin`;
+      `review_screen.dart:181` clamp floor 48 → `AppTheme.tapMin`;
+      `chat_screen.dart:315` `Size(64, 44)` → `AppTheme.tapMin`; and the two new
+      ones — `ui.dart:119` (wrap the «عرض الكل» row in a `SizedBox(height:
+      AppTheme.tapMin)`, tap filling it) and `project_new_screen.dart:733`
+      (pill to `tapMin` tall, or `EdgeInsets.symmetric(vertical: 18)` so 18.9 +
+      36 = 54.9… use a `ConstrainedBox(minHeight: AppTheme.tapMin)`).
+      Then `test/tap_target_test.dart` measures the 6 ADVISORY rects plus the
+      19, because a hand sum is a *floor*, not a measurement.
+
       *Done when:* `python3 tool/tap_target_audit.py` exits 0 **and**
       `test/tap_target_test.dart` measures ≥ 56 on the real hit rects of the main
       screens.
