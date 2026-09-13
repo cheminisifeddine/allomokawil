@@ -46,6 +46,16 @@ import 'package:allomokawil/src/screens/verify/verification_screen.dart';
 import 'package:allomokawil/src/screens/worker/worker_home_screen.dart';
 import 'package:allomokawil/src/screens/worker/worker_profile_screen.dart';
 
+// ── Golden gate ────────────────────────────────────────────────────────────
+// `_shoot` below writes to /tmp so a human can look at a screen. That is not a
+// regression gate: nobody but the tick that ran it ever sees /tmp. `_golden`
+// asserts the same screen against a committed baseline in `test/goldens/`, so
+// the default `flutter test` goes red the moment a tile loses its accent, a CTA
+// drops below the fold or a row starts overflowing. Regenerate deliberately,
+// after reading the diff:
+//     flutter test --update-goldens test/design_shots_test.dart
+// See test/goldens/README.md for why a Flutter upgrade is a regeneration.
+
 const _outDir = '/tmp/shots';
 
 // ── Realistic payloads (captured from the live API) ────────────────────────
@@ -350,6 +360,56 @@ Future<void> _shoot(
   }
 }
 
+/// The same screen [_shoot] captures, compared against a committed baseline.
+///
+/// A golden rasterises the real widget tree with the real Cairo and
+/// MaterialIcons faces at a fixed 392x850 logical canvas, devicePixelRatio 1.0,
+/// Arabic locale — so it pins layout and colour, which is what regresses, while
+/// staying small enough that a diff image is readable.
+///
+/// Pixel comparison is only valid for the engine that produced the baseline, so
+/// a Flutter upgrade fails every golden exactly once, on purpose: look at the
+/// diff, then re-baseline. A screen that throws is failed *before* the capture,
+/// otherwise the golden would pin a broken layout as correct.
+Future<void> _golden(
+  WidgetTester tester,
+  String name,
+  Widget screen,
+  ApiClient api,
+  AuthState auth, {
+  Size logical = const Size(392, 850),
+}) async {
+  tester.view.physicalSize = logical;
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.reset);
+
+  final key = GlobalKey();
+  await tester.pumpWidget(MaterialApp(
+    debugShowCheckedModeBanner: false,
+    theme: AppTheme.light,
+    locale: const Locale('ar'),
+    supportedLocales: const [Locale('ar'), Locale('en')],
+    localizationsDelegates: const [
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
+    home: RepaintBoundary(
+      key: key,
+      child: AppScope(api: api, auth: auth, child: screen),
+    ),
+  ));
+
+  for (var i = 0; i < 8; i++) {
+    await tester.pump(const Duration(milliseconds: 80));
+  }
+
+  expect(tester.takeException(), isNull,
+      reason: '$name threw while building — fix the layout before re-baselining');
+
+  await expectLater(find.byKey(key), matchesGoldenFile('goldens/$name.png'));
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(_loadFonts);
@@ -513,5 +573,40 @@ void main() {
         phone: '0773000000', password: 'secret123', rememberMe: true);
     await _shoot(tester, '16_notifications_empty', const NotificationsScreen(),
         emptyApi, emptyAuth);
+  });
+
+  // ── The design gate ───────────────────────────────────────────────────────
+  // One baseline per main screen. The /tmp shots above exist for a human to
+  // look at; these exist for the suite to fail on, so a design regression is
+  // caught by the gate instead of by the founder.
+  testWidgets('goldens: the main screens', (tester) async {
+    final s = await boot();
+    final repo = Repository(s.api);
+    await _golden(tester, '00_landing', const LandingScreen(), s.api, s.auth);
+    await _golden(tester, '01_signin',
+        const AuthScreen(mode: AuthMode.signIn), s.api, s.auth);
+    await _golden(
+        tester, '04_customer_home', const CustomerHomeScreen(), s.api, s.auth);
+    await _golden(
+        tester, '08_worker_home', const WorkerHomeScreen(), s.api, s.auth);
+    await _golden(tester, '10_browse', const BrowseScreen(), s.api, s.auth);
+    await _golden(
+        tester,
+        '12_chat',
+        ChatScreen(
+            conversationId: 5,
+            otherUserId: 31,
+            otherName: 'مقاول تجربة',
+            repo: repo),
+        s.api,
+        s.auth);
+    await _golden(
+        tester, '15_notifications', const NotificationsScreen(), s.api, s.auth);
+    await _golden(
+        tester,
+        '07_project_detail',
+        ProjectDetailScreen(projectId: _project['id'] as String, repo: repo),
+        s.api,
+        s.auth);
   });
 }
