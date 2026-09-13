@@ -16,8 +16,10 @@
 // a re-picked photo, the second was invisible as a target on every card band.
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -216,6 +218,48 @@ Future<void> _tapTopEdge(WidgetTester tester, Finder f) async {
   final r = tester.getRect(f);
   await tester.tapAt(Offset(r.center.dx, r.top + 1));
   await tester.pump(const Duration(milliseconds: 250));
+}
+
+/// Rasterise the screen to /tmp/shots and return the path. A widget test that
+/// only compares doubles can still be looking at a yellow-and-black overflow
+/// stripe where the user sees a rating control, so the picker gets a picture.
+Future<String> _shoot(WidgetTester tester, String name, Widget screen,
+    {Size size = const Size(392, 850)}) async {
+  tester.view.physicalSize = size * 2.75;
+  tester.view.devicePixelRatio = 2.75;
+  addTearDown(tester.view.reset);
+
+  final key = GlobalKey();
+  await tester.pumpWidget(MaterialApp(
+    debugShowCheckedModeBanner: false,
+    theme: AppTheme.light,
+    locale: const Locale('ar'),
+    supportedLocales: const [Locale('ar'), Locale('en')],
+    localizationsDelegates: const [
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
+    home: AppScope(
+        api: api, auth: auth, child: RepaintBoundary(key: key, child: screen)),
+  ));
+  for (var i = 0; i < 8; i++) {
+    await tester.pump(const Duration(milliseconds: 80));
+  }
+
+  final boundary =
+      key.currentContext!.findRenderObject() as RenderRepaintBoundary;
+  late final String path;
+  await tester.runAsync(() async {
+    final image = await boundary.toImage(pixelRatio: 3.0);
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    Directory('/tmp/shots').createSync(recursive: true);
+    path = '/tmp/shots/$name.png';
+    File(path).writeAsBytesSync(bytes!.buffer.asUint8List());
+  });
+  expect(File(path).lengthSync(), greaterThan(20000),
+      reason: 'a $name shot this small means nothing rendered');
+  return path;
 }
 
 void main() {
@@ -420,5 +464,19 @@ void main() {
             reason: 'an edge tap on the third star did not set a 3-star rating');
       });
     }
+
+    testWidgets('the 320 dp picker rasterises without an overflow stripe',
+        (tester) async {
+      await _boot();
+      final path = await _shoot(
+          tester,
+          'tap_review_320',
+          ReviewScreen(
+              projectId: 'demo-project', workerId: 16, repo: Repository(api)),
+          size: const Size(320, 850));
+      stdout.writeln('SHOT $path');
+      expect(tester.takeException(), isNull,
+          reason: 'the star row still overflows at 320 dp');
+    });
   });
 }
