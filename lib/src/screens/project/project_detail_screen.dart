@@ -182,12 +182,23 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                     child: ListView(
                       padding: AppTheme.pagePad,
                       children: [
-                        _Photos(images: project.images),
-                        const SizedBox(height: 18),
+                        // A project with photos opens on the work itself.
+                        // A project *without* them used to open on a 180 dp
+                        // grey slab reading «لا توجد صور» — the biggest thing
+                        // on the money screen said nothing. So the scan order
+                        // is: what the job is, then where/when, then media.
+                        if (project.images.isNotEmpty) ...[
+                          _Photos(images: project.images),
+                          const SizedBox(height: 18),
+                        ],
                         Text(project.title,
                             style: AppTheme.display),
                         const SizedBox(height: 12),
                         _StatusRow(project: project),
+                        if (project.images.isEmpty) ...[
+                          const SizedBox(height: 16),
+                          _Photos(images: project.images),
+                        ],
                         if (project.description != null) ...[
                           const SectionTitle('وصف المشروع',
                               icon: Icons.notes_rounded),
@@ -528,21 +539,25 @@ class _PhotosState extends State<_Photos> {
   @override
   Widget build(BuildContext context) {
     if (widget.images.isEmpty) {
+      // Compact and inline, not a 180 dp slab: an empty media slot is a note,
+      // not a headline. It sits under the project title instead of above it.
       return Container(
-        height: 180,
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppTheme.s16, vertical: AppTheme.s12),
         decoration: BoxDecoration(
           color: AppTheme.lineSoft,
-          borderRadius: BorderRadius.circular(AppTheme.rLg),
+          borderRadius: BorderRadius.circular(AppTheme.rMd),
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: Row(
           children: [
-            const Icon(Icons.home_work_outlined,
-                size: 44, color: AppTheme.textMuted),
-            const SizedBox(height: 10),
-            Text('لا توجد صور لهذا المشروع',
-                style:
-                    AppTheme.caption.copyWith(color: AppTheme.textSecondary)),
+            const Icon(Icons.image_not_supported_outlined,
+                size: 20, color: AppTheme.textSecondary),
+            const SizedBox(width: AppTheme.s12),
+            Expanded(
+              child: Text('لا توجد صور لهذا المشروع',
+                  style: AppTheme.caption
+                      .copyWith(color: AppTheme.textSecondary)),
+            ),
           ],
         ),
       );
