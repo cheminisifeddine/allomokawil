@@ -250,6 +250,8 @@ ApiClient _fakeApi({
         if (p.endsWith('/projects') || p.contains('/my/projects')) {
           return _json([_project]);
         }
+        if (p.contains('/workers/search')) return _json([_worker]);
+        if (p.contains('/workers/top')) return _json([_worker]);
         if (p.contains('/workers/')) return _json(_worker);
         if (p.contains('/workers')) return _json([_worker]);
         if (p.contains('/conversations')) return _json([_conversation]);
