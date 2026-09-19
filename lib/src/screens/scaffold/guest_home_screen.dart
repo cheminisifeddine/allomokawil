@@ -44,6 +44,11 @@ class GuestHomeScreen extends StatelessWidget {
             isWorker: _isWorker,
             onSignIn: () => _auth(context, AuthMode.signIn),
             onRegister: () => _auth(context, AuthMode.signUp),
+            // The first page's answer is remembered, so a visitor who taps the
+            // wrong side would otherwise be stuck on this dashboard for good —
+            // no account to sign out of, nothing to go back to. «تغيير» returns
+            // him to the question.
+            onChangeRole: () => AppScope.of(context).auth.leaveGuest(),
           ),
           Expanded(
             child: _isWorker
@@ -62,11 +67,13 @@ class _GuestBar extends StatelessWidget {
   final bool isWorker;
   final VoidCallback onSignIn;
   final VoidCallback onRegister;
+  final VoidCallback onChangeRole;
 
   const _GuestBar({
     required this.isWorker,
     required this.onSignIn,
     required this.onRegister,
+    required this.onChangeRole,
   });
 
   @override
@@ -92,6 +99,11 @@ class _GuestBar extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
+                  ),
+                  TextButton(
+                    key: const Key('guest-change-role'),
+                    onPressed: onChangeRole,
+                    child: const Text('تغيير'),
                   ),
                   TextButton(
                     key: const Key('guest-sign-in'),
