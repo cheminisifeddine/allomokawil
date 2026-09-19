@@ -7,6 +7,7 @@
 // assertion is not "a skeleton exists" — it is "no loading screen anywhere
 // still shows a spinner, and the sweep really moves".
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -25,6 +26,19 @@ import 'package:allomokawil/src/data/repository.dart';
 import 'package:allomokawil/src/screens/project/projects_screen.dart';
 import 'package:allomokawil/src/widgets/skeletons.dart';
 import 'package:allomokawil/src/widgets/ui.dart';
+
+/// The signed-in user مشاريعي belongs to.
+const _sessionUser = {
+  'id': 7,
+  'phone': '0550000000',
+  'email': null,
+  'full_name': 'Test User',
+  'type': 'customer',
+  'avatar_url': null,
+  'wilaya': '16',
+  'commune': null,
+  'created_at': '2026-01-01 00:00:00',
+};
 
 /// An API that never answers. This is the worst case a user can hit — a dead
 /// connection that has not errored yet — and the exact moment the old spinner
@@ -69,7 +83,12 @@ void main() {
     tester.view.devicePixelRatio = 2.75;
     addTearDown(tester.view.reset);
 
-    SharedPreferences.setMockInitialValues({});
+    // A session: مشاريعي is the signed-in user's own list. A visitor sees the
+    // door in that tab instead — see test/guest_parity_test.dart.
+    SharedPreferences.setMockInitialValues({
+      'auth.token': 'test-token',
+      'auth.user': jsonEncode(_sessionUser),
+    });
     final api = _deadApi();
     final auth = AuthState(api);
     await auth.restore();
