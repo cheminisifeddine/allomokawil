@@ -125,10 +125,10 @@ class _Welcome extends StatelessWidget {
           'assets/brand/mark.png',
           // Decoration: the app name is printed right underneath it.
           excludeFromSemantics: true,
-          width: 168,
+          width: 140,
           fit: BoxFit.contain,
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 14),
         Text(
           S.appName,
           textAlign: TextAlign.center,
@@ -138,7 +138,7 @@ class _Welcome extends StatelessWidget {
             height: 1.2,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         Text(
           LandingScreen.tagline,
           textAlign: TextAlign.center,
@@ -154,6 +154,10 @@ class _Welcome extends StatelessWidget {
 }
 
 /// The first page's question, and the only two answers that matter.
+///
+/// Two buttons, no explainer text above them and no hint under each one: the
+/// labels carry the meaning, the way a first screen should. The keys are load
+/// bearing — the tap-target test proves both are at least 56 dp tall.
 class _RoleQuestion extends StatelessWidget {
   final VoidCallback onCustomer;
   final VoidCallback onWorker;
@@ -165,34 +169,20 @@ class _RoleQuestion extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          'كيف تريد أن تبدأ؟',
-          textAlign: TextAlign.center,
-          style: AppTheme.body.copyWith(
-            color: AppTheme.navy,
-            fontSize: AppTheme.fsBody,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: AppTheme.s12),
         BigButton(
           key: const Key('landing-role-customer'),
           label: 'صاحب مشروع',
           icon: Icons.person_search_rounded,
           onPressed: onCustomer,
         ),
-        const _RoleHint('أبحث عن مقاول أو حرفي لمشروعي'),
         const SizedBox(height: 12),
         BigButton(
-          // The tap-target test knows this button by this key: it is the way a
-          // contractor gets in, and it must stay >= 56 dp tall.
           key: const Key('landing-contractor-link'),
           label: 'مقاول أو حرفي',
           icon: Icons.construction_rounded,
           onPressed: onWorker,
         ),
-        const _RoleHint('أبحث عن مشاريع مفتوحة وأرسل عروضي'),
-        const SizedBox(height: AppTheme.s8),
+        const SizedBox(height: AppTheme.s12),
         Text(
           'التصفّح مجاني وبدون حساب.',
           textAlign: TextAlign.center,
@@ -203,25 +193,11 @@ class _RoleQuestion extends StatelessWidget {
   }
 }
 
-class _RoleHint extends StatelessWidget {
-  final String text;
-
-  const _RoleHint(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: AppTheme.s8),
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        style: AppTheme.caption.copyWith(color: AppTheme.textMuted),
-      ),
-    );
-  }
-}
-
-/// Sign in, or make an account. The guest buttons above need neither.
+/// Sign in, or make an account. The buttons above need neither.
+///
+/// One row and one legal line — the shape the founder asked for, taken from the
+/// first screen of the app he pointed at: everything that is not the mark, the
+/// line, the two buttons or this row has been taken off the page.
 class _AccountBlock extends StatelessWidget {
   final VoidCallback onCreate;
   final VoidCallback onSignIn;
@@ -233,27 +209,39 @@ class _AccountBlock extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+        // A Wrap, not a Row: two Arabic labels plus the separator are wider than
+        // a 360dp phone once the buttons carry their 48dp touch height, and a
+        // squeezed row would clip the second word of «إنشاء الحساب».
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Text('لديك حساب؟',
-                style: AppTheme.caption.copyWith(color: AppTheme.textMuted)),
             TextButton(
               // Named for the session-expired test, which proves the front door
               // keeps a way in next to the notice explaining why it is showing.
               key: const Key('landing-sign-in'),
               onPressed: onSignIn,
+              style: TextButton.styleFrom(
+                minimumSize: const Size(0, AppTheme.tapMin),
+              ),
               child: Text(S.loginTitle),
+            ),
+            Text('·', style: AppTheme.caption.copyWith(color: AppTheme.textMuted)),
+            TextButton(
+              key: const Key('landing-create-account'),
+              onPressed: onCreate,
+              style: TextButton.styleFrom(
+                minimumSize: const Size(0, AppTheme.tapMin),
+              ),
+              child: Text(S.createAccount),
             ),
           ],
         ),
-        TextButton(
-          key: const Key('landing-create-account'),
-          onPressed: onCreate,
-          style: TextButton.styleFrom(
-            minimumSize: const Size.fromHeight(AppTheme.tapMin),
-          ),
-          child: Text(S.createAccount),
+        const SizedBox(height: AppTheme.s4),
+        Text(
+          'بالمتابعة أنت توافق على شروط الاستخدام وسياسة الخصوصية.',
+          textAlign: TextAlign.center,
+          style: AppTheme.caption.copyWith(color: AppTheme.textMuted),
         ),
       ],
     );

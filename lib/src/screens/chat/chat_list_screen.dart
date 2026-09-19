@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
+import '../../core/auth_gate.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/chat_outbox.dart';
 import '../../data/notification_copy.dart';
@@ -93,6 +94,19 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // A conversation needs a session on both sides, so signed out the inbox is
+    // a shape with an explanation in it rather than a failed request.
+    if (AuthGate.isGuest(context)) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('الرسائل')),
+        body: SignInWall(
+          title: 'لا رسائل بعد',
+          body: 'أول محادثة تبدأ من صفحة مقاول أو حرفي. سجّل الدخول لتتواصل معه مباشرة داخل التطبيق.',
+          role: AppScope.of(context).auth.guestRole ?? UserRole.customer,
+          onBrowse: widget.onDiscover,
+        ),
+      );
+    }
     return SafeArea(
       child: Scaffold(
         appBar: AppBar(title: const Text('الرسائل')),

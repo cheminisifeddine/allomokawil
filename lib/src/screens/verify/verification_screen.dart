@@ -452,13 +452,19 @@ class _VerifiedBanner extends StatelessWidget {
 /// flags the API already returns (`is_identity_verified`,
 /// `is_certificate_verified`) so the screen says which part is done.
 ///
-/// Deliberately no inference: an unverified part reads "بانتظار التحقق", which
-/// is true whether the documents are still queued or were refused, and never
-/// contradicts the receipt panel above it.
+/// Deliberately no inference: an unverified part that has documents waiting
+/// reads «بانتظار التحقق», and a part nothing was ever sent for reads
+/// «لم تُرسل» — a brand-new contractor account used to read "awaiting
+/// verification" for documents he had never uploaded, which is a claim about a
+/// review that does not exist. `verification_pending_docs` is what separates
+/// the two.
 class _PartsStatusCard extends StatelessWidget {
   const _PartsStatusCard({required this.worker});
 
   final WorkerProfile worker;
+
+  /// True once anything at all has reached the reviewer.
+  bool get _sent => worker.verificationPendingDocs > 0;
 
   @override
   Widget build(BuildContext context) {
@@ -488,9 +494,11 @@ class _PartsStatusCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            underReview
-                ? 'تُقبل المستندات واحداً واحداً، وسيتغيّر هذا الجدول مع كل قبول.'
-                : 'تُقبل المستندات واحداً واحداً. أي جزء لم يُقبل بعد يمكنك إعادة رفعه من الأسفل.',
+            !_sent
+                ? 'لم تُرسل أي وثيقة بعد. ارفع وثائقك من الأسفل، وسيتغيّر هذا الجدول بعد الإرسال وقبل المراجعة.'
+                : (underReview
+                    ? 'وصلت وثائقك وهي قيد المراجعة. تُقبل المستندات واحداً واحداً، وسيتغيّر هذا الجدول مع كل قبول.'
+                    : 'تُقبل المستندات واحداً واحداً. أي جزء لم يُقبل بعد يمكنك إعادة رفعه من الأسفل.'),
             style: AppTheme.caption.copyWith(
                 fontSize: AppTheme.fsBadge, height: 1.6),
           ),
@@ -504,6 +512,13 @@ class _PartsStatusCard extends StatelessWidget {
     required String label,
     required bool ok,
   }) {
+    // Three honest states, not two.
+    final (String text, IconData mark, Color colour) = ok
+        ? ('موثّقة', Icons.check_circle_rounded, AppTheme.success)
+        : _sent
+            ? ('بانتظار التحقق', Icons.hourglass_empty_rounded,
+                AppTheme.textMuted)
+            : ('لم تُرسل', Icons.upload_file_rounded, AppTheme.textMuted);
     return Row(
       children: [
         Icon(icon, size: 20, color: ok ? AppTheme.success : AppTheme.textMuted),
@@ -520,17 +535,13 @@ class _PartsStatusCard extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                ok ? Icons.check_circle_rounded : Icons.hourglass_empty_rounded,
-                size: 13,
-                color: ok ? AppTheme.success : AppTheme.textMuted,
-              ),
+              Icon(mark, size: 13, color: colour),
               const SizedBox(width: 5),
               Text(
-                ok ? 'موثّقة' : 'بانتظار التحقق',
+                text,
                 style: AppTheme.caption.copyWith(
                   fontSize: AppTheme.fsBadge,
-                  color: ok ? AppTheme.success : AppTheme.textMuted,
+                  color: colour,
                 ),
               ),
             ],

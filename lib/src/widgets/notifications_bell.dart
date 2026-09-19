@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/app_scope.dart';
+import '../core/auth_gate.dart';
 import '../core/l10n/strings.dart';
 import '../core/theme/app_theme.dart';
 import '../data/repository.dart';
@@ -54,6 +55,10 @@ class _NotificationsBellState extends State<NotificationsBell> {
   }
 
   Future<void> _open() async {
+    // Signed out there is no inbox to open; the bell is still drawn so the app
+    // looks the same either way, and the tap leads to the account form.
+    if (!await AuthGate.requireAuth(context, what: 'لقراءة إشعاراتك')) return;
+    if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => NotificationsScreen(repo: _repo)),
     );

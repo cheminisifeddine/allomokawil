@@ -54,8 +54,13 @@ LEGACY_FILL = 0.94  # no mask: the icon is a plain square, so fill it
 # fill would let a corner poke out of the mask while leaving the icon small.
 # Both masked layers are therefore sized by the mark's farthest ink pixel from
 # its centre: the icon is as large as the mask allows, never clipped.
-ROUND_INK_RADIUS = 0.44      # of a 48dp legacy round icon
-ADAPTIVE_INK_RADIUS = 0.3056  # of the 108dp adaptive canvas == 33dp safe radius
+ROUND_INK_RADIUS = 0.42      # of a 48dp legacy round icon
+# 0.3056 is the 33dp safe-zone tangent, but this mark is portrait: a point on
+# that circle is at the mask's edge, so the tallest ink corners get shaved by
+# squircle and circle masks. 0.283 keeps the whole silhouette inside the mask
+# with a visible margin, which is what the founder asked for when he said the
+# logo must not sit cramped in its tile.
+ADAPTIVE_INK_RADIUS = 0.238   # of the 108dp adaptive canvas
 SPLASH_FILL = 1.00
 IOS_FILL = 0.72  # iOS icons want breathing room inside their rounded square
 # The founder's call: a white tile behind the mark. The artwork is dark ink with

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
+import '../../core/auth_gate.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/first_run.dart';
@@ -126,7 +127,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           recentProjects: _recentProjects,
           onRetryWorkers: _reloadWorkers,
           onRetryProjects: _reloadProjects,
-          onPost: () => _push(const ProjectNewScreen()),
+          onPost: () => _gatedPost(),
           onBrowseAll: () => _push(const BrowseScreen(customerSide: true)),
           onSeeAllProjects: () => setState(() => _tab = 1),
           onBrowseCategory: (slug) =>
@@ -170,10 +171,18 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         action: AppTabAction(
           icon: Icons.add_rounded,
           label: 'مشروع جديد',
-          onTap: () => _push(const ProjectNewScreen()),
+          onTap: () => _gatedPost(),
         ),
       ),
     );
+  }
+
+  /// Posting a project is the first thing a visitor cannot do signed out, so
+  /// this is where the account form appears — not at the door of the app.
+  Future<void> _gatedPost() async {
+    if (!await AuthGate.requireAuth(context, what: 'لنشر مشروعك')) return;
+    if (!mounted) return;
+    _push(const ProjectNewScreen());
   }
 
   /// Pushes a screen and re-reads the home strips when it pops.

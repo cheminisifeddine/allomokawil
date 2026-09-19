@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
+import '../../core/auth_gate.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
 import '../../data/project_search.dart';
@@ -102,6 +103,25 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Signed out, this tab holds nothing that is his — and it is where a
+    // visitor's own material would be. It keeps the same app bar and the same
+    // shape, and offers the one action the tab is for.
+    if (AuthGate.isGuest(context)) {
+      final worker = AuthGate.guestRole(context) == UserRole.worker;
+      return Scaffold(
+        appBar: AppBar(title: Text('مشاريعي', style: AppTheme.bar)),
+        body: SignInWall(
+          title: worker ? 'طلباتك تظهر هنا' : 'مشاريعك تظهر هنا',
+          body: worker
+              ? 'أرسل عرضاً على مشروع مفتوح، وسيظهر هنا بعد أن يقبله صاحب المشروع، مع المحادثة والتفاصيل.'
+              : 'انشر مشروعك واشرح ما تحتاجه، وسيصلك عروض المقاولين القريبين منك لتقارنها وتختار.',
+          role: worker ? UserRole.worker : UserRole.customer,
+          note: worker
+              ? 'التصفّح مجاني — لا تحتاج حساباً لتقرأ المشاريع المفتوحة.'
+              : 'البحث عن المقاولين مجاني وبدون حساب.',
+        ),
+      );
+    }
     return Scaffold(
       appBar: AppBar(
         title: Text('مشاريعي', style: AppTheme.bar),

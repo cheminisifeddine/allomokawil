@@ -10,8 +10,10 @@ import '../../core/text/dz_number.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
 import '../../data/communes.dart';
+import '../../core/location/locator.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
+import '../../widgets/detect_location.dart';
 import '../../models/project.dart';
 import '../../widgets/category_grid.dart';
 import '../../widgets/number_field.dart';
@@ -56,6 +58,11 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
   /// structure + renovation + turnkey finishing, all in once.
   final Set<String> _categories = <String>{};
   String? _wilaya;
+
+  /// Set when the wilaya was filled from the phone's position rather than from
+  /// the picker. The form says so out loud: a guessed locality must never pass
+  /// for a chosen one.
+  DetectedPlace? _detected;
   UrgencyLevel _urgency = UrgencyLevel.flexible;
   final List<XFile> _images = [];
 
@@ -89,6 +96,43 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
       _wilaya = existing.wilaya;
       _urgency = existing.urgency;
       _keptImages.addAll(existing.images);
+    } else {
+      // A brand-new project: fill the location from the phone, but only when
+      // permission is already held — nobody should meet a permission dialog
+      // they did not ask for. Otherwise the field keeps its own button.
+      _autoDetectQuietly();
+    }
+  }
+
+  Future<void> _autoDetectQuietly() async {
+    try {
+      if (!await Locator.canDetectQuietly()) return;
+      final place = await Locator.detect();
+      if (!mounted || _wilaya != null) return;
+      await _applyPlace(place);
+    } catch (_) {
+      // Quiet by design: a silent fill that fails stays silent.
+    }
+  }
+
+  /// Fills the wilaya, and the commune when the reading names one that this
+  /// wilaya actually has (the device may answer in Latin, so the match runs
+  /// through the same offline index the picker searches).
+  Future<void> _applyPlace(DetectedPlace place) async {
+    setState(() {
+      _detected = place;
+      _wilaya = place.wilayaId;
+    });
+    final named = place.commune;
+    if (named == null || _commune.text.trim().isNotEmpty) return;
+    try {
+      await CommuneIndex.instance.load();
+      final hits = CommuneIndex.instance.search(place.wilayaId, named, limit: 5);
+      if (hits.isNotEmpty && mounted) {
+        setState(() => _commune.text = hits.first.name);
+      }
+    } catch (_) {
+      // A commune is optional; the wilaya is the answer that matters.
     }
   }
 
@@ -211,6 +255,8 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
     setState(() {
       if (picked != _wilaya) _commune.clear();
       _wilaya = picked;
+      // Chosen by hand now, so the GPS note stops claiming it.
+      _detected = null;
     });
   }
 
@@ -326,6 +372,21 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
                 icon: Icons.location_city_rounded,
                 onTap: _pickCommune,
               ),
+              const SizedBox(height: 10),
+              // One tap fills the two fields above from the phone's position.
+              DetectLocationButton(
+                label: 'حدّد موقعي تلقائياً',
+                onDetected: _applyPlace,
+              ),
+              if (_detected != null)
+                DetectedPlaceNote(
+                  place: _detected!,
+                  onClear: () => setState(() {
+                    _detected = null;
+                    _wilaya = null;
+                    _commune.clear();
+                  }),
+                ),
 
               const _StepLabel(5, 'الميزانية التقديرية'),
               Row(

@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 
 import '../core/app_scope.dart';
+import '../core/auth_gate.dart';
 import '../core/theme/app_theme.dart';
 import '../data/chat_outbox.dart';
+import '../data/repository.dart';
 import '../data/taxonomy.dart';
 import '../models/enums.dart';
+import '../models/plan.dart';
 import '../widgets/ui.dart';
 import 'verify/verification_screen.dart';
 import 'worker/my_portfolio_screen.dart';
 import 'worker/profile_edit_screen.dart';
+import 'worker/subscription_screen.dart';
 
 /// Lightweight account screen shared by both roles: identity info,
 /// wilaya help, and logout.
@@ -18,7 +22,16 @@ class ProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scope = AppScope.of(context);
-    final u = scope.auth.user!;
+    final user = scope.auth.user;
+
+    // Signed out the account tab is the visitor's own page: same shape, same
+    // app bar, and the one door that leads to a real account.
+    if (user == null) {
+      return _GuestAccountScreen(
+          role: scope.auth.guestRole ?? UserRole.customer);
+    }
+
+    final u = user;
     final commune = u.commune?.trim();
 
     return Scaffold(
@@ -113,6 +126,10 @@ class ProfileScreen extends StatelessWidget {
                 trailing: _Chevron(),
               ),
             ),
+            const SizedBox(height: 10),
+            // The founder asked for the subscription to be visible where a
+            // contractor looks for his own things, not only on the home tab.
+            const _PlanAccountRow(),
           ],
 
           // ── Logout ─────────────────────────────────────────────────────
@@ -131,6 +148,124 @@ class ProfileScreen extends StatelessWidget {
               tint: AppTheme.danger,
               wash: AppTheme.dangerWash,
               titleColor: AppTheme.danger,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The contractor's subscription, read live so the account screen never claims
+/// a plan the server does not have.
+class _PlanAccountRow extends StatefulWidget {
+  const _PlanAccountRow();
+
+  @override
+  State<_PlanAccountRow> createState() => _PlanAccountRowState();
+}
+
+class _PlanAccountRowState extends State<_PlanAccountRow> {
+  Future<BillingCatalogue>? _future;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _future ??= Repository(AppScope.of(context).api).subscription();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      key: const Key('account-subscription'),
+      padding: EdgeInsets.zero,
+      onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const SubscriptionScreen())),
+      child: FutureBuilder<BillingCatalogue>(
+        future: _future,
+        builder: (context, snap) => _SettingsRow(
+          icon: Icons.workspace_premium_outlined,
+          title: 'اشتراكي',
+          value: _planSummary(snap.data?.current, snap.connectionState),
+          tint: AppTheme.accentDeep,
+          wash: AppTheme.accentWash,
+          trailing: const _Chevron(),
+        ),
+      ),
+    );
+  }
+}
+
+/// One line under «اشتراكي»: what the contractor is actually on right now.
+String _planSummary(SubscriptionStatus? s, ConnectionState state) {
+  if (s == null) {
+    return state == ConnectionState.waiting
+        ? 'جارٍ التحقق من اشتراكك…'
+        : 'اختر خطتك — شهري أو سنوي';
+  }
+  if (s.isFree) return 'الباقة المجانية — اطّلع على الخطط';
+  final end = s.expiresAt?.split(' ').first;
+  return end == null ? s.nameAr : '${s.nameAr} — نشط حتى $end';
+}
+
+/// The account tab for a visitor who has not made an account: same app bar,
+/// same shape, and the sign-in form only when he asks for it.
+class _GuestAccountScreen extends StatelessWidget {
+  final UserRole role;
+
+  const _GuestAccountScreen({required this.role});
+
+  @override
+  Widget build(BuildContext context) {
+    final worker = role == UserRole.worker;
+    return Scaffold(
+      appBar: AppBar(title: Text('حسابي', style: AppTheme.bar)),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
+            child: AppCard(
+              padding: AppTheme.cardPad,
+              child: Row(
+                children: [
+                  const IconBubble(
+                    icon: Icons.person_outline_rounded,
+                    tint: AppTheme.navy,
+                    wash: AppTheme.lineSoft,
+                    size: 64,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('زائر',
+                            style: AppTheme.h1
+                                .copyWith(color: AppTheme.textPrimary)),
+                        const SizedBox(height: 8),
+                        StatusPill(
+                          label: worker ? 'حرفي — بدون حساب' : 'صاحب مشروع — بدون حساب',
+                          color: AppTheme.accentDeep,
+                          wash: AppTheme.accentWash,
+                          icon: worker
+                              ? Icons.handyman_rounded
+                              : Icons.person_rounded,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: SignInWall(
+              title: 'حسابك في الو مقاول',
+              body: worker
+                  ? 'سجّل الدخول لتُرسل عروضك على المشاريع المفتوحة وتُدير طلباتك وصور أعمالك.'
+                  : 'سجّل الدخول لتتواصل مع المقاولين وتنشر مشروعك وتستقبل العروض.',
+              role: role,
+              note: 'كل التصفّح متاح بدون حساب.',
             ),
           ),
         ],

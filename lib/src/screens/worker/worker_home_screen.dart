@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/l10n/strings.dart';
+import '../../core/auth_gate.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
 import '../../data/project_search.dart';
@@ -66,8 +67,18 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen> {
                 IconButton(
                   icon: const Icon(Icons.badge_outlined),
                   tooltip: 'التوثيق والملف',
-                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => const VerificationScreen())),
+                  onPressed: () async {
+                    // Signed out, the badge is the door to the account form:
+                    // nothing here is readable without a session.
+                    if (!await AuthGate.requireAuth(context,
+                        what: 'لتوثيق حسابك',
+                        as: UserRole.worker)) {
+                      return;
+                    }
+                    if (!context.mounted) return;
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const VerificationScreen()));
+                  },
                 ),
               ],
             )
@@ -106,28 +117,16 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen> {
         action: AppTabAction(
           icon: Icons.add_a_photo_outlined,
           label: 'أضف عملاً',
-          onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const MyPortfolioScreen())),
+          onTap: () async {
+            if (!await AuthGate.requireAuth(context,
+                what: 'لإضافة صور أعمالك', as: UserRole.worker)) {
+              return;
+            }
+            if (!context.mounted) return;
+            Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const MyPortfolioScreen()));
+          },
         ),
-      ),
-    );
-  }
-}
-
-/// What a signed-out contractor reads above the job feed.
-///
-/// The feed is the whole point of letting someone in without an account, so the
-/// line says what is free (looking) and what needs a login (quoting).
-class _GuestMarketHeader extends StatelessWidget {
-  const _GuestMarketHeader();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 4),
-      child: Text(
-        'تصفّح المشاريع المفتوحة مجاناً. سجّل الدخول لإرسال عرضك.',
-        style: AppTheme.body.copyWith(color: AppTheme.textSecondary),
       ),
     );
   }
@@ -294,9 +293,7 @@ class _MarketplaceViewState extends State<MarketplaceView> {
         slivers: [
           if (_me != null)
             SliverToBoxAdapter(
-                child: _HeaderSection(profile: _me!, onEdit: _editProfile))
-          else
-            const SliverToBoxAdapter(child: _GuestMarketHeader()),
+                child: _HeaderSection(profile: _me!, onEdit: _editProfile)),
           SliverToBoxAdapter(
             child: _FilterBar(
               category: _category,

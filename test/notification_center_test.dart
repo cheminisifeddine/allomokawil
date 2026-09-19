@@ -138,11 +138,36 @@ http.Response _json(Object body) => http.Response(
       headers: const {'content-type': 'application/json'},
     );
 
+/// The signed-in user those screens assume.
+const _sessionUser = {
+  'id': 7,
+  'phone': '0550000000',
+  'email': null,
+  'full_name': 'Test User',
+  'type': 'customer',
+  'avatar_url': null,
+  'wilaya': '16',
+  'commune': null,
+  'created_at': '2026-01-01 00:00:00',
+};
+
+/// A session, because the screens in this file sit behind the bell and the bell
+/// now opens the account form when there is nobody to show a centre to.
+Future<AuthState> _signedIn(ApiClient api) async {
+  SharedPreferences.setMockInitialValues({
+    'auth.token': 'test-token',
+    'auth.user': jsonEncode(_sessionUser),
+  });
+  final auth = AuthState(api);
+  await auth.restore();
+  return auth;
+}
+
 /// AppScope sits ABOVE MaterialApp, exactly as it does in the shipped app:
 /// a screen pushed onto the navigator must still find it.
-Widget _wrap(Widget child, ApiClient api) => AppScope(
+Widget _wrap(Widget child, ApiClient api, AuthState auth) => AppScope(
       api: api,
-      auth: AuthState(api),
+      auth: auth,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
@@ -164,7 +189,7 @@ Future<void> _pump(WidgetTester tester, Widget child, ApiClient api) async {
   tester.view.physicalSize = const Size(400, 1200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(_wrap(child, api));
+  await tester.pumpWidget(_wrap(child, api, await _signedIn(api)));
   await tester.pumpAndSettle();
 }
 

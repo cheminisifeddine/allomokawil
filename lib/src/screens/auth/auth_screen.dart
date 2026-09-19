@@ -312,10 +312,6 @@ class _AuthScreenState extends State<AuthScreen> {
                         ],
                       ),
                     ),
-                    if (_isSignUp && isWorker) ...[
-                      const SizedBox(height: 14),
-                      const _WorkerNote(),
-                    ],
                     const SizedBox(height: 18),
                     _SwitchPrompt(
                       isSignUp: _isSignUp,
@@ -673,34 +669,4 @@ class AuthNotice extends StatelessWidget {
   }
 }
 
-/// Calm information banner shown only for contractor accounts.
-class _WorkerNote extends StatelessWidget {
-  const _WorkerNote();
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppTheme.infoWash,
-        borderRadius: BorderRadius.circular(AppTheme.rMd),
-        border: Border.all(color: AppTheme.info),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.verified_outlined, size: 20, color: AppTheme.info),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'بعد التسجيل أضف بطاقة المقاول أو الحرفي ووثائقك ليظهر حسابك موثوقاً للعملاء.',
-              style: AppTheme.caption
-                  .copyWith(color: AppTheme.info, fontSize: AppTheme.fsMeta, height: 1.6),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}

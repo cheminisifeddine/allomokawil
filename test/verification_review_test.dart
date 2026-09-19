@@ -196,13 +196,21 @@ void main() {
       expect(_hasUploadForm(tester), isFalse);
     });
 
-    testWidgets('a fresh contractor sees which halves are still unverified',
+    // The founder's report, pinned: he made a brand-new contractor account,
+    // uploaded nothing, and the app told him both halves were «بانتظار التحقق» —
+    // a review status invented out of the fact that a fresh profile row holds
+    // the same 'pending' default as a submitted dossier. Waiting is something
+    // the app may only say when documents have actually arrived.
+    testWidgets('a contractor who sent nothing is not told he is under review',
         (tester) async {
       await _pump(tester, _api(_profile()));
       final shown = _shown(tester).join('\n');
       expect(shown.contains('حالة ملفك'), isTrue);
       expect(shown.contains('الهوية'), isTrue);
-      expect(shown.contains('بانتظار التحقق'), isTrue);
+      expect(shown.contains('لم تُرسل'), isTrue,
+          reason: 'nothing arrived, so nothing is waiting');
+      expect(shown.contains('بانتظار التحقق'), isFalse,
+          reason: 'an empty dossier is not a queue');
       expect(shown.contains('موثّقة'), isFalse,
           reason: 'nothing has been accepted yet');
     });
@@ -217,8 +225,10 @@ void main() {
       expect(shown.contains('حالة ملفك'), isTrue);
       expect(shown.contains('موثّقة'), isTrue,
           reason: 'the accepted half must be named as accepted');
-      expect(shown.contains('بانتظار التحقق'), isTrue,
-          reason: 'the other half must not look accepted');
+      expect(shown.contains('لم تُرسل'), isTrue,
+          reason: 'the refused half is not queued, so it is not "waiting"');
+      expect(shown.contains('بانتظار التحقق'), isFalse,
+          reason: 'only the queue may say that');
       expect(_hasUploadForm(tester), isTrue,
           reason: 'the refused half must stay re-uploadable');
       expect(shown.contains('مستنداتك قيد المراجعة'), isFalse,

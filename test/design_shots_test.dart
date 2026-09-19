@@ -32,7 +32,6 @@ import 'package:allomokawil/src/models/enums.dart';
 import 'package:allomokawil/src/models/project.dart';
 import 'package:allomokawil/src/screens/auth/auth_screen.dart';
 import 'package:allomokawil/src/screens/landing/landing_screen.dart';
-import 'package:allomokawil/src/screens/scaffold/guest_home_screen.dart';
 import 'package:allomokawil/src/screens/notifications/notifications_screen.dart';
 import 'package:allomokawil/src/screens/browse/browse_screen.dart';
 import 'package:allomokawil/src/screens/chat/chat_list_screen.dart';
@@ -442,9 +441,9 @@ List<(String, Widget)> _mainScreens(Repository repo) => [
       ('04_customer_home', const CustomerHomeScreen()),
       ('08_worker_home', const WorkerHomeScreen()),
       ('10_browse', const BrowseScreen()),
-      // The signed-out dashboard: what a visitor gets from the first page's
-      // question, before he has an account.
-      ('16_guest_worker', const GuestHomeScreen(role: UserRole.worker)),
+      // The signed-out dashboard *is* the dashboard: a visitor gets the same
+      // worker home as a signed-in contractor, so the shot is the same screen.
+      ('16_guest_worker', const WorkerHomeScreen()),
       (
         '12_chat',
         ChatScreen(
@@ -709,10 +708,10 @@ void main() {
     // placeholder inside it. That is a design call, filed in the backlog, so
     // the count is pinned here: a *new* nameless box fails this test.
     // The phone box on the sign-in form: still the only nameless box, and its
-    // node id moved 27 -> 26 when the sign-up form lost its email field. Same
-    // debt, same rectangle — the entry is re-pinned, not waved through.
+    // node id moved 26 -> 24 when the contractor sign-up note came off the form.
+    // Same debt, same rectangle — the entry is re-pinned, not waved through.
     expect(silentFields, <String>[
-      '01_signin node 26 @ Rect.fromLTRB(0.0, 0.0, 322.0, 62.0)',
+      '01_signin node 24 @ Rect.fromLTRB(0.0, 0.0, 322.0, 62.0)',
     ], reason: 'the nameless-field debt changed — fix it or re-file it');
     handle.dispose();
   });
