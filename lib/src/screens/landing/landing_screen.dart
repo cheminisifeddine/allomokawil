@@ -83,7 +83,7 @@ class LandingScreen extends StatelessWidget {
               child: ConstrainedBox(
                 constraints: BoxConstraints(minHeight: constraints.maxHeight),
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+                  padding: const EdgeInsets.all(AppTheme.s24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     // `spaceEvenly` rather than `Spacer`: inside a scroll view
@@ -138,7 +138,7 @@ class _Welcome extends StatelessWidget {
             height: 1.2,
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
         Text(
           LandingScreen.tagline,
           textAlign: TextAlign.center,
@@ -174,7 +174,7 @@ class _RoleQuestion extends StatelessWidget {
             fontWeight: FontWeight.w700,
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: AppTheme.s12),
         BigButton(
           key: const Key('landing-role-customer'),
           label: 'صاحب مشروع',
@@ -192,7 +192,7 @@ class _RoleQuestion extends StatelessWidget {
           onPressed: onWorker,
         ),
         const _RoleHint('أبحث عن مشاريع مفتوحة وأرسل عروضي'),
-        const SizedBox(height: 10),
+        const SizedBox(height: AppTheme.s8),
         Text(
           'التصفّح مجاني وبدون حساب.',
           textAlign: TextAlign.center,
@@ -211,7 +211,7 @@ class _RoleHint extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.only(top: AppTheme.s8),
       child: Text(
         text,
         textAlign: TextAlign.center,

@@ -76,7 +76,8 @@ class _GuestBar extends StatelessWidget {
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 10, 6),
+          padding: const EdgeInsets.fromLTRB(
+              AppTheme.s16, AppTheme.s8, AppTheme.s8, AppTheme.s4),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [

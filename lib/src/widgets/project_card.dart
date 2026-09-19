@@ -39,7 +39,7 @@ class ProjectCard extends StatelessWidget {
                   children: [
                     Flexible(child: CategoryBadge(slug: project.category)),
                     if (project.allCategories.length > 1) ...[
-                      const SizedBox(width: 6),
+                      const SizedBox(width: AppTheme.s8),
                       Text(
                         '+${project.allCategories.length - 1}',
                         style: AppTheme.label.copyWith(
