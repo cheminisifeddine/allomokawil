@@ -32,6 +32,7 @@ import 'package:allomokawil/src/models/enums.dart';
 import 'package:allomokawil/src/models/project.dart';
 import 'package:allomokawil/src/screens/auth/auth_screen.dart';
 import 'package:allomokawil/src/screens/landing/landing_screen.dart';
+import 'package:allomokawil/src/screens/scaffold/guest_home_screen.dart';
 import 'package:allomokawil/src/screens/notifications/notifications_screen.dart';
 import 'package:allomokawil/src/screens/browse/browse_screen.dart';
 import 'package:allomokawil/src/screens/chat/chat_list_screen.dart';
@@ -430,7 +431,7 @@ Future<void> _golden(
   await expectLater(find.byKey(key), matchesGoldenFile('goldens/$name.png'));
 }
 
-/// The eight screens a user actually lands on — one list, two gates.
+/// The nine screens a user actually lands on — one list, two gates.
 ///
 /// It exists so neither gate can quietly stop covering a screen: the golden
 /// pass and the accessibility sweep both walk *this*, and a screen that is not
@@ -441,6 +442,9 @@ List<(String, Widget)> _mainScreens(Repository repo) => [
       ('04_customer_home', const CustomerHomeScreen()),
       ('08_worker_home', const WorkerHomeScreen()),
       ('10_browse', const BrowseScreen()),
+      // The signed-out dashboard: what a visitor gets from the first page's
+      // question, before he has an account.
+      ('16_guest_worker', const GuestHomeScreen(role: UserRole.worker)),
       (
         '12_chat',
         ChatScreen(
@@ -704,8 +708,11 @@ void main() {
     // the box, which is how UI-UX drew this form, or the form has to show a
     // placeholder inside it. That is a design call, filed in the backlog, so
     // the count is pinned here: a *new* nameless box fails this test.
+    // The phone box on the sign-in form: still the only nameless box, and its
+    // node id moved 27 -> 26 when the sign-up form lost its email field. Same
+    // debt, same rectangle — the entry is re-pinned, not waved through.
     expect(silentFields, <String>[
-      '01_signin node 27 @ Rect.fromLTRB(0.0, 0.0, 322.0, 62.0)',
+      '01_signin node 26 @ Rect.fromLTRB(0.0, 0.0, 322.0, 62.0)',
     ], reason: 'the nameless-field debt changed — fix it or re-file it');
     handle.dispose();
   });
