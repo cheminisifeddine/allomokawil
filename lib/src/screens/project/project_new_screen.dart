@@ -52,7 +52,9 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
   final _budgetMax = TextEditingController();
   final _commune = TextEditingController();
 
-  String? _category;
+  /// The trades this job needs. A founder's ask made this a set: one job can be
+  /// structure + renovation + turnkey finishing, all in once.
+  final Set<String> _categories = <String>{};
   String? _wilaya;
   UrgencyLevel _urgency = UrgencyLevel.flexible;
   final List<XFile> _images = [];
@@ -81,7 +83,9 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
       _budgetMin.text = existing.budgetMin?.toString() ?? '';
       _budgetMax.text = existing.budgetMax?.toString() ?? '';
       _commune.text = existing.commune ?? '';
-      _category = existing.category;
+      _categories
+        ..clear()
+        ..addAll(existing.allCategories);
       _wilaya = existing.wilaya;
       _urgency = existing.urgency;
       _keptImages.addAll(existing.images);
@@ -105,7 +109,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
   }
 
   Future<void> _submit() async {
-    if (_title.text.trim().isEmpty || _category == null || _wilaya == null) {
+    if (_title.text.trim().isEmpty || _categories.isEmpty || _wilaya == null) {
       _toast('أكمل العنوان، التخصص والولاية');
       return;
     }
@@ -128,7 +132,8 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
           editing.id,
           title: _title.text.trim(),
           description: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
-          category: _category!,
+          category: _categories.first,
+          categories: _categories.toList(),
           wilaya: _wilaya,
           commune: _commune.text.trim().isEmpty ? null : _commune.text.trim(),
           budgetMin: _budgetMinValue,
@@ -146,7 +151,8 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
       await _repo.createProject(
         title: _title.text.trim(),
         description: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
-        category: _category!,
+        category: _categories.first,
+        categories: _categories.toList(),
         wilaya: _wilaya,
         commune: _commune.text.trim().isEmpty ? null : _commune.text.trim(),
         budgetMin: _budgetMinValue,
@@ -230,7 +236,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
   @override
   Widget build(BuildContext context) {
     final ready =
-        _title.text.trim().isNotEmpty && _category != null && _wilaya != null;
+        _title.text.trim().isNotEmpty && _categories.isNotEmpty && _wilaya != null;
 
     return Scaffold(
       appBar: AppBar(title: Text(_isEdit ? 'عدّل مشروعك' : 'انشر مشروعك')),
@@ -290,10 +296,17 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
                 ),
               ),
 
-              const _StepLabel(3, 'التخصص المطلوب', required: true),
-              CategoryGridTiles(
-                selected: _category,
-                onSelect: (v) => setState(() => _category = v),
+              const _StepLabel(3, 'التخصصات المطلوبة', required: true),
+              Text(
+                'يمكنك اختيار أكثر من تخصص لنفس المشروع.',
+                style: AppTheme.caption.copyWith(color: AppTheme.textMuted),
+              ),
+              const SizedBox(height: 8),
+              CategoryGridMultiTiles(
+                selected: _categories,
+                onToggle: (v) => setState(() {
+                  if (!_categories.remove(v)) _categories.add(v);
+                }),
               ),
 
               const _StepLabel(4, 'مكان المشروع', required: true),

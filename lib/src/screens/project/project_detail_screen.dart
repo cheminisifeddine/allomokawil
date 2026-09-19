@@ -12,6 +12,7 @@ import '../../models/quote_review.dart';
 import '../../widgets/number_field.dart';
 import '../../widgets/ui.dart';
 import '../browse/browse_screen.dart';
+import '../auth/auth_screen.dart';
 import '../chat/chat_screen.dart';
 import '../review/review_screen.dart';
 import '../worker/subscription_screen.dart';
@@ -40,7 +41,28 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
   late Future<List<Quote>> _quotes;
 
   UserRole get _role => AppScope.of(context).auth.role;
-  bool get _isOwner => _role == UserRole.customer;
+
+  /// Guests read a project; they own nothing.
+  ///
+  /// `AuthState.role` answers `customer` when nobody is signed in, so without
+  /// this a visitor browsing from the first page was handed the owner's
+  /// actions — accept a quote, close the job — and every one of them answered
+  /// 401. The public half of this screen is the quote list, not the controls.
+  bool get _isOwner =>
+      AppScope.of(context).auth.isAuthenticated && _role == UserRole.customer;
+
+  /// Sends a signed-out visitor to the form that makes him a user, and reports
+  /// whether it did. Reading is public; acting is not.
+  bool _requireAccount(UserRole role) {
+    if (AppScope.of(context).auth.isAuthenticated) return false;
+    _openAuth(role);
+    return true;
+  }
+
+  void _openAuth(UserRole role) {
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => AuthScreen(mode: AuthMode.signUp, role: role)));
+  }
 
   @override
   void initState() {
@@ -351,6 +373,9 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
 
   /// Quote form. Same fields, same validation (>= 1000 DZD), same call.
   Future<void> _showBidSheet(Project project) async {
+    // A guest can read the project; the form that cannot be submitted is
+    // replaced by the form that turns him into a contractor.
+    if (_requireAccount(UserRole.worker)) return;
     final amount = TextEditingController();
     final message = TextEditingController();
     final days = TextEditingController();
@@ -483,7 +508,9 @@ class _StatusRow extends StatelessWidget {
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         StatusPill.project(project.status.name),
-        CategoryBadge(slug: project.category),
+        // One job can carry several trades; the badge row is a Wrap already, so
+        // every trade it needs is visible without a second screen.
+        for (final slug in project.allCategories) CategoryBadge(slug: slug),
         _MetaChip(icon: Icons.place_outlined, text: place),
       ],
     );

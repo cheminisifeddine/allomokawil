@@ -52,40 +52,33 @@ void main() {
     });
   });
 
-  group('Money — readable amounts for low-digital-literacy users', () {
-    test('round thousands use Arabic unit words', () {
-      expect(Money.amountOnly(60000), '60 ألف');
-      expect(Money.amountOnly(600000), '600 ألف');
-      expect(Money.amountOnly(7000), '7 آلاف');
-      expect(Money.amountOnly(40000), '40 ألف');
+  group('Money — plain dinar amounts', () {
+    // The founder's call, verbatim: «use dinar format like 6000 دج instead of 6
+    // الاف دينار». The Arabic unit words are gone: an amount is digits, then دج,
+    // so two prices can be compared without translating either one first.
+    test('thousands stay digits', () {
+      expect(Money.amountOnly(60000), '60000');
+      expect(Money.amountOnly(7000), '7000');
+      expect(Money.amountOnly(1000), '1000');
     });
 
-    test('one and two thousands are special-cased', () {
-      expect(Money.amountOnly(1000), 'ألف');
-      expect(Money.amountOnly(2000), 'ألفان');
+    test('millions stay digits too', () {
+      expect(Money.amountOnly(1000000), '1000000');
+      expect(Money.amountOnly(1500000), '1500000');
     });
 
-    test('millions', () {
-      expect(Money.amountOnly(1000000), 'مليون');
-      expect(Money.amountOnly(1500000), '1.5 مليون');
-      expect(Money.amountOnly(12000000), '12 مليون');
-    });
-
-    test('non-round amounts are grouped, never ellipsised mid-digits', () {
-      expect(Money.amountOnly(7500), '7\u00A0500');
+    test('no grouping separators, no unit words', () {
+      expect(Money.amountOnly(7500), '7500');
       expect(Money.amountOnly(950), '950');
     });
 
     test('currency suffix', () {
-      expect(Money.dzd(60000), '60 ألف دج');
-      expect(Money.dzd(1000), 'ألف دج');
+      expect(Money.dzd(6000), '6000 دج');
+      expect(Money.dzd(1000), '1000 دج');
     });
 
-    test('never renders a raw long digit run', () {
-      for (final v in [60000, 600000, 7500, 1500000, 12000000, 40000]) {
-        expect(Money.dzd(v).contains('000'), isFalse,
-            reason: '$v rendered as ${Money.dzd(v)}');
-      }
+    test('a negative amount clamps to zero instead of printing a minus', () {
+      expect(Money.amountOnly(-5), '0');
     });
   });
 }

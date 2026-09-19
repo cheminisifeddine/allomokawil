@@ -59,6 +59,9 @@ class S {
   static const notificationRationale =
       'نرسل لك إشعارات عند وصول عروض جديدة أو رسائل من المقاولين.';
 
+  /// Shown when a notification row carries nothing openable.
+  static const notificationNoAction = 'لا يوجد إجراء لهذا الإشعار.';
+
   // Errors.
   //
   // One sentence per failure class, each naming the problem AND the next action,

@@ -56,6 +56,23 @@ class Project {
   final String title;
   final String? description;
   final String category;
+
+  /// Every trade this job covers, primary first.
+  ///
+  /// The founder's ask, verbatim: «make sure the job seeker to be able to choose
+  /// multiple niches … Like عام وهيكل، ترميم وتجديد، تشطيب عام وتسليم مفتاح — all
+  /// in once». `category` stays the primary trade (older rows, and every filter
+  /// built before this, use it); this is the full list.
+  final List<String> categories;
+
+  /// The trades to show, primary first and never empty — a project posted
+  /// before multi-trade existed only has [category].
+  List<String> get allCategories {
+    if (categories.isEmpty) return [category];
+    if (categories.contains(category)) return categories;
+    return [category, ...categories];
+  }
+
   final List<String> images;
   final String wilaya;
   final String? commune;
@@ -71,6 +88,7 @@ class Project {
     required this.title,
     this.description,
     required this.category,
+    this.categories = const [],
     required this.images,
     required this.wilaya,
     this.commune,
@@ -99,6 +117,9 @@ class Project {
       title: json['title'] as String,
       description: json['description'] as String?,
       category: json['category'] as String,
+      categories: json['categories'] is List
+          ? (json['categories'] as List).map((e) => e.toString()).toList()
+          : const [],
       images: imgs,
       wilaya: (json['wilaya'] as String?) ?? '',
       commune: json['commune'] as String?,

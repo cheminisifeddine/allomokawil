@@ -6,6 +6,7 @@ import 'core/l10n/strings.dart';
 import 'core/security/auth_state.dart';
 import 'core/theme/app_theme.dart';
 import 'screens/landing/landing_screen.dart';
+import 'screens/scaffold/guest_home_screen.dart';
 import 'screens/scaffold/role_home.dart';
 import 'widgets/skeletons.dart';
 
@@ -60,6 +61,13 @@ class _RootGate extends StatelessWidget {
           return const Scaffold(body: AppBootSkeleton());
         }
         if (!auth.isAuthenticated) {
+          final guest = auth.guestRole;
+          if (guest != null) {
+            // Browsing must not require an account. The first page asked which
+            // side of the marketplace this visitor is on; this is that
+            // dashboard, signed out.
+            return GuestHomeScreen(role: guest);
+          }
           return _LoggedOutView(auth: auth);
         }
         // Route customer vs worker to their own home screens.

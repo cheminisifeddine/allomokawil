@@ -33,7 +33,22 @@ class ProjectCard extends StatelessWidget {
                   style: AppTheme.h2.copyWith(fontSize: AppTheme.fsBody),
                 ),
                 const SizedBox(height: 7),
-                CategoryBadge(slug: project.category),
+                // The primary trade, plus how many more the job covers. A card
+                // is one line tall; the full list lives on the project page.
+                Row(
+                  children: [
+                    Flexible(child: CategoryBadge(slug: project.category)),
+                    if (project.allCategories.length > 1) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        '+${project.allCategories.length - 1}',
+                        style: AppTheme.label.copyWith(
+                            fontSize: AppTheme.fsCaption,
+                            color: AppTheme.textMuted),
+                      ),
+                    ],
+                  ],
+                ),
                 const SizedBox(height: 8),
                 Row(
                   children: [

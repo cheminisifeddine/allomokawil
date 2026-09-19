@@ -73,7 +73,7 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen> {
             )
           : null,
       body: IndexedStack(index: _tab, children: [
-        _MarketplaceView(repo: _repo),
+        MarketplaceView(repo: _repo),
         // Both tabs below are dead ends without a job or a conversation: the
         // only thing that creates either one is the market on tab 0, so each
         // empty state can send the contractor back there.
@@ -114,17 +114,41 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen> {
   }
 }
 
-/// The marketplace tab: contractor header + quick stats + the open-project
-/// feed with a legible kit-based filter bar.
-class _MarketplaceView extends StatefulWidget {
-  final Repository repo;
-  const _MarketplaceView({required this.repo});
+/// What a signed-out contractor reads above the job feed.
+///
+/// The feed is the whole point of letting someone in without an account, so the
+/// line says what is free (looking) and what needs a login (quoting).
+class _GuestMarketHeader extends StatelessWidget {
+  const _GuestMarketHeader();
 
   @override
-  State<_MarketplaceView> createState() => _MarketplaceViewState();
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 4),
+      child: Text(
+        'تصفّح المشاريع المفتوحة مجاناً. سجّل الدخول لإرسال عرضك.',
+        style: AppTheme.body.copyWith(color: AppTheme.textSecondary),
+      ),
+    );
+  }
 }
 
-class _MarketplaceViewState extends State<_MarketplaceView> {
+/// The marketplace tab: contractor header + quick stats + the open-project
+/// feed with a legible kit-based filter bar.
+class MarketplaceView extends StatefulWidget {
+  final Repository repo;
+
+  /// True when nobody is signed in. The feed itself is public; only the
+  /// branded "my stats" header needs an account.
+  final bool guest;
+
+  const MarketplaceView({super.key, required this.repo, this.guest = false});
+
+  @override
+  State<MarketplaceView> createState() => _MarketplaceViewState();
+}
+
+class _MarketplaceViewState extends State<MarketplaceView> {
   /// How many pages of open projects a search pulls in at once. The endpoint
   /// pages 20 rows at a time with no server-side text search, so widening to
   /// 100 rows is what makes searching the market meaningful instead of a scan
@@ -157,14 +181,15 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
 
   /// Signed-in contractor, used by the branded header and the stats row.
   /// Not `final`: the profile editor can change it, and the header must show
-  /// the saved values without leaving the tab.
-  late Future<WorkerProfile> _me;
+  /// the saved values without leaving the tab. Null for a signed-out visitor —
+  /// the feed is public, his stats are not.
+  Future<WorkerProfile>? _me;
 
   @override
   void initState() {
     super.initState();
     _projects = widget.repo.browseProjects(status: ProjectStatus.open);
-    _me = widget.repo.myProfile();
+    _me = widget.guest ? null : widget.repo.myProfile();
   }
 
   void _reload() {
@@ -267,8 +292,11 @@ class _MarketplaceViewState extends State<_MarketplaceView> {
     return SafeArea(
       child: CustomScrollView(
         slivers: [
-          SliverToBoxAdapter(
-              child: _HeaderSection(profile: _me, onEdit: _editProfile)),
+          if (_me != null)
+            SliverToBoxAdapter(
+                child: _HeaderSection(profile: _me!, onEdit: _editProfile))
+          else
+            const SliverToBoxAdapter(child: _GuestMarketHeader()),
           SliverToBoxAdapter(
             child: _FilterBar(
               category: _category,

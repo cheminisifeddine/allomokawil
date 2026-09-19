@@ -1,54 +1,24 @@
-/// Algerian-dinar formatting written for low-digital-literacy readers.
+/// Algerian-dinar formatting.
 ///
-/// `60000 دج` forces the reader to count zeros; `60 ألف دج` is understood at a
-/// glance. Rounded amounts therefore use Arabic unit words (ألف / آلاف /
-/// مليون), and everything else is grouped with a non-breaking space so the
-/// number never breaks across lines and never gets ellipsised mid-digits.
+/// The founder's call, verbatim: «use dinar format like 6000 دج instead of 6
+/// الاف دينار». Arabic unit words (ألف / آلاف / مليون) turned a price into
+/// something the reader had to translate before comparing it with the next one,
+/// so every amount is now plain digits followed by `دج` — the same shape on a
+/// project card, a quote, a budget range and a subscription block.
 class Money {
   Money._();
 
-  static const String _nbsp = '\u00A0';
   static const String currency = 'دج';
 
-  /// Full label including the currency: `60 ألف دج`.
+  /// Full label including the currency: `6000 دج`.
   static String dzd(num amount) => '${amountOnly(amount)} $currency';
 
   /// Number only, no currency — for ranges where the unit is printed once.
+  ///
+  /// Grouping separators are deliberately absent: `6000` is what the founder
+  /// asked to see, not `6 000`.
   static String amountOnly(num n) {
     final v = n.round();
-    if (v < 0) return '0';
-    if (v >= 1000000) {
-      final m = v / 1000000;
-      if (m == m.roundToDouble()) {
-        final mi = m.round();
-        return mi == 1 ? 'مليون' : '$mi مليون';
-      }
-      return '${_trim(m)} مليون';
-    }
-    if (v >= 1000 && v % 1000 == 0) {
-      final k = v ~/ 1000;
-      if (k == 1) return 'ألف';
-      if (k == 2) return 'ألفان';
-      if (k <= 10) return '$k آلاف';
-      return '$k ألف';
-    }
-    return _grouped(v);
-  }
-
-  /// `7500` -> `7 500`
-  static String _grouped(int v) {
-    final s = v.toString();
-    final buf = StringBuffer();
-    for (var i = 0; i < s.length; i++) {
-      if (i > 0 && (s.length - i) % 3 == 0) buf.write(_nbsp);
-      buf.write(s[i]);
-    }
-    return buf.toString();
-  }
-
-  /// `1.5` -> `1.5`, `2.0` -> `2`
-  static String _trim(double v) {
-    final r = v.toStringAsFixed(1);
-    return r.endsWith('.0') ? r.substring(0, r.length - 2) : r;
+    return v < 0 ? '0' : v.toString();
   }
 }

@@ -41,7 +41,6 @@ class AuthScreen extends StatefulWidget {
 
 class _AuthScreenState extends State<AuthScreen> {
   final _phone = TextEditingController();
-  final _email = TextEditingController();
   final _name = TextEditingController();
   final _password = TextEditingController();
 
@@ -61,7 +60,6 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   void dispose() {
     _phone.dispose();
-    _email.dispose();
     _name.dispose();
     _password.dispose();
     super.dispose();
@@ -158,7 +156,11 @@ class _AuthScreenState extends State<AuthScreen> {
     try {
       await auth.register(
         phone: DzPhone.canonical(_phone.text),
-        email: _email.text.trim().isEmpty ? '' : _email.text.trim(),
+        // No email field on this form: the founder's call was «remove the email
+        // from sign up or sign in just keep phone number only». The API accepts
+        // an empty address, and phone + password is a login an Algerian user
+        // already has by heart.
+        email: '',
         fullName: _name.text.trim(),
         password: pwd,
         role: _role,
@@ -265,20 +267,6 @@ class _AuthScreenState extends State<AuthScreen> {
                             forceValidate: _phoneTried,
                             onChanged: _touch,
                           ),
-                          if (_isSignUp) ...[
-                            const SizedBox(height: 14),
-                            const _FieldLabel(
-                                text: '${S.email} (اختياري)',
-                                icon: Icons.mail_outline_rounded),
-                            TextField(
-                              controller: _email,
-                              keyboardType: TextInputType.emailAddress,
-                              textInputAction: TextInputAction.next,
-                              onChanged: (_) => _touch(),
-                              decoration:
-                                  authInput(icon: Icons.mail_outline_rounded),
-                            ),
-                          ],
                           const SizedBox(height: 18),
                           const _FieldLabel(
                               text: S.password,

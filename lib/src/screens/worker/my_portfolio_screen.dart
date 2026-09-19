@@ -6,7 +6,6 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/app_scope.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
-import '../../data/taxonomy.dart';
 import '../../models/worker.dart';
 import '../../widgets/a11y.dart';
 import '../../widgets/ui.dart';
@@ -220,7 +219,9 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
                       onPressed: _busy ? null : _addPhoto,
                     ),
                     const SizedBox(height: 14),
-                    const _TipsCard(),
+                  // The photo-tips card was removed on the founder's call — the
+                  // portfolio screen shows the gallery and the add button, and
+                  // nothing else competes with them.
                   ],
                 ),
               ),
@@ -369,66 +370,6 @@ class _PhotoTile extends StatelessWidget {
         loadingBuilder: (context, child, progress) => progress == null
             ? child
             : const ColoredBox(color: AppTheme.lineSoft),
-      ),
-    );
-  }
-}
-
-/// Short, concrete advice — contractors who have never had a portfolio do not
-/// know which photos sell the work.
-class _TipsCard extends StatelessWidget {
-  const _TipsCard();
-
-  @override
-  Widget build(BuildContext context) {
-    const tips = [
-      'صوّر العمل في وضح النهار وبعد الانتهاء.',
-      'أضف صوراً لثلاث مراحل على الأقل: قبل، أثناء، بعد.',
-      'صورة واحدة لكل نوع من الأعمال التي تتقنها.',
-    ];
-    return AppCard(
-      color: AppTheme.infoWash,
-      borderColor: AppTheme.infoWash,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.lightbulb_outline_rounded,
-                  size: 19, color: AppTheme.info),
-              const SizedBox(width: 8),
-              Text('نصائح لصور أفضل',
-                  style: AppTheme.label
-                      .copyWith(fontSize: AppTheme.fsSmall, color: AppTheme.info)),
-            ],
-          ),
-          const SizedBox(height: 8),
-          for (final t in tips)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 5),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.only(top: 6, left: 6, right: 6),
-                    child: Icon(Icons.circle,
-                        size: 5, color: AppTheme.info),
-                  ),
-                  Expanded(
-                    child: Text(t,
-                        style: AppTheme.caption.copyWith(
-                            color: AppTheme.info, height: 1.6)),
-                  ),
-                ],
-              ),
-            ),
-          const SizedBox(height: 4),
-          Text(
-            'أعضاء ${Taxonomy.categories.length} مهنة يمكنهم إضافة صورهم.',
-            style: AppTheme.caption
-                .copyWith(color: AppTheme.info, fontSize: AppTheme.fsBadge, height: 1.5),
-          ),
-        ],
       ),
     );
   }

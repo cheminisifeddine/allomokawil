@@ -5,8 +5,13 @@ import '../../core/l10n/strings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/notification_copy.dart';
 import '../../data/repository.dart';
+import '../../models/chat.dart';
 import '../../models/notification.dart';
+import '../chat/chat_list_screen.dart';
+import '../chat/chat_screen.dart';
+import '../profile_screen.dart';
 import '../project/project_detail_screen.dart';
+import '../project/projects_screen.dart';
 import '../../widgets/motion.dart';
 
 /// Notification centre: every quote, acceptance, message and review the user
@@ -109,29 +114,80 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     await _load();
   }
 
-  void _open(AppNotification n) {
+  /// Opens whatever the row is about, and never lets a tap die in silence.
+  ///
+  /// The founder's report, verbatim: «when i get a notification they are not
+  /// clickble when i click on them nothing happens fix it». [notificationTarget]
+  /// holds the rule; this turns it into a screen.
+  Future<void> _open(AppNotification n) async {
     _markRead([n.id]);
-    final target = _projectTarget(n.link);
-    if (target == null) {
+    final target = notificationTarget(n.type, n.link);
+    if (target.kind == 'chat') {
+      await _openThread(target.id);
       return;
     }
+    final screen = _screenFor(target);
+    if (!mounted) {
+      return;
+    }
+    if (screen == null) {
+      // An informational row with nothing behind it. Saying so beats a tap that
+      // does nothing at all — the reason this screen was reported broken.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(S.notificationNoAction)),
+      );
+      return;
+    }
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen));
+  }
+
+  /// Opens the thread a message notification came from, falling back to the
+  /// inbox when the conversation is gone.
+  Future<void> _openThread(String? conversationId) async {
+    final id = int.tryParse(conversationId ?? '');
+    final me = AppScope.of(context).auth.user?.id;
+    Conversation? conv;
+    if (id != null) {
+      try {
+        conv = (await _repo.conversations()).firstWhere((c) => c.id == id);
+      } catch (_) {
+        conv = null;
+      }
+    }
+    if (!mounted) {
+      return;
+    }
+    final peer = conv == null
+        ? null
+        : (conv.customerId == me ? conv.workerUserId : conv.customerId);
     Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => target),
+      MaterialPageRoute<void>(
+        builder: (_) => (conv == null || peer == null)
+            ? ChatListScreen(repo: _repo)
+            : ChatScreen(
+                conversationId: conv.id,
+                otherUserId: peer,
+                otherName: conv.otherUserName,
+                repo: _repo,
+              ),
+      ),
     );
   }
 
-  /// The backend links projects as `/dashboard/projects/<id>` for a project
-  /// owner and `/w/projects/<id>` for a contractor. Both open the same screen;
-  /// any other link is ignored rather than pushed blindly.
-  ProjectDetailScreen? _projectTarget(String? link) {
-    if (link == null) {
-      return null;
+  /// The screen behind a target, or null when there is none.
+  Widget? _screenFor(NotificationTarget t) {
+    switch (t.kind) {
+      case 'project':
+        return ProjectDetailScreen(projectId: t.id!, repo: _repo);
+      case 'inbox':
+      case 'chat':
+        return ChatListScreen(repo: _repo);
+      case 'projects':
+        return ProjectsScreen(repo: _repo);
+      case 'profile':
+        return const ProfileScreen();
     }
-    final id = RegExp(r'projects/(\d+)').firstMatch(link)?.group(1);
-    if (id == null) {
-      return null;
-    }
-    return ProjectDetailScreen(projectId: id, repo: _repo);
+    return null;
   }
 
   @override

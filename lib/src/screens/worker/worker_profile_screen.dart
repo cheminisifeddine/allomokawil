@@ -10,6 +10,7 @@ import '../../models/quote_review.dart';
 import '../../models/worker.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
+import '../auth/auth_screen.dart';
 import '../chat/chat_screen.dart';
 import '../../core/l10n/error_copy.dart';
 
@@ -52,6 +53,13 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
   }
 
   void _openChat(WorkerProfile w) {
+    // A visitor with no account may read a profile; opening a conversation is
+    // the one thing here that needs an identity to attach the thread to.
+    if (!AppScope.of(context).auth.isAuthenticated) {
+      Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => const AuthScreen(mode: AuthMode.signUp, role: UserRole.worker)));
+      return;
+    }
     Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => ChatScreen(
               projectId: null,

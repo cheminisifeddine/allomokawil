@@ -203,6 +203,7 @@ class Repository {
     required String title,
     String? description,
     required String category,
+    List<String>? categories,
     String? wilaya,
     String? commune,
     int? budgetMin,
@@ -214,6 +215,11 @@ class Repository {
       'title': title,
       'description': description,
       'category': category,
+      // The full list of trades. `category` stays for older servers; the API
+      // takes the first entry as the primary either way.
+      'categories': (categories == null || categories.isEmpty)
+          ? [category]
+          : categories,
       'wilaya': wilaya,
       'commune': commune,
       'budget_min': budgetMin,
@@ -237,6 +243,7 @@ class Repository {
     required String title,
     String? description,
     required String category,
+    List<String>? categories,
     String? wilaya,
     String? commune,
     int? budgetMin,
@@ -248,6 +255,9 @@ class Repository {
       'title': title,
       'description': description,
       'category': category,
+      'categories': (categories == null || categories.isEmpty)
+          ? [category]
+          : categories,
       'wilaya': wilaya,
       'commune': commune,
       'budget_min': budgetMin,

@@ -88,9 +88,9 @@ void main() {
     expect(p.category, 'painting');
     expect(p.urgency, UrgencyLevel.withinWeek);
     expect(p.status, ProjectStatus.open);
-    // Rounded amounts render in Arabic words: "60000 دج" makes the reader
-    // count zeros, "60 ألف دج" is read at a glance.
-    expect(p.budgetLabel, 'من 60 ألف إلى 90 ألف دج');
+    // Plain dinar digits, on the founder's call: «use dinar format like 6000 دج
+    // instead of 6 الاف دينار».
+    expect(p.budgetLabel, 'من 60000 إلى 90000 دج');
   });
 
   test('Project survives a project posted without a wilaya', () {

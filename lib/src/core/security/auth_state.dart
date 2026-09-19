@@ -22,15 +22,29 @@ class AuthState extends ChangeNotifier {
 
   static const _tokenKey = 'auth.token';
   static const _userKey = 'auth.user';
+  static const _guestKey = 'auth.guestRole';
 
   User? _user;
   bool _restored = false;
   bool _sessionExpired = false;
+  UserRole? _guestRole;
 
   User? get user => _user;
   UserRole get role => _user?.type ?? UserRole.customer;
   bool get isAuthenticated => _user != null;
   bool get isRestored => _restored;
+
+  /// The role a visitor picked on the first page when they chose to look around
+  /// before signing up — مقاول or صاحب مشروع.
+  ///
+  /// The founder's brief, verbatim: «make sure the users can use and browse
+  /// offer and jobs without sign in, just ask in the first page for if this is
+  /// مقاول او صاحب عمل and show the related dashboard». It lives next to the
+  /// session because it decides which dashboard the root gate opens.
+  UserRole? get guestRole => _guestRole;
+
+  /// True while the app is being used without an account.
+  bool get isGuest => _user == null && _guestRole != null;
 
   /// True when the last thing that happened was the server refusing our token.
   ///
@@ -92,6 +106,10 @@ class AuthState extends ChangeNotifier {
       } else if (tokenRaw != null || userRaw != null) {
         // Wrong type, or only half of the pair.
         await _discardSession(prefs);
+      } else {
+        // No session, but this device already answered the first page's
+        // question: reopen that dashboard signed out instead of asking again.
+        _guestRole = _roleFromName(prefs.get(_guestKey));
       }
     } catch (error) {
       // Unreadable JSON, a value we cannot cast, or a store that will not open.
@@ -154,22 +172,72 @@ class AuthState extends ChangeNotifier {
   Future<void> _persist(String token, User user) async {
     _api.token = token;
     _user = user;
+    // A real account answers the first page's question: the dashboard is now
+    // the signed-in one, so the stored guest choice is dropped.
+    _guestRole = null;
     // A fresh session answers the notice: whatever token failed before is gone.
     _sessionExpired = false;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_tokenKey, token);
     await prefs.setString(_userKey, jsonEncode(user.toJson()));
+    await prefs.remove(_guestKey);
     notifyListeners();
+  }
+
+  /// Opens the dashboard for [role] without an account.
+  ///
+  /// Browsing jobs and contractors must not require a login — that is the
+  /// founder's call — so this stores the choice and lets the root gate show the
+  /// matching dashboard. Anything that writes (posting a project, sending a
+  /// quote, writing in the chat) still leads to the auth screen.
+  Future<void> enterAsGuest(UserRole role) async {
+    _guestRole = role;
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_guestKey, role.name);
+    } catch (error) {
+      // A store that refuses the write still gets a usable guest session; the
+      // choice is simply forgotten on the next launch.
+      debugPrint('guest: could not persist the role ($error)');
+    }
+  }
+
+  /// Returns to the first page from a guest dashboard.
+  Future<void> leaveGuest() async {
+    if (_guestRole == null) return;
+    _guestRole = null;
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_guestKey);
+    } catch (error) {
+      debugPrint('guest: could not clear the role ($error)');
+    }
   }
 
   Future<void> logout() async {
     _api.token = null;
     _user = null;
+    _guestRole = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_tokenKey);
     await prefs.remove(_userKey);
+    await prefs.remove(_guestKey);
     notifyListeners();
   }
+}
+
+/// The stored guest role, or null when the value is not one we know.
+///
+/// Read by hand rather than with a cast: a preferences file written by another
+/// version must not be able to throw out of `restore()`.
+UserRole? _roleFromName(Object? raw) {
+  if (raw is! String) return null;
+  for (final role in UserRole.values) {
+    if (role.name == raw) return role;
+  }
+  return null;
 }
 
 /// A signed-in session as the two things every caller needs: the bearer token
