@@ -8,6 +8,7 @@ import 'src/core/app_scope.dart';
 import 'src/core/boot.dart';
 import 'src/core/diagnostics/boot_trace.dart';
 import 'src/core/diagnostics/crash_reporter.dart';
+import 'src/core/location/place_state.dart';
 import 'src/core/network/api_client.dart';
 import 'src/core/security/auth_state.dart';
 
@@ -42,6 +43,9 @@ Future<void> main() async {
   // drops the session and the root gate swaps the signed-in home for the landing
   // page with a notice saying why — instead of leaving the user on an empty home.
   final auth = AuthState(api);
+  // Where the phone is: read once here, asked once by `PlaceWarmup` above the
+  // root gate, then shared by every screen that shows nearby offers.
+  final place = PlaceState();
 
   // Frame first, storage second.
   //
@@ -52,7 +56,7 @@ Future<void> main() async {
   // two JSON decodes before it was allowed to paint a frame it had a designed
   // screen for. The reads still happen — `Boot.warmup` starts them here and the
   // gate swaps itself when they land — they just no longer hold the launch.
-  runApp(AppScope(api: api, auth: auth, child: const AlloMokawilApp()));
+  runApp(AppScope(api: api, auth: auth, place: place, child: const AlloMokawilApp()));
   boot.mark('runApp');
 
   // The honest end of the launch: `addPostFrameCallback` runs the moment frame
@@ -63,4 +67,7 @@ Future<void> main() async {
   });
 
   unawaited(Boot.warmup(auth: auth, crashes: crashes, trace: boot));
+  // The stored fix lands a few frames after the first paint, exactly like the
+  // session does: `PlaceWarmup` rebuilds whatever needs it when it arrives.
+  unawaited(place.restore());
 }

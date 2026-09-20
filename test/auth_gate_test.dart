@@ -62,11 +62,17 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // No session yet -> the public landing page, with one way in.
-      // It deliberately has no role gate: the account type is asked on the
-      // sign-up form itself.
-      expect(find.byKey(const Key('landing-create-account')), findsOneWidget);
-      expect(find.text('أنا صاحب مشروع'), findsNothing);
+      // No session yet -> the public landing page: the mark, one sentence and
+      // the one question it asks. The account row the founder removed is gone.
+      expect(find.byKey(const Key('landing-role-customer')), findsOneWidget);
+      expect(find.byKey(const Key('landing-contractor-link')), findsOneWidget);
+      expect(find.byKey(const Key('landing-create-account')), findsNothing);
+
+      // Browsing first, exactly as the founder asked: no form on arrival.
+      await tester.tap(find.byKey(const Key('landing-role-customer')));
+      await tester.pumpAndSettle();
+      expect(find.text('استكشف'), findsOneWidget);
+      expect(find.text('أنشئ حسابك في دقيقة'), findsNothing);
 
       await auth.register(
         phone: '0550000000',
@@ -77,9 +83,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Regression: a successful register must replace the gate with the
-      // dashboard. It previously stayed on the landing/register screen forever.
-      expect(find.byKey(const Key('landing-create-account')), findsNothing);
+      // Regression: a successful register must replace the tree the visitor was
+      // looking at with the member one. The gate renders the same `RoleHome`
+      // for both, so without the session key it stayed on the visitor tree
+      // until the app was closed and reopened.
+      expect(find.textContaining('Test Client'), findsWidgets,
+          reason: 'the dashboard greets the account that was just created');
       expect(find.text('استكشف'), findsOneWidget);
       expect(find.text('مشاريعي'), findsOneWidget);
     },
@@ -112,7 +121,8 @@ void main() {
     await auth.logout();
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('landing-create-account')), findsOneWidget);
+    expect(find.byKey(const Key('landing-role-customer')), findsOneWidget);
+    expect(find.byKey(const Key('landing-create-account')), findsNothing);
   });
 
   testWidgets('the landing opens ONE auth screen, with the role inside it',
@@ -129,19 +139,17 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // The front door sells the product instead of asking a question.
-    expect(find.text('أنا صاحب مشروع'), findsNothing);
-    expect(find.text('أنا مقاول/حرفي'), findsNothing);
+    // Arriving opens nothing: the first page asks one question and the answer
+    // is a dashboard, not a form.
+    expect(find.text('أنشئ حسابك في دقيقة'), findsNothing);
 
-    await tester.ensureVisible(find.byKey(const Key('landing-create-account')));
-    await tester.tap(find.byKey(const Key('landing-create-account')));
+    await tester.tap(find.byKey(const Key('landing-role-customer')));
     await tester.pumpAndSettle();
+    expect(find.text('أنشئ حسابك في دقيقة'), findsNothing);
+    expect(find.text('استكشف'), findsOneWidget);
 
-    // The first tap asks the one question a brand-new visitor cannot answer for
-    // himself — which side of the app he is on — and the form then opens with
-    // that answer already selected. The explainer has its own file
-    // (test/role_guide_test.dart); here it only has to be stepped through.
-    await tester.tap(find.byKey(const Key('role-guide-customer')));
+    // Doing the thing that needs an account is what opens it.
+    await tester.tap(find.byKey(const Key('tab-action')));
     await tester.pumpAndSettle();
 
     // One screen holds both halves, and the account type is asked HERE.

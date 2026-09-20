@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/app_scope.dart';
 import '../../core/auth_gate.dart';
 import '../../core/l10n/strings.dart';
+import '../../core/location/place_state.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/first_run.dart';
 import '../../data/repository.dart';
@@ -39,12 +40,24 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   int _tab = 0;
   late final Repository _repo;
   late Future<List<WorkerProfile>> _topWorkers;
-  late Future<List<Project>> _recentProjects;
+
+  /// Null for a signed-out visitor: there is no «مشاريعي» without an account,
+  /// so the strip is not requested and cannot fail. The founder saw exactly
+  /// that failure — «تعذّر جلب المشاريع» — on the home of a visitor who had
+  /// never signed in.
+  Future<List<Project>>? _recentProjects;
 
   /// The same endpoint the messages tab reads. The client home needs it because
   /// the first-run guide has to disappear as soon as the owner has contacted
-  /// somebody.
-  late Future<List<Conversation>> _conversations;
+  /// somebody. Null for a visitor, for the same reason as the projects above.
+  Future<List<Conversation>>? _conversations;
+
+  /// True while nobody is signed in.
+  bool _guest = false;
+
+  /// Where the phone is, once the app knows. Decides which contractors come
+  /// first and which wilaya the header names.
+  PlaceState? _place;
 
   /// Whether the explore tab shows the first-run guide. `false` until the two
   /// strips answer, so a slow connection never promises a first run it cannot
@@ -64,10 +77,35 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     if (_scopeReady) return;
     _scopeReady = true;
     _repo = Repository(AppScope.of(context).api);
-    _topWorkers = _repo.topWorkers();
-    _recentProjects = _repo.myProjects();
-    _conversations = _repo.conversations();
-    _readFirstRunGuide();
+    _guest = AuthGate.isGuest(context);
+    _place = AppScope.maybeOf(context)?.place;
+    _place?.addListener(_onPlaceChanged);
+    _topWorkers = _repo.topWorkers(limit: 12, preferWilaya: _place?.wilayaId);
+    if (_guest) {
+      // Nothing to read without an account, and nothing to decide either: the
+      // two session-only strips stay empty and the tab shows the way in.
+      _recentProjects = null;
+      _conversations = null;
+    } else {
+      _recentProjects = _repo.myProjects();
+      _conversations = _repo.conversations();
+      _readFirstRunGuide();
+    }
+  }
+
+  /// The fix can land after the first paint — the stored one at boot, or a
+  /// fresh GPS answer. When it does, the one strip that answers «who is near
+  /// me» is re-read once; nothing else on the screen moves.
+  void _onPlaceChanged() {
+    final id = _place?.wilayaId;
+    if (!mounted || id == null) return;
+    setState(() => _topWorkers = _repo.topWorkers(limit: 12, preferWilaya: id));
+  }
+
+  @override
+  void dispose() {
+    _place?.removeListener(_onPlaceChanged);
+    super.dispose();
   }
 
   /// Decides whether this account is still on its first run, from the client's
@@ -75,8 +113,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   /// a card that keeps telling a client who already posted to post reads as a
   /// broken app, and silence is the cheaper mistake.
   void _readFirstRunGuide() {
+    final projects = _recentProjects;
+    final conversations = _conversations;
+    // A visitor has no history to read, and the guide is about a history.
+    if (projects == null || conversations == null) return;
     final token = ++_guideToken;
-    _resolveFirstRun(token, _recentProjects, _conversations);
+    _resolveFirstRun(token, projects, conversations);
   }
 
   Future<void> _resolveFirstRun(
@@ -106,12 +148,16 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
 
   /// Retry handlers for the two home strips. They call the same repository
   /// methods the screen already used — just a second time, on demand.
-  void _reloadWorkers() => setState(() => _topWorkers = _repo.topWorkers());
+  void _reloadWorkers() => setState(() =>
+      _topWorkers = _repo.topWorkers(limit: 12, preferWilaya: _place?.wilayaId));
   void _reloadProjects() => setState(_reloadStrips);
 
   /// Re-reads everything the explore tab knows about this client. The guide is
-  /// derived from two of those answers, so it is re-evaluated with them.
+  /// derived from two of those answers, so it is re-evaluated with them. A
+  /// visitor has neither, and asking for them would only produce the two error
+  /// states this screen must not show him.
   void _reloadStrips() {
+    if (_guest) return;
     _recentProjects = _repo.myProjects();
     _conversations = _repo.conversations();
     _readFirstRunGuide();
@@ -125,6 +171,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           firstRun: _firstRun,
           topWorkers: _topWorkers,
           recentProjects: _recentProjects,
+          guest: _guest,
           onRetryWorkers: _reloadWorkers,
           onRetryProjects: _reloadProjects,
           onPost: () => _gatedPost(),
@@ -205,7 +252,13 @@ class _ExploreView extends StatelessWidget {
   /// True while this client has neither posted a project nor contacted anybody.
   final bool firstRun;
   final Future<List<WorkerProfile>> topWorkers;
-  final Future<List<Project>> recentProjects;
+
+  /// Null for a signed-out visitor — the tab then shows the way in instead of
+  /// a strip it has nothing to put in.
+  final Future<List<Project>>? recentProjects;
+
+  /// True while nobody is signed in.
+  final bool guest;
   final VoidCallback onRetryWorkers;
   final VoidCallback onRetryProjects;
   final VoidCallback onPost;
@@ -219,6 +272,7 @@ class _ExploreView extends StatelessWidget {
     required this.firstRun,
     required this.topWorkers,
     required this.recentProjects,
+    required this.guest,
     required this.onRetryWorkers,
     required this.onRetryProjects,
     required this.onPost,
@@ -233,10 +287,22 @@ class _ExploreView extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = AppScope.of(context).auth.user;
     final rawName = user?.fullName.trim() ?? '';
-    final wilayaId = user?.wilaya;
+    // The profile wilaya comes first — it is what the owner said about himself.
+    // Failing that, the phone's own answer, named as such so the header never
+    // claims a location the visitor did not give.
+    final profileWilaya = user?.wilaya;
+    final place = AppScope.maybeOf(context)?.place;
+    final fromPhone = (profileWilaya == null || profileWilaya.isEmpty)
+        ? place?.wilayaId
+        : null;
+    final wilayaId = (profileWilaya == null || profileWilaya.isEmpty)
+        ? fromPhone
+        : profileWilaya;
     final location = (wilayaId == null || wilayaId.isEmpty)
         ? 'كل الولايات'
-        : Taxonomy.wilayaName(wilayaId);
+        : fromPhone != null
+            ? '${Taxonomy.wilayaName(wilayaId)} • موقعك'
+            : Taxonomy.wilayaName(wilayaId);
 
     return CustomScrollView(
       slivers: [
@@ -362,9 +428,17 @@ class _ExploreView extends StatelessWidget {
             ),
           ),
         ),
-        FutureBuilder<List<Project>>(
-          future: recentProjects,
-          builder: (context, snap) {
+        if (recentProjects == null)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              child: _SignInForProjects(onPost: onPost),
+            ),
+          )
+        else
+          FutureBuilder<List<Project>>(
+            future: recentProjects,
+            builder: (context, snap) {
             if (snap.connectionState != ConnectionState.done) {
               return const SliverToBoxAdapter(
                   child: Shimmer(child: _ProjectStripSkeleton(count: 2)));
@@ -672,6 +746,55 @@ class _NoProjectsCard extends StatelessWidget {
           PrimaryButton(
             label: 'انشر مشروعك',
             icon: Icons.add_rounded,
+            onPressed: onPost,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// What a visitor sees where his own projects would be.
+///
+/// The founder, verbatim: «remove ... تعذر جلب المشاريع تحقق من اتصالك بالإنترنت
+/// ثم أعد المحاولة». Nothing failed — there is simply no account to read from —
+/// so the strip invites him in instead of reporting a fault that never happened.
+class _SignInForProjects extends StatelessWidget {
+  final VoidCallback onPost;
+
+  const _SignInForProjects({required this.onPost});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      key: const Key('guest-projects-invite'),
+      padding: AppTheme.cardPad,
+      child: Column(
+        children: [
+          const IconBubble(
+            icon: Icons.folder_open_rounded,
+            tint: AppTheme.accentDeep,
+            wash: AppTheme.accentWash,
+            size: 64,
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'مشاريعك تظهر هنا',
+            textAlign: TextAlign.center,
+            style: AppTheme.h2.copyWith(color: AppTheme.textPrimary),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'أنشئ حساباً مجانياً لنشر مشروعك واستقبال عروض المقاولين، ومتابعة كل '
+            'مشاريعك من هذه الصفحة.',
+            textAlign: TextAlign.center,
+            style: AppTheme.bodySoft,
+          ),
+          const SizedBox(height: 18),
+          PrimaryButton(
+            key: const Key('home-create-account'),
+            label: 'إنشاء حساب',
+            icon: Icons.person_add_alt_1_rounded,
             onPressed: onPost,
           ),
         ],

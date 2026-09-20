@@ -140,8 +140,8 @@ void main() {
       await tester.pumpAndSettle();
 
       // The logged-out front door, with one way in — never a stuck splash and
-      // never an empty tree.
-      expect(find.byKey(const Key('landing-create-account')), findsOneWidget);
+      // never an empty tree. The way in is the question it asks first.
+      expect(find.byKey(const Key('landing-role-customer')), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsNothing);
       expect(find.text('استكشف'), findsNothing);
     },

@@ -74,12 +74,19 @@ void main() {
     HttpOverrides.global = null;
     final auth = await boot(tester);
 
-    // Nothing signed in yet: the front door is the landing page, which no
-    // longer asks the visitor to pick a side before they can do anything.
-    expect(find.byKey(const Key('landing-create-account')), findsOneWidget,
+    // Nothing signed in yet: the front door is the landing page — the mark,
+    // one sentence, and the one question it asks.
+    expect(find.byKey(const Key('landing-role-customer')), findsOneWidget,
         reason: 'the landing must be visible before registering');
-    expect(find.text('أنا صاحب مشروع'), findsNothing,
-        reason: 'the role gate must NOT be the first screen any more');
+    expect(find.byKey(const Key('landing-contractor-link')), findsOneWidget);
+
+    // Browse as a visitor first: this is the state the founder was in when he
+    // reported staying a visitor after creating an account. The live run has to
+    // cover the transition, not just a cold register.
+    await tester.tap(find.byKey(const Key('landing-role-customer')));
+    await settle(tester);
+    expect(find.text('استكشف'), findsOneWidget,
+        reason: 'the visitor gets the client dashboard');
 
     // Pad to a full 10-digit Algerian number: `% 1000000` yields fewer than six
     // digits roughly one time in ten, and a 9-digit number is correctly rejected
@@ -100,11 +107,14 @@ void main() {
         'role=${auth.role}');
     await settle(tester);
 
-    // THE BUG: after creating an account the gate must show the dashboard.
+    // THE BUG: after creating an account the gate must show the MEMBER
+    // dashboard, in this frame — not after a restart.
     expect(auth.isAuthenticated, isTrue,
         reason: 'register must persist a session');
-    expect(find.byKey(const Key('landing-create-account')), findsNothing,
+    expect(find.byKey(const Key('landing-role-customer')), findsNothing,
         reason: 'the landing must be replaced after registering');
+    expect(find.textContaining('زبون تجربة حقيقي'), findsWidgets,
+        reason: 'the dashboard must greet the account that was just created');
     expect(find.text('استكشف'), findsOneWidget,
         reason: 'the customer dashboard must be on screen after registering');
     debugPrint('LIVE PASS: dashboard reached after register');
@@ -130,7 +140,7 @@ void main() {
 
     await tester.runAsync(() => auth.logout());
     await settle(tester, frames: 20);
-    expect(find.byKey(const Key('landing-create-account')), findsOneWidget,
+    expect(find.byKey(const Key('landing-role-customer')), findsOneWidget,
         reason: 'signing out returns to the landing');
 
     await tester.runAsync(() => auth.login(

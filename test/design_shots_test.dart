@@ -708,10 +708,10 @@ void main() {
     // placeholder inside it. That is a design call, filed in the backlog, so
     // the count is pinned here: a *new* nameless box fails this test.
     // The phone box on the sign-in form: still the only nameless box, and its
-    // node id moved 26 -> 24 when the contractor sign-up note came off the form.
-    // Same debt, same rectangle — the entry is re-pinned, not waved through.
+    // node id moved 26 -> 24 -> 20 as copy came off the forms around it. Same
+    // debt, same rectangle — the entry is re-pinned, not waved through.
     expect(silentFields, <String>[
-      '01_signin node 24 @ Rect.fromLTRB(0.0, 0.0, 322.0, 62.0)',
+      '01_signin node 20 @ Rect.fromLTRB(0.0, 0.0, 322.0, 62.0)',
     ], reason: 'the nameless-field debt changed — fix it or re-file it');
     handle.dispose();
   });

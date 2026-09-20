@@ -5,8 +5,10 @@ import 'core/app_scope.dart';
 import 'core/l10n/strings.dart';
 import 'core/security/auth_state.dart';
 import 'core/theme/app_theme.dart';
+import 'screens/auth/auth_screen.dart';
 import 'screens/landing/landing_screen.dart';
 import 'screens/scaffold/role_home.dart';
+import 'widgets/place_warmup.dart';
 import 'widgets/skeletons.dart';
 
 /// Root widget: resolves where the app starts based on auth + role.
@@ -33,7 +35,7 @@ class AlloMokawilApp extends StatelessWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      home: _RootGate(auth: auth),
+      home: PlaceWarmup(child: _RootGate(auth: auth)),
     );
   }
 }
@@ -66,12 +68,28 @@ class _RootGate extends StatelessWidget {
             // different application either. The visitor gets the same shell the
             // signed-in user gets, with the same tabs and the same content; the
             // only walls in it are the private ones (see core/auth_gate.dart).
-            return RoleHome(role: guest);
+            //
+            // The key is load bearing. A visitor who picked «مقاول» and then
+            // made a contractor account flips from `guest-worker` to
+            // `user-<id>-worker` — the same `RoleHome` the framework would
+            // happily reuse, keeping the signed-out state of every screen under
+            // it. The founder hit exactly that: «when i login as a visitor and
+            // i create an account i didn't automatically get logged in and i
+            // stay a visitor till i exit the app and open it again». Keying the
+            // subtree by the session's identity tears the guest tree down and
+            // builds the member tree in the same frame.
+            return KeyedSubtree(
+              key: ValueKey('guest-${guest.name}'),
+              child: RoleHome(role: guest),
+            );
           }
           return _LoggedOutView(auth: auth);
         }
         // Route customer vs worker to their own home screens.
-        return RoleHome(role: auth.role);
+        return KeyedSubtree(
+          key: ValueKey('user-${auth.user?.id ?? 0}-${auth.role.name}'),
+          child: RoleHome(role: auth.role),
+        );
       },
     );
   }
@@ -98,7 +116,16 @@ class _LoggedOutView extends StatelessWidget {
     if (!auth.sessionExpired) return const LandingScreen();
     return Column(
       children: [
-        _SessionExpiredBar(onDismiss: auth.clearSessionExpiredNotice),
+        _SessionExpiredBar(
+          onDismiss: auth.clearSessionExpiredNotice,
+          // The way back in, shown exactly when it is needed. The first page
+          // itself carries no account row any more (the founder asked for it
+          // off), so the one moment a user is staring at a dead session is the
+          // one moment the sign-in button belongs next to the notice.
+          onSignIn: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const AuthScreen(mode: AuthMode.signIn),
+          )),
+        ),
         const Expanded(child: LandingScreen()),
       ],
     );
@@ -106,9 +133,10 @@ class _LoggedOutView extends StatelessWidget {
 }
 
 class _SessionExpiredBar extends StatelessWidget {
-  const _SessionExpiredBar({required this.onDismiss});
+  const _SessionExpiredBar({required this.onDismiss, required this.onSignIn});
 
   final VoidCallback onDismiss;
+  final VoidCallback onSignIn;
 
   @override
   Widget build(BuildContext context) {
@@ -136,6 +164,11 @@ class _SessionExpiredBar extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+              ),
+              TextButton(
+                key: const Key('landing-sign-in'),
+                onPressed: onSignIn,
+                child: const Text(S.loginTitle),
               ),
               TextButton(
                 onPressed: onDismiss,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/l10n/strings.dart';
+import '../../core/location/place_state.dart';
 import '../../core/auth_gate.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
@@ -84,7 +85,13 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen> {
             )
           : null,
       body: IndexedStack(index: _tab, children: [
-        MarketplaceView(repo: _repo),
+        MarketplaceView(
+        repo: _repo,
+        // A visitor browsing the market must not hit the contractor endpoints:
+        // without this flag the header asked for a profile it cannot have and
+        // answered with «تعذّر جلب ملفك» on the dashboard the founder saw.
+        guest: AuthGate.isGuest(context),
+      ),
         // Both tabs below are dead ends without a job or a conversation: the
         // only thing that creates either one is the market on tab 0, so each
         // empty state can send the contractor back there.
@@ -156,7 +163,21 @@ class _MarketplaceViewState extends State<MarketplaceView> {
 
   String? _category;
   String? _wilaya;
-  late Future<List<Project>> _projects;
+
+  /// The open market, read once and re-read on every filter change.
+  ///
+  /// Nullable on purpose: `didChangeDependencies` seeds the wilaya from the
+  /// phone *before* the first build asks for anything, so the first request the
+  /// app makes is already the filtered one. Fetching in `initState` would ask
+  /// for the whole country and throw the answer away one frame later.
+  Future<List<Project>>? _projects;
+
+  /// The feed to draw, fetched on first use.
+  Future<List<Project>> get _feed => _projects ??= widget.repo.browseProjects(
+        category: _category,
+        wilaya: _wilaya,
+        status: ProjectStatus.open,
+      );
 
   final _search = TextEditingController();
 
@@ -184,10 +205,50 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   /// the feed is public, his stats are not.
   Future<WorkerProfile>? _me;
 
+  /// Where the phone is, once the app knows. Its wilaya opens the market on the
+  /// projects a contractor standing in that wilaya can actually take, which is
+  /// the founder's «show related offers» brief. It stays a seed: the first
+  /// manual filter choice owns the filter from then on, and the chip always
+  /// says which wilaya is applied, so nothing is hidden behind the app's back.
+  PlaceState? _place;
+
+  /// True once the user picked a wilaya (or cleared the filters) himself.
+  bool _wilayaChosen = false;
+
+  /// One look-up of the shared location state per screen.
+  bool _scopeReady = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_scopeReady) return;
+    _scopeReady = true;
+    _place = AppScope.maybeOf(context)?.place;
+    _place?.addListener(_onPlaceChanged);
+    _seedFromPlace();
+  }
+
+  void _onPlaceChanged() {
+    if (mounted) _seedFromPlace();
+  }
+
+  /// Opens the feed on the visitor's own wilaya, and re-opens it there when the
+  /// fix lands after the first paint — but never over a filter he set himself.
+  void _seedFromPlace() {
+    final id = _place?.wilayaId;
+    if (id == null || _wilayaChosen || _wilaya == id) return;
+    _wilaya = id;
+    // Drop the read: the next build asks for the wilaya instead, once.
+    _projects = null;
+    _wideRows = null;
+    _widened = false;
+    _searchToken++;
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
-    _projects = widget.repo.browseProjects(status: ProjectStatus.open);
     _me = widget.guest ? null : widget.repo.myProfile();
   }
 
@@ -255,6 +316,7 @@ class _MarketplaceViewState extends State<MarketplaceView> {
 
   @override
   void dispose() {
+    _place?.removeListener(_onPlaceChanged);
     _search.dispose();
     super.dispose();
   }
@@ -274,6 +336,7 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   /// The empty market's own action. `_selectCategory(null)` only clears the
   /// trade; a wilaya filter can empty the page on its own, so both go.
   void _clearFilters() {
+    _wilayaChosen = true;
     if (_category == null && _wilaya == null) return;
     _category = null;
     _wilaya = null;
@@ -291,9 +354,13 @@ class _MarketplaceViewState extends State<MarketplaceView> {
     return SafeArea(
       child: CustomScrollView(
         slivers: [
-          if (_me != null)
+          if (_me != null || widget.guest)
             SliverToBoxAdapter(
-                child: _HeaderSection(profile: _me!, onEdit: _editProfile)),
+                child: _HeaderSection(
+              profile: _me,
+              guest: widget.guest,
+              onEdit: _editProfile,
+            )),
           SliverToBoxAdapter(
             child: _FilterBar(
               category: _category,
@@ -325,7 +392,7 @@ class _MarketplaceViewState extends State<MarketplaceView> {
             ),
           ),
           FutureBuilder<List<Project>>(
-            future: _projects,
+            future: _feed,
             builder: (context, snap) {
               if (snap.connectionState != ConnectionState.done) {
                 return const SliverToBoxAdapter(
@@ -427,6 +494,7 @@ class _MarketplaceViewState extends State<MarketplaceView> {
       ),
     );
     if (picked != null) {
+      _wilayaChosen = true;
       _wilaya = picked;
       _reload();
     }
@@ -438,16 +506,51 @@ class _MarketplaceViewState extends State<MarketplaceView> {
 // ─────────────────────────────────────────────────────────────────────────
 
 class _HeaderSection extends StatelessWidget {
-  final Future<WorkerProfile> profile;
+  /// The signed-in contractor's profile, or null for a signed-out visitor —
+  /// there is no profile to fetch without an account.
+  final Future<WorkerProfile>? profile;
+  final bool guest;
   final VoidCallback onEdit;
-  const _HeaderSection({required this.profile, required this.onEdit});
+  const _HeaderSection(
+      {required this.profile, required this.guest, required this.onEdit});
+
+  /// What a visitor gets where the contractor's own card would be: the same
+  /// navy card, a line saying what the market is, and the one way in. It never
+  /// reads «تعذّر جلب ملفك» — nothing failed, he simply has no account yet.
+  List<Widget> _guestBody(BuildContext context) => [
+        Text(
+          'سوق المقاولين',
+          style: AppTheme.h2.copyWith(color: AppTheme.onNavy),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'تصفّح المشاريع المفتوحة في ولايتك، وقدّم عروضك بعد إنشاء حساب مقاول. مجاناً.',
+          style: AppTheme.bodySoft.copyWith(color: AppTheme.onNavyMuted),
+        ),
+        const SizedBox(height: 14),
+        FilledButton(
+          key: const Key('header-create-account'),
+          onPressed: () => AuthGate.requireAuth(
+            context,
+            what: 'لتقدّم عروضك على المشاريع',
+            as: UserRole.worker,
+          ),
+          style: FilledButton.styleFrom(
+            backgroundColor: AppTheme.accent,
+            foregroundColor: AppTheme.navy,
+            minimumSize: const Size.fromHeight(AppTheme.tapMin),
+          ),
+          child: const Text('أنشئ حساب مقاول'),
+        ),
+      ];
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<WorkerProfile>(
       future: profile,
       builder: (context, snap) {
-        final loading = snap.connectionState != ConnectionState.done;
+        final loading =
+            profile != null && snap.connectionState != ConnectionState.done;
         final worker = snap.data;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -484,6 +587,8 @@ class _HeaderSection extends StatelessWidget {
                   const SizedBox(height: 16),
                   if (loading)
                     ..._skeletonRows()
+                  else if (worker == null && guest)
+                    ..._guestBody(context)
                   else if (worker == null)
                     Text(
                       'تعذّر جلب ملفك',

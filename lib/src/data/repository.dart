@@ -18,10 +18,30 @@ class Repository {
   final ApiClient _api;
 
   // ---- Workers / contractors -------------------------------------------
-  Future<List<WorkerProfile>> topWorkers({int limit = 10}) async {
-    return _rows(
-        await _api.get('/api/mobile/workers/top?limit=$limit'),
+  /// The best-rated contractors, with the ones in the visitor's own wilaya
+  /// first when the app knows where he is.
+  ///
+  /// The ordering is client-side on purpose: asking the server to filter would
+  /// empty the strip in a wilaya where no contractor has signed up yet, and a
+  /// client's home must never lose its contractors because of the visitor's
+  /// phone. «Near you first» keeps everyone on the screen and still answers the
+  /// founder's «show related offers» brief. The wider fetch exists so a
+  /// same-wilaya contractor can reach the front even when he is not in the
+  /// default top ten.
+  Future<List<WorkerProfile>> topWorkers(
+      {int limit = 10, String? preferWilaya}) async {
+    final prefer = preferWilaya != null && preferWilaya.isNotEmpty;
+    final rows = _rows(
+        await _api.get(
+            '/api/mobile/workers/top?limit=${prefer ? limit * 4 : limit}'),
         WorkerProfile.fromJson);
+    if (!prefer) return rows;
+    final near = <WorkerProfile>[];
+    final rest = <WorkerProfile>[];
+    for (final w in rows) {
+      (w.wilaya == preferWilaya ? near : rest).add(w);
+    }
+    return [...near, ...rest].take(limit).toList();
   }
 
   Future<List<WorkerProfile>> searchWorkers({

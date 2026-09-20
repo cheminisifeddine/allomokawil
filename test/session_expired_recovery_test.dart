@@ -114,10 +114,11 @@ void main() {
 
       // The dead session is gone and the front door is back.
       expect(auth.isAuthenticated, isFalse);
-      expect(find.byKey(const Key('landing-create-account')), findsOneWidget);
-
-      // The landing page also asks for a second reason to be there: the front
-      // door has a way in, and it says why the app sent him back here.
+      expect(find.byKey(const Key('landing-role-customer')), findsOneWidget);
+      // The account row left the first page for good; a session that dies is the
+      // one case that still puts a «تسجيل الدخول» button on it, inside the
+      // notice, so the way back in is one tap and not three.
+      expect(find.byKey(const Key('landing-create-account')), findsNothing);
       expect(find.byKey(const Key('landing-sign-in')), findsOneWidget);
       expect(find.text(S.errUnauthorized), findsOneWidget);
 
@@ -126,7 +127,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(S.errUnauthorized), findsNothing);
       expect(auth.sessionExpired, isFalse);
-      expect(find.byKey(const Key('landing-sign-in')), findsOneWidget);
+      // With the notice gone the first page is the founder's minimal one again:
+      // no account row, no sign-in row — just the one question.
+      expect(find.byKey(const Key('landing-sign-in')), findsNothing);
+      expect(find.byKey(const Key('landing-role-customer')), findsOneWidget);
     },
   );
 }

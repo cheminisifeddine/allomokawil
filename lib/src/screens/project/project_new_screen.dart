@@ -72,6 +72,15 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
   final List<String> _keptImages = [];
   bool _busy = false;
 
+  /// The form's own scroll position.
+  ///
+  /// Without a controller the page still scrolls, but every return from a
+  /// picker let Flutter put focus back on the form's first text field and
+  /// scroll it into view — the very top. The founder, verbatim: «when i choise
+  /// a wilaya or city i get scrolled up to the top of the page fix it». Holding
+  /// the controller means the form can put the reader back where he was.
+  final _scroll = ScrollController();
+
   bool get _isEdit => widget.initial != null;
 
   bool _scopeReady = false;
@@ -97,11 +106,26 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
       _urgency = existing.urgency;
       _keptImages.addAll(existing.images);
     } else {
-      // A brand-new project: fill the location from the phone, but only when
-      // permission is already held — nobody should meet a permission dialog
-      // they did not ask for. Otherwise the field keeps its own button.
-      _autoDetectQuietly();
+      // A place the app already knows — detected when the app opened, so the
+      // offer and the form agree on where the visitor is. No dialog here: the
+      // launch already asked. Then the quiet attempt, for the case where
+      // permission is held but the launch had not resolved a wilaya yet.
+      final known = AppScope.maybeOf(context)?.place.place;
+      if (known != null) {
+        // Before the first build, so no setState: the field is filled on the
+        // frame that draws it.
+        _seedFromPhone(known);
+      } else {
+        _autoDetectQuietly();
+      }
     }
+  }
+
+  /// Marks the wilaya as read from the phone rather than chosen. Split out so
+  /// the seed above runs before the first build, without a setState.
+  void _seedFromPhone(DetectedPlace place) {
+    _detected = place;
+    _wilaya = place.wilayaId;
   }
 
   Future<void> _autoDetectQuietly() async {
@@ -138,12 +162,37 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
 
   @override
   void dispose() {
+    _scroll.dispose();
     _title.dispose();
     _desc.dispose();
     _budgetMin.dispose();
     _budgetMax.dispose();
     _commune.dispose();
     super.dispose();
+  }
+
+  /// Opens a picker without losing the reader's place.
+  ///
+  /// Two things happen around every sheet: the focus is dropped first, because
+  /// that is what Flutter uses to scroll the form back to the top when the
+  /// sheet closes, and the offset is measured before and restored after, so the
+  /// return is exact even if the keyboard resized the page in between.
+  Future<T?> _detour<T>(Future<T?> Function() open) async {
+    final offset = _scroll.hasClients ? _scroll.offset : null;
+    FocusManager.instance.primaryFocus?.unfocus();
+    final result = await open();
+    _restoreScroll(offset);
+    return result;
+  }
+
+  void _restoreScroll(double? offset) {
+    if (offset == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      final max = _scroll.position.maxScrollExtent;
+      final want = offset.clamp(0.0, max);
+      if ((_scroll.offset - want).abs() > 0.5) _scroll.jumpTo(want);
+    });
   }
 
   Future<void> _pickImages() async {
@@ -244,11 +293,11 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
   }
 
   Future<void> _pickWilaya() async {
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => const _WilayaSheet(),
-    );
+    final picked = await _detour(() => showModalBottomSheet<String>(
+          context: context,
+          isScrollControlled: true,
+          builder: (_) => const _WilayaSheet(),
+        ));
     if (picked == null) return;
     // A commune only means something inside its wilaya: keeping حسين داي
     // selected after switching to وهران would post a project that cannot exist.
@@ -268,14 +317,14 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
       return;
     }
     final wilaya = _wilaya!;
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => _CommuneSheet(
-        wilayaId: wilaya,
-        wilayaName: Taxonomy.wilayaName(wilaya),
-      ),
-    );
+    final picked = await _detour(() => showModalBottomSheet<String>(
+          context: context,
+          isScrollControlled: true,
+          builder: (_) => _CommuneSheet(
+            wilayaId: wilaya,
+            wilayaName: Taxonomy.wilayaName(wilaya),
+          ),
+        ));
     if (picked != null) setState(() => _commune.text = picked);
   }
 
@@ -289,6 +338,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
       body: SafeArea(
         bottom: false,
         child: SingleChildScrollView(
+          controller: _scroll,
           padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,

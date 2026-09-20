@@ -3,10 +3,8 @@ import 'package:flutter/material.dart';
 import '../../core/app_scope.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/app_theme.dart';
-import '../../data/onboarding.dart';
 import '../../models/enums.dart';
 import '../../widgets/big_button.dart';
-import '../../widgets/role_guide.dart';
 import '../auth/auth_screen.dart';
 
 /// The first screen of a fresh install — one question, not a brochure.
@@ -54,23 +52,9 @@ class LandingScreen extends StatelessWidget {
     );
   }
 
-  /// «إنشاء الحساب» is the one button that has to answer a question the visitor
-  /// cannot answer himself: is he the one who needs work done, or the one who
-  /// does it? The form asks it too, but only after a phone number has been
-  /// typed, so a first-time visitor gets the explainer once, here. Whatever he
-  /// answers — or if he skips — the tap still ends on the same sign-up form.
-  Future<void> _startSignUp(BuildContext context) async {
-    var role = UserRole.customer;
-    final seen = await roleGuideSeen();
-    if (!context.mounted) return;
-    if (!seen) {
-      final picked = await showRoleGuide(context);
-      await markRoleGuideSeen();
-      if (picked != null) role = picked;
-    }
-    if (!context.mounted) return;
-    _openAuth(context, AuthMode.signUp, role: role);
-  }
+  /// «إنشاء الحساب» left this page with the account block: a visitor who wants
+  /// an account reaches the same form from the dashboard the buttons open, at
+  /// the first action that needs it (see core/auth_gate.dart).
 
   @override
   Widget build(BuildContext context) {
@@ -94,10 +78,6 @@ class LandingScreen extends StatelessWidget {
                       _RoleQuestion(
                         onCustomer: () => _enter(context, UserRole.customer),
                         onWorker: () => _enter(context, UserRole.worker),
-                      ),
-                      _AccountBlock(
-                        onCreate: () => _startSignUp(context),
-                        onSignIn: () => _openAuth(context, AuthMode.signIn),
                       ),
                     ],
                   ),
@@ -193,57 +173,15 @@ class _RoleQuestion extends StatelessWidget {
   }
 }
 
-/// Sign in, or make an account. The buttons above need neither.
+/// Sign in, or make an account — moved off this page.
 ///
-/// One row and one legal line — the shape the founder asked for, taken from the
-/// first screen of the app he pointed at: everything that is not the mark, the
-/// line, the two buttons or this row has been taken off the page.
-class _AccountBlock extends StatelessWidget {
-  final VoidCallback onCreate;
-  final VoidCallback onSignIn;
+/// The founder's brief, verbatim:
+///   «Remove this section تسجيل الدخول إنشاء الحساب بالمتابعة أنت توافق على شروط
+///    الاستخدام وسياسة الخصوصية. From first page»
+///
+/// So the first page is now the mark, the line and the one question it asks.
+/// The way back into an existing account did not disappear with the row: it
+/// lives in `_LoggedOutView`'s session notice and on the «حسابي» tab of the
+/// dashboard both buttons open — that is, exactly where the user is when he
+/// needs it, instead of in front of every first-time visitor.
 
-  const _AccountBlock({required this.onCreate, required this.onSignIn});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // A Wrap, not a Row: two Arabic labels plus the separator are wider than
-        // a 360dp phone once the buttons carry their 48dp touch height, and a
-        // squeezed row would clip the second word of «إنشاء الحساب».
-        Wrap(
-          alignment: WrapAlignment.center,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            TextButton(
-              // Named for the session-expired test, which proves the front door
-              // keeps a way in next to the notice explaining why it is showing.
-              key: const Key('landing-sign-in'),
-              onPressed: onSignIn,
-              style: TextButton.styleFrom(
-                minimumSize: const Size(0, AppTheme.tapMin),
-              ),
-              child: Text(S.loginTitle),
-            ),
-            Text('·', style: AppTheme.caption.copyWith(color: AppTheme.textMuted)),
-            TextButton(
-              key: const Key('landing-create-account'),
-              onPressed: onCreate,
-              style: TextButton.styleFrom(
-                minimumSize: const Size(0, AppTheme.tapMin),
-              ),
-              child: Text(S.createAccount),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppTheme.s4),
-        Text(
-          'بالمتابعة أنت توافق على شروط الاستخدام وسياسة الخصوصية.',
-          textAlign: TextAlign.center,
-          style: AppTheme.caption.copyWith(color: AppTheme.textMuted),
-        ),
-      ],
-    );
-  }
-}

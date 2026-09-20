@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 
+import 'location/place_state.dart';
 import 'network/api_client.dart';
 import 'security/auth_state.dart';
 
@@ -7,15 +8,22 @@ import 'security/auth_state.dart';
 /// shared [ApiClient] and [AuthState], kept above the navigation stack so
 /// every screen and the role gate share one source of truth.
 class AppScope extends InheritedWidget {
-  const AppScope({
+  /// Not `const` any more: [place] falls back to a storage-free store, which is
+  /// how a screen pumped on its own (a widget test, a design shot) keeps the
+  /// same API without touching the platform's preferences.
+  AppScope({
     super.key,
     required this.api,
     required this.auth,
+    PlaceState? place,
     required super.child,
-  });
+  }) : place = place ?? PlaceState.detached();
 
   final ApiClient api;
   final AuthState auth;
+
+  /// Where the phone is, or a store that answers "unknown" forever.
+  final PlaceState place;
 
   static AppScope of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<AppScope>();
@@ -33,5 +41,5 @@ class AppScope extends InheritedWidget {
 
   @override
   bool updateShouldNotify(AppScope old) =>
-      api != old.api || auth != old.auth;
+      api != old.api || auth != old.auth || place != old.place;
 }

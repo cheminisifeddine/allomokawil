@@ -187,10 +187,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.byKey(const Key('landing-create-account')));
-    await tester.tap(find.byKey(const Key('landing-create-account')));
+    // Reach the form the way a user does now: pick a side, then do the thing
+    // that needs an account.
+    await tester.tap(find.byKey(const Key('landing-role-customer')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('role-guide-customer')));
+    await tester.tap(find.byKey(const Key('tab-action')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('auth-tab-signin')));
     await tester.pumpAndSettle();

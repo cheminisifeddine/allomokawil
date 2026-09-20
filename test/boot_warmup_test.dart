@@ -155,7 +155,7 @@ void main() {
     // Frame one, exactly as `main()` now leaves it: storage has not answered.
     expect(auth.isRestored, isFalse);
     expect(find.byType(AppBootSkeleton), findsOneWidget);
-    expect(find.byKey(const Key('landing-create-account')), findsNothing);
+    expect(find.byKey(const Key('landing-role-customer')), findsNothing);
 
     // The reads `main()` used to await now run behind the frame.
     await Boot.warmup(auth: auth, crashes: crashes, trace: BootTrace());
@@ -163,6 +163,6 @@ void main() {
 
     expect(auth.isRestored, isTrue);
     expect(find.byType(AppBootSkeleton), findsNothing);
-    expect(find.byKey(const Key('landing-create-account')), findsOneWidget);
+    expect(find.byKey(const Key('landing-role-customer')), findsOneWidget);
   });
 }
