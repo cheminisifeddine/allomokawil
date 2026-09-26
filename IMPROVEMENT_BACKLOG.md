@@ -1871,7 +1871,16 @@ it is a correctness gap that duplicates a user's data.
       `lib/src/screens/worker/subscription_screen.dart`,
       `lib/src/screens/profile_screen.dart`,
       `test/subscription_clock_test.dart` (new).
-      Local commit `PENDING`.
+      Local commit `35eb229`, remote `a57b9f7` — all five blobs verified
+      `MATCH` against `origin/main`'s tree, not trusted from the push helper's
+      exit code.
+      *The screen test is a guard, not a pin, and the backlog should say so:*
+      reverting only `isExpired` leaves all 9 green, because the wrong-hour
+      answer and the right one both render «منتهي» once the date is genuinely
+      past. The three zone probes are the ones that pin the defect, and they
+      fail on the pre-fix parse with its own numbers
+      (`Expected: contains 'DAY=1'` / `Actual: 'DAY=30'`,
+      `END_HOUR=1` / `END_HOUR=0`).
 
 - [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent
       writes.** The app cannot make `POST /api/mobile/projects` safe to retry on
