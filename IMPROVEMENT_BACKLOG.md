@@ -1568,12 +1568,67 @@ it is a correctness gap that duplicates a user's data.
       `delete_repo` scope, so the throwaway test repo
       `cheminisifeddine/ghp-safety-test` (private, 2 files) needs deleting by
       hand.
-- [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent writes.**
-      The app cannot make `POST /api/mobile/projects` safe to retry on its own.
-      A `Idempotency-Key` request header, stored with the created row and
-      checked before insert, would let the client fail over to the second host on
-      a timeout without duplicating anything and without asking the user to
-      guess. Until then the app refuses to re-send and says so.
+      *The "known gap" above is now CLOSED — see the item immediately below.*
+- [x] **Push helper: the first push to a repository or branch that does not
+      exist yet.** The gap the previous cycle recorded and deliberately left.
+      The ref read returned 404 (409 on an empty repo) and the script gave up,
+      so the only way to push on this box could never open a new repository or
+      branch. Four distinct defects, each found by running the case rather than
+      by reasoning about it:
+      1. **404/409 from the ref read is "create", not "stop".** `resolve_base()`
+         now returns the base to build on *and* whether the ref itself exists.
+         A new branch off main inherits main's tree, so the diff stays honest
+         instead of reporting every file as new.
+      2. **"Has a base" and "has a ref" are different facts.** My first attempt
+         derived one from the other and every new branch died on
+         `422 Reference does not exist` from the PATCH, *after* the blobs were
+         already uploaded. Only a branch that existed when the push started is
+         patched; anything else is created with POST.
+      3. **The git-data API cannot seed an empty repository at all** — creating
+         a blob answers `409 Git Repository is empty`, so the
+         blob → tree → commit → ref chain cannot start. The orphan case now goes
+         through the Contents API, which is the documented way in, and says how
+         many files remain for a second run.
+      4. **An empty commit cannot be built either** — GitHub answers
+         `422 Invalid tree info` for a tree with no entries, with or without a
+         base. So a new branch whose content already matches the parent is
+         created AT the parent commit, which is what
+         `git push origin main:BRANCH` does, and leaves no junk commit behind.
+      *Also fixed while testing:* a path filter on a brand-new branch used to
+      create a branch holding only the filtered files. The filter is now ignored
+      for a new branch, with a printed NOTE, because a half-written branch that
+      looks pushed is worse than a larger push.
+      *Evidence (real output, against throwaway repos, allomokawil never
+      touched):* a new branch off main was created and its commit's parent is
+      **byte-identical to main's tip**; a first push to a completely empty repo
+      seeded via the Contents API and the re-run pushed the remaining file;
+      a new branch identical to its parent was created with no empty commit; a
+      filtered push to an existing branch reported **"1 changed, 0 deleted"** and
+      both files were still on the remote (the 782b657 bug stays fixed); a
+      genuine deletion without `--allow-deletes` still refuses with **exit 3**
+      and names the file, and with the flag removes exactly that one file; an
+      untracked `local.properties` was never uploaded.
+      **Then used on the real repo** — see the commit on `main` below.
+- [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent
+      writes.** The app cannot make `POST /api/mobile/projects` safe to retry on
+      its own. A `Idempotency-Key` request header, stored with the created row
+      and checked before insert, would let the client fail over to the second host
+      on a timeout without duplicating anything and without asking the user to
+      guess.
+      **App-side half: DONE and covered by tests** — audited this cycle rather
+      than assumed. The client already refuses to re-send an unconfirmed write
+      (`errWriteUnconfirmed`), and all five write paths re-read the server and
+      tell the user which of three things is true — it landed, it is missing, or
+      it is still unknown: `project_new_screen` (title match), `project_detail`
+      (bid amount + worker id), `chat_screen` (content + sender, plus the
+      permanent «لم يتأكّد وصولها» line and a «تحقّق» action that re-reads),
+      `review_screen` (project + rating), `verification_screen` (pending or
+      verified). `test/write_outcome_test.dart` and
+      `test/write_unconfirmed_refetch_test.dart` cover the contract.
+      **What is actually left is the server half only:** the header the Worker
+      does not yet read. No Dart change can supply it, and the app is not
+      missing anything until then. This item is not completed — it is
+      correctly parked on BACKEND-API, which holds the Cloudflare credentials.
 
 ---
 
