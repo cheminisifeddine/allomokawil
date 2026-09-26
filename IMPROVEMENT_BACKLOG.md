@@ -1777,6 +1777,38 @@ it is a correctness gap that duplicates a user's data.
       the same way Phase 5 was opened.
       Local commit `68e3536`.
 
+- [x] **A bounded queue deleted the oldest unsent message in silence.**
+      Found on 26 Sep by re-reading the outbox, not from a wish list — and it
+      is the same defect the outbox was written to kill, one bound higher up.
+      `chatOutboxMax` is 60 and `add()` did
+      `while (items.length > chatOutboxMax) items.removeAt(0);`: the record was
+      deleted, with no return value and no word anywhere on screen. The line
+      that goes first is very often the one that matters — «العنوان: حسين
+      داي» — so a client whose connection stayed dead through the 61st
+      message lost his address and never found out.
+      The bound stays (a preferences blob must stay bounded) and the write is
+      not refused (a send that never happens is worse than one that is
+      reported). `add()` now returns the record it had to drop in
+      `lastDropped`, set **after** the write succeeds so a store that refuses
+      cannot turn it into a lie, and the thread shows it. The copy names the
+      message so it can be retyped, calls a dropped photo a photo rather than
+      empty quotes, and clips a long line.
+      Fixing that exposed why the word would have been invisible anyway:
+      `_retryUnsent` toasted once per bubble, so sixty refused messages
+      produced sixty identical SnackBars back to back — four minutes of a
+      screen the user could not use, with every other word buried under the
+      pile. It is now quiet, for the reason `_flushQueued` already gave: a
+      retry the app started on its own is not news, and the banner above the
+      composer already says it.
+      `test/outbox_eviction_test.dart` **fails on the build before the fix
+      with the defect itself** (a message deleted from the device and the
+      thread silent about it) and passes on the new one. `flutter test`
+      **+559 ~3 -1**, up from +554. The one failure is the pre-existing
+      `12_chat` golden: identical 0.01% / 43px on clean HEAD, not
+      re-baselined.
+      Remote `1269143` (local `fb06959`), blobs verified against the remote
+      tree.
+
 - [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent
       writes.** The app cannot make `POST /api/mobile/projects` safe to retry on
       its own. A `Idempotency-Key` request header, stored with the created row
