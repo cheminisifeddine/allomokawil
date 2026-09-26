@@ -2388,3 +2388,53 @@ Phase 1.
       `flutter test` -> **+541 ~3: All tests passed!** — unchanged, zero drop.
       Local `714653a`, remote `ac581d0`. `allomokawil.com` -> **200**, API ->
       **200**. No Dart app source touched, no APK, no release, no tag.
+
+- [x] **The quote card's completion time used one fixed noun for every
+      count.** DONE `10bd777` (remote `860ead9`).
+      Found on 26 Sep by finishing the item the previous tick left on disk,
+      same vein, fifth cycle down: a count is either delegated to
+      `arabicCounted` or spelled out by hand, and every hand-written one so
+      far has been wrong. The line was:
+
+          Text('مدة الإنجاز: ${quote.estimatedDays} يوم')
+
+      **Worse than the gallery tile, which was wrong on two ranges out of
+      four — this was wrong at every value except two.** 1 was «1 يوم» (the
+      singular is not counted), 2 was «2 يوم» (the dual is «يومين», uncounted),
+      3-10 was «3 يوم»/«7 يوم» (they need the broken plural «أيام») — and 3 to
+      10 is the commonest real answer, since the field is validated only at
+      `min: 1` and every real bid lands in the middle of that range. 1 and 11+
+      were right by accident: both take a counted singular, which happened to
+      be the word that was hard-coded. The card is the row a client compares
+      contractors on, so a reviewer reading «مدة الإنجاز: 7 يوم» saw a real
+      Arabic noun and moved on.
+      *Shipped:* `lib/src/data/quote_duration_copy.dart` — delegates to the
+      one `arabicCounted` the notification clock and the subscription countdown
+      already share, dual «يومين» (the same word those two already ship). A
+      count of zero or less returns `''` rather than tripping the
+      `arabicCount` assert inside a widget build, which removes the row exactly
+      as a null already did.
+      *Evidence:* `flutter analyze` → **No issues found!** (6.3 s);
+      `flutter test` → **+662 ~3 -1**, up from +648, 14 new, nothing lost.
+      **The tests were proven to catch the bug, not to pass beside it:**
+      restoring the old line fails 4 of them, and they pass again with the
+      fix. 6 of the 14 mount the real `ProjectDetailScreen` and read the
+      rendered strings, because "a client read «2 يوم»" is a claim about a
+      screen, not about a return value.
+      `12_chat` still fails at 0.01% / 43px and **fails at that exact number
+      on clean HEAD** (stash → run → pop), so it is not this change.
+      *A gap worth naming, found this cycle and not fixed here:* the golden
+      loop in `design_shots_test.dart` walks `_mainScreens`, and
+      `expectLater` aborts the whole test on the first mismatch. `12_chat`
+      (line 466) is listed **before** `07_project_detail` (line 475), so the
+      project-detail golden is **never compared** while `12_chat` fails — the
+      pixel suite is blind to this line, and its stored `07_project_detail.png`
+      is now stale. A throwaway probe isolated the effect: with the fix
+      107559 px differ from the baseline, without it 107491 — a **68 px**
+      delta that is exactly this change. So the baseline is genuinely
+      sensitive here; it just never gets asked. Re-ordering `_mainScreens`
+      (or collecting per-screen errors instead of aborting) is a real fix for
+      a later tick — it would also mean today's passing `07_project_detail`
+      was never evidence for anything.
+      Local `10bd777`, remote `860ead9`; all three blobs verified `MATCH`
+      against the remote tree. No APK, no release, no tag.
