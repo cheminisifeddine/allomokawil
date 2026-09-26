@@ -11,6 +11,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
 import '../../data/communes.dart';
 import '../../data/commune_count_copy.dart';
+import '../../data/project_photo_count_copy.dart';
 import '../../core/location/locator.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
@@ -1143,7 +1144,7 @@ class _ImageAttach extends StatelessWidget {
         Text(
           images.isEmpty
               ? 'أضف صوراً لعملك — الصور الجيدة تجلب عروضاً أكثر'
-              : '${images.length} صورة مضافة',
+              : addedPhotosLineAr(images.length),
           style: AppTheme.caption,
         ),
       ],
