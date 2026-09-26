@@ -10,6 +10,7 @@ import '../../core/text/dz_number.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
 import '../../data/communes.dart';
+import '../../data/commune_count_copy.dart';
 import '../../core/location/locator.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
@@ -851,7 +852,7 @@ class _CommuneSheetState extends State<_CommuneSheet> {
                 ),
                 if (!_loading)
                   Text(
-                    '$_total بلدية',
+                    communeCountAr(_total),
                     style: AppTheme.caption.copyWith(color: AppTheme.textMuted),
                   ),
               ],
@@ -919,7 +920,7 @@ class _CommuneSheetState extends State<_CommuneSheet> {
                             return Padding(
                               padding: const EdgeInsets.fromLTRB(6, 0, 6, 8),
                               child: Text(
-                                matches == 1 ? 'بلدية واحدة' : '$matches بلدية',
+                                communeCountAr(matches),
                                 style: AppTheme.caption
                                     .copyWith(color: AppTheme.textMuted),
                               ),
