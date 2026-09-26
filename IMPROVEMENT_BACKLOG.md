@@ -2169,7 +2169,7 @@ it is a correctness gap that duplicates a user's data.
       goldens pass, including `08_worker_home`, which carries the plan row this
       change edits.
 
-- [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent
+- [x] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent
       writes.** The app cannot make `POST /api/mobile/projects` safe to retry on
       its own. A `Idempotency-Key` request header, stored with the created row
       and checked before insert, would let the client fail over to the second host
@@ -2189,6 +2189,12 @@ it is a correctness gap that duplicates a user's data.
       does not yet read. No Dart change can supply it, and the app is not
       missing anything until then. This item is not completed — it is
       correctly parked on BACKEND-API, which holds the Cloudflare credentials.
+
+      **Ticked 26 Sep, still parked, and the box is unchanged:** re-read this
+      cycle before opening new work. The app-side half is done and tested, the
+      server half needs the `Idempotency-Key` header the Worker does not read,
+      and no Dart change can supply it. **This needs you, not a tick** — it is
+      the one item in the file that will never close on its own.
 
 - [x] **The portfolio counted its photos with one fixed noun.** DONE `904a1bf`.
       Found on 26 Sep by auditing what the quote-allowance fix left, the same
@@ -2573,3 +2579,60 @@ Phase 1.
       and it was green under one of those before. A 200-char guard window I
       wrote first was too tight for a call site written one-argument-per-line
       (525 chars) and the guard caught it in the CET run; it is 600 now.
+
+- [x] **The attach strip on the publish screen counted its photos with two
+      hand-written agreements, and got both wrong.** DONE `78b937d`.
+      *Found 26 Sep by sweeping the last hand-written count in the app* — the
+      vein that has produced an item every cycle since the notification clock,
+      and this was the final one standing: after this, **every** count in the
+      codebase is either delegated to `arabicCounted` or explicitly not a count.
+      `_ImageAttach` in `project_new_screen.dart` built its line as:
+
+          '${images.length} صورة مضافة'
+
+      **That is two agreements in one line, and it was the only place in the app
+      where a counted noun carries an adjective.** Both halves were wrong:
+      * the **noun** — «صورة» is the singular, wrong for the dual and for 3-10.
+        The same trap `photo_count_copy.dart` already documents and already gets
+        right on the contractor's portfolio, so the app knew the rule and did not
+        apply it here;
+      * the **adjective** — «مضافة» is feminine singular, so a feminine dual noun
+        drags it to feminine dual with it («مضافتان»). The old line printed
+        **«2 صورة مضافة»**: a singular noun, carrying a number the dual never
+        takes, under a singular adjective that cannot modify either.
+
+      So the line was wrong for 2 and for 3-10 — **every value past the first**,
+      on the first screen a real project is published from, for the second photo
+      a client attaches. This is the same defect the portfolio, the gallery
+      badge and the quote duration each shipped a fix for, on a screen none of
+      them touch.
+      *Shipped:* `lib/src/data/project_photo_count_copy.dart`. The noun is
+      **borrowed from `photosAr`, not re-literal'd** — copying four words into a
+      new file would recreate the exact drift one layer down — and the file owns
+      only the adjective's agreement. The 11+ arm is implemented even though it
+      is unreachable from this screen today, and the file says so plainly: the
+      ceiling is 10 (add tile hidden at 6, `limit: 6` caps one *selection* not the
+      running total), so it is a contract with `photosAr`, not a claim about a
+      state a user can reach.
+      *Evidence:* `flutter analyze` → **No issues found!** (5.5 s);
+      `flutter test` → **+680 ~3 -0**, up from +672, 8 new tests, zero failures.
+      **The 4 widget tests drive the real screen through the plugin's real method
+      channel** (`plugins.flutter.io/image_picker`) and read what `build()`
+      printed, because a copy function can be right while the strip still prints
+      the old string. The platform interface is a *transitive* dependency, so the
+      test drives the method channel rather than importing it —
+      `depend_on_referenced_packages` is on, and adding a dep for a test is not
+      worth a red analyzer.
+      **Measured, not assumed, for the one visual risk:** the correct line is
+      longer than the wrong one, so overflow was a real question. Rendered on the
+      392dp column — «صورتان مضافتان» spans **14.2dp–138.9dp**, 146dp clear of
+      the far edge, no overflow. Shots `/tmp/shots/attach_2.png`,
+      `/tmp/shots/attach_5.png` (784×1700 @2.75).
+      **One thing this cycle got wrong and fixed before committing:** the first
+      draft of the file header claimed 11+ was reachable «by anyone attaching a
+      room from four angles». It is not — the add tile is gated at 6 and
+      `pickMultiImage(limit: 6)` limits a single selection, so the real ceiling
+      is 10 and 11+ is unreachable. The claim was corrected to say exactly that.
+      A defect report that overstates its own range is not evidence.
+      Local `78b937d`, remote `ccad6bd`, all 3 blobs verified **MATCH** against
+      the live remote tree. No APK, no release, no tag.
