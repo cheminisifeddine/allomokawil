@@ -2866,3 +2866,71 @@ Phase 1.
       has, which is the same defect seen from the other side.
       Local `0bddc5b`, remote `27d8870`, all 5 blobs verified **MATCH** against
       the live remote tree. No APK, no release, no tag.
+
+- [x] **A bid card showed a letter where the contractor's photo and his
+      verified tick should have been.** The sixth field the server sends and
+      the app drops, and the same shape as `quote_limit`, `portfolio_limit`,
+      the renewal fields and `categories`.
+      *The defect:* `GET /api/mobile/projects/{id}/quotes` returns
+      `worker_avatar_url` and `worker_verification_status` beside
+      `worker_full_name`. `Quote.fromJson` parsed both. The card drew
+      `InitialAvatar(quote.workerFullName)` and stopped — so a customer
+      comparing four bids was choosing between four monograms, and a
+      **verified** contractor was pixel-identical to an unverified one on the
+      one screen where he is about to hand someone his house. Both facts
+      already had three sibling read paths (worker feed card, profile, worker
+      list) rendering them from the same payload.
+      *Shipped:* one widget, `QuoteWorkerTrust`, used by the card, so the
+      avatar and the badge cannot drift. `verified` draws the success-token
+      tick, `pending` draws a clock («asked, not answered» is not «no» — it is
+      the state most contractors sit in for days), `rejected` draws nothing.
+      Only a literal `verified` earns the tick; an unknown value is treated as
+      pending rather than optimistically true.
+      *This item was handed over mid-flight and RED.* The previous tick left
+      the feature and its tests uncommitted; on the first run here **4 of the
+      19 tests failed and the widget suite hung outright**, so the fix for
+      those is most of this diff:
+      - the hand-rolled JSON parser in the test mis-typed `null` and threw on
+        the live row; now `jsonDecode`, as `live_payload_models_test.dart`
+        already does.
+      - `pumpAndSettle` never settled on the project screen (shimmer), and no
+        `SharedPreferences` mock was registered, so the suite **hung**:
+        `flutter_tester` sat at 0.4 % CPU for 9 minutes and was killed. Now
+        bounded pumps + prefs mock — the pattern `screen_smoke_test.dart`
+        already uses against this same screen. **9-minute hang -> 2 s.**
+      - two tests compared widget **sizes** between verified and pending. Both
+        render the same 48×48 box, so "they render differently" passes on a
+        widget that draws nothing at all. They now assert which mark is on
+        the corner, which is the real difference.
+      - the control test re-rendered without a teardown, so `pumpWidget`
+        reused the element and the badge under test was never re-read from the
+        payload at all.
+      - the avatar test asserted `findsNothing` for `InitialAvatar`, but under
+        `TestWidgetsFlutterBinding` every load answers 400 and the deliberate
+        `errorBuilder` puts the monogram back. That fallback is the claim worth
+        pinning, and it is now asserted as such instead of fighting it.
+      - badge finders were global and matched the screen chrome's own
+        `verified` icons, so they passed for the wrong reason; scoped to the
+        trust widget.
+      *A green test that cannot fail is worse than a missing one*, and three
+      of the six above were exactly that. Recorded so the next loop does not
+      trust a passing count without a mutation.
+      *Evidence:* `flutter analyze` -> **No issues found!**; the two trust
+      files -> **19/19**. Mutation (badge forced off, photo left on, so it
+      still compiles) -> **+9 -10** across both files, so the tests demonstrably
+      can fail.
+      *Rendered, not assumed:* `test/failures/07_project_detail_testImage.png`
+      diffed against the stored golden at **0.08 % / 271 px**, confined to an
+      **18×18 box at x339–356, y651–668**, and every changed pixel is
+      `#16213E` navy -> `#1B7E50`, which is `AppTheme.success` (confirmed at
+      `app_theme.dart:48`). Sampling the glyph at full resolution shows the
+      disc with the checkmark as negative space, so it is a tick and not a
+      blob. Golden regenerated **deliberately**, and re-verified green after.
+      Local `309d104`, remote `756a908`, all 5 blobs verified **MATCH** against
+      the live remote tree. No APK, no release, no tag.
+      *Not done, and not fakeable here:* the live quote rows could not be
+      re-fetched to confirm today's values — `/quotes` is auth-gated and
+      answers 403 «غير مصرح» without a session, so the fixture is the row
+      captured from the API on 11 Sep, already carried in
+      `live_payload_models_test.dart`. The field names are the contract; the
+      current values of real contractors are not asserted anywhere.
