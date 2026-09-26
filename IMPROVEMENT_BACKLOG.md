@@ -2190,6 +2190,56 @@ it is a correctness gap that duplicates a user's data.
       missing anything until then. This item is not completed — it is
       correctly parked on BACKEND-API, which holds the Cloudflare credentials.
 
+- [x] **The portfolio counted its photos with one fixed noun.** DONE `904a1bf`.
+      Found on 26 Sep by auditing what the quote-allowance fix left, the same
+      vein three cycles running. The portfolio header built both of its
+      sentences out of string interpolation:
+
+          '$count صورة في معرض أعمالك'
+          'أضفت $uploaded صورة في هذه الجلسة.'
+
+      Arabic changes the noun on the number, not the number on the noun, so
+      3-10 needs «صور» and 11+ returns to the counted singular «صورة». The
+      screen printed «صورة» for all of it.
+      **The range is not hypothetical:** the free plan ships
+      `portfolio_limit: 5`, so a contractor who fills his free allowance sees
+      «5 صورة» on the one screen whose whole job is to show him what he has.
+      The app never caps the list either — `addPortfolioImage` posts with no
+      ceiling — so any paid contractor climbs past ten, where the noun has to
+      change twice more.
+      **The session line moves fastest of all.** It counts one sitting, so a
+      man adding photos one at a time passes 1 → 2 → 3 → 4 and is wrong from
+      the third, while looking at the screen as they still upload.
+      *Shipped:* `lib/src/data/photo_count_copy.dart` supplies the nouns and
+      delegates the agreement to `arabicCounted` — the same one the notification
+      clock, the subscription countdown, the commune picker and the worker stats
+      share. Neither call site spells a form out any more.
+      **Dual is «صورتان», and 11+ deliberately returns to the bare singular.**
+      That is the exact trap the quote fix documented, so it is asserted in
+      *both* directions rather than one: a test forbids the singular across
+      3-10, and another forbids the plural at 11+ and up. A single-direction
+      assertion would have let the 11+ line regress to «11 صور» silently.
+      *Evidence:* `flutter analyze` → **No issues found!** (4.3 s);
+      `flutter test` → **+639 ~3 -1**, up from +625, 14 new tests, nothing lost.
+      **Four of the new tests mount `MyPortfolioScreen` itself** and read what
+      `build()` produced, because "a contractor read «5صورة»" is a claim about a
+      rendered screen and not a return value. One asserts the screen did not
+      land on its error state first, so a test cannot pass by rendering nothing.
+      **One bug the tests caught, and it was in the tests:** re-pumping the
+      same widget type into the same tree slot reuses its `State`, so the second
+      and third calls in a test body asserted against the *first* call's photo
+      list. The first draft passed only for the count it happened to start on.
+      Each pump now carries a key derived from the count. The second draft
+      failed the mirror-image way — it forbade the singular everywhere, which
+      "caught" the correct «11 صورة» line as a defect; the assertion was wrong,
+      not the copy.
+      `12_chat` fails at 0.01% / 43px and fails at that exact number on clean
+      HEAD (stash → run → pop), so it is not this change; the other 8 goldens
+      pass. **No layout, colour or geometry was touched, so no screenshot is
+      claimed** — the diff is two string literals.
+      Local `904a1bf`, remote `9bff3f3`, all 3 blobs verified `MATCH` against
+      the live remote tree. No APK, no release, no tag.
+
 ---
 
 ## Completed
