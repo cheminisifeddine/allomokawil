@@ -2329,6 +2329,45 @@ it is a correctness gap that duplicates a user's data.
       Local `a9c95a2`, remote `9bb8784`, all 3 blobs verified `MATCH` against
       the live remote tree. No APK, no release, no tag.
 
+- [x] **The pending-payment card never said which TERM the money bought.** The
+      card named the plan, the amount, the method and the day, and not the term
+      — the one fact that decides how much cover a man just paid for.
+      *Found by probing the live Worker, not by reading code:* `GET
+      /api/mobile/plans` publishes **four prepaid `durations` per plan**
+      (1/3/6/12 months, each cheaper than the last — 6 months is 11% under
+      monthly), but `BillingPeriod` has two arms, so the app can only ask for a
+      month or a year. The other half: the server answers **any unrecognised
+      `period` with `ok: true` and files the request as `month`**. Registered
+      throwaway accounts and posted `6month`, `quarter`, `3m`, `durations`,
+      `months6`, `3_month` and six more (requests 12-29, 26 Sep) — every one
+      returned `{"ok":true}` and every one was stored as `period: "month"`.
+      So a 6-month purchase arrives at the card looking exactly like a monthly
+      one, and `BillingPeriod.fromWire` would have made the client agree with
+      that lie.
+      *Shipped:* `PendingRequest` now carries the server's `period` **verbatim**
+      instead of coercing it through `fromWire`; the receipt prints the filed
+      term («اشتراك شهري» / «اشتراك سنوي», the toggle's own words, so no second
+      spelling of a term exists), and a period the app cannot name gets an
+      explicit one-month warning — «سُجِّل هذا الطلب لمدة شهر واحد — تأكّد من
+      المدة مع الدعم» — rather than a fabricated «شهري». No server change.
+      *Evidence:* `flutter analyze` → **No issues found!**; `flutter test` →
+      **+875 ~3, all passed** (was +860 — **+15 new, 0 regressions**).
+      Mutation-gated: the naive pass-through a first attempt ships
+      (`_ => 'اشتراك شهري'`) → **2 failing**, exactly the cases written for it.
+      *Screenshots:* no Chrome and no JDK on this box, so the web+CDP path
+      cannot run — not attempted, not claimed. Rasterized instead through the
+      same `RepaintBoundary`/`runAsync` writer `design_shots_test.dart` uses,
+      with real Cairo loaded via `FontLoader` (a bare widget test draws tofu):
+      `/tmp/shots/zz_pending_term_year.png`, `..._mismatch.png`, `..._none.png`.
+      Measured ink bands prove the states differ — year and none lay out 6 and 5
+      text rows, mismatch has the extra wrapped warning band (897-1115).
+      *The backend gap remains and is founder-gated:* the 3- and 6-month terms
+      are cheaper and **cannot be bought in-app at all**, and the server's
+      silent `ok` on an unknown period should be made a 4xx there. Both need
+      D1/Worker source, which is not on this host.
+      Local `6e515fd`, remote `fe0e532`; all 5 blobs verified **MATCH** against
+      a fresh clone of the live remote. No APK, no release, no tag.
+
 ---
 
 ## Completed
