@@ -276,8 +276,26 @@ Future<void> _loadFonts() async {
   // The icon font too: without it every Icon() renders as an empty square, so
   // the shots could not show whether an icon exists, is the right one, or sits
   // on a background it disappears into.
-  final root =
-      Platform.environment['FLUTTER_ROOT'] ?? '/home/renia/tools/flutter';
+  // `flutter test` exports FLUTTER_ROOT for us, so this normally takes the
+  // first branch. The fallback is only for running the file some other way,
+  // and it is derived from the running Dart binary rather than hardcoded to
+  // a path on one machine -- the old absolute path died with its host and
+  // the shots silently stopped checking the icon font.
+  //
+  // resolvedExecutable is <root>/bin/cache/artifacts/engine/<plat>/flutter_tester,
+  // so six .parent hops are the root. Two, as an earlier version of this
+  // assumed, lands in .../artifacts/engine and looks correct right up until
+  // FLUTTER_ROOT is unset -- then the icon font is missing and every Icon()
+  // would silently render as a blank square.
+  var root = Platform.environment['FLUTTER_ROOT'];
+  root ??= File(Platform.resolvedExecutable)
+      .parent // <plat>
+      .parent // engine
+      .parent // artifacts
+      .parent // cache
+      .parent // bin
+      .parent
+      .path; // <root>
   final icons = File('$root/bin/cache/artifacts/material_fonts/'
       'MaterialIcons-Regular.otf');
   expect(icons.existsSync(), isTrue,

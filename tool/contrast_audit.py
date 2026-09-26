@@ -25,7 +25,11 @@ import os
 import re
 import sys
 
-THEME = os.path.join(os.path.dirname(__file__), "..", "lib", "src", "core",
+HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+
+THEME = os.path.join(HERE, "..", "lib", "src", "core",
                      "theme", "app_theme.dart")
 
 # (token or literal fg, token or literal bg, kind) — kind picks the threshold.
@@ -119,8 +123,12 @@ def token_report(palette):
 
 
 def _histogram(path, step=2):
-    sys.path.insert(0, "/home/renia/tools")
-    from pngscan import read_png
+    # Imported lazily and resolved relative to this file. The module used to
+    # be sys.path-inserted from a hardcoded absolute path on a machine that
+    # no longer exists; the import failing was then swallowed per file, so
+    # the audit reported every pair as "not drawn in any shot" and still
+    # exited 0. A missing decoder is a hard error, never a quiet result.
+    from png_read import read_png
     w, h, rows = read_png(path)
     counts = {}
     for y in range(0, h, step):
@@ -141,11 +149,13 @@ def presence(rows, shots_dir):
     """
     files = sorted(glob.glob(os.path.join(shots_dir, "*.png")))
     wanted = {(r["bg_hex"], r["fg_hex"]): [] for r in rows}
+    unreadable = []
     for f in files:
         try:
             hist = _histogram(f)
         except Exception as exc:                       # unreadable PNG
             print(f"  ! {os.path.basename(f)}: {exc}", file=sys.stderr)
+            unreadable.append(os.path.basename(f))
             continue
         for (bg, fg), seen in wanted.items():
             nb = hist.get(int(bg, 16), 0)
@@ -156,7 +166,18 @@ def presence(rows, shots_dir):
     for r in rows:
         r["shots"] = wanted[(r["bg_hex"], r["fg_hex"])]
         r["present"] = bool(r["shots"])
-    return len(files)
+    if not files:
+        raise SystemExit(f"no PNGs in {shots_dir} — nothing was checked")
+    if len(unreadable) == len(files):
+        # Every shot failed to decode. Saying "not drawn in any shot" here
+        # would be a lie: the tool never looked at a single pixel.
+        raise SystemExit(
+            f"could not read any of the {len(files)} PNGs in {shots_dir} "
+            f"(e.g. {unreadable[0]}: see above) — the audit did not run")
+    if unreadable:
+        print(f"  note: {len(unreadable)}/{len(files)} shots unreadable, "
+              f"presence judged on the rest", file=sys.stderr)
+    return len(files) - len(unreadable)
 
 
 def main():
