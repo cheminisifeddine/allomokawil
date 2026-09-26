@@ -2748,3 +2748,67 @@ Phase 1.
       loader the golden tests use; the band is now real connected letterforms.
       Local `1b7c658`, remote `9903cb0`, all 5 blobs verified **MATCH** against
       the live remote tree. No APK, no release, no tag.
+
+- [x] **The server published «لا يوجد خصم تلقائي» and the app printed nothing.**
+      Filed on 26 Sep 2026, third cycle down the vein that found the
+      `quote_limit` and `portfolio_limit` silences. The server publishes a
+      fact and the app discards it — and this one is money.
+      `renew_note_ar`, `payment_style` and `auto_renew` are on **both**
+      `/api/mobile/plans` and `/api/mobile/subscription`, checked against
+      the live API this cycle with a real registered worker (the
+      authenticated payload answers `auto_renew: false` and
+      `renew_note_ar: "الدفع مسبق لعدد من الأشهر — لا يوجد خصم تلقائي من
+      البطاقة"`), and `BillingCatalogue` parsed **none of the three** —
+      verified by grep, where the three names appeared only in the model.
+      Beside them, `note_ar` — «بدون عمولة» — was read and printed in full
+      on the same card. So the screen made its most reassuring promise
+      (*we never take a cut*) and said nothing about the one a man is
+      actually anxious about before handing over cash: **nobody is going to
+      charge my card again**. The founder sells prepaid months by BaridiMob
+      and in cash, and the bottom sheet a contractor screenshots onto his
+      receipt carried no such sentence.
+      *The trap was the same one `portfolio_limit` had, one layer up: an
+      absent flag is not a `false`.* `auto_renew` is **nullable**, and
+      `isPrepaid` is true only when the server actually said it. Defaulting
+      the missing value to false would print «لن يُخصم تلقائياً» off a field
+      nobody sent — a promise invented, on the screen a man decides about
+      money on. Proven by mutation, below.
+      **Changed** — `lib/src/data/plan_renewal_copy.dart` (new: the
+      server's sentence, `prepaidTermsAr` — «شهراً / شهران / 3 أشهر / 12
+      شهراً» — through the one `arabicCounted` every other count in the app
+      already shares, and a saving line that is *absent* rather than
+      «توفّر 0 دج»), `lib/src/models/plan.dart` (`renewNoteAr` trimmed and
+      null when absent, `autoRenew` nullable), `subscription_screen.dart`
+      (the sentence on the promise card beside the price, and **repeated
+      under the price in the payment sheet** — that sheet is the screenshot
+      that travels with the transfer), 2 test files.
+      *Evidence:* `flutter analyze` → **No issues found!**; `flutter test` →
+      **+720 ~3 -0**, up from +703, 17 new tests, zero failures. 11 unit, 4
+      widget driving the real `SubscriptionScreen` (the card, the payment
+      sheet opened by a real tap on `plan-pro-month`, a payload with no
+      note, and the promise card keeping both halves of its promise), 2
+      shots. **Both mutations were caught** — dropping the parse back out of
+      the model fails **5** tests, and defaulting the absent flag to `false`
+      fails **1** — then the tree was restored green, because a test that
+      cannot fail is a decoration.
+      **Rendered and read, not assumed:** both shots carry the real Cairo
+      faces (the first capture of the previous cycle was a row of tofu boxes
+      and proved nothing). The renewal line ASCII-renders as connected
+      letterforms with ascenders and descenders, and the badge holds
+      **1,377 px of `#1B7E50`** in the renewal band with the server's note
+      and **exactly 0** without it — so the line is the payload's, not a
+      constant drawn either way. Shots `/tmp/shots/renewal_01_with_renewal.png`,
+      `/tmp/shots/renewal_02_no_renewal.png` (1080×2400).
+      **A gap found and recorded, not fixed here:** the server sells **four**
+      prepaid terms per plan — `durations` carries 1/3/6/12 months with
+      discounted totals (basic 3mo = 4,250 and 6mo = 8,000 against 4,500 and
+      9,000 paid monthly) — and the app can only express **two**
+      (`BillingPeriod` is `month`/`year`, and `requestSubscription` sends
+      `period: month|year`). A 6-month term is 11% cheaper than monthly and
+      5% cheaper than the annual price per month, and it cannot be bought in
+      the app at all. It is **parked deliberately**: the backend source is not
+      on this host, so I can read the catalogue but cannot confirm the POST
+      accepts a `months` the app does not send today. Wiring a money path the
+      server may reject is founder-gated, not a loop's call.
+      Local `1764373`, remote `8c404fe`, all 5 blobs verified **MATCH**
+      against the live remote tree. No APK, no release, no tag.
