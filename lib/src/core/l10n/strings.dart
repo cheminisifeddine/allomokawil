@@ -79,6 +79,12 @@ class S {
   /// phone but no answer arrived inside the host timeout, and the network layer
   /// will not re-send it to the second host because both hosts answer from the
   /// same Worker (a re-send would post the project/quote/message twice).
+  /// The project already carries as many photos as it may. A sentence and not a
+  /// silent button: a tile that simply is not there reads as a broken screen,
+  /// and the user has just been told nothing about a cap that does exist.
+  static const errProjectPhotoCap =
+      'وصلت للحد الأقصى من الصور لهذا المشروع (10 صور). احذف صورة لإضافة أخرى.';
+
   static const errWriteUnconfirmed =
       'انقطع الاتصال قبل تأكيد وصول طلبك. تحقّق من القائمة قبل إعادة المحاولة.';
   /// Spoken after the app re-reads the list because a write's outcome was

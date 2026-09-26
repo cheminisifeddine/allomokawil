@@ -26,15 +26,23 @@
 // photo, so the two ranges this file exists to fix are reached by almost
 // everyone who attaches anything at all.
 //
-// **The ceiling is 10, and that is a real bound, not an assumption.** The add
-// tile is drawn only while `images.length < 6` and `pickMultiImage(limit: 6)`
-// caps one *selection*, not the running total, so a client who picks 5 and then
-// 5 again reaches 10 and the tile disappears for good. The 11+ arm is therefore
-// **unreachable from this screen today** — it is implemented anyway, because
-// [photosAr] returns to the counted singular there and a line that agreed with
-// the noun everywhere except the one arm the noun changes would be a landmine
-// the day the cap moves. Saying so is the point: the arm is a contract with
-// [photosAr], not a claim about a state a user can currently reach.
+// **The ceiling is 10, and until 26 Sep 2026 that sentence was a lie this file
+// asserted on its own authority.** It was written from reading the build method:
+// the add tile is drawn while `images.length < 6`, and `pickMultiImage(limit: 6)`
+// looks like a second six. It is neither a bound nor the same six. The picker
+// limit is per *selection*, so pick 5, tap add again, pick 6, and the project is
+// carrying eleven — and on the **edit** path the tile never looked at the kept
+// photos at all, so a project with six photos still offered «أضف صورة» to the
+// client editing it. The 11+ arm was therefore reachable, the previous comment
+// said it was not, and a range of the grammar was documented as unreachable on
+// the strength of a `< 6` in a `build` method.
+//
+// The cap now lives in `project_photo_limit.dart` and is enforced in two places
+// (the room passed to the picker, and the tile gate), so the 11+ arm is the
+// defensive branch it should have been: unreachable through the UI, and still
+// correct, because [photosAr] returns to the counted singular there and a line
+// that agreed everywhere except the one arm the noun changes is a landmine the
+// day the cap moves.
 //
 // This is the one place in the app where the counted noun carries an adjective,
 // which is why it gets its own file rather than a line in

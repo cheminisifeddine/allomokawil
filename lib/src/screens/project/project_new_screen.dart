@@ -12,6 +12,7 @@ import '../../core/theme/motion.dart';
 import '../../data/communes.dart';
 import '../../data/commune_count_copy.dart';
 import '../../data/project_photo_count_copy.dart';
+import '../../data/project_photo_limit.dart';
 import '../../core/location/locator.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
@@ -200,10 +201,32 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
     });
   }
 
+  /// Photos this project may still take: the cap minus what it already has and
+  /// what has been picked this session.
+  ///
+  /// The old call passed `limit: 6` to the picker, which is a limit on **one
+  /// selection** and not on the total — a client who picked 5 and then came back
+  /// for 6 more ended up posting eleven photos, on a screen whose own counter
+  /// had no way to describe a number that high. It is also the only place the
+  /// cap can be enforced *before* the gallery opens, because the picker is the
+  /// one moment the phone still knows how many there will be.
+  int get _photoRoom => projectPhotoRoom(_keptImages.length, _images.length);
+
   Future<void> _pickImages() async {
+    final room = _photoRoom;
+    if (room <= 0) {
+      _toast(S.errProjectPhotoCap);
+      return;
+    }
     final picker = ImagePicker();
-    final files = await picker.pickMultiImage(limit: 6);
-    if (files.isNotEmpty) setState(() => _images.addAll(files));
+    // The cap is passed down as well as up: the OS picker is told the room, and
+    // the result is trimmed to it. Both, because the limit is a request — on a
+    // stock Android build it is honoured, and a mis-wired or overridden picker
+    // can still hand back the whole gallery. A project that accepted whatever
+    // arrived would be the one place in the app with no bound on its size.
+    final files = await picker.pickMultiImage(limit: room);
+    if (files.isEmpty) return;
+    setState(() => _images.addAll(files.take(room)));
   }
 
   Future<void> _submit() async {
@@ -532,6 +555,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
               ],
               _ImageAttach(
                 images: _images,
+                keptCount: _keptImages.length,
                 onPick: _pickImages,
                 onRemove: (i) => setState(() => _images.removeAt(i)),
               ),
@@ -1046,14 +1070,24 @@ class _UrgencyPill extends StatelessWidget {
 /// Photo attach strip with removable thumbnails.
 class _ImageAttach extends StatelessWidget {
   final List<XFile> images;
+
+  /// Photos the project already carried when the form opened. Counted into the
+  /// cap, never into the line under the strip: a client editing a project with
+  /// six photos on it is adding photos, not posting six new ones.
+  final int keptCount;
+
   final VoidCallback onPick;
   final void Function(int index) onRemove;
 
   const _ImageAttach({
     required this.images,
+    required this.keptCount,
     required this.onPick,
     required this.onRemove,
   });
+
+  /// Room left on the project, kept and picked together.
+  int get _room => projectPhotoRoom(keptCount, images.length);
 
   @override
   Widget build(BuildContext context) {
@@ -1065,7 +1099,10 @@ class _ImageAttach extends StatelessWidget {
           child: ListView(
             scrollDirection: Axis.horizontal,
             children: [
-              if (images.length < 6)
+              // The old gate was `images.length < 6`, which never saw the kept
+              // photos: a project with six photos still offered «أضف صورة» to
+              // the client editing it.
+              if (_room > 0)
                 Material(
                   color: Colors.transparent,
                   child: InkWell(
