@@ -1642,6 +1642,44 @@ it is a correctness gap that duplicates a user's data.
       *Gates:* `flutter analyze` → **No issues found!** (6.6 s); `flutter test` →
       **+541 ~3: All tests passed!** — exactly the previous count, zero drop.
       Documentation-only; no Dart source changed.
+- [x] **The Loop protocol still pointed at `/home/renia/*` after the 26 Sep
+      host rebuild, and `git push origin main` fails with exit 0 while
+      looking like it worked.** The previous cycle noticed the dead paths,
+      ticked the audit item and left the protocol section itself untouched —
+      the section every tick reads *first* — so the next tick was set up to
+      die on arrival all over again, silently.
+      *Shipped:* the protocol section is rewritten with paths that were
+      executed on this host, not copied from a dead machine: repo
+      `/home/hatch/allomokawil`, SDK `/home/hatch/tools/sdk/flutter`
+      (Flutter 3.47.2 / Dart 3.13.2), push helper
+      `/home/hatch/workspace/repos/gh_push.py`, design shots in `/tmp/shots`.
+      A path table sits at the top of the section.
+      *The second trap, found by being bitten by it:* `git push origin main`
+      has no credentials on this box. It fails with `fatal: could not read
+      Username for 'https://github.com'` and **exits 0** — so a script or a
+      tick that checks only the exit code calls that a success. The helper
+      pushes through the git-data API, which means the local `origin/main`
+      ref is never refreshed: right after this push the tracker still reads
+      `main...origin/main [ahead 5]` while the remote tip is already
+      `f44b1fa`. A future tick that trusts the tracker could either
+      re-push needlessly or believe unpushed work was shipped. Both the
+      failure and the stale ref are now written into step 6, along with the
+      instruction to confirm the real remote tip instead.
+      *Release step is now explicitly founder-gated in the file.* This box
+      has **no JDK** (`/usr/lib/jvm` does not exist), so the old
+      `build_arm64.sh` and `build_web.sh` cannot be reconstructed as they
+      were — they needed Gradle, and `flutter build apk` cannot run here at
+      all. Step 8 says so instead of sending the next tick after a tool it
+      can never find.
+      *Evidence:* `flutter analyze` → **No issues found!** (7.3 s);
+      `flutter test` → **+541 ~3: All tests passed!**, exactly the previous
+      count, zero drop. Pushed **"1 changed, 0 deleted"**; remote tip
+      **`f44b1fa`** confirmed by reading the ref over the API, not from the
+      local tracker. `allomokawil.com` **200**, API **200**. The section
+      diff is confined to lines 12-75: 41 ticked and 1 open item before and
+      after, every heading intact.
+      *Local commit `3bd174e`; the API push lands as `f44b1fa`.*
+
 - [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent
       writes.** The app cannot make `POST /api/mobile/projects` safe to retry on
       its own. A `Idempotency-Key` request header, stored with the created row
