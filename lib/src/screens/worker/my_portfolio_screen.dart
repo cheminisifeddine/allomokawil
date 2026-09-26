@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
 import '../../models/worker.dart';
 import '../../widgets/a11y.dart';
+import '../../widgets/net_image.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
 import '../../core/l10n/error_copy.dart';
@@ -357,7 +358,7 @@ class _PhotoTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppTheme.rMd),
-      child: Image.network(
+      child: NetImage(
         url,
         semanticLabel: 'صورة من أعمالي ${index + 1}',
         fit: BoxFit.cover,

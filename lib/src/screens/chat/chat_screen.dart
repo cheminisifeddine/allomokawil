@@ -12,6 +12,7 @@ import '../../data/chat_time.dart';
 import '../../data/repository.dart';
 import '../../models/chat.dart';
 import '../../widgets/a11y.dart';
+import '../../widgets/net_image.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
 
@@ -1014,7 +1015,7 @@ class _ImageBubble extends StatelessWidget {
     // Local (queued) files are not remote URLs — same split as before.
     final isRemote = url.startsWith('http');
     final Widget image = isRemote
-        ? Image.network(
+        ? NetImage(
             url,
             width: 220,
             fit: BoxFit.cover,
@@ -1107,6 +1108,9 @@ class _ImageViewer extends StatelessWidget {
         child: InteractiveViewer(
           maxScale: 4,
           child: isRemote
+              // Deliberately NOT a NetImage: the user asked for this one at
+              // full size and can pinch to 4x, so downscaling the decode to
+              // the screen would trade the only thing this screen is for.
               ? Image.network(url,
                   semanticLabel: 'الصورة بالحجم الكامل',
                   fit: BoxFit.contain,

@@ -8,6 +8,7 @@ import '../../data/taxonomy.dart';
 import '../../models/enums.dart';
 import '../../models/quote_review.dart';
 import '../../models/worker.dart';
+import '../../widgets/net_image.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
 import '../auth/auth_screen.dart';
@@ -162,7 +163,7 @@ class _CoverHeader extends StatelessWidget {
         children: [
           Positioned.fill(
             child: hasCover
-                ? Image.network(
+                ? NetImage(
                     cover,
                     semanticLabel: 'صورة غلاف الملف',
                     fit: BoxFit.cover,
@@ -412,7 +413,7 @@ class _PortfolioTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppTheme.rMd),
-      child: Image.network(
+      child: NetImage(
         url,
         semanticLabel: 'صورة من أعمال المقاول',
         fit: BoxFit.cover,

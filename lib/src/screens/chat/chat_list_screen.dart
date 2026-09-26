@@ -9,6 +9,7 @@ import '../../data/repository.dart';
 import '../../models/chat.dart';
 import '../../models/enums.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/net_image.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
 import 'chat_screen.dart';
@@ -300,7 +301,7 @@ class _Avatar extends StatelessWidget {
     }
     return ClipOval(
       // Name and time are already on the row — the avatar is decoration.
-      child: Image.network(
+      child: NetImage(
         url,
         width: 52,
         height: 52,

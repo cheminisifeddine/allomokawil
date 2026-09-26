@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
 import '../data/taxonomy.dart';
 import '../models/project.dart';
+import 'net_image.dart';
 import 'ui.dart';
 
 /// Compact card for a posted project in search results and project lists.
@@ -139,8 +140,10 @@ class _Thumb extends StatelessWidget {
         height: 76,
         color: Taxonomy.categoryWash(project.category),
         child: img != null
-            ? Image.network(
+            ? NetImage(
                 img,
+                width: 76,
+                height: 76,
                 semanticLabel: 'صورة المشروع',
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => _fallback(),

@@ -9,6 +9,7 @@ import '../../data/taxonomy.dart';
 import '../../models/enums.dart';
 import '../../models/project.dart';
 import '../../models/quote_review.dart';
+import '../../widgets/net_image.dart';
 import '../../widgets/number_field.dart';
 import '../../widgets/ui.dart';
 import '../browse/browse_screen.dart';
@@ -632,7 +633,7 @@ class _PhotosState extends State<_Photos> {
               controller: _controller,
               itemCount: widget.images.length,
               onPageChanged: (i) => setState(() => _index = i),
-              itemBuilder: (context, i) => Image.network(
+              itemBuilder: (context, i) => NetImage(
                 widget.images[i],
                 semanticLabel: 'صورة المشروع ${i + 1}',
                 width: double.infinity,

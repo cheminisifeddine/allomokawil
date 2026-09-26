@@ -5,6 +5,7 @@ import '../core/theme/app_theme.dart';
 import '../data/taxonomy.dart';
 import '../models/enums.dart';
 import '../models/worker.dart';
+import 'net_image.dart';
 import 'rating_stars.dart';
 
 /// Contractor card — used in the top-rated strip and in browse results.
@@ -197,7 +198,7 @@ class _Avatar extends StatelessWidget {
       return ClipOval(
         // The card prints the name right beside the photo; the photo saying its
         // own name too is the same fact read twice.
-        child: Image.network(
+        child: NetImage(
           worker.avatarUrl!,
           width: size,
           height: size,

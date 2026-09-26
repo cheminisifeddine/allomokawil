@@ -18,6 +18,7 @@ import '../../models/project.dart';
 import '../../widgets/category_grid.dart';
 import '../../widgets/number_field.dart';
 import '../../widgets/a11y.dart';
+import '../../widgets/net_image.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
 import '../../core/l10n/error_copy.dart';
@@ -582,7 +583,7 @@ class _KeptPhoto extends StatelessWidget {
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(AppTheme.rMd),
-          child: Image.network(
+          child: NetImage(
             url,
             semanticLabel: 'صورة المشروع',
             width: 78,

@@ -46,3 +46,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Golden failure diffs: written by flutter_test on a failing pixel test.
+# They are debug artefacts, never source, and must not be committed.
+test/failures/
