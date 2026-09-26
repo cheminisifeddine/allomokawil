@@ -2610,10 +2610,10 @@ Phase 1.
       **borrowed from `photosAr`, not re-literal'd** — copying four words into a
       new file would recreate the exact drift one layer down — and the file owns
       only the adjective's agreement. The 11+ arm is implemented even though it
-      is unreachable from this screen today, and the file says so plainly: the
-      ceiling is 10 (add tile hidden at 6, `limit: 6` caps one *selection* not the
-      running total), so it is a contract with `photosAr`, not a claim about a
-      state a user can reach.
+      is unreachable from this screen today, and the file said so on the strength
+      of the ceiling being 10 — **which this box proved wrong the next cycle; see
+      the 26 Sep second entry below.** The correction is recorded here rather than
+      quietly rewritten, because the wrong reasoning shipped.
       *Evidence:* `flutter analyze` → **No issues found!** (5.5 s);
       `flutter test` → **+680 ~3 -0**, up from +672, 8 new tests, zero failures.
       **The 4 widget tests drive the real screen through the plugin's real method
@@ -2630,9 +2630,62 @@ Phase 1.
       `/tmp/shots/attach_5.png` (784×1700 @2.75).
       **One thing this cycle got wrong and fixed before committing:** the first
       draft of the file header claimed 11+ was reachable «by anyone attaching a
-      room from four angles». It is not — the add tile is gated at 6 and
-      `pickMultiImage(limit: 6)` limits a single selection, so the real ceiling
-      is 10 and 11+ is unreachable. The claim was corrected to say exactly that.
-      A defect report that overstates its own range is not evidence.
+      room from four angles». The draft was corrected — but **the correction was
+      also wrong**, and that is the more useful half of this entry. It replaced
+      the claim with "the add tile is gated at 6 and `limit: 6` caps a single
+      selection, so the real ceiling is 10 and 11+ is unreachable." Both halves
+      of that are not what the code does; see the next entry, which is the one
+      that found it. A defect report that reasons about a range from reading a
+      `build` method is not evidence, whether it overstates or understates.
       Local `78b937d`, remote `ccad6bd`, all 3 blobs verified **MATCH** against
       the live remote tree. No APK, no release, no tag.
+
+- [x] **The attach strip capped a pick, not a project.** Filed the same day as the
+      count above, and it is the reason the count's own comment was wrong. Two
+      independent limits stood where the code read like it had one:
+      ```dart
+      pickMultiImage(limit: 6)   // a limit on ONE selection
+      if (images.length < 6)     // a test of the NEW picks only
+      ```
+      Neither bounds the project. Pick 5, tap add again, pick 6 → **eleven photos
+      posted**, on the screen whose own counter had no form for a number that
+      high. And on the **edit** path the tile never saw the photos the project
+      already had, so a project with six kept photos still offered «أضف صورة» to
+      the client editing it.
+      **It was also invisible before it was enforced.** The add tile is the first
+      child of a horizontally scrolling `ListView`, so once the kept photos fill
+      the row the tile is simply off-screen — the cap was a limit the user could
+      only discover by hitting it.
+      **Changed** — `lib/src/data/project_photo_limit.dart` (new, the cap as
+      arithmetic: `kMaxProjectPhotos = 10` and a `projectPhotoRoom(kept, picked)`
+      that floors at 0, because `limit: 0` means *no limit* to `image_picker` and
+      a negative is a crash on device), `project_new_screen.dart` (the room is
+      what the picker is handed; the tile gates on it; the result is trimmed to it
+      as well, because the limit is a request the OS may over-deliver on),
+      `S.errProjectPhotoCap`, and a correction to the false claim in
+      `project_photo_count_copy.dart`. A tile that is not there reads as a broken
+      screen, so a full project now **says** the cap instead.
+      *Evidence:* `flutter analyze` → **No issues found!** (4.2 s);
+      `flutter test` → **+686 ~3 -0**, up from +680, 6 new tests, zero failures.
+      3 unit + 3 widget, and the widget ones drive the real screen in **edit**
+      mode over a project that already has photos — the path the old gate never
+      looked at. One asserts the picker receives the **room, not a constant six**
+      (4 kept + 3 picked → the next pick is handed 3), which is the defect stated
+      as a number.
+      **Rendered, and read both ways:** at 4 kept the add tile measures
+      **96×96dp at global (18, 593)** and the 1.5dp navy border is a 128px run
+      at y1186 in the capture; at 10 kept the tile is **absent** from the tree and
+      y1186 holds **zero** navy pixels. Shots `/tmp/shots/cap_01_before.png`,
+      `/tmp/shots/cap_02_full.png` (784×1700 @2.0).
+      **Two test artefacts I had to kill before the claim was true, both worth
+      recording:** (1) a second `pumpWidget` in one `testWidgets` reuses the
+      State, and `didChangeDependencies` guards on `_scopeReady`, so the "full
+      project" shot was silently rendering the *first* project's 4 kept photos and
+      the tile was still legitimately there — one `testWidgets` per shot, as the
+      golden file already does; (2) the red remove-discs I first measured belong to
+      the **kept** photos, not the attach strip, so a "the tile is gone" claim read
+      off them proves nothing. The tile is located by its own 96dp box and its navy
+      border instead. A screenshot measured on the wrong element is a screenshot of
+      nothing.
+      Local `872aa0c`, remote `8c2f44`, all 5 blobs verified **MATCH** against the
+      live remote tree. No APK, no release, no tag.
