@@ -2539,3 +2539,37 @@ Phase 1.
       is back at y170-301 and reads brand gold at its midpoint. `12_chat` stays
       red, the known local-clock label in the thread, still needs the founder's
       call.
+
+- [x] **The chat golden was pinned to a CET machine, not to a design.**
+      DONE local `eb177ba`, remote `533e7cd`, all 3 blobs verified `MATCH`
+      against the live remote tree. `12_chat` had been red at 43 px / 0.01% for
+      days, and this closes it — the last thing between the loop and a fully
+      green design gate. The previous tick left the choice to the founder
+      (re-baseline in CET, or an injectable formatter, same as
+      `15_notifications`); the formatter was taken, because a CET re-baseline
+      would have kept the gate correct on exactly one host.
+      **The baseline was not stale and the gate was not wrong — the screen
+      was.** `_BubbleMeta` printed `chatClock(message.createdAt)`, and
+      `createdAt` comes from `parseServerTime` as an *absolute instant*, so the
+      hour under a bubble was whatever zone the process ran in. The committed
+      PNG held **22:23**: the fixture's `2026-09-11 20:23:45` UTC read at
+      UTC+2. Measured, not guessed — the diff was 43 px in **one** 6×8 glyph
+      block at y192-199, one digit, with every other band identical.
+      **Why neither shortcut worked, and both were tried:** re-baselining in CET
+      would pin the box to this host's offset; pinning the *value* does not
+      help either, because `Platform.environment` is an unmodifiable map and the
+      zone cannot be repinned from inside a test (verified by running it, not
+      assumed). The formatter is the only seam that removes the machine from
+      the assertion. App behaviour is unchanged: `clockFormat` is null in the
+      app, so a user still reads the hour his own phone is on.
+      Files: `lib/src/screens/chat/chat_screen.dart` (`clockFormat` on
+      `ChatScreen` and `_BubbleMeta`), `test/design_shots_test.dart`
+      (`chatClockAt`, both call sites, and a new guard), `test/goldens/12_chat.png`
+      (re-shot deliberately, and it was the only golden that moved).
+      *Evidence:* `flutter analyze` → **No issues found!** (1.9 s);
+      `flutter test` → **+672 ~3 -0, All tests passed** — up from +670 and the
+      first run in this repo's history with **zero** failures. The design suite
+      is green under **UTC, Europe/Paris, Asia/Algiers and America/New_York**,
+      and it was green under one of those before. A 200-char guard window I
+      wrote first was too tight for a call site written one-argument-per-line
+      (525 chars) and the guard caught it in the CET run; it is 600 now.
