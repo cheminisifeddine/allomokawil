@@ -26,6 +26,13 @@ const String chatOutboxKey = 'chat.outbox';
 /// How many unanswered messages one device holds. Past this the oldest record
 /// is dropped: sixty sends the server has refused for days is an account
 /// problem, not a queue problem, and a preferences blob must stay bounded.
+///
+/// The bound is real, but dropping a message is **not** a free bookkeeping
+/// decision: the record holds the user's own words — most often the one line
+/// that matters, «العنوان: حسين داي». So [ChatOutbox.add] reports the record it
+/// had to drop instead of losing it in silence, and the caller shows it. A queue
+/// that eats a message quietly is the very failure this file exists to prevent
+/// (see the header), reproduced at a larger scale.
 const int chatOutboxMax = 60;
 
 /// One message this device took responsibility for and the server has not
@@ -228,6 +235,11 @@ class ChatOutbox {
   }
 
   /// Writes one message down and returns the record that now owns it.
+  ///
+  /// [lastDropped] carries the record the bound pushed out, if any. It is a
+  /// field rather than a return value because the caller already needs the
+  /// record it just wrote; a caller that ignores it keeps the old behaviour, so
+  /// no existing caller breaks and nothing is lost on the way in.
   Future<PendingMessage> add({
     required int conversationId,
     String? text,
@@ -245,12 +257,19 @@ class ChatOutbox {
     );
     final items = await all();
     items.add(record);
+    PendingMessage? dropped;
     while (items.length > chatOutboxMax) {
-      items.removeAt(0);
+      dropped = items.removeAt(0);
     }
     await _write(items);
+    // Reported *after* the write: if the store refuses, the dropped record is
+    // still on the device and a "your message was lost" toast would be a lie.
+    lastDropped = dropped;
     return record;
   }
+
+  /// The record the bound pushed off the queue during the last [add], or null.
+  PendingMessage? lastDropped;
 
   /// Records *why* a message is still queued, so a cold start does not re-send
   /// a request the server may already have stored.
@@ -303,6 +322,26 @@ class ChatOutbox {
       debugPrint('outbox: cannot persist the queue ($error)');
     }
   }
+}
+
+/// What the user is told when the bound pushed an old message off the queue.
+///
+/// Silence is not an option here: the record is gone, and it was his own words.
+/// A photo is named by its own fact (a file the phone no longer has is easy to
+/// explain); a text message quotes itself, so he can see *which* line was lost
+/// and retype it. Kept short, because it arrives as a toast over a thread he is
+/// trying to read.
+String droppedMessageCopy(PendingMessage dropped) => dropped.isImage
+    ? 'امتلأت قائمة الانتظار — حُذفت أقدم صورة لم تُرسل. أعد إرسالها.'
+    : 'امتلأت قائمة الانتظار — حُذفت أقدم رسالة: «${_clip(dropped.text ?? '')}»';
+
+/// Keeps a quoted line readable in a toast. The queue holds a whole sentence —
+/// sometimes a paragraph of address and directions — and a toast that runs the
+/// height of the thread is its own kind of noise.
+String _clip(String text, [int max = 60]) {
+  final flat = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (flat.length <= max) return flat;
+  return '${flat.substring(0, max)}…';
 }
 
 /// How many messages are still only on this phone, in the form Arabic counts

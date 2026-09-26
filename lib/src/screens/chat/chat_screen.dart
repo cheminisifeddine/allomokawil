@@ -206,6 +206,14 @@ class _ChatScreenState extends State<ChatScreen> {
       imagePath: imagePath,
     );
     _queuedIds[bubble.id] = record.id;
+    // The queue is bounded, so at some point it has to forget something. When it
+    // does, the user is told *which* message is gone: a dropped line is his own
+    // address and his own words, and the bubble he is looking at cannot be the
+    // proof, because the record behind it is already deleted.
+    final dropped = _outbox.lastDropped;
+    if (dropped != null && mounted) {
+      _toast(droppedMessageCopy(dropped));
+    }
   }
 
   Future<void> _load() async {
@@ -470,9 +478,18 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// Sends every bubble the server refused, oldest first.
+  ///
+  /// Quiet on purpose, and for the reason [_flushQueued] gives: a retry the app
+  /// started on its own is not news. It used to toast once per bubble, so a
+  /// thread holding sixty refused messages produced sixty identical SnackBars
+  /// in a row — four minutes of screen the user could not read or use, and every
+  /// other word the thread had to say (a message the bound deleted, a retyped
+  /// address) was buried behind the pile. The banner above the composer already
+  /// says it, and keeps saying it while the retry runs.
   Future<void> _retryUnsent() async {
     for (final m in _unsent) {
-      await _retryOne(m);
+      setState(() => _replace(m.id, m.copyWith(sendState: SendState.sending)));
+      await _deliver(m, announce: false);
     }
   }
 
