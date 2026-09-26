@@ -80,9 +80,15 @@ class Plan {
     return full > priceYear ? full - priceYear : 0;
   }
 
-  /// The honest Arabic sentence for the monthly allowance.
-  String get quoteAllowanceAr =>
-      hasUnlimitedQuotes ? 'عروض أسعار غير محدودة' : 'حتى $quoteLimit عروض في الشهر';
+  // There is deliberately no `quoteAllowanceAr` here any more.
+  //
+  // It was a fourth hand-written copy of the quote nouns, it carried the same
+  // fixed plural the three screens did, and — the reason it was worth deleting
+  // rather than fixing — **nothing ever called it**. The plan card renders
+  // `features`, which D1 sends in Arabic, so the getter was a sentence no user
+  // could see and no test could catch drifting. The nouns that are actually
+  // printed live in `data/quote_count_copy.dart`, next to the screens that
+  // print them.
 
   factory Plan.fromJson(Map<String, dynamic> json) => Plan(
         id: '${json['id']}',

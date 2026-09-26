@@ -9,6 +9,7 @@ import '../../core/theme/motion.dart';
 import '../../data/project_search.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
+import '../../data/quote_count_copy.dart';
 import '../../data/worker_stats_copy.dart';
 import '../../models/enums.dart';
 import '../../models/plan.dart';
@@ -1379,7 +1380,7 @@ class _PlanEntry extends StatelessWidget {
           final left = current.quotesLeft ?? 0;
           line = left == 0
               ? '${current.nameAr} — استنفدت عروض هذا الشهر'
-              : '${current.nameAr} — بقي $left من ${current.quoteLimit} عروض هذا الشهر';
+              : quotesLeftLineAr(current.nameAr, left, current.quoteLimit);
           tone = current.isQuotaSpent ? AppTheme.danger : AppTheme.accentDeep;
         }
         return AppCard(

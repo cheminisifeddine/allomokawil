@@ -6,6 +6,7 @@ import '../../core/l10n/error_copy.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
+import '../../data/quote_count_copy.dart';
 import '../../data/repository.dart';
 import '../../models/plan.dart';
 import '../../models/notification.dart' show parseServerTime;
@@ -308,10 +309,9 @@ class _UsageLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = status.hasUnlimitedQuotes
-        ? 'عروض أسعار غير محدودة — أرسلت ${status.quotesUsedThisMonth} هذا الشهر'
-        : status.isFree
-            ? 'استعملت ${status.quotesUsedThisMonth} من ${status.quoteLimit} عروض مجانية هذا الشهر'
-            : 'استعملت ${status.quotesUsedThisMonth} من ${status.quoteLimit} عرضاً هذا الشهر';
+        ? unlimitedQuotesUsageAr(status.quotesUsedThisMonth)
+        : cappedQuotesUsageAr(status.quotesUsedThisMonth, status.quoteLimit,
+            isFree: status.isFree);
     return Text(
       text,
       style: AppTheme.body.copyWith(
