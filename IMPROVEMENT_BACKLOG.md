@@ -1662,3 +1662,43 @@ link hash-matches too — fetching
 `96787213de3b9688d6533ab69f20c7827b19a46773b4b3a0c2124cbb3db0ddaf`, the same
 19,317,868 bytes, `versionName='1.0.8' versionCode='2009'`. The next loop starts
 Phase 1.
+- [x] **Loop protocol pointed at paths that no longer exist, and the
+      contrast audit was reporting green without reading a single pixel.**
+      The host was rebuilt, so `/home/renia/*` is gone: the repo moved to
+      `/home/hatch/allomokawil` and the SDK to `/home/hatch/tools/sdk/flutter`.
+      Every command in the "Loop protocol" section above was therefore dead
+      on arrival, and `tool/contrast_audit.py` imported `pngscan` from a
+      hardcoded absolute path that no longer exists.
+      **The part that mattered:** that import sat inside a per-file `try`, so
+      all 36 design shots failed to read, every pair reported "not drawn in
+      any shot", and the audit still printed **28/28 judged pairs pass** and
+      **exited 0**. A tool that inspected zero pixels was reporting success —
+      the worst possible failure for an accessibility gate, and it was
+      invisible precisely because it looked like a pass.
+      *Shipped:* `tool/png_read.py` — the decoder, stdlib only (no Pillow, no
+      numpy), versioned next to the tool that needs it so it cannot vanish
+      with a host again. 8-bit non-interlaced greyscale / RGB /
+      greyscale+alpha / RGBA, all five scanline filters, alpha composited
+      onto white. `contrast_audit.py` resolves the import relative to itself,
+      treats a wholly unreadable shots directory as a hard error, and states
+      how many shots it could not judge when only some are bad.
+      `test/design_shots_test.dart` now derives the SDK root from the running
+      binary instead of the dead path.
+      *Two bugs the work itself produced, caught by testing rather than
+      reading:* the decoder first returned (r,g,b) tuples where every caller
+      indexes `row[x * 3]`, and it read colour type 4 as RGBA when
+      greyscale+alpha is two bytes per pixel — that one would have silently
+      returned wrong colours. A first draft of the Dart fallback used two
+      `.parent` hops where six are needed; it passed only because
+      `FLUTTER_ROOT` was set, and the probe with it unset is what caught it.
+      *Evidence:* 18,000 random pixels across all 36 shots vs Pillow —
+      **0 mismatches**; round-trip **OK** for all four colour types x all five
+      filters. Empty dir -> exit 1, "nothing was checked". All-corrupt dir ->
+      exit 1, "the audit did not run". Mixed dir -> passes, with the unreadable
+      count stated. Presence now resolves on real evidence — `textPrimary on
+      bg` in **35/36 shots**, `accentDeep on accentWash` in 21/36 — where
+      every pair previously read "not drawn in any shot".
+      *Gates:* `flutter analyze` -> **No issues found!** (2.6 s);
+      `flutter test` -> **+541 ~3: All tests passed!** — unchanged, zero drop.
+      Local `714653a`, remote `ac581d0`. `allomokawil.com` -> **200**, API ->
+      **200**. No Dart app source touched, no APK, no release, no tag.
