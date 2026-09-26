@@ -3469,3 +3469,58 @@ Phase 1.
       *Evidence:* the four files pushed this cycle with explicit paths landed,
       and every one re-verified `MATCH` against the remote tree; the same
       command with directory arguments had produced a green no-op.
+
+- [x] **A 4.5 drew five FULL stars, and the half-star glyph was dead code.**
+      *Found 26 Sep 2026; the in-flight work was left by the previous tick,
+      which implemented the fix but ran out of gate before committing — this
+      cycle finished it (analyzer, suite, goldens, push).*
+      `RatingStars` branched on `rating.round()` first:
+          i <= rating.round()  ? star_rounded
+          : (i - 0.5 <= rating ? star_half_rounded : star_outline_rounded)
+      Dart's `double.round()` sends halves **away from zero**, so at 4.5 the
+      first branch is already true for all five positions and the half branch
+      is never consulted. The row published five gold stars beside the text
+      «4.5» while `A11y.rating` on the same widget said «التقييم 4.5 من 5» —
+      one widget, two answers, on the number a customer uses to choose between
+      two tradesmen. 4.5 is not synthetic: it is a live contractor on the
+      platform today.
+      The half branch was **unreachable code**. Reaching it needs
+      `i > round(rating)` AND `i - 0.5 <= rating`, satisfiable only by a score
+      sitting exactly on a half that rounds *down* — and 0.5, 2.5 and 4.5 all
+      round up. Enumerated over every value the app can hold in thousandths,
+      the branch fired **zero** times, so `star_half_rounded` was in the source
+      and on no screen in three months of releases. A glyph nobody renders is
+      a glyph nobody tests, and a widget test could only have caught it by
+      pumping 5,001 scores.
+      *Shipped:* the rule is now a pure function in
+      `lib/src/data/star_row_shape.dart` — every whole star below the score is
+      filled, and the next one is half-filled once the score has reached halfway
+      to it. `4.5` → `FFFFH`, `4.4` → `FFFF.`, `4.7` → `FFFFH`, `3.0` →
+      `FFF..`, `5.0` → `FFFFF`. Two properties make it the honest rule and
+      `round()` had neither: the row **never overstates** the number printed
+      beside it (a glyph row can only be as coarse as a glyph, so
+      understating is conventional and harmless while overstating is a claim
+      the row cannot back), and it is **monotone** — more reviews can only move
+      it right. It lives in `data/` because it is arithmetic and is checkable
+      over all 5,001 values in a millisecond; a rule only testable by pumping a
+      widget is a rule that ships untested.
+      *Goldens:* 3 screens moved. Each diff is **one 10×9 px glyph and nothing
+      else** — measured old-vs-new with the in-repo decoder, 40 changed pixels
+      per screen at x 289-298 / 229-238 / 218-227. The removed ink is
+      `#B5790B` (`AppTheme.star`), i.e. the fifth star losing its right half.
+      `test/failures/*_isolatedDiff.png` is degenerate on this build and was
+      useless for this decision — the master-vs-test pair is what answered it.
+      *Evidence:* `flutter analyze` → **No issues found!**. Full suite →
+      **+929 ~3, all passed** (was +907; **+22 new, 0 regressions**). Tests
+      proven against the defect: restoring the `round()` logic turns the new
+      file red in **8 places**. Shot `/tmp/shots/star_row_half.png` (1176×900),
+      ink per star slot measured by column: **759 at 4.5 and 4.7 (half), 524 at
+      4.4 (outline), 994 for every full star**.
+      *Files:* `lib/src/data/star_row_shape.dart` (new, pure),
+      `lib/src/widgets/ui.dart`, `test/star_row_shape_test.dart` (new),
+      `test/star_row_shape_shot_test.dart` (new),
+      `test/wilaya_shot_test.dart` (dropped an import left unused by the
+      previous wilaya tick), `test/goldens/{04_customer_home,07_project_detail,
+      10_browse}.png`.
+      *Commit `989041e`*, pushed as remote **`4ff5791`**; all **8/8** blobs
+      re-verified `MATCH` against the remote tree, not the exit code.
