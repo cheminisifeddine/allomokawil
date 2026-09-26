@@ -11,6 +11,8 @@ import '../../models/worker.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
 import '../../core/l10n/error_copy.dart';
+import '../../core/l10n/strings.dart';
+import '../../core/l10n/write_outcome.dart';
 
 /// Contractor verification: upload auto-entrepreneur/artisan card + ID +
 /// selfie. This is the trust gate that powers "verified contractor" badges.
@@ -105,6 +107,25 @@ class _VerificationScreenState extends State<VerificationScreen> {
       });
       return;
     } catch (e) {
+      if (isWriteUnconfirmed(e)) {
+        // The dossier is the row. Re-read the profile: «under review» on screen
+        // is the answer, and it is the same thing the user is told to check.
+        _$toast(S.writeUnconfirmedRecheck);
+        final outcome = await resolveWriteOutcome(
+          recheck: () async {
+            final p = await _repo.myProfile();
+            // `pending` is the state a submitted dossier puts the profile in,
+            // and `verified` means a reviewer already reached it — either one
+            // proves the documents arrived. `rejected` is the only value that
+            // means the write itself never landed.
+            return p.verificationStatus == VerificationStatus.pending ||
+                p.verificationStatus == VerificationStatus.verified;
+          },
+        );
+        if (mounted) setState(() => _profile = _repo.myProfile());
+        _$toast(writeOutcomeCopy(outcome));
+        return;
+      }
       _$toast(errorCopy(e));
     } finally {
       if (mounted) setState(() => _busy = false);

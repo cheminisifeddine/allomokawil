@@ -18,6 +18,7 @@ import '../review/review_screen.dart';
 import '../worker/subscription_screen.dart';
 import 'project_new_screen.dart';
 import '../../core/l10n/error_copy.dart';
+import '../../core/l10n/write_outcome.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/network/api_client.dart';
 import '../../widgets/skeletons.dart';
@@ -453,6 +454,38 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
           // him (increase the plan) instead of a sentence he cannot act on.
           if (e is ApiException && e.statusCode == 402) {
             await _offerUpgrade();
+            return;
+          }
+          if (isWriteUnconfirmed(e)) {
+            // The bid may already be in the list. Re-read it instead of leaving
+            // the contractor to wonder whether he sent two.
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text(S.writeUnconfirmedRecheck)));
+            final outcome = await resolveWriteOutcome(
+              recheck: () async {
+                // The bid is identified by what this worker asked for on this
+                // job, not by an id the phone never received. Any later bid with
+                // the same amount is the same one as far as the user is
+                // concerned: what he must learn is whether *a* bid from him is
+                // in the list he is looking at.
+                int mine = -1;
+                try {
+                  mine = (await widget.repo.myProfile()).id;
+                } catch (_) {
+                  // A failed identity read is not a failed bid. Fall back to
+                  // matching on the amount alone rather than telling the user
+                  // his bid is missing because we could not read his profile.
+                }
+                final rows = await widget.repo.projectQuotes(project.id);
+                return rows.any((q) =>
+                    q.amount == amt && (mine <= 0 || q.workerId == mine));
+              },
+            );
+            if (!mounted) return;
+            // Either way the quotes list on screen is now the server's.
+            _reload();
+            ScaffoldMessenger.of(context)
+                .showSnackBar(SnackBar(content: Text(writeOutcomeCopy(outcome))));
             return;
           }
           ScaffoldMessenger.of(context)

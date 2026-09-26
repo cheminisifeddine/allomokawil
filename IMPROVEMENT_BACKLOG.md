@@ -1485,7 +1485,10 @@ it is a correctness gap that duplicates a user's data.
       *Rejected alternative:* marking the POST with an `Idempotency-Key` and
       letting the backend dedupe — correct, but it needs the Worker to store and
       check the key, i.e. BACKEND-API, and the duplication was live today.
-- [ ] **The screen must show the truth after an unconfirmed write, not just
+      *(Superseded by `c428929` on the app side: the five write screens now
+      re-read and tell the user the truth. The Worker-side dedupe is still the
+      only fix that makes a retry safe rather than merely honest.)*
+- [x] **The screen must show the truth after an unconfirmed write, not just
       the sentence.** The new copy tells the user to check the list before
       retrying, but a screen that keeps its stale list is asking him to check
       something that is not on screen. The write screens (publish a project, bid,

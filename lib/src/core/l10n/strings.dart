@@ -81,6 +81,20 @@ class S {
   /// same Worker (a re-send would post the project/quote/message twice).
   static const errWriteUnconfirmed =
       'انقطع الاتصال قبل تأكيد وصول طلبك. تحقّق من القائمة قبل إعادة المحاولة.';
+  /// Spoken after the app re-reads the list because a write's outcome was
+  /// unknown. It has to answer the one question the sentence above creates:
+  /// «is my project on the list or not?». Telling the user to check is only
+  /// honest when the list on screen is the fresh one, so the screen refetches
+  /// and then says which of the two things is true.
+  static const writeUnconfirmedRecheck = 'نتحقّق الآن من القائمة…';
+  static const writeUnconfirmedLanded = 'وجدناه في القائمة — الطلب وصل بنجاح';
+  static const writeUnconfirmedMissing =
+      'لم نجده في القائمة — الطلب لم يصل، أعد المحاولة';
+  /// The re-read failed too, so the app still does not know. Deliberately
+  /// carries no action: any instruction here would be a guess about a write it
+  /// cannot see. «حاول مجدداً» is the only safe one and it is in the next clause.
+  static const writeUnconfirmedUnknown =
+      'تعذّر الاتصال للتحقّق — تحقّق من القائمة قبل إعادة المحاولة';
   static const errServer =
       'خلل مؤقّت في الخادم. أعد المحاولة بعد لحظات، وإن تكرّر الأمر جرّب لاحقاً.';
   static const errUnauthorized = 'انتهت جلستك. سجّل الدخول من جديد للمتابعة.';

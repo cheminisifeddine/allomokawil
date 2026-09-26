@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_scope.dart';
+import '../../core/l10n/strings.dart';
+import '../../core/l10n/write_outcome.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/chat_outbox.dart';
 import '../../data/chat_time.dart';
@@ -247,8 +249,25 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
       setState(
           () => _replace(local.id, sent.copyWith(sendState: SendState.sent)));
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
+      if (isWriteUnconfirmed(e)) {
+        // The message may already be on the server. Re-read the thread instead
+        // of telling the user to press a bubble that is not really unsent —
+        // that is how one message becomes two.
+        _markUnconfirmed(local);
+        final outcome = await resolveWriteOutcome(
+          recheck: () async {
+            final fresh = await widget.repo.messages(convId);
+            final me = _me;
+            return fresh.any((m) =>
+                m.content == local.content && (me <= 0 || m.senderId == me));
+          },
+        );
+        if (!mounted) return;
+        await _settleUnconfirmed(local, outcome);
+        return;
+      }
       setState(
           () => _replace(local.id, local.copyWith(sendState: SendState.failed)));
       if (announce) _toast(_retryCopy);
@@ -265,6 +284,60 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _forget(Message local) async {
     final id = _queuedIds.remove(local.id);
     if (id != null) await _outbox.remove(id);
+  }
+
+  /// Stops the bubble from looking retryable while the app is deciding.
+  ///
+  /// A `failed` bubble draws a retry affordance, and the user is explicitly told
+  /// to press it. Pressing it is exactly the wrong move while the row may
+  /// already be on the server, so the state is held at `sending` until
+  /// [_settleUnconfirmed] knows the answer.
+  void _markUnconfirmed(Message local) {
+    if (!mounted) return;
+    setState(
+        () => _replace(local.id, local.copyWith(sendState: SendState.sending)));
+  }
+
+  /// Puts the thread back to the truth, whichever way the re-read went.
+  ///
+  /// Landed: the server row is adopted, the outbox record is dropped, the
+  /// bubble becomes an ordinary sent one. Missing: the message really is still
+  /// only on the phone, so the failed state and the retry line come back —
+  /// now as a true statement rather than a guess. Unknown: the bubble stays
+  /// where it is and the user is told to check, because the app cannot claim
+  /// either answer.
+  Future<void> _settleUnconfirmed(Message local, WriteOutcome outcome) async {
+    if (!mounted) return;
+    if (outcome == WriteOutcome.landed) {
+      // Re-read once more to adopt the server's own row (its id and timestamp)
+      // instead of keeping the optimistic bubble, which still has the negative
+      // local id the outbox is keyed by.
+      final conv = _convId;
+      Message? row;
+      if (conv != null) {
+        final me = _me;
+        for (final m in await widget.repo.messages(conv)) {
+          if (m.content == local.content && (me <= 0 || m.senderId == me)) {
+            row = m;
+            break;
+          }
+        }
+      }
+      await _forget(local);
+      if (!mounted) return;
+      setState(() => _replace(local.id,
+          (row ?? local).copyWith(sendState: SendState.sent)));
+      _jumpToBottom();
+      _toast(S.writeUnconfirmedLanded);
+      return;
+    }
+    setState(
+        () => _replace(local.id, local.copyWith(sendState: SendState.failed)));
+    if (outcome == WriteOutcome.missing) {
+      _toast(S.writeUnconfirmedMissing);
+    } else {
+      _toast(S.writeUnconfirmedUnknown);
+    }
   }
 
   /// Puts [next] where the bubble with [localId] was, keeping the clock already

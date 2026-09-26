@@ -21,6 +21,8 @@ import '../../widgets/a11y.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
 import '../../core/l10n/error_copy.dart';
+import '../../core/l10n/write_outcome.dart';
+import '../../core/l10n/strings.dart';
 
 /// Post a new project (client).
 ///
@@ -212,6 +214,9 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
       return;
     }
     setState(() => _busy = true);
+    // The one handle we will have on a row the server may already have created
+    // while its answer was in flight, so it is read before the write, not after.
+    final publishedTitle = _title.text.trim();
     try {
       final urls = <String>[];
       for (final f in _images) {
@@ -242,7 +247,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
         return;
       }
       await _repo.createProject(
-        title: _title.text.trim(),
+        title: publishedTitle,
         description: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
         category: _categories.first,
         categories: _categories.toList(),
@@ -259,6 +264,21 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
             .showSnackBar(const SnackBar(content: Text('تم نشر مشروعك بنجاح')));
       }
     } catch (e) {
+      if (isWriteUnconfirmed(e)) {
+        // The app refused to guess whether «انشر مشروعك» landed, and told the
+        // user to check the list. So check it — right now, from this screen —
+        // and answer the question with what the server actually holds.
+        _toast(S.writeUnconfirmedRecheck);
+        final outcome = await resolveWriteOutcome(
+          recheck: () async {
+            final rows = await _repo.myProjects();
+            return rows.any((p) => p.title.trim() == publishedTitle);
+          },
+        );
+        if (!mounted) return;
+        _toast(writeOutcomeCopy(outcome));
+        return;
+      }
       _toast(errorCopy(e));
     } finally {
       if (mounted) setState(() => _busy = false);
