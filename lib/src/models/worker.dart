@@ -47,7 +47,27 @@ class WorkerProfile {
   /// Whether the documents half (contractor card + certificates) has been
   /// accepted. See [identityVerified].
   final bool certificateVerified;
-  final double avgRating;
+  /// The score customers gave this contractor, or null when nobody has.
+  ///
+  /// **Null, not 0.0, and this one is the loudest of the four.** The other
+  /// unmeasured numbers were about the man's own business — how far he
+  /// travels, how fast he answers, how many years he has done this. This one
+  /// is a verdict about him, printed on the exact card a customer picks a
+  /// tradesman from. The server sends `avg_rating: 0` for a contractor with no
+  /// reviews (15 of the 26 in the live browse payload, checked 26 Sep), and
+  /// every star row printed that `0` unconditionally: five empty stars, the
+  /// score **«0.0»**, and «(0)» beside it.
+  ///
+  /// Zero is not a rating anybody gave. The review form is 1–5, so a stored 0
+  /// is the server's "no reviews yet" sentinel, not the mean of a set — the
+  /// same reading a stored `0` radius gets in [serviceRadiusKm]. A customer
+  /// scrolling browse was told, in the app's own voice, that this man is the
+  /// worst-rated tradesman on the platform when the truth is that nobody has
+  /// worked with him yet, which is a different thing to say and a fairer one.
+  ///
+  /// The screens answer with «لا تقييمات بعد» — the sentence
+  /// [WorkerProfile.hasRating] gates on — rather than a score.
+  final double? avgRating;
   final int totalReviews;
   final int totalCompletedJobs;
   final int? responseTimeHours;
@@ -114,7 +134,9 @@ class WorkerProfile {
       identityVerified: (json['is_identity_verified'] as num?)?.toInt() == 1,
       certificateVerified:
           (json['is_certificate_verified'] as num?)?.toInt() == 1,
-      avgRating: (json['avg_rating'] as num?)?.toDouble() ?? 0,
+      // A stored 0 is the server's "never rated" sentinel, not a mean: see
+      // [avgRating]. Folded to null here so no caller can print it by accident.
+      avgRating: _rating(json['avg_rating']),
       totalReviews: (json['total_reviews'] as num?)?.toInt() ?? 0,
       totalCompletedJobs: (json['total_completed_jobs'] as num?)?.toInt() ?? 0,
       responseTimeHours: (json['response_time_hours'] as num?)?.toInt(),
@@ -137,6 +159,21 @@ class WorkerProfile {
   /// not information but a verdict; the home screens show him the next step
   /// instead of his own empty scoreboard.
   bool get hasHistory => totalCompletedJobs > 0 || totalReviews > 0;
+
+  /// True when there is a real score to print, as opposed to a `0` the server
+  /// sent to mean "nobody has rated me yet".
+  ///
+  /// Single source of truth for the four surfaces that print a star row — the
+  /// two browse-card variants, the public profile cover and the contractor's
+  /// own stats line — so they cannot disagree about the same profile.
+  bool get hasRating => avgRating != null;
+
+  /// Null for a missing score and for a `0` the server sent as a sentinel.
+  static double? _rating(Object? raw) {
+    if (raw is! num) return null;
+    final v = raw.toDouble();
+    return v > 0 ? v : null;
+  }
 
   static VerificationStatus _vd(String? v) {
     switch (v) {

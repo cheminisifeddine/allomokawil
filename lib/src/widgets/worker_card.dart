@@ -66,18 +66,29 @@ class WorkerCard extends StatelessWidget {
             style: AppTheme.caption,
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              RatingStars(rating: worker.avgRating, size: 14),
-              const SizedBox(width: 3),
-              Flexible(
-                child: Text('(${worker.totalReviews})',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTheme.caption.copyWith(fontSize: AppTheme.fsBadge)),
-              ),
-            ],
-          ),
+          // No score, no stars. The server sends 0 to mean "never rated" and a
+          // 0 is not a thing the 1-5 review form can produce, so printing five
+          // empty stars and «0.0» was telling a customer this new tradesman is
+          // the worst on the platform. The row is dropped entirely: an empty
+          // line is quieter than a verdict nobody earned.
+          if (worker.hasRating)
+            Row(
+              children: [
+                RatingStars(rating: worker.avgRating!, size: 14),
+                const SizedBox(width: 3),
+                Flexible(
+                  child: Text('(${worker.totalReviews})',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.caption.copyWith(fontSize: AppTheme.fsBadge)),
+                ),
+              ],
+            )
+          else
+            Text(noRatingAr(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTheme.caption.copyWith(fontSize: AppTheme.fsBadge)),
           if (experienceYearsAr(worker.experienceYears) case final years?) ...[
             const SizedBox(height: 6),
             Text(years,
@@ -127,12 +138,24 @@ class WorkerCard extends StatelessWidget {
                   style: AppTheme.bodySoft.copyWith(fontSize: AppTheme.fsMeta),
                 ),
                 const SizedBox(height: 8),
+                // Same rule as the vertical card: a score of 0 from the server
+                // is "never rated", not a rating. See [WorkerProfile.avgRating].
+                // The wilaya chip shares this row, so it is kept either way —
+                // dropping the score must not cost the card its location.
                 Row(
                   children: [
-                    RatingStars(
-                        rating: worker.avgRating,
-                        count: worker.totalReviews,
-                        size: 14),
+                    if (worker.hasRating)
+                      RatingStars(
+                          rating: worker.avgRating!,
+                          count: worker.totalReviews,
+                          size: 14)
+                    else
+                      Flexible(
+                        child: Text(noRatingAr(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.caption),
+                      ),
                     if (worker.wilaya != null &&
                         worker.wilaya!.isNotEmpty) ...[
                       const SizedBox(width: 10),

@@ -110,6 +110,27 @@ String? serviceRadiusAr(int? km) {
   return arabicCounted(km, 'كيلومتر', two: 'كيلومترين', few: 'كيلومترات');
 }
 
+/// «لا تقييمات بعد» — the sentence printed in place of a score nobody gave.
+///
+/// The fifth unmeasured number, and the only one that is a **verdict** rather
+/// than a measurement. The first four were about a man's own business: how far
+/// he travels ([serviceRadiusAr]), how fast he answers ([responseTimeAr]), how
+/// many years ([experienceYearsAr]), how many jobs ([completedJobsAr]). Nobody
+/// is defamed by «0 سنة خبرة». They *are* by «0.0» out of five, printed in the
+/// app's own voice on the card a customer picks a tradesman from.
+///
+/// The server sends `avg_rating: 0` to mean "no reviews yet" — the review form
+/// is 1–5, so a zero cannot be a mean — and every star row printed it
+/// unconditionally. On the live browse payload on 26 Sep that was **15 of 26
+/// contractors**, all of them pending verification, all shown five empty stars
+/// and «0.0». A new tradesman was being presented as the worst-rated on the
+/// platform for the crime of being new.
+///
+/// So the score is null when it is not real, and the row says what is true:
+/// no one has rated him yet. That is a fact about the scoreboard, not a claim
+/// about the man.
+String noRatingAr() => 'لا تقييمات بعد';
+
 /// How fast the contractor answers, or null when nothing has been measured.
 ///
 /// Three outcomes, never two:

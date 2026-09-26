@@ -241,7 +241,9 @@ class _CoverHeader extends StatelessWidget {
                 ),
                 const SizedBox(height: 14),
                 // White pill: RatingStars paints dark text, which would be
-                // invisible straight onto the navy cover.
+                // invisible straight onto the navy cover. A contractor nobody
+                // has rated gets the same pill with the fact on it, never
+                // «0.0» — see [WorkerProfile.avgRating].
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
@@ -249,10 +251,14 @@ class _CoverHeader extends StatelessWidget {
                     color: AppTheme.surface,
                     borderRadius: BorderRadius.circular(AppTheme.rPill),
                   ),
-                  child: RatingStars(
-                      rating: worker.avgRating,
-                      count: worker.totalReviews,
-                      size: 15),
+                  child: worker.hasRating
+                      ? RatingStars(
+                          rating: worker.avgRating!,
+                          count: worker.totalReviews,
+                          size: 15)
+                      : Text(noRatingAr(),
+                          style: AppTheme.caption
+                              .copyWith(fontSize: AppTheme.fsMeta)),
                 ),
                 if (coverTail case final tail?) ...[
                   const SizedBox(height: 12),

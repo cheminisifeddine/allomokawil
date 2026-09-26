@@ -781,13 +781,28 @@ class _StatsLine extends StatelessWidget {
 
     return Row(
       children: [
-        const Icon(Icons.star_rounded, size: 15, color: AppTheme.accent),
-        const SizedBox(width: 4),
-        Text(
-          worker.avgRating.toStringAsFixed(1),
-          style: AppTheme.label.copyWith(
-              fontSize: AppTheme.fsMeta, color: AppTheme.onNavy),
-        ),
+        // A score of 0 is the server's "never rated", not a rating. This line
+        // only renders under [WorkerProfile.hasHistory], so a contractor with
+        // jobs but no reviews used to be shown «0.0» next to his own job count
+        // — the app rating him, on the screen where he judges himself.
+        if (worker.hasRating) ...[
+          const Icon(Icons.star_rounded, size: 15, color: AppTheme.accent),
+          const SizedBox(width: 4),
+          Text(
+            worker.avgRating!.toStringAsFixed(1),
+            style: AppTheme.label.copyWith(
+                fontSize: AppTheme.fsMeta, color: AppTheme.onNavy),
+          ),
+        ] else ...[
+          const Icon(Icons.star_outline_rounded,
+              size: 15, color: AppTheme.onNavyMuted),
+          const SizedBox(width: 4),
+          Text(
+            noRatingAr(),
+            style: AppTheme.label.copyWith(
+                fontSize: AppTheme.fsMeta, color: AppTheme.onNavyMuted),
+          ),
+        ],
         if (tail.isNotEmpty) ...[
           const SizedBox(width: 6),
           Expanded(
