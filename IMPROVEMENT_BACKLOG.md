@@ -3204,3 +3204,49 @@ Phase 1.
       `NotificationsScreen` with an injected clock, because a unit test on the
       helper passes clean when the screen still prints the old value — last
       cycle's lesson, applied rather than re-learned.
+
+- [x] **The subscription write was the one write with no answer to its own
+      unconfirmed failure.** The audit the previous tick pointed at: five write
+      paths re-read the server after `errWriteUnconfirmed` and say which of
+      three things is true - it landed, it is missing, or it is still unknown
+      (`project_new_screen` title match, `project_detail` bid amount + worker
+      id, `chat_screen` content + sender, `review_screen` project + rating,
+      `verification_screen` pending or verified). The sixth write in the app -
+      the one the founder takes money on - had none of it. `_request` caught
+      the failure, showed `errorCopy(e)`, and stopped. No crash, no red test:
+      a man is told «تحقّق من القائمة قبل إعادة المحاولة» and the app never
+      checks, on the one screen where the only thing that could answer is the
+      pending-request slot he is already looking at.
+      *The naive fix is the wrong one, which is why this is the item.* 
+      `pending_request` holds **one** row, not a list. A contractor who already
+      has a request in flight when he taps «ادفع» is looking at an occupied
+      slot: if the write landed, the slot is the same plan he was already
+      waiting on and a plan match reports `landed` for a second payment the
+      server may have rejected. Identity here is **change**, not equality - the
+      row is mine only if it is not the one that was on screen before the tap.
+      *Shipped:* `subscription_write_outcome.dart`. `pendingRequestIsMine`
+      answers the one question with the two snapshots, and
+      `resolveSubscriptionWriteOutcome` wraps it in the same `WriteOutcome` the
+      other five speak, so the money screen and the project screen cannot drift
+      on what a confirmation may claim. A row the server sent no id for
+      (`_int` turns an absent id into 0) is never claimed. The screen snapshots
+      the pending row **when the payment sheet opens**, not at the moment of
+      the POST, so a catalogue the screen re-rendered in between cannot forge
+      it.
+      *Evidence:* `flutter analyze` -> **No issues found!**. Full suite ->
+      **+855 ~3, all passed** (was +842; **+13 new, 0 regressions**).
+      *Mutation-gated, three ways:* the screen's re-read disabled -> **+12 -1**;
+      the id-change replaced by the naive plan-equality a first pass would ship
+      -> **+11 -2**, failing exactly the two cases written for it; a failed
+      re-read reported as `missing` -> **+12 -1**.
+      **A mock of mine was wrong first and the tests caught it twice.** I
+      faked an unconfirmed write with a `503` and a body of
+      `{'error': errWriteUnconfirmed}`. That is not how the failure is
+      produced: `errWriteUnconfirmed` is thrown by the transport layer refusing
+      to re-send a POST whose answer did not arrive inside `timeout`, and a
+      `5xx` decodes to `errServer`, which correctly skips the re-read - so the
+      first version of the widget test was testing nothing and failed on
+      `reads == 1`. The real shape is a slow answer against a short timeout,
+      which is what `api_client_failover_test.dart` already does; the fixture
+      was wrong, not the code, and the second version reproduced the actual
+      transport failure rather than its own invention.

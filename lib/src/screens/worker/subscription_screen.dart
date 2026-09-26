@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 import '../../core/app_scope.dart';
 import '../../core/format/money.dart';
 import '../../core/l10n/error_copy.dart';
+import '../../core/l10n/write_outcome.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
 import '../../data/pending_request_copy.dart';
+import '../../data/subscription_write_outcome.dart';
 import '../../data/plan_renewal_copy.dart';
 import '../../data/quote_count_copy.dart';
 import '../../data/repository.dart';
@@ -99,7 +101,17 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   /// Declares a payment for [plan] after the contractor picked how to pay.
-  Future<void> _request(Plan plan, PaymentMethod method, String? reference) async {
+  ///
+  /// [before] is the pending request the catalogue already held when the sheet
+  /// was opened, and it is what makes an unconfirmed write answerable: see
+  /// `subscription_write_outcome.dart` for why «did it land» cannot be asked by
+  /// comparing the plan, and why it is asked by comparing the request id.
+  Future<void> _request(
+    Plan plan,
+    PaymentMethod method,
+    String? reference, {
+    PendingRequest? before,
+  }) async {
     setState(() => _busy = true);
     try {
       await _repo.requestSubscription(
@@ -111,6 +123,24 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       _say(S.planRequestOk);
       await _load();
     } catch (e) {
+      if (isWriteUnconfirmed(e)) {
+        // The app refused to guess whether this payment request landed, and
+        // told the man to check the list. On this screen the list is the
+        // pending-request slot, so check it - right now - and answer with what
+        // the server actually holds. A contractor told «maybe it did not
+        // arrive» who then sees nothing change cannot tell a dropped request
+        // from one the server filed, and the next thing he thinks of is
+        // paying twice for the same plan.
+        _say(S.writeUnconfirmedRecheck);
+        final outcome = await resolveSubscriptionWriteOutcome(
+          before: before,
+          fetch: _repo.subscription,
+        );
+        if (!mounted) return;
+        _say(writeOutcomeCopy(outcome));
+        await _load();
+        return;
+      }
       _say(errorCopy(e));
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -158,7 +188,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       ),
     );
     if (result == null) return;
-    await _request(plan, result.method, result.reference);
+    // Snapshotted when the sheet opened, not read at the moment of the POST:
+    // the re-read compares this row against the fresh one, so a catalogue the
+    // screen happened to re-render in between must not forge it.
+    await _request(plan, result.method, result.reference,
+        before: catalogue.pendingRequest);
   }
 
   @override
