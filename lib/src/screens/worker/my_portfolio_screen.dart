@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/app_scope.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/photo_count_copy.dart';
+import '../../data/portfolio_allowance.dart';
 import '../../data/repository.dart';
 import '../../models/worker.dart';
 import '../../widgets/a11y.dart';
@@ -45,6 +46,15 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
   bool _busy = false;
   String? _error;
 
+  /// How many photos the plan allows, once the server has answered.
+  ///
+  /// Null until it does, and the gallery is **not** gated while it is null: an
+  /// allowance read that has not arrived yet must not close the screen a
+  /// contractor opened to see his work. The gate is a courtesy to the plan, not
+  /// the guard on the door — BACKEND-API is the only thing that can actually
+  /// refuse an upload, and until it does, failing open is the honest state.
+  PortfolioAllowance? _allowance;
+
   /// How many photos are in flight, so the button can say so instead of sitting
   /// silent through a slow mobile upload.
   int _uploadedThisRun = 0;
@@ -73,6 +83,11 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
         _images = images;
         _loading = false;
       });
+      // Read **after** the gallery is on screen, so a plan that never loads is
+      // a missing progress line and not a spinner that never resolves. The two
+      // are separate requests and the gallery is the one the contractor came
+      // for.
+      await _loadAllowance(images.length);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -82,9 +97,34 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
     }
   }
 
+  /// Reads the plan's portfolio allowance, failing open.
+  ///
+  /// A contractor whose plan cannot be read keeps the whole screen he had
+  /// before this existed: the gate appears when the server answers and never
+  /// takes away a working gallery. A plan call that throws is not an error the
+  /// contractor did anything about, so it is swallowed and the limit stays
+  /// unknown.
+  Future<void> _loadAllowance(int used) async {
+    try {
+      final status = (await _repo.subscription()).current;
+      if (!mounted) return;
+      setState(() {
+        _allowance =
+            PortfolioAllowance.fromLimit(status.portfolioLimit, used: used);
+      });
+    } catch (_) {
+      // Unknown limit, on purpose. See [_allowance].
+    }
+  }
+
   /// Asks where the photo comes from, in the two words a user knows.
   Future<void> _addPhoto() async {
     if (_busy) return;
+    // The add tile and the button below both hide on a full gallery, so this
+    // is the third gate rather than the first: it is here because a limit the
+    // user can only discover by hitting it is the defect the project cap had.
+    final allowance = _allowance;
+    if (allowance != null && allowance.isFull) return;
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -150,6 +190,13 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
       setState(() {
         _images = [..._images, url];
         _uploadedThisRun++;
+        // The count that decides the gate is the server's, and the server has
+        // just been told about one more photo. A local counter would agree with
+        // the server until the first failed upload, and then never again.
+        final a = _allowance;
+        if (a != null) {
+          _allowance = PortfolioAllowance(limit: a.limit, used: _images.length);
+        }
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('تمت إضافة الصورة إلى معرض أعمالك')),
@@ -203,23 +250,38 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
                       ),
                       const SizedBox(height: 14),
                     ],
-                    if (_images.isNotEmpty) _Header(count: _images.length, uploaded: _uploadedThisRun),
+                    if (_images.isNotEmpty)
+                      _Header(
+                        count: _images.length,
+                        uploaded: _uploadedThisRun,
+                        allowance: _allowance,
+                      ),
                     if (_images.isNotEmpty) const SizedBox(height: 12),
                     _Gallery(
                       images: _images,
                       busy: _busy,
                       onAdd: _addPhoto,
+                      // Null means the plan has not answered, and the tile stays:
+                      // an allowance that has not loaded is not a full gallery.
+                      showAdd: !(_allowance?.isFull ?? false),
                     ),
                     const SizedBox(height: 18),
-                    PrimaryButton(
-                      key: const Key('portfolio-add'),
-                      label: _busy ? 'جارٍ رفع الصورة...' : 'أضف صورة من أعمالك',
-                      icon: _busy
-                          ? Icons.cloud_upload_outlined
-                          : Icons.add_a_photo_outlined,
-                      loading: _busy,
-                      onPressed: _busy ? null : _addPhoto,
-                    ),
+                    // One sentence where the button was, so a full gallery says
+                    // which limit it hit instead of showing nothing. A missing
+                    // control on its own reads as a broken screen.
+                    if (_allowance?.isFull ?? false)
+                      _FullNotice(allowance: _allowance!)
+                    else
+                      PrimaryButton(
+                        key: const Key('portfolio-add'),
+                        label:
+                            _busy ? 'جارٍ رفع الصورة...' : 'أضف صورة من أعمالك',
+                        icon: _busy
+                            ? Icons.cloud_upload_outlined
+                            : Icons.add_a_photo_outlined,
+                        loading: _busy,
+                        onPressed: _busy ? null : _addPhoto,
+                      ),
                     const SizedBox(height: 14),
                   // The photo-tips card was removed on the founder's call — the
                   // portfolio screen shows the gallery and the add button, and
@@ -237,7 +299,15 @@ class _Header extends StatelessWidget {
   final int count;
   final int uploaded;
 
-  const _Header({required this.count, required this.uploaded});
+  /// Null while the plan is still being read, in which case this card says
+  /// what it has always said.
+  final PortfolioAllowance? allowance;
+
+  const _Header({
+    required this.count,
+    required this.uploaded,
+    required this.allowance,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -262,12 +332,76 @@ class _Header extends StatelessWidget {
                         .copyWith(fontSize: AppTheme.fsSmall, color: AppTheme.success)),
                 const SizedBox(height: 2),
                 Text(
-                  uploaded > 0
-                      ? uploadedThisSessionAr(uploaded)
-                      : 'هذه الصور يراها كل صاحب مشروع في ملفك.',
+                  _subLine(),
                   style: AppTheme.caption.copyWith(
                       color: AppTheme.success, fontSize: AppTheme.fsCaption, height: 1.5),
                 ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+/// The second line, in the order that answers the question he came with.
+///
+/// What he has uploaded this sitting is the least useful thing to say once the
+/// plan matters, so the room left takes that slot, and the session count moves
+/// under it. A full gallery overrides both: the limit is the whole message.
+///
+/// Null is silence by contract — a plan that never answered leaves this card
+/// saying exactly what it said before the allowance existed.
+String _subLine() {
+  final a = allowance;
+  if (a == null) {
+    return uploaded > 0
+        ? uploadedThisSessionAr(uploaded)
+        : 'هذه الصور يراها كل صاحب مشروع في ملفك.';
+  }
+  if (a.isFull) return portfolioFullLineAr(a.limit);
+  if (a.isUnlimited) return portfolioUnlimitedLineAr();
+  return portfolioLeftLineAr(a.left!, a.limit);
+}
+}
+
+/// Stands in for the add button when the plan's gallery is full.
+///
+/// It offers the one action that lifts the limit, because a screen that only
+/// says "no" leaves the contractor with nothing to do about it — the same
+/// reasoning the 402 paywall on the bid button documents.
+class _FullNotice extends StatelessWidget {
+  const _FullNotice({required this.allowance});
+
+  final PortfolioAllowance allowance;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      key: const Key('portfolio-full'),
+      color: AppTheme.accentWash,
+      child: Row(
+        children: [
+          const IconBubble(
+            icon: Icons.lock_outline_rounded,
+            tint: AppTheme.accentDeep,
+            wash: AppTheme.surface,
+            size: 42,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(portfolioFullLineAr(allowance.limit),
+                    style: AppTheme.label.copyWith(
+                        fontSize: AppTheme.fsSmall, color: AppTheme.accentDeep)),
+                const SizedBox(height: 2),
+                Text('رقّي خطتك لتضيف صوراً أكثر إلى معرض أعمالك.',
+                    style: AppTheme.caption.copyWith(
+                        color: AppTheme.textSecondary,
+                        fontSize: AppTheme.fsCaption,
+                        height: 1.5)),
               ],
             ),
           ),
@@ -284,7 +418,16 @@ class _Gallery extends StatelessWidget {
   final bool busy;
   final VoidCallback onAdd;
 
-  const _Gallery({required this.images, required this.busy, required this.onAdd});
+  /// False when the plan's allowance is spent, so the grid does not keep
+  /// offering a cell that goes nowhere.
+  final bool showAdd;
+
+  const _Gallery({
+    required this.images,
+    required this.busy,
+    required this.onAdd,
+    required this.showAdd,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -295,7 +438,7 @@ class _Gallery extends StatelessWidget {
       mainAxisSpacing: 10,
       crossAxisSpacing: 10,
       children: [
-        _AddTile(busy: busy, onTap: onAdd),
+        if (showAdd) _AddTile(busy: busy, onTap: onAdd),
         for (var i = 0; i < images.length; i++)
           _PhotoTile(url: images[i], index: i),
       ],
