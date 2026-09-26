@@ -60,7 +60,14 @@ in this file that dies on arrival is how two ticks were lost.
 6. Commit with a message that says **what changed and why**, then push with the
    helper. **`git push origin main` does not work on this box** — there are no
    git credentials, so it fails with *"could not read Username for
-   'https://github.com'"* and **exits 0**, which reads like success:
+   'https://github.com'"* and **exits 0**, which reads like success.
+   **And a green push line from the helper is not proof either:** on 26 Sep
+   `--allow-deletes` left the upload set empty, so the helper pushed *only* the
+   deletions, printed `Pushed 0 changed, 4 deleted` and exited 0 while the
+   commit message described code that never reached the remote. **Always verify
+   the blobs against the remote tree** (compare `git hash-object` with the tree
+   SHA), never the exit code, never the commit message, never the local
+   `origin/main` tracker:
    ```
    python3 /home/hatch/workspace/repos/gh_push.py \
      cheminisifeddine allomokawil main . -m "<message>" -- <files...>
@@ -1679,6 +1686,59 @@ it is a correctness gap that duplicates a user's data.
       diff is confined to lines 12-75: 41 ticked and 1 open item before and
       after, every heading intact.
       *Local commit `3bd174e`; the API push lands as `f44b1fa`.*
+
+- [x] **`gh_push.py --allow-deletes` uploaded NOTHING and reported success —
+      the one push trap the protocol did not name.** Found by being bitten by
+      it: a push that printed `Pushed 0 changed, 4 deleted`, exited 0, and left
+      a commit on `main` whose message announced code that was never on the
+      remote. `net_image.dart` was missing from the tree and `worker_card.dart`
+      was still the old blob.
+      *Cause:* `--allow-deletes` was never stripped from the argument list, so
+      `rest` was non-empty, `use_all` became False and `only` came out **empty** —
+      the helper correctly walked the full tree to stage deletions, then
+      correctly uploaded an empty path set, and had no check that would notice.
+      The deletion guard that was added on 26 Sep to stop 782b657 from wiping
+      main is what made this reachable: every push that *needs* a deletion is
+      exactly the push that carries no path filter.
+      *Shipped:* flags are now stripped before the upload set is decided, the
+      empty-set case is a hard refusal instead of a silent success, and the
+      backup is `gh_push.py.bak.1790400*`. Re-pushed with the fix and verified
+      **blob by blob against the remote tree** (not the commit message, not the
+      local tracker): 11 files, every SHA matching.
+      *Note for every future tick:* a green push line is not proof. The only
+      proof is comparing `git hash-object` against the remote tree SHA.
+
+- [x] **Network photos were decoded at full resolution no matter how small
+      they were drawn.** A 1024x1024 photo from the API costs 4 MB of decoded
+      ARGB in the image cache per distinct URL: the 76x76 project thumbnail in
+      a search result and the ~110px portfolio tile each paid it in full. A
+      3-wide portfolio grid is 12 MB for tiles that are nowhere near 1024 — on
+      the cheap 2 GB phones this market runs on, the difference between
+      scrolling the gallery and being OOM-killed back to the home screen.
+      *Shipped:* `lib/src/widgets/net_image.dart` reads the size the image
+      really occupies and passes it to `cacheWidth`, so the saving cannot drift
+      out of step with the layout the way a hardcoded number would. An explicit
+      `width` wins; otherwise the laid-out box is read off the constraints; a
+      fullscreen viewer passes neither and is still decoded at full resolution,
+      which is the only correct case for it. `errorBuilder` still receives every
+      error, so a broken URL still renders the caller's own fallback. 8 call
+      sites migrated: project + worker cards, chat list, chat screen, project
+      detail, project new, portfolio, worker profile.
+      *Why it needs tests for something invisible:* a photo decoded too small
+      still looks right, it is just blurrier, and nothing in the app would
+      notice. `test/net_image_test.dart` pins the arithmetic and — the part that
+      matters — reads `cacheWidth` back off the real `Image` the widget built, so
+      dropping the call fails there instead of costing 4 MB per thumbnail again.
+      Also ignores `test/failures/` and drops 4 golden debug PNGs that had been
+      committed by mistake; they are written by `flutter_test` on a failing
+      pixel test and are debug artefacts, not source.
+      *Evidence:* `flutter analyze` **No issues found!** (5.7 s);
+      `flutter test` **+552 ~3 -1**, up from +541, zero pre-existing tests lost.
+      The single failure is the `12_chat.png` golden, verified **pre-existing**:
+      stashing the change and re-running clean HEAD reproduces the identical
+      0.01% / 43px diff, so it is not caused by this and was not re-baselined.
+      Local commit `5bfe85c`; pushed as `d2f0149` (after a botched first push,
+      see the item above).
 
 - [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent
       writes.** The app cannot make `POST /api/mobile/projects` safe to retry on
