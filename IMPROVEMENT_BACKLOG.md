@@ -2013,7 +2013,7 @@ it is a correctness gap that duplicates a user's data.
       `MATCH` against the remote tree after a real `git fetch`, including
       `12_chat.png`.
 
-- [ ] **A11y.reviews is the fourth hand-written copy of the count rule, and
+- [x] **A11y.reviews is the fourth hand-written copy of the count rule, and
       it disagrees with the other three on the line above it.** Found while
       auditing the item above, deliberately left for its own cycle because it
       is a different file and a different failure.
@@ -2035,6 +2035,34 @@ it is a correctness gap that duplicates a user's data.
       type. The existing tests at `test/a11y_semantics_test.dart:69-85` pin
       `«من ٥»` and `«3 مراجعات»` together, so they encode the bug and have to
       be rewritten deliberately, not updated.
+      **DONE `37d2d48` — remote `8a9da73`.** The direction the item called for is
+      the one taken: the **٥** moved, not the count. [A11y.scale] is now one
+      constant that both `star()` and `rating()` read, so a star label and a
+      score cannot each hard-code a five, and the private `_arabicDigits` table
+      is **deleted** rather than moved — the two sentences can no longer
+      disagree because there is only one numeral left. `reviews()` delegates its
+      0/2/3-10/11+ table to `arabicCounted`, the shared rule; only `0` and `1`
+      still branch first, and both branches are the rule's own cases («لا
+      مراجعات» carries no count, «مراجعة واحدة» says one in the word). The
+      tests at `a11y_semantics_test.dart:69-85` were rewritten deliberately, not
+      updated: three new cases — the scale is one number, a negative count is
+      silence, and a **regression test that scans every number this class hands
+      a screen reader for U+0660-0669 / U+06F0-06F9**, which is the bug itself
+      and would otherwise only be caught by an Arabic-speaking reviewer. A
+      fourth asserts `reviews(n) == arabicCounted(n, …)` across every boundary,
+      so a future drift fails here instead of in someone's ear.
+      *Evidence:* `flutter analyze` → **No issues found!** (1.7 s).
+      `flutter test` → **+598 ~3 -1**, up from +594. **Screen-reader only and
+      nothing on glass moved**, proved rather than asserted: 8 of 9 goldens
+      pass pixel-identical, and `12_chat` — the one golden that has failed at
+      0.01% / 43px on main for several cycles — fails at the **same 0.01% / 43px
+      on clean HEAD** (stash, full `design_shots_test.dart`, stash pop). A
+      `--plain-name "goldens"` run was also tried as a control and **discarded**:
+      it skips the group's setup and failed on `00_landing` at 16.76%, which is
+      an artefact of the filter, not a regression.
+      Files: `lib/src/widgets/a11y.dart`, `test/a11y_semantics_test.dart`.
+      Local commit `37d2d48`, remote `8a9da73` — both blobs verified `MATCH`
+      against the live remote tree.
 
 - [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent
       writes.** The app cannot make `POST /api/mobile/projects` safe to retry on
