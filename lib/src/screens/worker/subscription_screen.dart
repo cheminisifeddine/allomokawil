@@ -6,6 +6,7 @@ import '../../core/l10n/error_copy.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
+import '../../data/pending_request_copy.dart';
 import '../../data/plan_renewal_copy.dart';
 import '../../data/quote_count_copy.dart';
 import '../../data/repository.dart';
@@ -187,7 +188,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       _CurrentPlanCard(status: catalogue.current),
                       if (catalogue.pendingRequest != null) ...[
                         const SizedBox(height: AppTheme.gap),
-                        const _PendingCard(),
+                        _PendingCard(
+                          request: catalogue.pendingRequest!,
+                          planNameAr:
+                              catalogue.planById(catalogue.pendingRequest!.plan)
+                                      ?.nameAr,
+                          methodLabel: catalogue.payment
+                              .labelFor(catalogue.pendingRequest!.method ?? ''),
+                        ),
                       ],
                       const SizedBox(height: AppTheme.gap),
                       _PromiseCard(
@@ -674,10 +682,42 @@ class _CodeCard extends StatelessWidget {
 }
 
 class _PendingCard extends StatelessWidget {
-  const _PendingCard();
+  const _PendingCard({
+    required this.request,
+    required this.planNameAr,
+    required this.methodLabel,
+  });
+
+  /// The five facts the server sent. Before this tick the card took **no
+  /// arguments at all** — the object was parsed and thrown away, and a
+  /// contractor who had transferred 15000 دج was told only that his request
+  /// had been received.
+  final PendingRequest request;
+
+  /// The plan's Arabic name, resolved against the catalogue the same payload
+  /// carries; null when the id is not in it.
+  final String? planNameAr;
+
+  /// The operator's own Arabic wording for the method he used.
+  final String? methodLabel;
 
   @override
   Widget build(BuildContext context) {
+    // Every clause is conditional on the fact actually arriving. The server
+    // owns this payload and may send a bare id, so the line degrades to
+    // whatever is known rather than printing empty separators.
+    final facts = pendingFactsAr(
+      planLabel: request.plan.trim().isEmpty
+          ? null
+          : pendingPlanLabelAr(request.plan, planNameAr),
+      amountLabel: pendingAmountLabelAr(request.amountDzd),
+      methodLabel: pendingMethodLabelAr(
+        request.method,
+        (id) => methodLabel ?? id,
+      ),
+      dayLabel: formatPendingDay(request.createdAt),
+    );
+
     return AppCard(
       color: AppTheme.infoWash,
       borderColor: AppTheme.info,
@@ -695,6 +735,20 @@ class _PendingCard extends StatelessWidget {
                 Text(S.planPendingBody,
                     style: AppTheme.body.copyWith(
                         color: AppTheme.textSecondary, height: 1.6)),
+                // The receipt. Separated from the prose above so a payload with
+                // no usable facts renders exactly the card that shipped before
+                // rather than a title and a bare separator.
+                if (facts != null) ...[
+                  const SizedBox(height: AppTheme.s12),
+                  Text(
+                    facts,
+                    key: const Key('pendingFacts'),
+                    style: AppTheme.caption.copyWith(
+                      color: AppTheme.textSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

@@ -132,6 +132,19 @@ void main() {
     await _shoot(tester, '01_with_renewal', payload: _payload);
   });
 
+  testWidgets('a payment waiting on review, with its receipt', (tester) async {
+    // The card that was `const _PendingCard()` — no arguments, five parsed
+    // facts thrown away. This shot is the only way to see whether the receipt
+    // actually sits under the prose and reads, rather than asserting that the
+    // widget tree contains a `Text`.
+    final pending = _payload.replaceAll(
+      '"pending_request": null,',
+      '"pending_request": {"id":7,"plan":"pro","amount_paid":30000,'
+          '"payment_method":"baridimob","created_at":"2026-09-12 10:00:00"},',
+    );
+    await _shoot(tester, '03_pending_receipt', payload: pending);
+  });
+
   testWidgets('the same screen when the server published no note', (tester) async {
     // The control: proves the line is the server's sentence and not a constant
     // that would be drawn either way.

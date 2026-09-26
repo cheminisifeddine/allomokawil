@@ -270,16 +270,23 @@ class PendingRequest {
 
   final int id;
   final String plan;
-  final int amountDzd;
+  final int? amountDzd;
   final String? method;
-  final String? createdAt;
+  final DateTime? createdAt;
 
   factory PendingRequest.fromJson(Map<String, dynamic> json) => PendingRequest(
         id: _int(json['id']),
         plan: '${json['plan'] ?? ''}',
-        amountDzd: _int(json['amount_paid'] ?? json['amount_dzd']),
-        method: json['payment_method'] as String?,
-        createdAt: json['created_at'] as String?,
+        // Null rather than 0: a payment with no amount on the payload is an
+        // unknown amount, and printing «0 دج» on money a man already handed
+        // over is a claim the app has no evidence for.
+        amountDzd: json.containsKey('amount_paid') || json.containsKey('amount_dzd')
+            ? _nullableInt(json['amount_paid'] ?? json['amount_dzd'])
+            : null,
+        method: _text(json['payment_method']),
+        // Through the app's single server-clock parser, so the card and the
+        // expiry countdown on the card above it cannot disagree about the day.
+        createdAt: parseServerTime(json['created_at']),
       );
 }
 
@@ -312,6 +319,21 @@ class PaymentOptions {
 
   final List<PaymentMethod> methods;
   final String? supportPhone;
+
+  /// The operator's own Arabic wording for a method id, or null when the
+  /// catalogue does not carry it.
+  ///
+  /// Exists so the pending-payment card can name the method the contractor
+  /// actually used without hand-writing a map of ids the server owns. An id
+  /// the app has not been rebuilt for still comes back null, and the caller
+  /// falls back to the raw id rather than dropping the fact.
+  String? labelFor(String id) {
+    final key = id.trim();
+    for (final m in methods) {
+      if (m.id == key) return m.labelAr;
+    }
+    return null;
+  }
 
   factory PaymentOptions.fromJson(Map<String, dynamic>? json) {
     final raw = json ?? const <String, dynamic>{};
@@ -478,4 +500,13 @@ int _int(Object? value) {
   if (value is num) return value.round();
   if (value is String) return int.tryParse(value) ?? 0;
   return 0;
+}
+
+/// An int that stays null when the field is absent or unreadable, so a
+/// missing amount never becomes a printed zero.
+int? _nullableInt(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.round();
+  if (value is String) return int.tryParse(value);
+  return null;
 }
