@@ -2934,3 +2934,58 @@ Phase 1.
       captured from the API on 11 Sep, already carried in
       `live_payload_models_test.dart`. The field names are the contract; the
       current values of real contractors are not asserted anywhere.
+
+- [x] **The pending-payment card parsed five facts and printed none of them.**
+      Found 26 Sep 2026 auditing the models for fields the app reads and then
+      never draws — the seventh in a row, and the first on a **money** path.
+      `GET /api/mobile/subscription` answers a `pending_request` object;
+      `PendingRequest.fromJson` parsed the request id, the plan id, the amount
+      (`amount_paid`/`amount_dzd`), the method and the timestamp. The card was
+      built as `const _PendingCard()` — no arguments — feeding a widget that
+      printed two hard-coded sentences and never touched the object. So a man
+      who transferred 15000 دج by BaridiMob on the 12th read «استلمنا طلبك»,
+      with no way to see which plan he bought, how much he sent, or how long it
+      had been waiting. If the amount on the card did not match his transfer,
+      **this screen was the only place that could have told him**, and it said
+      nothing. The wording was also untested: `S.planPendingBody` had no test
+      anywhere in the repo, and `requestSubscription` — the write that creates
+      the pending row — had no test at all.
+      *DONE `4b9a878` (remote `7fc3a27`).* The card keeps its two sentences —
+      «طلبك قيد المراجعة» is the right thing to tell a contractor whose money
+      has not cleared — and now prints a receipt under them: the plan's Arabic
+      name resolved against the same payload's catalogue (falling back to the
+      raw id, because the id is what support asks the man to quote), the amount
+      in plain digits + `دج`, the method in **the operator's own wording**
+      (new `PaymentOptions.labelFor`, not a hand-written id map), and the day in
+      the phone's timezone through the app's single server-clock parser.
+      *Every clause is dropped when its own field is missing.* An absent amount
+      is now **null** through the model rather than `0`, so a payment the app
+      cannot price is never rendered «0 دج»; the whole line disappears when
+      nothing usable arrived, which reproduces the old card exactly.
+      New `lib/src/data/pending_request_copy.dart` (the wording, pure — the
+      split `quote_count_copy.dart` and `plan_renewal_copy.dart` already use).
+      *Evidence:* `flutter analyze` -> **No issues found!**. New file -> **27/27**.
+      Full suite -> **+786 ~3, all passed** (was +758; +28 new, 3 skips
+      pre-existing). *And they can fail*, which is the bar the last cycle set:
+      reverting the card to `const` (receipt never drawn) -> **+25 -2**; relaxing
+      the amount guard so `0` prints -> **+24 -2**.
+      *One assertion was wrong before the code was:* the first cut scanned every
+      `Text` on the screen for «0 دج» and failed on `3000 دج` — the plan's own
+      price, where «0 دج» is a substring of a correct value. It is now scoped to
+      the receipt line, and the fact that it failed for the wrong reason is the
+      same trap the bid-card cycle hit.
+      *Rendered, not assumed:* `/tmp/shots/renewal_03_pending_receipt.png` via
+      the existing `renewal_shot_test.dart` harness (real Cairo faces, real
+      screen). The receipt is the **fourth** text band in the card at
+      **y848–894** (the old card had three), ink `#475065` on the `#eaf2fb`
+      `infoWash` at **7.14:1** contrast, spanning **x197–675** inside a 1000px
+      card — the card's own borders are x49–52 and x1027–1030, so no overflow.
+      `tool/contrast_audit.py` 28/28 pairs pass.
+      *Not fakeable here:* the live `pending_request` could not be re-fetched —
+      `/api/mobile/subscription` answers **401 «غير مصرح»** without a session —
+      so the fixture is the shape `PendingRequest.fromJson` was already written
+      against. What *was* verified against the live server this cycle is the
+      sibling endpoint `GET /api/mobile/plans`, which answers **200** and
+      confirms `payment_style: "prepaid"`, `auto_renew: false` and the four
+      prepaid durations per plan. `requestSubscription` still has no test
+      against a real response — it is a write, and writing is founder-gated.
