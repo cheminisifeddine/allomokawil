@@ -18,7 +18,8 @@ import 'notification.dart' show parseServerTime;
 
 /// Monthly or annual. Algeria pays in cash and by transfer, so the yearly plan
 /// is the one that matters most to a contractor who dislikes small recurring
-/// payments; it is priced as ten months.
+/// payments; the server prices it, and the app reads the ratio off the two
+/// prices rather than assuming one.
 enum BillingPeriod {
   month('month', 'شهري', 1),
   year('year', 'سنوي', 12);

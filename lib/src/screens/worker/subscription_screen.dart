@@ -487,18 +487,12 @@ class _PeriodToggle extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      if (p == BillingPeriod.year) ...[
-                        const SizedBox(height: AppTheme.s4),
-                        Text(
-                          S.planYearlyHint,
-                          textAlign: TextAlign.center,
-                          style: AppTheme.caption.copyWith(
-                            color: p == period
-                                ? AppTheme.accent
-                                : AppTheme.textSecondary,
-                          ),
-                        ),
-                      ],
+                      // No discount claim here. The hint that used to sit under
+                      // this arm was a fixed «سنة كاملة بسعر عشرة أشهر» — one
+                      // hand-written sentence about a number the server owns,
+                      // printed on every plan. It is now computed per plan and
+                      // printed on the card, next to the price it describes, by
+                      // `yearlyTermHintAr`.
                     ],
                   ),
                 ),
@@ -532,6 +526,11 @@ class _PlanCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final saving = plan.savingFor(period);
+    // The yearly discount sentence, read once and dropped when the server's
+    // two prices do not divide into a whole number of months. See
+    // `yearlyTermHintAr` for why it is not a constant.
+    final yearlyHint =
+        period == BillingPeriod.year ? yearlyTermHintAr(plan) : null;
     return AppCard(
       borderColor: current ? AppTheme.accent : AppTheme.cardLine,
       child: Column(
@@ -585,6 +584,20 @@ class _PlanCard extends StatelessWidget {
             Text('توفّر ${Money.dzd(saving)} في السنة',
                 style: AppTheme.caption.copyWith(
                     color: AppTheme.success, fontWeight: FontWeight.w700)),
+          ],
+          // «سنة كاملة بسعر عشرة أشهر» — computed from this plan's two prices,
+          // and only when the yearly figure really is a whole number of months
+          // of the monthly one. It used to be `S.planYearlyHint`, a constant
+          // that claimed ten months on every plan whatever the server had
+          // priced; see `yearlyTermHintAr`. Null drops the line rather than
+          // printing a discount nobody gets.
+          if (yearlyHint != null) ...[
+            const SizedBox(height: AppTheme.s4),
+            Text(
+              yearlyHint,
+              key: Key('plan-yearly-hint-${plan.id}'),
+              style: AppTheme.caption.copyWith(color: AppTheme.textSecondary),
+            ),
           ],
           const SizedBox(height: AppTheme.s16),
           for (final feature in plan.features) ...[

@@ -3094,3 +3094,56 @@ Phase 1.
       `tool/contrast_audit.py` **28/28**.
       *Local* `d21678b` — *remote* `839ad35`, all 5 blobs verified **MATCH**
       against the live remote tree.
+
+- [x] **The pricing card promised a discount the server never sent.**
+      `S.planYearlyHint` was «سنة كاملة بسعر عشرة أشهر», printed under the
+      yearly arm of the period toggle on **every** plan, whatever D1 had
+      priced. Every paid plan on the live catalogue is priced at exactly ten
+      months, so the sentence was true the day it was written and the defect
+      was invisible — a promise that is right today and cannot survive an
+      `UPDATE`. It is also the one client-owned claim about money on a card
+      where everything else is server-owned on purpose: the moment D1 prices
+      a year at 11 months, or 10.5, or gives one plan twelve and the next
+      nine, the screen keeps saying «ten months» on all of them, and a
+      contractor choosing between plans is told a discount that does not
+      exist. No crash, no red test — a wrong number, in the app's own voice,
+      on the one card whose job is to be right about money.
+      *Shipped:* `S.planYearlyHint` is **deleted**, not neutralised, so a later
+      screen cannot reach for the constant and reintroduce the claim. The
+      sentence is computed by `yearlyTermHintAr(plan)` in
+      `data/plan_renewal_copy.dart` from the two prices the payload carries,
+      via `yearAsMonths(plan)`, and printed **on the card beside the price it
+      describes** rather than under a global toggle that cannot know which
+      plan is selected. **Null** — not a rounded guess — whenever the year's
+      price is not a whole number of months of the monthly one: a free plan
+      (no month to be a fraction of), a *surcharge* priced above twelve
+      months (the months-left arithmetic would be negative, and the naive line
+      would print a saving nobody gets), and a fractional year such as 10.5
+      months, where rounding to 10 or 11 puts on screen a number the server
+      never sent. A null is not a gap: the line is dropped, which is the
+      correct rendering of "we have nothing true to say about this year's
+      price". The count inside the sentence is `prepaidTermsAr`'s, so the hint
+      and the term a term costs elsewhere in the app cannot disagree.
+      `Plan`'s own header comment asserted «it is priced as ten months» — the
+      same client-owned claim one layer up; it now says the server prices it.
+      *Evidence:* `flutter analyze` -> **No issues found!**. Full suite ->
+      **+835 ~3, all passed** (was +823; +12 new, **0 regressions**).
+      *Mutation-gated, both halves:* the card's null-guard reverted to an
+      unconditional constant -> **+23 -2**; the whole-month rule in
+      `yearAsMonths` loosened to accept a rounded ratio -> **+23 -2**. The
+      card half is caught by the three cases on the **real**
+      `SubscriptionScreen`, not the string helper — last cycle's lesson, where
+      a correct model wired to an unfixed screen passed a first unit pass
+      clean.
+      *Rendered, not assumed:* `/tmp/shots/plan_yearly_hint_ten_vs_eleven.png`
+      (1176x1260, real Cairo) and `plan_yearly_hint_fractional.png`
+      (1176x900), harness `test/plan_yearly_hint_shot_test.dart`. Counting
+      caption-ink `#475065` line bands: **4 / 4 / 3** — the ten-month and
+      eleven-month cards each print the computed hint, the 10.5-month card
+      prints one line fewer, and the success-green `#1B7E50` «توفّر» line is
+      present on all three (bands 256-307 / 369-393), so the missing line is
+      the hint and not the saving. `tool/contrast_audit.py` **28/28**.
+      *Note:* the previous tick died at 18:49 with this item half-written and
+      uncommitted — `yearlyTermHintAr(...) case final hint?` is not a valid
+      collection-`if` and left the tree un-analyzable. Picked it up, hoisted
+      the value into a `yearlyHint` local, and gated from there.

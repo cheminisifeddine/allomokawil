@@ -162,7 +162,15 @@ class S {
   static const planPerYear = 'سنوياً';
   static const planFreeSuffixMonthly = 'تدفع شهرياً';
   static const planFreeSuffixYearly = 'تدفع سنوياً';
-  static const planYearlyHint = 'سنة كاملة بسعر عشرة أشهر';
+  // REMOVED: `planYearlyHint` = «سنة كاملة بسعر عشرة أشهر».
+  //
+  // A hard-coded claim about a number the server owns, printed under the
+  // yearly option on **every** plan. Every paid plan is priced at exactly
+  // ten months today, so it read true; it was still a promise the client
+  // invented. The sentence is now `yearlyTermHintAr(plan)` in
+  // `data/plan_renewal_copy.dart`, computed per plan and printed on the card
+  // beside the price. Deleted rather than left in `S` so a later screen
+  // cannot reach for the constant and reintroduce the claim.
   static const planUpgrade = 'ترقية الاشتراك';
   static const planRenew = 'تجديد الاشتراك';
   static const planPendingTitle = 'طلبك قيد المراجعة';

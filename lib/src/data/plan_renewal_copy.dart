@@ -32,6 +32,7 @@ library;
 
 import '../core/format/money.dart';
 import '../core/l10n/arabic_agreement.dart';
+import '../models/plan.dart';
 
 /// The server's renewal sentence, or null when it published none.
 ///
@@ -77,4 +78,70 @@ String? prepaidTermsAr(int months) {
 String? termSavingLabel(int savingDzd) {
   if (savingDzd <= 0) return null;
   return 'توفّر ${Money.dzd(savingDzd)}';
+}
+
+/// How many months of the monthly price one year's price is, or null when it
+/// is not a whole number of them.
+///
+/// The one place that decides, so no caller can do its own division and get a
+/// different answer from a sibling card. Twelve monthly payments at
+/// `price_month` is what a year *costs* without a discount, so the saving is
+/// `price_month * 12 - price_year` and the months the year is worth are what
+/// is left of that saving.
+///
+/// Null, not 0 and not a rounded guess, in three cases where the ratio is not a
+/// whole number of months:
+///
+///   * a free plan (`price_month` is 0) — there is no month to be a fraction
+///     of, and «سنة كاملة بسعر 0 شهر» is not a sentence;
+///   * a yearly price that is **more** than twelve monthly payments, which is
+///     a surcharge, not a term — the number of months would be negative and
+///     the caller would print a discount nobody gets;
+///   * a yearly price that is not a whole multiple, e.g. 10.5 months. Rounding
+///     that to 10 or 11 puts a number on screen that the server never sent,
+///     which is the whole class of bug this function exists to stop.
+int? yearAsMonths(Plan plan) {
+  final month = plan.priceMonth;
+  final year = plan.priceYear;
+  if (month <= 0 || year <= 0) return null;
+  // Whole multiples only: 10 months at 1500 is 15000 exactly, and a 10.5-month
+  // price is not a number of months this app can print.
+  if (year % month != 0) return null;
+  final months = year ~/ month;
+  if (months < 1 || months > 12) return null;
+  return months;
+}
+
+/// The sentence under the «سنوي» arm of the period toggle for one plan, or
+/// null when the year's price is not a whole number of months of the monthly
+/// one.
+///
+/// **This line used to be a hard-coded string constant** — `S.planYearlyHint`,
+/// «سنة كاملة بسعر عشرة أشهر» — printed under the yearly option on every
+/// plan, whatever the server had priced. The app models the yearly figure as
+/// exactly twelve `price_month`s, and every paid plan on the live catalogue is
+/// priced at exactly ten of them, so the sentence has been *true* since it was
+/// written. It is still not a fact the app is allowed to know, and that is the
+/// defect.
+///
+/// It is a pricing claim, on the pricing screen, printed by the client, about
+/// money. Everything else on this card is server-owned on purpose — see the
+/// file header — and this one line was a client-owned promise about a number
+/// the server owns. The moment D1 prices a year at 11 months, or at 10.5, or
+/// gives one plan twelve months and the next nine, the screen keeps saying
+/// «ten months» on all of them, and a contractor deciding between plans is
+/// told a discount that does not exist. No release, no test failure, no crash:
+/// a wrong number, in the app's own voice, on the one card whose job is to be
+/// right about money.
+///
+/// So the sentence is computed from the two prices the payload carries, and
+/// **null** when the two do not divide into a whole number of months. A null is
+/// not a gap: the caller drops the line, which is the correct rendering of
+/// "we have nothing true to say about this year's price". The number of months
+/// is the count [prepaidTermsAr] already knows how to say, so the hint cannot
+/// disagree with the terms a term costs elsewhere in the app.
+String? yearlyTermHintAr(Plan plan) {
+  final months = yearAsMonths(plan);
+  if (months == null) return null;
+  return 'سنة كاملة بسعر ${prepaidTermsAr(months)}';
 }
