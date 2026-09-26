@@ -1882,6 +1882,44 @@ it is a correctness gap that duplicates a user's data.
       (`Expected: contains 'DAY=1'` / `Actual: 'DAY=30'`,
       `END_HOUR=1` / `END_HOUR=0`).
 
+- [x] **The subscription card printed a day count the server computed, beside
+      a date the app computed — and neither one checked the other.**
+      Follow-on from the clock fix above, found while finishing it: the same
+      card rendered `renews_in_days` straight from the Worker. The app already
+      holds the exact instant and a parser proven correct in Algiers, so the
+      count was a rounded second opinion about data we have exactly, and it
+      arrived with no floor — `0` read «ينتهي الاشتراك بعد 0 يوماً» and a stale
+      negative read «بعد -3 يوماً», Arabic that means nothing, on the one card
+      whose job is to tell a paying man how long he has paid for. D1 computes
+      it in UTC while the date is read locally, so the two also disagree by a
+      day at every boundary.
+      *Shipped:* `renewsInDays` is kept — the Worker may still send it — but
+      documented as never-displayed, and the card prints `expiryCountdownAr`:
+      local **calendar** days (midnights crossed, not `inHours ~/ 24`, which
+      turns 30 hours of run into 1 day), printed **together with** the date it
+      came from so the two cannot contradict each other. Below a day and above
+      `maxCountedDays` (365, the longest run the founder sells) the date is
+      printed alone, because «بعد 26560 يوماً» is arithmetically true and
+      unreadable.
+      *Evidence:* `flutter analyze` -> **No issues found!** (6.1 s);
+      `flutter test` -> **+572 ~3 -1**, up from +568, nothing lost. Six new
+      tests, incl. one that drives the real `SubscriptionScreen` and asserts
+      the number is absent from the rendered text — the half a model test
+      cannot see, because the defect was a count reaching a `build()`.
+      *The one failure is the pre-existing `12_chat` golden, proved not mine
+      by stashing and re-running clean HEAD: identical 0.01% / 43px. Not
+      re-baselined.*
+      Files: `lib/src/models/plan.dart`,
+      `lib/src/screens/worker/subscription_screen.dart`,
+      `test/subscription_clock_test.dart`.
+      Local commit `0ed8450`, remote `0394bf0` — all three blobs verified
+      `MATCH` against `origin/main`'s tree, not trusted from the push helper's
+      exit code. `allomokawil.com` -> **200**, API -> **200**.
+      *No APK screenshot:* the card is behind auth and the build_web.sh /
+      pngscan.py path this loop's step 5 asks for does not exist on this host
+      (rebuilt 26 Sep). The widget test asserts the Arabic copy instead. Not
+      claiming a visual proof I do not have.
+
 - [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent
       writes.** The app cannot make `POST /api/mobile/projects` safe to retry on
       its own. A `Idempotency-Key` request header, stored with the created row
