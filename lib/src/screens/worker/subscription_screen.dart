@@ -763,7 +763,14 @@ class _PendingCard extends StatelessWidget {
         (id) => methodLabel ?? id,
       ),
       dayLabel: formatPendingDay(request.createdAt),
+      // The term, read off the row the server actually filed.
+      periodLabel: pendingPeriodLabelAr(request.period),
     );
+
+    // Only set on a payload whose period is present and is neither arm of
+    // [BillingPeriod] — the shape the live Worker returns for every other
+    // spelling, having accepted it and filed the request as one month.
+    final periodNote = pendingPeriodMismatchNoteAr(request.period);
 
     return AppCard(
       color: AppTheme.infoWash,
@@ -793,6 +800,20 @@ class _PendingCard extends StatelessWidget {
                     style: AppTheme.caption.copyWith(
                       color: AppTheme.textSecondary,
                       fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+                // The warning sits below the receipt, not inside it: the
+                // receipt is a list of facts and this is a claim about them, so
+                // joining it with «·» would make it read as another fact.
+                if (periodNote != null) ...[
+                  const SizedBox(height: AppTheme.s4),
+                  Text(
+                    periodNote,
+                    key: const Key('pendingPeriodNote'),
+                    style: AppTheme.caption.copyWith(
+                      color: AppTheme.textSecondary,
+                      height: 1.5,
                     ),
                   ),
                 ],

@@ -28,6 +28,7 @@
 library;
 
 import '../core/format/money.dart';
+import '../models/plan.dart' show BillingPeriod;
 
 /// The plan a pending payment names, in the words the user sees.
 ///
@@ -76,6 +77,66 @@ String? formatPendingDay(DateTime? local) {
 /// method the catalogue does not know (server added one the app has not been
 /// rebuilt for) falls back to the raw id, because «baridimob» is still
 /// something support can act on where a blank line is not.
+/// «اشتراك 6 أشهر» — the term the server says it filed, or null when it sent
+/// none.
+///
+/// The pending card is the last thing a contractor sees before handing money to
+/// support, and until now it named the **plan** and the **amount** but never
+/// the **term** — the one fact that decides how much cover he just bought.
+/// A man who transferred 8000 دج for six months was told «أساسي · بريدي موب ·
+/// 12-09-2026» and nothing about the six.
+///
+/// The mapping is deliberately closed and the input is the raw wire string the
+/// server sent, because that string is the whole problem. `GET
+/// /api/mobile/plans` publishes four prepaid `durations` per plan (1/3/6/12
+/// months, each cheaper than the last), but `BillingPeriod` — the enum the
+/// purchase sheet sends — has two arms, so the app can only ever *ask* for a
+/// month or a year. Probing the live Worker on 26 Sep showed the other side of
+/// that: it accepts any unrecognised `period` with `ok: true` and files the
+/// request as `month`. The card therefore reports **the stored period, not the
+/// requested one**, which is the only figure that survives the round trip.
+///
+/// An id this app does not know returns null rather than a guess: the card then
+/// prints what it knows and drops the clause, which is the correct rendering of
+/// "the server filed something we cannot name" — and it is not a silent
+/// downgrade to «شهري», which would be a claim the payload does not support.
+String? pendingPeriodLabelAr(String? periodWire) {
+  final wire = periodWire?.trim();
+  if (wire == null || wire.isEmpty) return null;
+  // The toggle's own words, not a fresh phrasing: the contractor picked «شهري»
+  // or «سنوي» on the purchase sheet, so the card that reports the filed
+  // request names the term in the same two words he tapped. `labelAr` is the
+  // enum's existing copy — no second spelling of a term is introduced here.
+  return switch (wire) {
+    'month' => 'اشتراك ${BillingPeriod.month.labelAr}',
+    'year' => 'اشتراك ${BillingPeriod.year.labelAr}',
+    _ => null,
+  };
+}
+
+/// The clause that tells a contractor his term was filed as something else.
+///
+/// Only fires on a payload whose `period` is non-empty and is not one of the
+/// two arms the app understands. That is not a shape the test suite can invent:
+/// it is what the **live** Worker returns for every spelling outside
+/// `month`/`year` — `6month`, `quarter`, `3m`, `durations` and ten others all
+/// answered `ok: true` and stored `period: "month"`, so a 6-month purchase
+/// arrives here looking exactly like a monthly one.
+///
+/// The sentence is the honest one: this row is **one month**, whatever was
+/// asked for. It does not name the six, because the payload does not say which
+/// term was attempted, and guessing would put a number on a money screen that
+/// no one here can evidence. The contractor's next move is the same either way
+/// — quote the row to support — and now the card states the term in words
+/// instead of leaving it to be inferred from an amount.
+String? pendingPeriodMismatchNoteAr(String? periodWire) {
+  final wire = periodWire?.trim();
+  if (wire == null || wire.isEmpty) return null;
+  if (wire == 'month' || wire == 'year') return null;
+  return 'سُجِّل هذا الطلب لمدة شهر واحد — تأكّد من المدة مع الدعم';
+}
+
+/// The name of the method, resolved against the catalogue.
 String? pendingMethodLabelAr(String? methodId, String? Function(String) labelFor) {
   if (methodId == null) return null;
   final id = methodId.trim();
@@ -97,9 +158,11 @@ String? pendingFactsAr({
   String? amountLabel,
   String? methodLabel,
   String? dayLabel,
+  String? periodLabel,
 }) {
   final parts = [
     if (planLabel != null) planLabel,
+    if (periodLabel != null) periodLabel,
     if (amountLabel != null) amountLabel,
     if (methodLabel != null) methodLabel,
     if (dayLabel != null) dayLabel,

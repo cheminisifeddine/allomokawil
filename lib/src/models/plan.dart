@@ -267,6 +267,7 @@ class PendingRequest {
     required this.amountDzd,
     required this.method,
     required this.createdAt,
+    this.period,
   });
 
   final int id;
@@ -274,6 +275,21 @@ class PendingRequest {
   final int? amountDzd;
   final String? method;
   final DateTime? createdAt;
+
+  /// The billing period **the server stored**, exactly as it came back.
+  ///
+  /// Kept as the raw wire string and never coerced into a [BillingPeriod].
+  /// `BillingPeriod.fromWire` maps anything it does not recognise to
+  /// [BillingPeriod.month], and the live Worker does exactly that: probing
+  /// `POST /api/mobile/subscription` with `6month`, `quarter`, `3m`, `durations`
+  /// and ten other spellings all came back `{"ok":true}` and all were stored as
+  /// `period: "month"` (requests 12-24, 26 Sep). So a client that sent a term
+  /// the server did not understand gets a green answer and a one-month row.
+  ///
+  /// Holding the string lets the card say what is actually on file, which is
+  /// the only number that survives the round trip. Null when the server sent
+  /// no period at all.
+  final String? period;
 
   factory PendingRequest.fromJson(Map<String, dynamic> json) => PendingRequest(
         id: _int(json['id']),
@@ -285,6 +301,10 @@ class PendingRequest {
             ? _nullableInt(json['amount_paid'] ?? json['amount_dzd'])
             : null,
         method: _text(json['payment_method']),
+        // The server's own word for the term, kept verbatim: the Worker answers
+        // an unrecognised period with `ok` and files the request as a month,
+        // so this string is the record of what the money actually bought.
+        period: _text(json['period']),
         // Through the app's single server-clock parser, so the card and the
         // expiry countdown on the card above it cannot disagree about the day.
         createdAt: parseServerTime(json['created_at']),
