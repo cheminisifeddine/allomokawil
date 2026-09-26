@@ -11,40 +11,78 @@ correctness gap — never a refactor for its own sake. One item per loop.
 
 ## Loop protocol (read this before every cycle)
 
-1. `cd /home/renia/allomokawil && git status --short` must be clean. If it is
+**The host was rebuilt on 26 Sep 2026.** `/home/renia/*` no longer exists. Every
+path below has been executed on this host, not copied from a dead machine. If
+one stops working, verify a replacement before writing it down here — a command
+in this file that dies on arrival is how two ticks were lost.
+
+| what | real path (verified 26 Sep) |
+| --- | --- |
+| repo | `/home/hatch/allomokawil` |
+| Flutter SDK | `/home/hatch/tools/sdk/flutter/bin/flutter` (3.47.2 / Dart 3.13.2) |
+| push helper | `/home/hatch/workspace/repos/gh_push.py` |
+| design shots | `/tmp/shots/` (written by `test/design_shots_test.dart`) |
+
+1. `cd /home/hatch/allomokawil && git status --short` must be clean. If it is
    not, commit or stash the leftovers first and say so in the report.
    **Exception — do not touch another writer's work.** If the dirt is in files
    you did not edit, an interactive session is mid-cycle in this same checkout:
    touch nothing, report "working tree busy, skipped this cycle" and exit. Two
-   writers in one tree means one of them loses a commit; on 12 Sep the loop
-   committed on top of a live session's in-flight feature and the two nearly
-   shipped a half-built phone field.
+   writers in one tree means one of the other commits is lost; on 12 Sep the
+   loop committed on top of a live session's in-flight feature and the two
+   nearly shipped a half-built phone field.
 2. Take the **first unchecked item in phase order**. Do not reorder phases; do
    not batch two items into one loop.
 3. Implement it completely in Dart. Original code only — no Houzz assets, code,
    icons or branding. Arabic-RTL first, English strings only in code.
 4. Gate before committing:
    ```
-   /home/renia/tools/flutter/bin/flutter analyze     # must print "No issues found!"
-   /home/renia/tools/flutter/bin/flutter test        # count must be >= the previous count
+   /home/hatch/tools/sdk/flutter/bin/flutter analyze   # must print "No issues found!"
+   /home/hatch/tools/sdk/flutter/bin/flutter test      # count must be >= the previous count
    ```
    If either fails: `git checkout -- .` (or `git stash`) and report the failure
    instead of committing. **A red build is never shipped.**
 5. If the change is visual, rebuild the web bundle and check it with the real
    browser, not by reasoning:
    ```
-   /home/renia/tools/build_web.sh                     # or: flutter build web --dart-define=...
-   python3 /home/renia/tools/pngscan.py <shot.png> --color <hex> --tol 26
+   /home/hatch/tools/sdk/flutter/bin/flutter build web \
+     --dart-define=API_BASE_URL=https://allomokawil.com
+   python3 -m http.server 8128 --bind 127.0.0.1 --directory build/web
    ```
-   A CDP screenshot is the only proof a layout claim is true. If you cannot
-   render it, say so plainly rather than asserting it looks right.
-6. Commit with a message that says **what changed and why**, then
-   `git push origin main`.
+   Read pixels with the in-repo decoder, which needs no third-party package:
+   ```
+   python3 -c "import sys;sys.path.insert(0,'tool');from png_read import read_png;\
+     w,h,rows=read_png('shot.png');print(hex((rows[2][6]<<16)|(rows[2][7]<<8)|rows[2][8]))"
+   python3 tool/contrast_audit.py shots /tmp/shots   # or: token
+   ```
+   A screenshot is the only proof a layout claim is true. If you cannot render
+   it, say so plainly rather than asserting it looks right.
+6. Commit with a message that says **what changed and why**, then push with the
+   helper. **`git push origin main` does not work on this box** — there are no
+   git credentials, so it fails with *"could not read Username for
+   'https://github.com'"* and **exits 0**, which reads like success:
+   ```
+   python3 /home/hatch/workspace/repos/gh_push.py \
+     cheminisifeddine allomokawil main . -m "<message>" -- <files...>
+   ```
+   The helper pushes through the API and **never updates the local
+   `origin/main` ref**, so after a successful push `git status` still reports
+   `main` as "ahead 4" and a later tick can mistake unpushed work for pushed
+   work. After pushing, confirm the remote directly instead of trusting the
+   tracker:
+   ```
+   git -C /home/hatch/allomokawil log --oneline origin/main..HEAD
+   ```
+   If that lists commits you believe are already pushed, the ref is stale, not
+   the push: check the real tip before re-pushing.
 7. Tick the checkbox here (change `- [ ]` to `- [x]`) and add the commit hash,
    so the next loop never re-does finished work.
-8. Every 4th completed item (or when a phase completes): bump the version in
-   `pubspec.yaml`, build both ABIs with `/home/renia/tools/build_arm64.sh`,
-   publish a release, and confirm the served bytes hash-match the local build.
+8. **Release step is founder-gated — do NOT do it in this loop.** Bumping the
+   version in `pubspec.yaml`, building the APKs and publishing happen only on
+   the founder's explicit request. This box also has **no JDK**
+   (`/usr/lib/jvm` does not exist), so the old `/home/renia/tools/build_arm64.sh`
+   and `build_web.sh` cannot be reconstructed as they were: they needed
+   Gradle. `flutter build apk` cannot run here at all.
 
 **Never touch:** release signing config, any API token or secret, the Cloudflare
 deploy credentials, or `.github/workflows` secrets. No force-push, ever.
@@ -58,21 +96,9 @@ CPU and holds `build/unit_test_assets`, so **report it, do not kill it**, and
 do not start a test run over the top of it — on 13 Sep it blocked a tick this
 way for 37 minutes.
 
-**Note (13 Sep 15:52) — `flutter test` leaks a tester, and the orphan rule has a
-cost.** pid 226342 was spawned by the 15:13 gate run, watched that run finish
-and commit `7f46d08` at 15:18, and was still alive at 15:52: `ppid` 1, 0.0 %
-CPU, `wchan ep_poll`, holding fd 9 = `build/unit_test_assets`, waiting on a
-stdin pipe whose writer is gone. It will not exit on its own. Per the rule above
-it was reported, not killed, so this tick took the audit-only path and lost no
-work — that is now the third tick this class of block has cost. The open
-question for the founder: may a tick reap a `flutter_tester` that is older than
-30 minutes, `ppid=1`, 0 % CPU and pointed at this repo's own
-`build/unit_test_assets`? If yes, unblocking is `kill 226342`, one command,
-today.
-
 **Honesty rule:** if an item turns out to be already implemented, already
 correct, or blocked on something outside the app, do not fake progress — mark it
-with the reason and move to the next one.
+with the reason and move to the next item.
 
 ---
 
