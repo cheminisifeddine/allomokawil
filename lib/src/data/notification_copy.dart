@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/l10n/arabic_agreement.dart';
 import '../core/theme/app_theme.dart';
 
 /// Presentation for one API notification type.
@@ -104,15 +105,11 @@ String relativeTimeAr(DateTime? at, {DateTime? now}) {
 
 /// Arabic count agreement: 1 → «قبل دقيقة», 2 → «قبل دقيقتين»,
 /// 3–10 → «قبل 5 دقائق», 11 and up → «قبل 15 دقيقة».
-String _ago(int n, String one, String two, String few) {
-  if (n <= 1) {
-    return 'قبل $one';
-  }
-  if (n == 2) {
-    return 'قبل $two';
-  }
-  if (n <= 10) {
-    return 'قبل $n $few';
-  }
-  return 'قبل $n $one';
-}
+///
+/// The rule itself belongs to [arabicCounted]; this only supplies the nouns and
+/// the «قبل » that goes in front of them. It was the first copy of this rule in
+/// the app and it was right, which is exactly why the subscription card was
+/// written as a fourth one and got it wrong — same nouns, same thresholds, two
+/// different implementations, one of them unchecked.
+String _ago(int n, String one, String two, String few) =>
+    'قبل ${arabicCounted(n, one, two: two, few: few)}';

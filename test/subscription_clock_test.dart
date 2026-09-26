@@ -247,7 +247,10 @@ void main() {
       // is nowhere in the Arabic. Under the old card this row printed
       // "ينتهي الاشتراك بعد -3 يوماً".
       expect(out, contains('DAYS=2'), reason: out);
-      expect(out, contains('2 يوماً'), reason: out);
+      // Two days take the dual: «يومين» carries no number and «يوماً» is the
+      // accusative singular, so the old line printed «بعد 2 يوماً» here.
+      expect(out, contains('بعد يومين'), reason: out);
+      expect(out, isNot(contains('يوماً')), reason: out);
       expect(out, isNot(contains('-3')), reason: out);
     });
 

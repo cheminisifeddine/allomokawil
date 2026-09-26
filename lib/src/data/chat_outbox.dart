@@ -18,6 +18,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/l10n/arabic_agreement.dart';
 import '../models/chat.dart';
 
 /// The one preferences key the outbox owns.
@@ -347,10 +348,14 @@ String _clip(String text, [int max = 60]) {
 /// How many messages are still only on this phone, in the form Arabic counts
 /// with: the singular for one, the dual for two, the plural for three to ten,
 /// and the counted singular again from eleven up.
+///
+/// The agreement is [arabicCounted]'s. The one case written out here rather
+/// than handed to it is 1: the count is not part of that sentence at all —
+/// «لم تُرسل بعد» names the state, and «رسالة واحدة لم تُرسل» would name a
+/// number the sentence never used.
 String queuedCountLabel(int n) {
   if (n <= 0) return '';
   if (n == 1) return 'لم تُرسل بعد';
   if (n == 2) return 'رسالتان لم تُرسلا';
-  if (n <= 10) return '$n رسائل لم تُرسل';
-  return '$n رسالة لم تُرسل';
+  return '${arabicCounted(n, 'رسالة', two: 'رسالتان', few: 'رسائل')} لم تُرسل';
 }

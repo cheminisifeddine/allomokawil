@@ -13,6 +13,7 @@
 library;
 
 import '../core/format/money.dart';
+import '../core/l10n/arabic_agreement.dart';
 import 'notification.dart' show parseServerTime;
 
 /// Monthly or annual. Algeria pays in cash and by transfer, so the yearly plan
@@ -207,6 +208,11 @@ class SubscriptionStatus {
   /// person: below a day, the date alone; beyond [maxCountedDays], the date
   /// alone again, because a plan that long is not sold here and a count like
   /// «بعد 26560 يوماً» is a number no contractor can read as time.
+  ///
+  /// The count takes the form the number calls for (see [arabicCounted]): one
+  /// day is «يوم», two are «يومين», three to ten «أيام», and eleven and up
+  /// are counted singular again. Printing one fixed noun for every count is
+  /// the mistake this line used to make.
   String? get expiryCountdownAr {
     final end = subscriptionEndDateLabel(expiresAtLocal);
     if (end == null) return null;
@@ -214,7 +220,12 @@ class SubscriptionStatus {
     if (days == null || days < 1 || days > maxCountedDays) {
       return 'ينتهي الاشتراك في $end';
     }
-    return 'ينتهي الاشتراك بعد $days يوماً — $end';
+    // The count takes the noun's form: one day is «يوم», two are «يومين»,
+    // three to ten are «أيام», and eleven and up are counted singular again —
+    // «بعد 100 يوم», not «بعد 100 أيام». The previous line printed one fixed
+    // «يوماً» for all four, so a contractor one day from renewal read
+    // «بعد 1 يوماً» and one two days out read «بعد 2 يوماً».
+    return 'ينتهي الاشتراك بعد ${arabicCounted(days, 'يوم', two: 'يومين', few: 'أيام')} — $end';
   }
 
   /// A paid plan that passes its expiry date is expired even if the row still
