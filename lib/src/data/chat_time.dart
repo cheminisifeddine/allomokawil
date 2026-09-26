@@ -27,6 +27,47 @@ String chatClock(DateTime at) {
 bool sameChatDay(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
 
+/// Whole **calendar** days from [from] to [to], counted on the local date
+/// fields — 1 for yesterday, 2 for the day before.
+///
+/// `Duration.inDays` is the wrong number for this and is the reason this
+/// function exists. It counts 24-hour *periods*, so at 00:10 it reports 0 days
+/// between a message from 23:50 and now — a message from **yesterday** — and at
+/// 01:00 it reports 1 day between the message from 22:00 the day before and
+/// now — a message from **two days ago**, called yesterday. Both are off by a
+/// day, and both are wrong at exactly the hours people read a phone.
+///
+/// Built from an absolute day number rather than by subtracting two midnight
+/// `DateTime`s and dividing by 24, so a DST transition (23- and 25-hour days)
+/// cannot floor the count onto the previous day. The day number is the
+/// standard Julian Day Number, which is exact for every Gregorian date.
+///
+/// The first version of this used a packed `y*372 + m*31 + d` index, and the
+/// packing is the trap: a stride of 31 assumes every month has 31 days, so
+/// 27 September (9*31+27) lands 4 days *below* 1 October (10*31+1) and the
+/// span comes out as 5. A month-length-weighted packing has to be right for
+/// all twelve months, which is exactly the arithmetic JDN already is, so this
+/// uses it instead of inventing a second one.
+int calendarDaysBetween(DateTime from, DateTime to) =>
+    _jdn(to) - _jdn(from);
+
+/// The Julian Day Number of a date's local calendar day.
+int _jdn(DateTime t) {
+  final m = t.month;
+  final a = (14 - m) ~/ 12;
+  final y = t.year + 4800 - a;
+  final shifted = m + 12 * a - 3;
+  // Every term is non-negative here (y >= 4800, shifted >= 0), so Dart's
+  // truncating `~/` is a floor and the result is exact.
+  return t.day +
+      (153 * shifted + 2) ~/ 5 +
+      365 * y +
+      y ~/ 4 -
+      y ~/ 100 +
+      y ~/ 400 -
+      32045;
+}
+
 /// The label inside a day divider: «اليوم» for today, «أمس» for yesterday, and
 /// a plain `dd/MM/yyyy` beyond that — a day the user has to count is a day he
 /// wants dated, not described.

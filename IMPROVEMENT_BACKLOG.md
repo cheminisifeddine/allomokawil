@@ -3147,3 +3147,60 @@ Phase 1.
       uncommitted — `yearlyTermHintAr(...) case final hint?` is not a valid
       collection-`if` and left the tree un-analyzable. Picked it up, hoisted
       the value into a `yearlyHint` local, and gated from there.
+
+- [x] **The app dated one message two ways — «أمس» and «قبل 20 دقيقة».**
+      Backlog was at zero unchecked, so this tick was an audit, and the audit
+      found the two halves of the app disagreeing about the same instant.
+      `relativeTimeAr` counted days with `Duration.inDays` — a count of 24-hour
+      **periods** — while `chatDayLabel` in the same app counts **calendar**
+      days, on purpose, with a header comment that says why: "Days are compared
+      on the local calendar. A message sent at 00:20 in Algiers is stored at
+      23:20 the previous UTC day." The rule was written down, implemented once,
+      and then implemented wrong in the file that prints the time beside it.
+      The period count is off by a day in both directions after midnight, and
+      both errors land in the hours a phone is actually read. Proven, not
+      argued — at 00:10 a message from 23:50 printed **«قبل 20 دقيقة»** while
+      `chatDayLabel` on the identical `DateTime` returned **«أمس»**; at 01:00 a
+      message from 22:00 the day before (27h) printed **«أمس»** — yesterday — for
+      something two calendar days old, whose own divider said `25/09/2026`.
+      Both call sites are user-facing and both are money-adjacent in effect: the
+      chat list row and the notification centre row are the two places a man
+      decides whether a contractor has gone quiet on him.
+      *Shipped:* `calendarDaysBetween(from, to)` in `chat_time.dart`, the one
+      place that answers "how many calendar days apart are these", and
+      `relativeTimeAr` uses it from the day branch down. The hour branches stay
+      period arithmetic **on purpose**: a 20-minute-old message read at 00:10
+      still says «قبل 20 دقيقة» and never «أمس», because «أمس» would read as a
+      whole day the user never lost. The calendar count starts where the
+      sentence stops being about minutes.
+      **The first packing of that helper was itself wrong, and the suite said
+      so.** I wrote it as `y*372 + m*31 + d` — a stride of 31 assumes every
+      month has 31 days, so 27 Sep (9·31+27) lands four below 1 Oct (10·31+1)
+      and a four-day span came out as five. An existing test caught it on the
+      first run («قبل 4 أيام» -> «قبل 5 أيام») rather than shipping. Replaced
+      with the Julian Day Number, which is exact for all twelve months, leap
+      years included, and needs no second calendar of its own.
+      *Evidence:* `flutter analyze` -> **No issues found!** (which also cleared a
+      stale unused-import warning last tick left in
+      `test/plan_yearly_hint_shot_test.dart`). Full suite -> **+842 ~3, all
+      passed** (was +835; **+7 new, 0 regressions**).
+      *Mutation-gated, both halves:* the day count reverted to `diff.inDays` ->
+      **+25 -1**; the JDN reverted to the `m*31` packing -> **+25 -2**, failing
+      both the month-boundary case and the pre-existing agreement test, so the
+      second implementation was never only caught by its own new test.
+      *The baseline had the bug baked into it.* `golden: 15_notifications` went
+      red on a 569 px diff, measured before I looked at it: **two** bands,
+      y=506-520 and y=624-639, both at x=251-304 — the right-aligned time
+      column, text-sized, not a layout shift. Row 38 (`2026-09-11 09:05Z`
+      against the pinned `13th 03:00Z`) is 41h55m and **two calendar days**, and
+      the test asserting it was commented *"row 38 is a day and a half old"* —
+      which is neither 41h55m nor two days. The expectation had been written to
+      match the code, and the PNG re-shot around it. Corrected to «قبل يومين»
+      plus `findsNothing` for «أمس», and re-baselined as a commit naming the one
+      screen it re-shot. **Only `15_notifications.png` changed** — the other
+      eight goldens are byte-identical, which is the evidence that the day
+      arithmetic moved a label and not a layout.
+      *Also worth recording:* the new screen-level test drives the real
+      `NotificationsScreen` with an injected clock, because a unit test on the
+      helper passes clean when the screen still prints the old value — last
+      cycle's lesson, applied rather than re-learned.

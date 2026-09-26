@@ -4,7 +4,6 @@
 // hand-written constant got wrong), and a year that is not a whole number of
 // months (the case that must print nothing at all).
 // Run:  flutter test test/plan_yearly_hint_shot_test.dart   ->  /tmp/shots/
-import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 

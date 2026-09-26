@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/l10n/arabic_agreement.dart';
+import 'chat_time.dart';
 import '../core/theme/app_theme.dart';
 
 /// Presentation for one API notification type.
@@ -81,7 +82,8 @@ String relativeTimeAr(DateTime? at, {DateTime? now}) {
   if (at == null) {
     return '';
   }
-  final diff = (now ?? DateTime.now()).difference(at);
+  final today = now ?? DateTime.now();
+  final diff = today.difference(at);
   if (diff.isNegative || diff.inMinutes < 1) {
     return 'الآن';
   }
@@ -91,16 +93,24 @@ String relativeTimeAr(DateTime? at, {DateTime? now}) {
   if (diff.inHours < 24) {
     return _ago(diff.inHours, 'ساعة', 'ساعتين', 'ساعات');
   }
-  if (diff.inDays == 1) {
+  // From here the answer is a **calendar** day count, not a 24-hour period
+  // count. `diff.inDays` is a period count and is wrong on both sides of
+  // midnight: it calls a 20-minute-old message from 23:50 «0 days» — a day old
+  // by the calendar, and «أمس» in `chatDayLabel` on the same instant — and it
+  // calls a 27-hour-old message «1 day» — two calendar days old — yesterday.
+  // The app therefore dated one message two ways: the chat divider said «أمس»
+  // while the chat list row beside it said «قبل 20 دقيقة».
+  final days = calendarDaysBetween(at, today);
+  if (days <= 1) {
     return 'أمس';
   }
-  if (diff.inDays < 30) {
-    return _ago(diff.inDays, 'يوم', 'يومين', 'أيام');
+  if (days < 30) {
+    return _ago(days, 'يوم', 'يومين', 'أيام');
   }
-  if (diff.inDays < 60) {
+  if (days < 60) {
     return 'قبل شهر';
   }
-  return _ago(diff.inDays ~/ 30, 'شهر', 'شهرين', 'أشهر');
+  return _ago(days ~/ 30, 'شهر', 'شهرين', 'أشهر');
 }
 
 /// Arabic count agreement: 1 → «قبل دقيقة», 2 → «قبل دقيقتين»,

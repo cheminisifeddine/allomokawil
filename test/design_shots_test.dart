@@ -868,9 +868,18 @@ void main() {
         NotificationsScreen(clock: () => _pinnedClock), s.api, s.auth);
     expect(find.text('قبل ساعة'), findsOneWidget,
         reason: 'row 41 is 01:12Z against the pinned 03:00Z — 1h48 ago');
-    expect(find.text('أمس'), findsOneWidget,
-        reason: 'row 38 is a day and a half old at the pinned clock');
-    expect(find.text('قبل ساعة'), findsOneWidget);
+    // Row 38 is `2026-09-11 09:05Z` against the pinned 13th 03:00Z: 41h55m, and
+    // **two calendar days** — 11th to 13th. It used to read «أمس» here and in
+    // the baseline PNG, because `Duration.inDays` floors 41h to 1 while
+    // `chatDayLabel` on the same instant says «11/09/2026». The old comment on
+    // this line called it "a day and a half", which is neither 41h55m nor two
+    // days — the expectation had been written to match the code rather than to
+    // the clock, and the baseline was re-shot around it. Day counts are now
+    // counted on the calendar, so the row agrees with its own divider.
+    expect(find.text('قبل يومين'), findsOneWidget,
+        reason: 'row 38 is 41h55m old — two calendar days, not yesterday');
+    expect(find.text('أمس'), findsNothing,
+        reason: 'no row is exactly one calendar day old at this clock');
   });
 
   test('every relative-time capture in this file pins the clock', () {

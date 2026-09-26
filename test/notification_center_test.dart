@@ -20,6 +20,7 @@ import 'package:allomokawil/src/core/app_scope.dart';
 import 'package:allomokawil/src/core/network/api_client.dart';
 import 'package:allomokawil/src/core/security/auth_state.dart';
 import 'package:allomokawil/src/core/theme/app_theme.dart';
+import 'package:allomokawil/src/data/chat_time.dart';
 import 'package:allomokawil/src/data/notification_copy.dart';
 import 'package:allomokawil/src/data/repository.dart';
 import 'package:allomokawil/src/models/notification.dart';
@@ -239,6 +240,62 @@ void main() {
     expect(relativeTimeAr(now.add(const Duration(minutes: 5)), now: now), 'الآن');
   });
 
+  // The day arithmetic is counted on the calendar, not in 24-hour periods, and
+  // the two disagree at exactly the hours a phone is read. Each case below is
+  // one the period count got wrong; the day arithmetic is the fix.
+  test('twenty-seven hours old is the day before yesterday, not yesterday', () {
+    // Read at 01:00; the message is from 22:00 the day before. `Duration.inDays`
+    // floors 27h to 1 and the row printed «أمس» — yesterday — for a message two
+    // calendar days old, while the chat divider on the same message correctly
+    // said «25/09/2026». One screen's clock, two answers.
+    final now = DateTime(2026, 9, 27, 1, 0);
+    final at = DateTime(2026, 9, 25, 22, 0);
+    expect(relativeTimeAr(at, now: now), 'قبل يومين');
+    expect(chatDayLabel(at, now: now), '25/09/2026');
+    // 24h and 23h on the same two dates are yesterday — the boundary the
+    // period count used to get right by accident and the day count gets right
+    // on purpose.
+    expect(relativeTimeAr(DateTime(2026, 9, 25, 22, 0), now: DateTime(2026, 9, 26, 22, 0)), 'أمس');
+  });
+
+  test('a message from twenty minutes ago stays twenty minutes, day or not', () {
+    // Crossing midnight must not make a 20-minute-old message «أمس»: inside
+    // the first hour the honest answer is the elapsed time, and «أمس» would
+    // read as a whole day the user never lost. The hour branches are period
+    // arithmetic on purpose; only the day branches moved to the calendar.
+    final now = DateTime(2026, 9, 27, 0, 10);
+    expect(relativeTimeAr(DateTime(2026, 9, 26, 23, 50), now: now), 'قبل 20 دقيقة');
+    expect(calendarDaysBetween(DateTime(2026, 9, 26, 23, 50), now), 1,
+        reason: 'the day really did change — the copy just stays in minutes');
+  });
+
+  test('the day count is exact across short months and year ends', () {
+    // The bug a `y*372 + m*31 + d` packing introduces: 27 Sep -> 1 Oct is
+    // five "days" to a packed index and four to the calendar. The count has to
+    // be the calendar's, so assert the month boundary in both directions.
+    expect(calendarDaysBetween(DateTime(2026, 9, 27), DateTime(2026, 10, 1)), 4);
+    expect(calendarDaysBetween(DateTime(2026, 10, 1), DateTime(2026, 9, 27)), -4);
+    // February in a leap year, a 28-day month and a 30-day month.
+    expect(calendarDaysBetween(DateTime(2024, 2, 1), DateTime(2024, 3, 1)), 29);
+    expect(calendarDaysBetween(DateTime(2026, 2, 1), DateTime(2026, 3, 1)), 28);
+    expect(calendarDaysBetween(DateTime(2026, 4, 30), DateTime(2026, 5, 1)), 1);
+    // Year end, in both directions.
+    expect(calendarDaysBetween(DateTime(2026, 12, 31), DateTime(2027, 1, 1)), 1);
+    expect(calendarDaysBetween(DateTime(2026, 1, 1), DateTime(2027, 1, 1)), 365);
+    expect(calendarDaysBetween(DateTime(2024, 1, 1), DateTime(2025, 1, 1)), 366);
+    // The same calendar day is zero days apart whatever the hour.
+    expect(calendarDaysBetween(DateTime(2026, 9, 27, 0, 1), DateTime(2026, 9, 27, 23, 59)), 0);
+  });
+
+  test('a month-old notification is a day count and never a negative one', () {
+    final now = DateTime(2026, 9, 27, 12, 0);
+    // 45 days -> «قبل شهر»; 90 days -> three months, not 3 days.
+    expect(relativeTimeAr(DateTime(2026, 8, 13, 12, 0), now: now), 'قبل شهر');
+    expect(relativeTimeAr(DateTime(2026, 6, 29, 12, 0), now: now), 'قبل 3 أشهر');
+    // A clock skew still reads «الآن», never a negative count.
+    expect(relativeTimeAr(now.add(const Duration(hours: 3)), now: now), 'الآن');
+  });
+
   test('a zoneless D1 timestamp is read as UTC, not local', () {
     final t = parseServerTime('2026-09-13 10:00:00');
     expect(t, isNotNull);
@@ -246,6 +303,38 @@ void main() {
     expect(parseServerTime(null), isNull);
     expect(parseServerTime(''), isNull);
     expect(parseServerTime('not a date'), isNull);
+  });
+
+  testWidgets('a row two days old is rendered as two days, not yesterday',
+      (tester) async {
+    // On the **screen**, not on the helper. Last cycle's lesson: a correct model
+    // wired to an unfixed screen passes a first unit pass clean, so the cases
+    // that matter have to be driven through the real widget tree.
+    final now = DateTime.now();
+    final twoDaysAgo = now.subtract(const Duration(days: 2, minutes: 30));
+    String stamp(DateTime t) {
+      final u = t.toUtc();
+      String two(int v) => v.toString().padLeft(2, '0');
+      return '${u.year}-${two(u.month)}-${two(u.day)} '
+          '${two(u.hour)}:${two(u.minute)}:${two(u.second)}';
+    }
+
+    final backend = _FakeBackend(
+      [_row(id: 1, type: 'new_quote', createdAt: stamp(twoDaysAgo))],
+      unread: 1,
+    );
+
+    await _pump(
+        tester,
+        NotificationsScreen(
+            repo: Repository(backend.client), clock: () => now),
+        backend.client);
+
+    final shown = _shown(tester);
+    // 2 days and 30 minutes elapsed. A 24-hour period count reads that as
+    // «أمس» and a user is told a message from Tuesday is from yesterday.
+    expect(shown, isNot(contains('أمس')), reason: shown.join(' | '));
+    expect(shown, contains('قبل يومين'), reason: shown.join(' | '));
   });
 
   // ── The centre ──────────────────────────────────────────────────────────
