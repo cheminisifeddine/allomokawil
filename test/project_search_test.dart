@@ -10,6 +10,7 @@ Project _p({
   String title = '',
   String? description,
   String category = 'painting',
+  List<String> categories = const [],
   String wilaya = '16',
   String? commune,
   ProjectStatus status = ProjectStatus.open,
@@ -20,6 +21,7 @@ Project _p({
       title: title,
       description: description,
       category: category,
+      categories: categories,
       images: const [],
       wilaya: wilaya,
       commune: commune,
@@ -99,6 +101,80 @@ void main() {
     test('an unknown category slug falls back to Arabic, never to English', () {
       final unknown = _p(title: 'خدمة', category: 'unknown_trade');
       expect(projectMatchesQuery(unknown, 'عامة'), isTrue);
+    });
+  });
+
+  group('a job that covers several trades is found by every one of them', () {
+    // A real row off the API: the customer's *primary* trade is the first
+    // entry, and the rest are the extra trades the same job covers. The title
+    // and the description say nothing about them — only `categories` does.
+    final fourTrades = _p(
+      title: 'تجديد فيلا',
+      description: 'العمل يشمل عدة اختصاصات',
+      category: 'renovation',
+      categories: const [
+        'renovation',
+        'painting',
+        'electrical',
+        'plumbing',
+      ],
+      wilaya: '25',
+      commune: 'Constantine',
+    );
+
+    test('the secondary trades are searched, not only the primary one', () {
+      expect(projectMatchesQuery(fourTrades, 'دهان'), isTrue);
+      expect(projectMatchesQuery(fourTrades, 'كهرباء'), isTrue);
+      expect(projectMatchesQuery(fourTrades, 'سباكة'), isTrue);
+    });
+
+    test('the primary trade still matches exactly as it always did', () {
+      expect(projectMatchesQuery(fourTrades, 'ترميم'), isTrue);
+    });
+
+    test('a trade the job does not cover still returns nothing', () {
+      expect(projectMatchesQuery(fourTrades, 'سباك'), isTrue); // one word
+      expect(projectMatchesQuery(fourTrades, 'نجارة'), isFalse);
+      expect(projectMatchesQuery(fourTrades, 'حدادة'), isFalse);
+    });
+
+    test('a secondary trade stored under a legacy slug resolves to its name',
+        () {
+      // `gypsum` is an alias for `plaster_drywall`; the API has written it
+      // into `categories` for rows posted by older builds.
+      final legacy = _p(
+        title: 'سقف',
+        category: 'painting',
+        categories: const ['painting', 'gypsum'],
+      );
+      expect(projectMatchesQuery(legacy, 'جبس'), isTrue);
+    });
+
+    test('the list is a superset of the primary: nothing is lost by widening',
+        () {
+      final primaryOnly = _p(
+        title: 'تجديد فيلا',
+        description: 'العمل يشمل عدة اختصاصات',
+        category: 'renovation',
+        wilaya: '25',
+        commune: 'Constantine',
+      );
+      for (final q in ['تجديد', 'اختصاصات', 'ترميم', 'قسنطينة', 'renovation']) {
+        expect(projectMatchesQuery(fourTrades, q), isTrue,
+            reason: '"$q" matched before the change and must still match');
+        expect(projectMatchesQuery(primaryOnly, q), projectMatchesQuery(fourTrades, q));
+      }
+    });
+
+    test('an unknown slug among the trades falls back to Arabic, not English',
+        () {
+      final mixed = _p(
+        title: 'خدمة',
+        category: 'painting',
+        categories: const ['painting', 'unknown_trade'],
+      );
+      // Same rule the primary trade has always had, now applied to the rest.
+      expect(projectMatchesQuery(mixed, 'عامة'), isTrue);
     });
   });
 

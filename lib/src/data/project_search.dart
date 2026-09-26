@@ -12,10 +12,10 @@ import 'taxonomy.dart';
 /// without a round trip.
 ///
 /// What counts as a match: the title, the description, the commune, and the
-/// human names of the category and the wilaya. The category and wilaya are
-/// stored as English slugs / numeric codes, so typing `جبس` or `الجزاير` would
-/// otherwise find nothing at all — the exact "this app is foreign" failure the
-/// backlog is about.
+/// human names of **every** trade the job covers and of the wilaya. The trades
+/// and wilaya are stored as English slugs / numeric codes, so typing `جبس` or
+/// `الجزاير` would otherwise find nothing at all — the exact "this app is
+/// foreign" failure the backlog is about.
 ///
 /// The wilaya name is only considered when the project actually carries a
 /// wilaya: [Taxonomy.wilayaName] falls back to 'الجزائر' for an unknown code,
@@ -26,8 +26,10 @@ bool projectMatchesQuery(Project project, String query) {
     project.title,
     project.description,
     project.commune,
-    Taxonomy.categoryName(project.category),
-    project.category,
+    for (final slug in project.allCategories) ...[
+      Taxonomy.categoryName(slug),
+      slug,
+    ],
     project.wilaya.isEmpty ? null : Taxonomy.wilayaName(project.wilaya),
   ]);
 }
