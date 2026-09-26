@@ -6,6 +6,7 @@ import '../../core/location/place_state.dart';
 import '../../core/auth_gate.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
+import '../../data/photo_count_copy.dart';
 import '../../data/project_search.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
@@ -1311,12 +1312,18 @@ class _PortfolioBadge extends StatelessWidget {
         }
         // This line used to read `'\$n صور'` — an escaped dollar, so every
         // contractor with photos saw the literal "\$n صور" and not a count.
+        //
+        // It then became a two-way branch, `'صورة واحدة'` vs `'$n صور'`, which
+        // had no arm for the two ranges Arabic makes mandatory: 2 is the dual
+        // «صورتان» and takes no number, and 11+ is counted singular «11 صورة».
+        // Both are delegated to [photosAr] now — the same noun the portfolio
+        // header uses — so this tile cannot drift from it a second time.
         final n = snap.data?.length ?? 0;
         if (n == 0) {
           return const _ToolBadge(label: 'أضف صوراً', color: AppTheme.accentDeep);
         }
         return _ToolBadge(
-          label: n == 1 ? 'صورة واحدة' : '$n صور',
+          label: photosAr(n),
           color: AppTheme.success,
         );
       },

@@ -2242,6 +2242,41 @@ it is a correctness gap that duplicates a user's data.
 
 ---
 
+- [ ] **The contractor's dashboard gallery badge hand-wrote its own photo
+      count, and got two of the four ranges wrong at once.**
+      *Found 26 Sep while auditing what the portfolio fix left — same vein, four
+      cycles running, and the reason the rule keeps re-breaking: a count is
+      either delegated to `arabicCounted` or spelled out by hand, and every
+      hand-written one so far has been wrong.* `_PortfolioBadge` in
+      `worker_home_screen.dart` — the tile on the contractor's own home
+      screen — built its label as a two-way branch:
+
+          label: n == 1 ? 'صورة واحدة' : '$n صور',
+
+      That branch has no third arm, so the two ranges it cannot express are
+      both wrong:
+      * **2 → «2 صور».** The dual is «صورتان», and Arabic takes no number with
+        it, so this prints a number the word already carries. The second photo
+        a contractor ever uploads is wrong.
+      * **11 → «11 صور».** 11 and up are *counted singular* — the number is what
+        makes the noun singular, so it is «11 صورة», the same trap the quote
+        allowance and the portfolio header both already documented.
+      Only 1 and 3-10 are right, which is exactly why this survived three
+      cycles of looking at the same file: the ranges a tester sees first are
+      the two that work.
+      **And the one arm that is right is right by accident.** The singular is
+      written `'صورة واحدة'`, but the singular that 11+ reuses must be the bare
+      `«صورة»` — `'صورة واحدة'` means "one single photo" and would read
+      «11 صورة واحدة» if the same string were reused. So the correct fix is
+      *not* to extend this branch; it is to delete the branch and delegate to
+      `photosAr`, the function the previous cycle shipped for exactly this
+      noun, which already encodes both the dual and the 11+ return.
+      *Not hypothetical:* the free plan ships `portfolio_limit: 5` and the app
+      never caps the list, so a paid contractor walks straight past ten on the
+      tile whose job is to tell him his gallery is growing.
+
+---
+
 ## Completed
 
 ### Phase 0 — first-run experience: CLOSED 12 Sep
