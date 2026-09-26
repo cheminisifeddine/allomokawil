@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/photo_count_copy.dart';
 import '../../data/repository.dart';
 import '../../models/worker.dart';
 import '../../widgets/a11y.dart';
@@ -256,13 +257,13 @@ class _Header extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('$count صورة في معرض أعمالك',
+                Text(portfolioCountLineAr(count),
                     style: AppTheme.label
                         .copyWith(fontSize: AppTheme.fsSmall, color: AppTheme.success)),
                 const SizedBox(height: 2),
                 Text(
                   uploaded > 0
-                      ? 'أضفت $uploaded صورة في هذه الجلسة.'
+                      ? uploadedThisSessionAr(uploaded)
                       : 'هذه الصور يراها كل صاحب مشروع في ملفك.',
                   style: AppTheme.caption.copyWith(
                       color: AppTheme.success, fontSize: AppTheme.fsCaption, height: 1.5),
