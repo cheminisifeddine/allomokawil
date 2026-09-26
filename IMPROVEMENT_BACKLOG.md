@@ -1608,7 +1608,14 @@ it is a correctness gap that duplicates a user's data.
       genuine deletion without `--allow-deletes` still refuses with **exit 3**
       and names the file, and with the flag removes exactly that one file; an
       untracked `local.properties` was never uploaded.
-      **Then used on the real repo** — see the commit on `main` below.
+      *Then used on the real repo:* pushed with a path filter — the exact call
+      that broke main — and it reported **"Pushed 1 changed, 0 deleted"** to
+      `d490862`. Remote head `d490862`, **256 files, tree identical to local**,
+      all five files from the 782b657 incident present, `allomokawil.com` and
+      the API both **200**. Local commit `1789fa3`.
+      *Gates:* `flutter analyze` → **No issues found!** (6.6 s); `flutter test` →
+      **+541 ~3: All tests passed!** — exactly the previous count, zero drop.
+      Documentation-only; no Dart source changed.
 - [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent
       writes.** The app cannot make `POST /api/mobile/projects` safe to retry on
       its own. A `Idempotency-Key` request header, stored with the created row
