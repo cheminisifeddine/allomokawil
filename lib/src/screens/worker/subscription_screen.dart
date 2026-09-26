@@ -6,6 +6,7 @@ import '../../core/l10n/error_copy.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
+import '../../data/plan_renewal_copy.dart';
 import '../../data/quote_count_copy.dart';
 import '../../data/repository.dart';
 import '../../models/plan.dart';
@@ -151,6 +152,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         period: _period,
         priceLabel: catalogue.priceLabel(plan, _period),
         payment: catalogue.payment,
+        renewNote: renewalNoteAr(catalogue.renewNoteAr),
+        prepaid: catalogue.isPrepaid,
       ),
     );
     if (result == null) return;
@@ -192,6 +195,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                             ? S.planNoteFallback
                             : catalogue.noteAr,
                         noCommission: catalogue.noCommission,
+                        renewNote: renewalNoteAr(catalogue.renewNoteAr),
+                        prepaid: catalogue.isPrepaid,
                       ),
                       const SizedBox(height: AppTheme.s24),
                       const SectionTitle(S.planChoose, icon: Icons.workspace_premium_outlined),
@@ -328,10 +333,21 @@ class _UsageLine extends StatelessWidget {
 /// marketplace: subscription only, never a cut of the job. When the server
 /// reports a non-zero commission the sentence changes instead of lying.
 class _PromiseCard extends StatelessWidget {
-  const _PromiseCard({required this.note, required this.noCommission});
+  const _PromiseCard({
+    required this.note,
+    required this.noCommission,
+    required this.renewNote,
+    required this.prepaid,
+  });
 
   final String note;
   final bool noCommission;
+
+  /// The founder's own renewal sentence, already trimmed or null.
+  final String? renewNote;
+
+  /// True only when the server explicitly said nothing renews itself.
+  final bool prepaid;
 
   @override
   Widget build(BuildContext context) {
@@ -358,11 +374,61 @@ class _PromiseCard extends StatelessWidget {
                   style: AppTheme.body.copyWith(
                       color: AppTheme.textSecondary, height: 1.6),
                 ),
+                if (renewNote != null) ...[
+                  const SizedBox(height: AppTheme.s8),
+                  _PrepaidBadge(note: renewNote!, prepaid: prepaid),
+                ],
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// «الدفع مسبق — لا يوجد خصم تلقائي من البطاقة».
+///
+/// The sentence the server writes ([BillingCatalogue.renewNoteAr]), shown next
+/// to the price on the card a contractor reads before he pays. It sits inside
+/// the promise card rather than under the toggle because it is the *other half*
+/// of the same promise: that card says «we never take a cut», and this says
+/// «and nothing charges you again later» — a man deciding with cash in Algiers
+/// needs both, and until this shipped the app said only the first.
+///
+/// [prepaid] is the server's `auto_renew: false`, not a local constant. When
+/// the flag is absent the sentence is still printed — it is the founder's
+/// wording, and it is true whenever it was published — but the tick beside it
+/// is withheld, because a checkmark that means "we promise" must never be
+/// drawn off a field the server did not send.
+class _PrepaidBadge extends StatelessWidget {
+  const _PrepaidBadge({required this.note, required this.prepaid});
+
+  final String note;
+  final bool prepaid;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          prepaid ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+          size: AppTheme.s20,
+          color: AppTheme.success,
+        ),
+        const SizedBox(width: AppTheme.s8),
+        Expanded(
+          child: Text(
+            note,
+            style: AppTheme.body.copyWith(
+              color: AppTheme.textSecondary,
+              height: 1.6,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -688,12 +754,23 @@ class _PaymentSheet extends StatefulWidget {
     required this.period,
     required this.priceLabel,
     required this.payment,
+    required this.renewNote,
+    required this.prepaid,
   });
 
   final Plan plan;
   final BillingPeriod period;
   final String priceLabel;
   final PaymentOptions payment;
+
+  /// Repeated here, under the price, immediately before the money moves.
+  ///
+  /// Deliberately not "already shown on the card": this sheet is the last thing
+  /// between the contractor and a transfer, and a BaridiMob receipt is a
+  /// screenshot someone will forward. The sentence has to be in the thing they
+  /// screenshot.
+  final String? renewNote;
+  final bool prepaid;
 
   @override
   State<_PaymentSheet> createState() => _PaymentSheetState();
@@ -731,6 +808,10 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                 '${widget.priceLabel} · ${widget.period.labelAr}',
                 style: AppTheme.bar.copyWith(color: AppTheme.navy),
               ),
+              if (widget.renewNote != null) ...[
+                const SizedBox(height: AppTheme.s8),
+                _PrepaidBadge(note: widget.renewNote!, prepaid: widget.prepaid),
+              ],
               const SizedBox(height: AppTheme.s16),
               Text(S.planPayTitle, style: AppTheme.h2),
               const SizedBox(height: AppTheme.s8),

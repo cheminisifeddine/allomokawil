@@ -330,6 +330,8 @@ class BillingCatalogue {
   const BillingCatalogue({
     required this.currency,
     required this.noteAr,
+    required this.renewNoteAr,
+    required this.autoRenew,
     required this.commissionPercent,
     required this.commissionPerOrder,
     required this.plans,
@@ -342,6 +344,28 @@ class BillingCatalogue {
 
   /// The product promise in the founder's own words, rendered as-is.
   final String noteAr;
+
+  /// How the plan is paid for, in the founder's own words, or empty.
+  ///
+  /// The server publishes this next to [noteAr] on the same payload and the app
+  /// dropped it on the floor: `renew_note_ar` and `auto_renew` were read by
+  /// nothing, so **«الدفع مسبق» — prepaid, no automatic charge — was never
+  /// stated to the man about to hand over money**. [noteAr] promises no
+  /// commission and is printed on the screen; this is the sentence that tells
+  /// him what happens to his card when the plan runs out, and it was the one
+  /// nobody could read.
+  ///
+  /// Null rather than empty when the server sent nothing, so a catalogue with no
+  /// renewal note can never be confused with one whose note is blank.
+  final String? renewNoteAr;
+
+  /// True only when the server itself says a plan charges itself again.
+  ///
+  /// The flag is the part that can be relied on; [renewNoteAr] is prose. An
+  /// **absent** flag is not a promise that nothing renews, so [isPrepaid] only
+  /// claims what was actually sent — see there.
+  final bool? autoRenew;
+
   final int commissionPercent;
   final int commissionPerOrder;
   final List<Plan> plans;
@@ -351,6 +375,18 @@ class BillingCatalogue {
 
   /// True only when the server itself says there is no commission anywhere.
   bool get noCommission => commissionPercent == 0 && commissionPerOrder == 0;
+
+  /// True only when the server **explicitly** said it does not auto-charge.
+  ///
+  /// A missing `auto_renew` is not a `false`: the parser cannot tell an older
+  /// server that predates the field from one that genuinely renews, and
+  /// claiming «لن يُخصم تلقائياً» off an absent flag is exactly the sort of
+  /// promise this model exists not to invent. Null is therefore carried all the
+  /// way to the screen, and the sentence is written by the server
+  /// ([renewNoteAr]) rather than derived from the flag — the flag only decides
+  /// whether the *badge* is shown, and a badge nobody can trust is worse than
+  /// no badge.
+  bool get isPrepaid => autoRenew == false;
 
   Plan? planById(String id) {
     for (final p in plans) {
@@ -380,6 +416,8 @@ class BillingCatalogue {
     return BillingCatalogue(
       currency: '${json['currency'] ?? 'DZD'}',
       noteAr: '${json['note_ar'] ?? ''}',
+      renewNoteAr: _text(json['renew_note_ar']),
+      autoRenew: json['auto_renew'] is bool ? json['auto_renew'] as bool : null,
       commissionPercent: _int(json['commission_percent']),
       commissionPerOrder: _int(json['commission_per_order']),
       plans: plans,
@@ -422,6 +460,17 @@ String? subscriptionEndDateLabel(DateTime? local) {
   final d = local.toLocal();
   return '${d.year}-${d.month.toString().padLeft(2, '0')}-'
       '${d.day.toString().padLeft(2, '0')}';
+}
+
+/// A trimmed string, or null when the field is absent, empty or not a string.
+///
+/// The difference from `'${json['x'] ?? ''}'` matters for a promise: an absent
+/// renewal note must be *missing*, so the screen can fall back, and never a
+/// blank line the user reads as a message that failed to load.
+String? _text(Object? value) {
+  if (value is! String) return null;
+  final v = value.trim();
+  return v.isEmpty ? null : v;
 }
 
 int _int(Object? value) {
