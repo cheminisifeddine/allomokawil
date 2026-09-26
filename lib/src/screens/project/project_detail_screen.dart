@@ -11,6 +11,7 @@ import '../../models/enums.dart';
 import '../../models/project.dart';
 import '../../models/quote_review.dart';
 import '../../widgets/net_image.dart';
+import '../../widgets/quote_worker_trust.dart';
 import '../../widgets/number_field.dart';
 import '../../widgets/ui.dart';
 import '../browse/browse_screen.dart';
@@ -807,7 +808,7 @@ class _QuoteCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              InitialAvatar(name: quote.workerFullName, size: 48),
+              QuoteWorkerTrust(quote: quote, size: 48),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
