@@ -1562,7 +1562,7 @@ it is a correctness gap that duplicates a user's data.
       Also cleared a leaked `flutter_tester` from the previous cycle (orphan,
       PPID 1, 0% CPU) and re-synced the diverged local `main` to `origin/main`
       (trees byte-identical, so nothing lost, no force-push).
-      *DONE `see commit above`.* Known gap, not fixed: a branch ref that does
+      *DONE `6945a75` (script fix; this doc commit follows).* Known gap, not fixed: a branch ref that does
       not exist yet returns 409/404, so the first push to a brand-new empty
       repo fails. Nothing in the loop does that. The credential has no
       `delete_repo` scope, so the throwaway test repo
