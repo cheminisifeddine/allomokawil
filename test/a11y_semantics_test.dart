@@ -19,6 +19,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+import 'package:allomokawil/src/core/l10n/arabic_agreement.dart';
 import 'package:allomokawil/src/core/network/api_client.dart';
 import 'package:allomokawil/src/data/repository.dart';
 import 'package:allomokawil/src/screens/review/review_screen.dart';
@@ -68,21 +69,66 @@ Future<void> _pump(WidgetTester tester, Widget child, {bool scaffold = true}) as
 void main() {
   group('the words a screen reader says', () {
     test('a star is a count out of five', () {
-      expect(A11y.star(1), '1 من ٥');
-      expect(A11y.star(5), '5 من ٥');
+      expect(A11y.star(1), '1 من 5');
+      expect(A11y.star(5), '5 من 5');
+    });
+
+    test('the scale is one number, not a five written twice', () {
+      // The star labels and the score line used to carry their own literal 5
+      // and their own digit table. If either is ever changed in isolation the
+      // two halves of one screen-reader sentence stop matching, so the sentence
+      // itself is what is asserted: the "of" a star and the "of" a score are
+      // the same characters, read off A11y rather than a private copy.
+      expect(A11y.star(4, of: A11y.scale), '4 من ${A11y.scale}');
+      expect(A11y.rating(3), 'التقييم 3.0 من ${A11y.scale}');
+      expect(A11y.star(4, of: 10), '4 من 10',
+          reason: 'a caller with another scale must still get Latin digits');
+    });
+
+    test('no number a screen reader is given is Arabic-Indic', () {
+      // The regression this file exists to catch. TalkBack reads the string
+      // character for character, so «من ٥» next to «4.5» is the same "of five"
+      // twice in one sentence, written in two directions, in the order the
+      // user never typed. Every numeral the app hands a reader is Latin, the
+      // same way chatClock and the phone field write theirs.
+      // Arabic-Indic U+0660..U+0669 and Extended U+06F0..U+06F9.
+      final arabicIndic = RegExp('[\u0660-\u0669\u06f0-\u06f9]');
+      for (final n in [0, 1, 2, 3, 7, 10, 11, 12, 27, 100]) {
+        expect(A11y.star(n, of: n > 0 ? 5 : 1), isNot(matches(arabicIndic)),
+            reason: 'star($n) must not carry an Arabic-Indic digit');
+        expect(A11y.rating(n.toDouble(), count: n), isNot(matches(arabicIndic)),
+            reason: 'rating($n) must not carry an Arabic-Indic digit');
+      }
     });
 
     test('a score is one sentence, not five icons', () {
-      expect(A11y.rating(4.5), 'التقييم 4.5 من ٥');
-      expect(A11y.rating(4.5, count: 3), 'التقييم 4.5 من ٥، 3 مراجعات');
+      expect(A11y.rating(4.5), 'التقييم 4.5 من 5');
+      expect(A11y.rating(4.5, count: 3), 'التقييم 4.5 من 5، 3 مراجعات');
     });
 
     test('the review count is spoken, not machine-printed', () {
-      expect(A11y.rating(5, count: 0), 'التقييم 5.0 من ٥، لا مراجعات');
-      expect(A11y.rating(5, count: 1), 'التقييم 5.0 من ٥، مراجعة واحدة');
-      expect(A11y.rating(5, count: 2), 'التقييم 5.0 من ٥، مراجعتان');
-      expect(A11y.rating(5, count: 7), 'التقييم 5.0 من ٥، 7 مراجعات');
-      expect(A11y.rating(5, count: 12), 'التقييم 5.0 من ٥، 12 مراجعة');
+      expect(A11y.rating(5, count: 0), 'التقييم 5.0 من 5، لا مراجعات');
+      expect(A11y.rating(5, count: 1), 'التقييم 5.0 من 5، مراجعة واحدة');
+      expect(A11y.rating(5, count: 2), 'التقييم 5.0 من 5، مراجعتان');
+      expect(A11y.rating(5, count: 7), 'التقييم 5.0 من 5، 7 مراجعات');
+      expect(A11y.rating(5, count: 12), 'التقييم 5.0 من 5، 12 مراجعة');
+      expect(A11y.rating(5, count: 27), 'التقييم 5.0 من 5، 27 مراجعة');
+      expect(A11y.rating(5, count: 103), 'التقييم 5.0 من 5، 103 مراجعة');
+    });
+
+    test('the review thresholds are the shared rule, not a fourth copy', () {
+      // 0 / 1 / 2 / 3-10 / 11+ is arabicCounted's table, so these must agree
+      // with it on both sides of every boundary rather than be asserted twice.
+      for (final n in [3, 4, 5, 9, 10, 11, 12, 20, 101, 111]) {
+        expect(A11y.reviews(n), arabicCounted(n, 'مراجعة',
+            two: 'مراجعتان', few: 'مراجعات'),
+            reason: 'reviews($n) has drifted from the shared agreement rule');
+      }
+    });
+
+    test('a negative count is silence, not «-4 مراجعات»', () {
+      expect(A11y.reviews(-4), 'لا مراجعات');
+      expect(A11y.rating(4.0, count: -1), 'التقييم 4.0 من 5، لا مراجعات');
     });
   });
 
@@ -172,7 +218,7 @@ void main() {
       final named = _nodes(tester).where((n) => n.label.isNotEmpty).toList();
       expect(named, hasLength(1),
           reason: 'five icons and a bare 4.5 are what this replaced');
-      expect(named.single.label, 'التقييم 4.5 من ٥، 3 مراجعات');
+      expect(named.single.label, 'التقييم 4.5 من 5، 3 مراجعات');
       expect(_tap(named.single), isFalse, reason: 'a rating is not a button');
       handle.dispose();
     });
@@ -182,7 +228,7 @@ void main() {
       await _pump(tester, const RatingStars(rating: 5));
       final named = _nodes(tester).where((n) => n.label.isNotEmpty).toList();
       expect(named, hasLength(1));
-      expect(named.single.label, 'التقييم 5.0 من ٥');
+      expect(named.single.label, 'التقييم 5.0 من 5');
       handle.dispose();
     });
   });
@@ -199,12 +245,12 @@ void main() {
       await pumpReview(tester);
 
       final stars = _nodes(tester)
-          .where((n) => n.label.endsWith('من ٥') && n.label.length <= 6)
+          .where((n) => n.label.endsWith('من 5') && n.label.length <= 6)
           .toList();
       expect(stars, hasLength(5),
           reason: 'the picker used to expose an unnamed tap target per star');
       expect(stars.map((n) => n.label).toList(),
-          ['1 من ٥', '2 من ٥', '3 من ٥', '4 من ٥', '5 من ٥']);
+          ['1 من 5', '2 من 5', '3 من 5', '4 من 5', '5 من 5']);
       for (final s in stars) {
         expect(_tap(s), isTrue, reason: '${s.label} must be actionable');
         expect(_isButton(s), isTrue);
@@ -218,17 +264,17 @@ void main() {
       final handle = tester.ensureSemantics();
       await pumpReview(tester);
 
-      await tester.tap(find.bySemanticsLabel('4 من ٥'));
+      await tester.tap(find.bySemanticsLabel('4 من 5'));
       await tester.pump();
 
       final stars = _nodes(tester)
-          .where((n) => n.label.endsWith('من ٥') && n.label.length <= 6)
+          .where((n) => n.label.endsWith('من 5') && n.label.length <= 6)
           .toList();
       final on = stars
           .where((n) => _selected(n) == Tristate.isTrue)
           .map((n) => n.label)
           .toList();
-      expect(on, ['1 من ٥', '2 من ٥', '3 من ٥', '4 من ٥']);
+      expect(on, ['1 من 5', '2 من 5', '3 من 5', '4 من 5']);
       expect(stars.map((n) => _selected(n) == Tristate.isTrue).toList(),
           [true, true, true, true, false]);
       handle.dispose();

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../core/l10n/arabic_agreement.dart';
+
 /// Screen-reader plumbing, in one place.
 ///
 /// The house already knew the shape — the bottom bar, the notification bell and
@@ -64,35 +66,49 @@ class A11y {
     );
   }
 
-  /// One star of the rating form, the way a person says it: «٣ من ٥».
-  static String star(int n, {int of = 5}) => '$n من ${_spoken(of)}';
+  /// How many points the scale has. One constant for the star labels and the
+  /// score line, so the two can never each hard-code a five and drift.
+  static const int scale = 5;
 
-  /// A numeral the way the rest of these sentences spell a fixed word: the
-  /// score line already reads «من ٥» ([rating]), and a star that said «من 5»
-  /// made the same word two different things in one screen-reader pass.
-  static String _spoken(int value) => value
-      .toString()
-      .split('')
-      .map((d) => _arabicDigits[int.parse(d)])
-      .join();
-
-  static const List<String> _arabicDigits = <String>[
-    '٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩',
-  ];
+  /// One star of the rating form, the way a person says it: «3 من 5».
+  ///
+  /// **Latin digits, deliberately.** This used to spell the scale in
+  /// Arabic-Indic through a private digit table, on the theory that a spoken
+  /// numeral should be spoken. The theory was wrong about what a screen reader
+  /// reads: the score line right beside it already printed `4.5` in Latin, so a
+  /// single pass said «التقييم 4.5 من ٥، 3 مراجعات» — the same "of five" two
+  /// ways in one sentence, which is the thing this class exists to prevent.
+  /// It is also the way the rest of the app writes numbers: [chatClock] prints
+  /// `09:05` and the phone field reads `0550 12 34 56` back, both Latin,
+  /// because an RTL run lays Arabic-Indic digits out in an order the user did
+  /// not type them in. The table is deleted, not moved: [of] is printed as the
+  /// number it is, so a star label and a score cannot disagree again.
+  static String star(int n, {int of = scale}) => '$n من $of';
 
   /// The rating row as one sentence instead of five icons and a bare number.
+  ///
+  /// Same Latin digits as [star], and the same [scale] — the label a screen
+  /// reader reads is now character-for-character what the row already printed
+  /// on glass.
   static String rating(double value, {int? count}) {
-    final score = 'التقييم ${value.toStringAsFixed(1)} من ٥';
+    final score = 'التقييم ${value.toStringAsFixed(1)} من $scale';
     return count == null ? score : '$score، ${reviews(count)}';
   }
 
   /// Arabic counts its nouns — 0 / 1 / 2 / 3-10 / 11+ — and «3 مراجعة» is a
   /// machine talking, not a person.
+  ///
+  /// The thresholds belong to [arabicCounted], the same rule the notification
+  /// clock, the chat outbox, the subscription countdown and a contractor's own
+  /// stats share. This was the fourth hand-written copy of it, which is how
+  /// «3 مراجعة» would have gone on sitting next to three files that had it
+  /// right. Zero and one branch *before* the rule, and both branches are the
+  /// rule's own two cases, not new ones: «لا مراجعات» is a sentence with no
+  /// count in it, and «مراجعة واحدة» says *one* in the word, where
+  /// [arabicCounted] leaves the bare singular «مراجعة».
   static String reviews(int count) {
     if (count <= 0) return 'لا مراجعات';
     if (count == 1) return 'مراجعة واحدة';
-    if (count == 2) return 'مراجعتان';
-    if (count <= 10) return '$count مراجعات';
-    return '$count مراجعة';
+    return arabicCounted(count, 'مراجعة', two: 'مراجعتان', few: 'مراجعات');
   }
 }
