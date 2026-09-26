@@ -31,6 +31,19 @@ class ChatScreen extends StatefulWidget {
   /// test can hand in its own store instead of the real preferences file.
   final ChatOutbox? outbox;
 
+  /// How a message's clock is written. Null in the app, which is the point: a
+  /// user reads the hour his phone is on, so the thread is drawn in the device's
+  /// own zone and never anything else.
+  ///
+  /// It is a seam, not a feature. [Message.createdAt] arrives already converted
+  /// by `parseServerTime`, so the *instant* is right but the *zone* it is
+  /// rendered in is whatever machine runs the code — which is why the design
+  /// gate could not hold this screen still. `Platform.environment` is an
+  /// unmodifiable map, so the zone cannot be repinned from inside a test.
+  /// Handing in the formatter makes the rendered hour a property of the test
+  /// instead of of the box.
+  final String Function(DateTime at)? clockFormat;
+
   const ChatScreen({
     super.key,
     this.conversationId,
@@ -39,6 +52,7 @@ class ChatScreen extends StatefulWidget {
     this.otherName = '',
     required this.repo,
     this.outbox,
+    this.clockFormat,
   });
 
   @override
@@ -625,6 +639,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: _BubbleMeta(
                   message: m,
                   mine: mine,
+                  clockFormat: widget.clockFormat,
                   onRetry:
                       m.sendState == SendState.failed ? () => _retryOne(m) : null,
                   uncertain: m.sendState == SendState.unconfirmed,
@@ -857,17 +872,23 @@ class _BubbleMeta extends StatelessWidget {
   /// tappable line is how the user creates one.
   final bool uncertain;
 
+  /// See [ChatScreen.clockFormat]. Null in the app: the phone's own hour.
+  final String Function(DateTime at)? clockFormat;
+
   const _BubbleMeta({
     required this.message,
     required this.mine,
     this.onRetry,
     this.uncertain = false,
+    this.clockFormat,
   });
 
   @override
   Widget build(BuildContext context) {
     final at = message.createdAt;
-    final clock = at == null ? '' : chatClock(at);
+    final clock = at == null
+        ? ''
+        : (clockFormat ?? chatClock)(at);
 
     if (onRetry != null) {
       return Material(

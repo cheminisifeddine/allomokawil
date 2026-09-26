@@ -520,7 +520,13 @@ List<(String, Widget Function(Repository))> _mainScreens(Repository repo) => [
             conversationId: 5,
             otherUserId: 31,
             otherName: 'مقاول تجربة',
-            repo: r),
+            repo: r,
+            // The hour under a bubble comes from the device's own zone, so an
+            // unpinned capture is a diff waiting for the machine to move. UTC,
+            // like [_pinnedClock]: [Message.createdAt] arrives as an absolute
+            // instant, so pinning the *zone* is what makes it fixed — pinning
+            // the value alone would still be read through CET on this box.
+            clockFormat: chatClockAt),
       ),
       ('15_notifications', (_) => NotificationsScreen(clock: () => _pinnedClock)),
       (
@@ -543,6 +549,22 @@ List<(String, Widget Function(Repository))> _mainScreens(Repository repo) => [
 /// label the rows 48 minutes old under CET and an hour and 48 under UTC, i.e.
 /// the baseline would depend on the machine's timezone as well as its clock.
 final DateTime _pinnedClock = DateTime.utc(2026, 9, 13, 3, 0);
+
+/// The chat thread's clock, written in UTC so the capture does not depend on
+/// the timezone of the machine that takes it.
+///
+/// `12_chat` sat at 43 px / 0.01% for days. The diff was one digit of the
+/// `HH:mm` label under the last bubble: the fixture says `2026-09-11 20:23:45`
+/// in UTC, `parseServerTime` converts it, and the hour printed is that UTC
+/// instant *read in the host zone* — 20:23 on this box, 22:23 on a box east of
+/// it. Re-baselining it in CET would have pinned the gate to this machine's
+/// offset and taken it red again on every host that is not CET. A formatter
+/// says what the design is instead: this is the thread, the label is 20:23.
+String chatClockAt(DateTime at) {
+  final h = at.toUtc().hour.toString().padLeft(2, '0');
+  final m = at.toUtc().minute.toString().padLeft(2, '0');
+  return '$h:$m';
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -610,7 +632,8 @@ void main() {
             conversationId: 5,
             otherUserId: 31,
             otherName: 'مقاول تجربة',
-            repo: Repository(s.api)),
+            repo: Repository(s.api),
+            clockFormat: chatClockAt),
         s.api,
         s.auth);
     await _shoot(tester, '13_profile', const ProfileScreen(), s.api, s.auth);
@@ -861,6 +884,28 @@ void main() {
       expect(site.substring(0, 40), contains('clock:'),
           reason: 'a capture here would drift on the hour boundary and take '
               'the whole gate red — hand the screen a fixed `clock:`');
+    }
+  });
+
+  test('every chat capture in this file pins the clock formatter', () {
+    // The same trap as above, in the thread: [Message.createdAt] is an
+    // absolute instant, and the hour printed under a bubble is that instant
+    // read in the host's zone. `Platform.environment` cannot be repinned from
+    // Dart, so a capture that does not pass `clockFormat:` is a golden that
+    // only holds on the machine that wrote it. This is the assertion that
+    // makes the gate zone-independent instead of pinned to one box.
+    const needle = 'Chat' 'Screen(';
+    final source = File('test/design_shots_test.dart').readAsStringSync();
+    final callSites = source.split(needle).skip(1).toList();
+    expect(callSites, isNotEmpty,
+        reason: 'the harness stopped capturing the chat thread');
+    for (final site in callSites) {
+      // Wide enough to cover a call site formatted one-argument-per-line, which
+      // is how both sites in this file are written.
+      expect(site.substring(0, 600), contains('clockFormat:'),
+          reason: 'a chat capture here would print the host timezone hour and '
+              'take the gate red on every box that is not this one — hand the '
+              'screen a fixed `clockFormat:`');
     }
   });
 }
