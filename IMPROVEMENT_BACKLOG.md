@@ -2812,3 +2812,57 @@ Phase 1.
       server may reject is founder-gated, not a loop's call.
       Local `1764373`, remote `8c404fe`, all 5 blobs verified **MATCH**
       against the live remote tree. No APK, no release, no tag.
+
+- [x] **A job's extra trades were on its card and invisible to the search box.**
+      The fourth field the server sends and the app drops, and the same shape as
+      `quote_limit`, `portfolio_limit` and the renewal fields: the payload
+      carries a list, the model parses it, and the *read* path throws it away
+      while three other read paths use it.
+      *The defect:* `GET /api/mobile/projects` returns `categories` — every
+      trade a job covers, primary first. `Project.fromJson` parses it, the
+      project page badges every one, the card prints the count as `+5`, and
+      `Project.allCategories` exists to serve both. `projectMatchesQuery` read
+      one field, `category`, the primary trade. A finishing job that also covers
+      painting, renovation, building, plumbing **and carpentry** was therefore
+      unfindable to anyone typing «نجارة» — on a card that had just told him it
+      was a carpentry job too. **4 of the 20 open projects on the live market
+      carry more than one trade**, and the rows that do are mostly titled
+      `test` with `description: "test"`, so `categories` is the only place
+      their trades are written down at all.
+      This is the founder's own ask, quoted in `Project.categories`: «make
+      sure the job seeker to be able to choose multiple niches … عام وهيكل،
+      ترميم وتجديد، تشطيب عام وتسليم مفتاح — all in once». The **write** path
+      has always sent the full list. Only the read path dropped it, and the
+      read path is the one a user touches.
+      *Shipped:* the match set is now every trade in
+      `Project.allCategories` — the same list the card and the detail page
+      already render, so the three cannot drift. Each slug goes through
+      `Taxonomy.categoryName`, so a legacy slug in `categories` (`gypsum`)
+      still answers to «جبس», and an unknown one still falls back to
+      `خدمات عامة` rather than leaking English into an Arabic screen.
+      Nothing was removed: the primary trade was always a member of the set, so
+      every query that matched before still matches, which is asserted
+      explicitly rather than assumed.
+      *Evidence:* `flutter analyze` -> **No issues found!**; `flutter test` ->
+      **+740 ~3** (was +726), 14 new, zero failures.
+      *Both mutations caught, on all three levels:* reverting the widening
+      fails **4** unit tests, **2** live-payload tests and **3** widget tests
+      that drive the real screen and read real cards — so this is not a correct
+      helper wired to nothing, which is the way a search fix rots silently.
+      The live test uses a row copied verbatim from the API on 26 Sep, whose
+      `title` and `description` are the literal string `test`, and asserts that
+      fact first, so a title match cannot make the test lie.
+      *Rendered, not assumed:* `/tmp/shots/multitrade_01_najara_hit.png`,
+      `/tmp/shots/multitrade_02_kahraba_hit.png` (1080×2400) — each job found
+      by a trade that is **not** its primary one, the other job absent from
+      each. **3.56%** of sampled pixels differ between them across **282**
+      rows, so the two screens are genuinely different renderings and not the
+      same picture twice. The Arabic carries a **139 px** continuous
+      horizontal run, which is a joined word — tofu boxes are isolated squares
+      — so the text really rendered.
+      **One test case I wrote was wrong and the run caught it:** the control
+      shot searched «دهان», which the finishing job legitimately carries, so the
+      assertion failed. Corrected to «كهرباء», a trade only the plumbing job
+      has, which is the same defect seen from the other side.
+      Local `0bddc5b`, remote `27d8870`, all 5 blobs verified **MATCH** against
+      the live remote tree. No APK, no release, no tag.
