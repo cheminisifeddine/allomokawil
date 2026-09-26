@@ -82,6 +82,20 @@ void main() {
     expect(w.wilaya, '16');
   });
 
+  test('a worker who never set a radius has none, not zero', () {
+    // `POST /api/register` sends no `service_radius_km`, so this is the shape
+    // a brand-new contractor's profile arrives in. The parser used to fold the
+    // absent field to 0 and the public profile published «نصف قطر الخدمة:
+    // 0 كم» about a man who had not answered the question.
+    final json = _decode(_workerJson)..remove('service_radius_km');
+    expect(WorkerProfile.fromJson(json).serviceRadiusKm, isNull);
+  });
+
+  test('a radius that was actually set is kept', () {
+    expect(
+        WorkerProfile.fromJson(_decode(_workerJson)).serviceRadiusKm, isNotNull);
+  });
+
   test('Project parses a live project payload', () {
     final p = Project.fromJson(_decode(_projectJson));
     expect(p.title, 'دهان شقة 3 غرف');

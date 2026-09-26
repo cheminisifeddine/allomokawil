@@ -319,12 +319,18 @@ class _WorkFacts extends StatelessWidget {
               value: _priceLabel(w),
               color: AppTheme.accentDeep,
             ),
-          InfoRow(
-            icon: Icons.radar_rounded,
-            label: 'نصف قطر الخدمة',
-            value: '${w.serviceRadiusKm} كم',
-            color: AppTheme.navy,
-          ),
+          // Dropped whole when there is nothing true to say: a contractor who
+          // never set a radius used to publish «نصف قطر الخدمة: 0 كم» here,
+          // which reads as a decision rather than a blank. See
+          // [serviceRadiusAr].
+          if (serviceRadiusAr(w.serviceRadiusKm) case final radius?) ...[
+            InfoRow(
+              icon: Icons.radar_rounded,
+              label: 'نصف قطر الخدمة',
+              value: radius,
+              color: AppTheme.navy,
+            ),
+          ],
           if (hasWilaya)
             InfoRow(
               icon: Icons.location_on_rounded,

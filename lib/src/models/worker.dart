@@ -10,7 +10,21 @@ class WorkerProfile {
   final int experienceYears;
   final int? priceRangeMin;
   final int? priceRangeMax;
-  final int serviceRadiusKm;
+  /// How far this contractor will travel, in km.
+  ///
+  /// **Null means never set, and null is not zero.** `POST /api/register` sends
+  /// no `service_radius_km` at all — a contractor cannot reach the slider on
+  /// the edit screen without first building a profile — so a brand-new account
+  /// arrives here with the field absent, the parser turned it into `0`, and
+  /// the public profile printed «نصف قطر الخدمة: 0 كم». That is the app
+  /// claiming a measurement about a man's own business that nobody ever made:
+  /// he has not said he will not travel anywhere, he has not answered.
+  ///
+  /// The same shape as [responseTimeHours], and the fix is the same: an absent
+  /// measurement stays null all the way to the screen, which then has to decide
+  /// what to say. The slider's own floor is 1, so 0 is not a value this app can
+  /// produce either — a stored 0 is a server default and is read as unset.
+  final int? serviceRadiusKm;
   final bool isAvailable;
   final VerificationStatus verificationStatus;
   /// How many documents are sitting in the admin queue for this profile.
@@ -51,7 +65,7 @@ class WorkerProfile {
     required this.experienceYears,
     this.priceRangeMin,
     this.priceRangeMax,
-    required this.serviceRadiusKm,
+    this.serviceRadiusKm,
     required this.isAvailable,
     required this.verificationStatus,
     this.verificationPendingDocs = 0,
@@ -90,7 +104,9 @@ class WorkerProfile {
       experienceYears: (json['experience_years'] as num?)?.toInt() ?? 0,
       priceRangeMin: (json['price_range_min'] as num?)?.toInt(),
       priceRangeMax: (json['price_range_max'] as num?)?.toInt(),
-      serviceRadiusKm: (json['service_radius_km'] as num?)?.toInt() ?? 0,
+      // Null, not 0: see [serviceRadiusKm]. A radius nobody has set is not a
+      // radius of nothing.
+      serviceRadiusKm: (json['service_radius_km'] as num?)?.toInt(),
       isAvailable: (json['is_available'] as num?)?.toInt() == 1,
       verificationStatus: _vd(json['verification_status'] as String?),
       verificationPendingDocs:

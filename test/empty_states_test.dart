@@ -79,12 +79,24 @@ const _worker = {
   'avatar_url': null,
 };
 
+/// The same contractor as a `POST /api/register` account really arrives: no
+/// `service_radius_km` on the payload at all, because the register call sends
+/// none and nothing on the way in asks for one.
+final _noRadiusWorker = Map<String, Object?>.of(_worker)
+  ..remove('service_radius_km');
+
 http.Response _json(Object body) => http.Response(
       jsonEncode(body), 200, headers: {'content-type': 'application/json'});
 
 /// Every empty list in the app, answered with nothing at all — the state the
 /// user sees on day one.
-ApiClient _emptyApi(List<String> log, {required String role}) => ApiClient(
+ApiClient _emptyApi(
+  List<String> log, {
+  required String role,
+  Map<String, Object?> worker = _worker,
+  String workerPath = '/api/mobile/workers/16',
+}) =>
+    ApiClient(
       baseUrls: ['https://x.test'],
       httpClient: MockClient((req) async {
         final p = req.url.path;
@@ -97,10 +109,10 @@ ApiClient _emptyApi(List<String> log, {required String role}) => ApiClient(
           return req.method == 'POST' ? _json({'id': 7}) : _json(<Object>[]);
         }
         if (p.startsWith('/api/messages/')) return _json(<Object>[]);
-        if (p.endsWith('/api/mobile/my/profile')) return _json(_worker);
+        if (p.endsWith('/api/mobile/my/profile')) return _json(worker);
         if (p.endsWith('/reviews')) return _json(<Object>[]);
         if (p.endsWith('/portfolio')) return _json(<Object>[]);
-        if (p == '/api/mobile/workers/16') return _json(_worker);
+        if (p == workerPath) return _json(worker);
         if (p.contains('/workers/top')) return _json(<Object>[]);
         if (p.contains('/workers/search')) return _json(<Object>[]);
         if (p == '/api/mobile/projects/p1') return _json(_project);
@@ -110,6 +122,22 @@ ApiClient _emptyApi(List<String> log, {required String role}) => ApiClient(
         return _json(<Object>[]);
       }),
     );
+
+/// Like [_boot], but answers the worker endpoints with [worker] so a screen can
+/// be driven from a payload shape the live API really sends.
+Future<({ApiClient api, AuthState auth, List<String> log})> _bootWith(
+  Map<String, Object?> worker,
+  {required String role, String endpoint = '/api/mobile/workers/16'}
+) async {
+  SharedPreferences.setMockInitialValues({});
+  final log = <String>[];
+  final api = _emptyApi(log, role: role, worker: worker, workerPath: endpoint);
+  final auth = AuthState(api);
+  await auth.restore();
+  await auth.login(
+      phone: '0773000000', password: 'secret123', rememberMe: true);
+  return (api: api, auth: auth, log: log);
+}
 
 Future<({ApiClient api, AuthState auth, List<String> log})> _boot(
     String role) async {
@@ -411,6 +439,43 @@ void main() {
     for (final path in shots) {
       stdout.writeln('SHOT $path ${File(path).lengthSync()}b');
     }
+  });
+
+  // ── نصف قطر الخدمة: an unset number is not a printed zero ─────────────
+  //
+  // `POST /api/register` sends no `service_radius_km`, so a contractor who
+  // signed up yesterday has none — and the profile used to publish
+  // «نصف قطر الخدمة: 0 كم» about a man who had not answered the question. The
+  // parser now keeps it null and the row goes with it.
+  testWidgets('a contractor who never set a radius has no radius row',
+      (tester) async {
+    final s = await _bootWith(_noRadiusWorker, role: 'customer');
+    await _pump(
+        tester, WorkerProfileScreen(workerId: 16), s.api, s.auth);
+
+    expect(find.text('نصف قطر الخدمة'), findsNothing);
+    expect(find.textContaining('كم'), findsNothing);
+
+    // The rest of the card is still there — the row is dropped, not the screen.
+    expect(find.text('الخبرة'), findsOneWidget);
+    expect(find.text('نطاق الأسعار'), findsOneWidget);
+
+    final path = await _shoot(
+        tester, 'profile_no_radius', WorkerProfileScreen(workerId: 16),
+        s.api, s.auth, logical: const Size(392, 1000));
+    stdout.writeln('SHOT $path ${File(path).lengthSync()}b');
+  });
+
+  testWidgets('a radius that was set still reads, and agrees with the number',
+      (tester) async {
+    final s = await _bootWith({..._worker, 'service_radius_km': 3},
+        role: 'customer');
+    await _pump(
+        tester, WorkerProfileScreen(workerId: 16), s.api, s.auth);
+
+    expect(find.text('نصف قطر الخدمة'), findsOneWidget);
+    // 3 takes the broken plural; the old line printed «3 كم» either way.
+    expect(find.text('3 كيلومترات'), findsOneWidget);
   });
 
   // ── الرئيسية: the client's contractor strip ───────────────────────────

@@ -35,7 +35,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   final Set<String> _specialties = {};
   bool _available = true;
-  double _radius = 30;
+  /// The slider's own opening position, reused when a profile never set one.
+  /// The slider's floor is 1 and the backend's default is 30, so 0 is not a
+  /// value this screen can show and the old `clamp(1, 200)` was hiding that.
+  static const _kDefaultRadiusKm = 30.0;
+  double _radius = _kDefaultRadiusKm;
 
   bool _started = false;
   bool _loading = true;
@@ -78,7 +82,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           // Legacy rows may still hold a slug dialect we no longer write.
           ..addAll(p.specialties.map(Taxonomy.canonical));
         _available = p.isAvailable;
-        _radius = p.serviceRadiusKm.clamp(1, 200).toDouble();
+        // A profile that never set a radius opens on the slider's own default
+        // rather than on 0, which the slider has no position for. See
+        // [serviceRadiusAr]: null here means the same thing it means there.
+        _radius =
+            (p.serviceRadiusKm ?? _kDefaultRadiusKm.round()).clamp(1, 200).toDouble();
         _loading = false;
       });
     } catch (e) {

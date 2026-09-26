@@ -67,6 +67,49 @@ String? reviewCountAr(int reviews) {
   );
 }
 
+/// «30 كم» — the distance this contractor will travel, or null when it was
+/// never set.
+///
+/// **The fourth unmeasured number, and the only one still printing a zero.**
+/// [experienceYearsAr] and [completedJobsAr] already drop a zero, and
+/// [responseTimeAr] was rewritten last cycle because it printed
+/// «استجابة خلال 0h» for every account nobody had ever timed. The service
+/// radius was the same defect one row further down the same card:
+///
+///     value: '${w.serviceRadiusKm} كم',
+///
+/// The parser gave an absent `service_radius_km` a `0` and this row printed it
+/// unconditionally, so a contractor who registered yesterday — and
+/// `POST /api/register` sends no radius, there is no screen on the way in that
+/// asks for one — published **«نصف قطر الخدمة: 0 كم»** on the profile a customer
+/// picks a tradesman from. Zero is the loudest claim in that card: it does not
+/// read as missing, it reads as a man who will not travel past his own street.
+///
+/// Three outcomes, matching [responseTimeAr]:
+///
+///   * null  — no radius on the payload, or a stored `0`. The caller drops the
+///             row entirely rather than print a number nobody set.
+///   * 1     — «كيلومتر واحد».
+///   * 2+    — the counted kilometres, agreeing with the number.
+///
+/// The full noun is used rather than the «كم» abbreviation the slider shows.
+/// An abbreviation has no dual and no broken plural, so routing it through the
+/// rule gives 3 → «3 كم» and 11 → «11 كم» — two arms, two different words, and
+/// no way to tell from the string which one is a plural. That is the trap
+/// [arabicCounted] exists to make unrepresentable, and it is cheaper to avoid
+/// than to explain.
+
+///
+/// A stored `0` is folded into null on purpose. The slider's own floor is 1
+/// (`Slider(min: 1)`), so this app cannot save a 0; a row carrying one is a
+/// server default standing in for an answer, and treating it as «he will not
+/// travel» would be reading a default as a decision.
+String? serviceRadiusAr(int? km) {
+  if (km == null || km <= 0) return null;
+  if (km == 1) return 'كيلومتر واحد';
+  return arabicCounted(km, 'كيلومتر', two: 'كيلومترين', few: 'كيلومترات');
+}
+
 /// How fast the contractor answers, or null when nothing has been measured.
 ///
 /// Three outcomes, never two:

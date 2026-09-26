@@ -64,6 +64,43 @@ void main() {
     });
   });
 
+  group('service radius, the last unmeasured number printing a zero', () {
+    test('an unset radius is no row, not «0 كم»', () {
+      // The defect: `POST /api/register` sends no radius, the parser gave the
+      // absent field a 0, and the public profile printed
+      // «نصف قطر الخدمة: 0 كم» — a claim about a man's own business that
+      // nobody made.
+      expect(serviceRadiusAr(null), isNull);
+    });
+
+    test('a stored 0 is a server default, not a decision', () {
+      // The slider's floor is 1, so this app cannot save a 0. Reading it as
+      // «he will not travel» would be reading a default as an answer.
+      expect(serviceRadiusAr(0), isNull);
+      expect(serviceRadiusAr(-5), isNull);
+    });
+
+    test('the kilometres agree with the number', () {
+      expect(serviceRadiusAr(1), 'كيلومتر واحد');
+      expect(serviceRadiusAr(2), 'كيلومترين');
+      expect(serviceRadiusAr(5), '5 كيلومترات');
+      expect(serviceRadiusAr(10), '10 كيلومترات');
+      expect(serviceRadiusAr(11), '11 كيلومتر');
+      expect(serviceRadiusAr(30), '30 كيلومتر');
+    });
+
+    test('the singular is never counted with a 1', () {
+      expect(serviceRadiusAr(1), isNot(contains('1 ')));
+    });
+
+    test('it is the shared rule, not a second one', () {
+      // 10 is plural, 11 is counted singular — the boundary every other count
+      // in this app already shares.
+      expect(serviceRadiusAr(10), '10 كيلومترات');
+      expect(serviceRadiusAr(11), '11 كيلومتر');
+    });
+  });
+
   group('reply speed, where a null was printing a lie', () {
     test('an unmeasured reply is dropped, not printed as zero', () {
       // The defect: this used to render «استجابة خلال 0h» for every account
