@@ -1532,6 +1532,42 @@ it is a correctness gap that duplicates a user's data.
       `#C33F39` of the retry line is **absent**, the muted `#6C707A` line is
       present under the bubble, the banner `#9B6415` at the bottom of the frame.
       **DONE `43e767f`** (remote `fbf6204`).
+- [x] **The push helper that deleted 5 files from main, fixed at the source.**
+      Found while auditing the previous cycle's own incident. `gh_push.py` is
+      the *only* way to push from this box (`git push` has no credentials), and
+      its path filter was a loaded gun: `local` was filled with ONLY the
+      filtered paths, then every remote path absent from `local` was staged for
+      deletion. A 5-file filter therefore staged the other **251 files** for
+      deletion. That is exactly what commit `782b657` did to main; `fbf6204`
+      put the files back.
+      *Fixed in three parts, each one closing a real defect found by testing:*
+        1. Deletions are computed from the **full** tracked set, always. A
+           filter now narrows only what is uploaded and can never stage one.
+        2. The file set comes from `git ls-files`, not a hand-rolled
+           `.gitignore` matcher. The hand-rolled one was wrong twice: its
+           `lstrip("./")` ate the leading dot of `.dart_tool`, and it read only
+           the root `.gitignore`, missing the nested `android/.gitignore` and
+           `ios/.gitignore` where Flutter keeps its generated-file exclusions
+           — so it leaked `build/`, `.dart_tool/` and generated registrants
+           into pushes.
+        3. Deletions require `--allow-deletes`. Without it the script lists
+           what it would remove and exits 3 instead of emptying a branch.
+      *Evidence (real output, against a throwaway repo, main never touched):*
+      a partial filter that changed 1 file reported **"Pushed 1 changed, 0
+      deleted"** and left every other file on the remote — the old code would
+      have deleted them. A genuine deletion without the flag refused with exit
+      3 and named the file. The same deletion with `--allow-deletes` removed
+      exactly that one file. An untracked `local.properties` was never uploaded.
+      On this repo the walk set equals `git ls-files`: **256 files, both sides.**
+      Also cleared a leaked `flutter_tester` from the previous cycle (orphan,
+      PPID 1, 0% CPU) and re-synced the diverged local `main` to `origin/main`
+      (trees byte-identical, so nothing lost, no force-push).
+      *DONE `see commit above`.* Known gap, not fixed: a branch ref that does
+      not exist yet returns 409/404, so the first push to a brand-new empty
+      repo fails. Nothing in the loop does that. The credential has no
+      `delete_repo` scope, so the throwaway test repo
+      `cheminisifeddine/ghp-safety-test` (private, 2 files) needs deleting by
+      hand.
 - [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent writes.**
       The app cannot make `POST /api/mobile/projects` safe to retry on its own.
       A `Idempotency-Key` request header, stored with the created row and
