@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/theme/app_theme.dart';
 import '../core/theme/motion.dart';
+import '../data/review_count.dart';
 import '../data/taxonomy.dart';
 import 'a11y.dart';
 import 'motion.dart';
@@ -468,13 +469,19 @@ class RatingStars extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A count of zero is an absence, not a number: the stars and the score are
+    // real here, so printing «(0)» beside them claims the score is nobody's.
+    // The label below is built from the same value, so what a screen reader
+    // says and what the glass shows cannot drift apart — see
+    // [printableReviewCount].
+    final shown = count == null ? null : printableReviewCount(count!);
     // Stars are geometry: read out one by one they are five meaningless icons
     // and a bare number. The row is a leaf — the icons are excluded and the
     // score is handed over as the sentence a person would say.
     return Semantics(
       container: true,
       excludeSemantics: true,
-      label: A11y.rating(rating, count: count),
+      label: A11y.rating(rating, count: shown),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -493,9 +500,9 @@ class RatingStars extends StatelessWidget {
             rating.toStringAsFixed(1),
             style: AppTheme.ratingValue(size),
           ),
-          if (count != null) ...[
+          if (shown != null) ...[
             const SizedBox(width: 4),
-            Text('($count)',
+            Text('($shown)',
                 style: AppTheme.ratingCount(size)),
           ],
         ],

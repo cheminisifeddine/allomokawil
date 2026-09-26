@@ -3250,3 +3250,56 @@ Phase 1.
       which is what `api_client_failover_test.dart` already does; the fixture
       was wrong, not the code, and the second version reproduced the actual
       transport failure rather than its own invention.
+
+---
+
+- [x] **A scored contractor was published beside a claim that nobody rated him
+      at all** — the star row said two opposite things at once.
+      *Found on 26 Sep 2026* by the audit the last four cycles ran, and it sat
+      in the tree uncommitted for one tick: the previous cycle wrote the fix and
+      the tests, then the tick ended before it could gate and commit them. This
+      cycle finished it rather than opening a new item.
+      *The contradiction.* A rating row is gated on the **score**, never on the
+      review count, because a stored `avg_rating: 0` is the server's "nobody has
+      rated me yet" sentinel rather than a mean — the form is 1–5, so no set of
+      reviews can average to zero. The count is a *different* field and the two
+      disagree in both directions, and both directions are covered elsewhere in
+      the suite: 7 reviews with no score must print no stars, and a score with
+      no count must print the stars. The second case is the one that shipped.
+      `RatingStars` takes an `int?` count precisely so a caller can pass
+      nothing, but both live star rows passed the parsed `total_reviews`, which
+      the parser defaults to `0` for an absent field. The row therefore drew
+      five gold stars and «4.8 من 5» next to a literal **«(0)»** — a man
+      somebody rated and scored, beside a claim that nobody rated him at all.
+      *It was already lying in two directions.* `A11y.rating` folds a zero
+      count to «لا مراجعات» and `a11y_semantics_test.dart:110` asserts exactly
+      that sentence. So the screen reader said «لا مراجعات» while the pixels
+      beside it said «(0)» — the same row, same number, two outputs, one of
+      them contradicting the test that already pinned the correct behaviour.
+      *Shipped:* `printableReviewCount` in a new `review_count.dart`; a count
+      of zero or less is the absence of a count, and the only honest way to
+      print an absence is to print nothing. Both the pixels and the label are
+      built from it, so they cannot drift again. Same rule `arabicCount`
+      states for every other count in this app, and the fifth place a rating
+      number could have been counted by hand.
+      *Files:* `lib/src/data/review_count.dart` (new, pure),
+      `lib/src/widgets/ui.dart`, `lib/src/widgets/worker_card.dart`,
+      `test/star_count_contradiction_test.dart` (new).
+      *Evidence:* `flutter analyze` -> **No issues found!**. Full suite ->
+      **+860 ~3, all passed** (was +855; **+5 new, 0 regressions**), no goldens
+      moved.
+      *Mutation-gated:* the rule replaced by the naive pass-through a first
+      attempt would ship (`count > 0 ? count : null` -> `count`) -> **+3 -2**,
+      failing exactly the two cases written for it.
+      **On the visual claim.** This box has no Chrome and no JDK
+      (`/usr/lib/jvm` does not exist), so the `build_web.sh` + headless-Chrome
+      path in step 5 of the protocol cannot run here at all and I did not claim
+      it did. Instead the changed rows were rasterised through the same writer
+      `design_shots_test.dart` uses and the pixels were **read**: `/tmp/shots/
+      zz_rating_zero_count.png` shows five star glyphs plus the score and
+      nothing to their right, while `zz_rating_real_count.png` at the same
+      coordinates carries the extra `(15)` run. That is a real screenshot, but
+      it is geometry and glyph-count evidence, not a legible one: a plain widget
+      test loads no Cairo font, so the Arabic renders as tofu boxes. Enough to
+      verify that a run of text is gone and the stars remain; not enough to
+      sign off on a typeface. `3ebe5cb`.

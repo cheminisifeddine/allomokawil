@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/format/money.dart';
 import '../core/theme/app_theme.dart';
 import '../data/taxonomy.dart';
+import '../data/review_count.dart';
 import '../data/worker_stats_copy.dart';
 import '../models/enums.dart';
 import '../models/worker.dart';
@@ -76,12 +77,17 @@ class WorkerCard extends StatelessWidget {
               children: [
                 RatingStars(rating: worker.avgRating!, size: 14),
                 const SizedBox(width: 3),
-                Flexible(
-                  child: Text('(${worker.totalReviews})',
+                // Same rule as the row variant and the bid card: a count of
+                // zero is the absence of a count, and this card has a real
+                // score above it. See [printableReviewCount].
+                if (printableReviewCount(worker.totalReviews) case final n?) ...[
+                  Flexible(
+                    child: Text('($n)',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppTheme.caption.copyWith(fontSize: AppTheme.fsBadge)),
-                ),
+                  ),
+                ],
               ],
             )
           else
