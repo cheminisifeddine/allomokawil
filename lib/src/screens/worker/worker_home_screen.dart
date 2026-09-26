@@ -9,6 +9,7 @@ import '../../core/theme/motion.dart';
 import '../../data/project_search.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
+import '../../data/worker_stats_copy.dart';
 import '../../models/enums.dart';
 import '../../models/plan.dart';
 import '../../models/project.dart';
@@ -763,13 +764,17 @@ class _StatsLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final jobs = worker.totalCompletedJobs;
-    final reviews = worker.totalReviews;
-    final years = worker.experienceYears;
+    // A job count outranks a review count the way it always did, but a
+    // contractor with neither still gets his experience line. Each of the three
+    // is null at zero rather than a printed «0» — see [completedJobsAr].
+    final jobs = completedJobsAr(worker.totalCompletedJobs);
+    final reviews =
+        jobs == null ? reviewCountAr(worker.totalReviews) : null;
+    final years = experienceYearsAr(worker.experienceYears);
     final tail = <String>[
-      if (jobs > 0) '$jobs مشروع منجز',
-      if (jobs == 0 && reviews > 0) '$reviews تقييم',
-      if (years > 0) '$years سنوات خبرة',
+      if (jobs != null) jobs,
+      if (reviews != null) reviews,
+      if (years != null) years,
     ].join(' · ');
 
     return Row(

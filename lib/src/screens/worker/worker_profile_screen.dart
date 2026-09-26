@@ -5,6 +5,7 @@ import '../../core/format/money.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
+import '../../data/worker_stats_copy.dart';
 import '../../models/enums.dart';
 import '../../models/quote_review.dart';
 import '../../models/worker.dart';
@@ -152,6 +153,25 @@ class _CoverHeader extends StatelessWidget {
   final WorkerProfile worker;
   const _CoverHeader({required this.worker});
 
+  /// The one caption under the rating pill: what he has finished, and how fast
+  /// he answers.
+  ///
+  /// Null when there is nothing true to say. The old line was
+  /// `'${worker.totalCompletedJobs} مشروع منجز • استجابة خلال ${worker
+  /// .responseTimeHours ?? 0}h'`, which printed two claims a new account
+  /// cannot support: «0 مشروع منجز» and «استجابة خلال 0h» — the second one
+  /// asserting, on the profile a customer picks from, that a man who has never
+  /// answered anyone answers within an hour. A clause that is not measured is
+  /// dropped, not zeroed.
+  String? get coverTail {
+    final parts = <String>[
+      if (completedJobsAr(worker.totalCompletedJobs) case final jobs?) jobs,
+      if (responseTimeAr(worker.responseTimeHours) case final reply?)
+        'استجابة خلال $reply',
+    ];
+    return parts.isEmpty ? null : parts.join(' • ');
+  }
+
   @override
   Widget build(BuildContext context) {
     final cover = worker.coverImageUrl;
@@ -234,12 +254,14 @@ class _CoverHeader extends StatelessWidget {
                       count: worker.totalReviews,
                       size: 15),
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  '${worker.totalCompletedJobs} مشروع منجز • استجابة خلال ${worker.responseTimeHours ?? 0}h',
-                  style: AppTheme.caption
-                      .copyWith(fontSize: AppTheme.fsCaption, color: AppTheme.onNavyMuted),
-                ),
+                if (coverTail case final tail?) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    tail,
+                    style: AppTheme.caption.copyWith(
+                        fontSize: AppTheme.fsCaption, color: AppTheme.onNavyMuted),
+                  ),
+                ],
               ],
             ),
           ),
@@ -287,7 +309,7 @@ class _WorkFacts extends StatelessWidget {
           InfoRow(
             icon: Icons.workspace_premium_rounded,
             label: 'الخبرة',
-            value: '${w.experienceYears} سنة خبرة',
+            value: experienceYearsAr(w.experienceYears) ?? 'لم يُسجّل بعد',
             color: AppTheme.info,
           ),
           if (w.priceRangeMin != null || w.priceRangeMax != null)

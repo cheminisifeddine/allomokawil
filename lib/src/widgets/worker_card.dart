@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/format/money.dart';
 import '../core/theme/app_theme.dart';
 import '../data/taxonomy.dart';
+import '../data/worker_stats_copy.dart';
 import '../models/enums.dart';
 import '../models/worker.dart';
 import 'net_image.dart';
@@ -77,9 +78,9 @@ class WorkerCard extends StatelessWidget {
               ),
             ],
           ),
-          if (worker.experienceYears > 0) ...[
+          if (experienceYearsAr(worker.experienceYears) case final years?) ...[
             const SizedBox(height: 6),
-            Text('${worker.experienceYears} سنة خبرة',
+            Text(years,
                 style: AppTheme.caption.copyWith(fontSize: AppTheme.fsBadge)),
           ],
         ],
@@ -156,10 +157,11 @@ class WorkerCard extends StatelessWidget {
                     spacing: 6,
                     runSpacing: 6,
                     children: [
-                      if (worker.experienceYears > 0)
+                      if (experienceYearsAr(worker.experienceYears)
+                          case final years?)
                         _MiniTag(
                             icon: Icons.workspace_premium_rounded,
-                            text: '${worker.experienceYears} سنة خبرة'),
+                            text: years),
                       if (worker.priceRangeMin != null)
                         _MiniTag(
                           icon: Icons.payments_rounded,
