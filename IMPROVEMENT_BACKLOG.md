@@ -2106,7 +2106,7 @@ it is a correctness gap that duplicates a user's data.
       Local commit `a7333cf`, remote `fd51d53` — all three blobs verified
       `MATCH` against the live remote tree.
 
-- [ ] **The quote allowance is written by hand in three places, with one fixed
+- [x] **The quote allowance is written by hand in three places, with one fixed
       noun, and `Plan.quoteAllowanceAr` is dead code.** Audited this tick, not
       fixed. `quote_limit` is server-driven and a D1 UPDATE away from any value
       the app has never seen: `plan.dart:85` prints `حتى $quoteLimit عروض في
@@ -2124,6 +2124,50 @@ it is a correctness gap that duplicates a user's data.
       the nouns, with `0` and the unlimited case branched as copy that is not a
       count. `quoteAllowanceAr` should also be either used or deleted — a dead
       getter is a fourth copy nobody can see drifting.
+      *Shipped `c9ef612`, remote `a950fb` — all five blobs verified `MATCH`
+      against the live remote tree.* The audit above was right about the fixed
+      nouns and **wrong about "nothing is visibly wrong today"**, and the
+      difference is the part worth keeping: that sentence is true of the *limit*
+      and false of the *usage* count. Under an unlimited plan the card printed
+      `'أرروض أسعار غير محدودة — أرسلت ${used} هذا الشهر'` — a bare number with
+      no noun. `basic`, `pro` and `gold` all ship `quote_limit: -1`, so that
+      branch is **every paying subscriber's screen, live in production right
+      now**: a contractor who sent 5 offers last month read «أرسلت 5 هذا
+      الشهر» on his own revenue screen. The backlog judged the item by the
+      value the app has never seen and missed the one it prints every day.
+      *Shipped:* `lib/src/data/quote_count_copy.dart` delegates to the shared
+      `arabicCounted` and owns only the nouns; the three hand-written sites
+      route through it; `Plan.quoteAllowanceAr` is **deleted**, not fixed —
+      it had no caller in `lib/` or `test/` (the card renders D1's own Arabic
+      `features`), so it was a fourth copy nobody could see drifting.
+      *A decision recorded so the next tick does not "fix" it back:* the 11+ form
+      is the **bare singular** (`11 عرض`), not `عرضاً`. Every sentence using this
+      noun puts the count either as a verb subject («أرسلت …») or straight after
+      «من»; the bare singular is the one form correct in both slots, and
+      `عرضاً` is wrong in half of them. One never-wrong form beats two that are
+      each wrong once.
+      *Two holes my own tests caught, both fixed in the source, not the test:*
+      (1) `quotesAr(0)` is silence by design, so the unlimited line rendered
+      «… أرسلت  هذا الشهر» with a hole in it for a brand-new subscriber — the
+      clause is now dropped entirely; (2) the free and paid branches carried
+      **two different fixed nouns one line apart** (`عروض` vs `عرضاً`) for the
+      same construction, which the backlog had not noted — both now come from
+      one function, so the number after «من» and its noun cannot disagree.
+      Files: `lib/src/data/quote_count_copy.dart` (new),
+      `lib/src/screens/worker/subscription_screen.dart`,
+      `lib/src/screens/worker/worker_home_screen.dart`,
+      `lib/src/models/plan.dart`, `test/quote_count_copy_test.dart` (new).
+      *Evidence:* `flutter analyze` → **No issues found!** (1.5 s);
+      `flutter test` → **+625 ~3 -1**, up from +605, 20 new tests, none lost.
+      **Three of the new tests mount `SubscriptionScreen` itself and read what
+      `build()` produced** — a string function can be right while the screen
+      still prints the old line, and "every subscriber saw a bare number" is a
+      claim about a rendered screen, not a return value. One of them asserts the
+      screen did *not* land on its error state first, so a test cannot pass by
+      rendering nothing. `12_chat` still fails at 0.01% / 43px and fails at
+      that exact number on clean HEAD, so it is not this change; the other 8
+      goldens pass, including `08_worker_home`, which carries the plan row this
+      change edits.
 
 - [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent
       writes.** The app cannot make `POST /api/mobile/projects` safe to retry on
