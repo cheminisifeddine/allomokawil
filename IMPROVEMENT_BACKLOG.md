@@ -2438,3 +2438,96 @@ Phase 1.
       was never evidence for anything.
       Local `10bd777`, remote `860ead9`; all three blobs verified `MATCH`
       against the remote tree. No APK, no release, no tag.
+      **Both items below are now done — see the golden-gate entry at the end
+      of this file. The gap named above was the one real defect in the test
+      suite, and fixing it is what caught the stale baseline.**
+
+- [x] **The design gate was comparing one screen out of nine.** The gap the
+      last four cycles kept running into: `design_shots_test.dart` ran all nine
+      main screens inside a single `testWidgets` body, in a loop, and
+      `matchesGoldenFile` does not report a difference through the awaited
+      future — it throws **asynchronously** into the test's error zone, so the
+      first stale baseline ended the test and every screen after it was never
+      compared. `12_chat` has sat at 0.01% / 43px for days and is listed
+      above `15_notifications` and `07_project_detail`, so the gate went green
+      having compared at most six of nine, and `07_project_detail` — the
+      screen four consecutive count-agreement fixes had been editing — was
+      being asserted **nowhere**. Its green line was evidence of nothing.
+      *Shipped:* each golden is now its own `testWidgets`, generated from the
+      same `_mainScreens` list, so a failure is scoped to its own screen and
+      the runner executes the rest. Entries became builders
+      (`Widget Function(Repository)`) because each test boots its own fake API
+      — a widget constructed once outside would have captured whichever
+      repository existed at list-construction time. The a11y sweep walks the
+      same builders, so the two gates still cannot disagree about what a "main
+      screen" is. `_mainScreens` remains the single source of truth: a screen
+      added there gets a golden *and* a named-control check, or neither.
+      *A wrong first attempt, recorded because the wrongness is the lesson:*
+      the obvious fix — wrap `expectLater` in `try`/`catch` and collect — **does
+      not work**, and the run proves it. The catch never fires; the failure
+      arrives through the test zone as an unhandled async error and the test
+      still dies at the first mismatch. A first draft that caught
+      `TestFailure` reported only `{'01_signin': 'Expected: null'}` — an
+      internal assertion from the catch path itself, not a pixel diff, and it
+      named the *wrong* screens. Splitting the loop is the fix that matches
+      the actual failure mode.
+      *It paid for itself on the first run after the split:* the gate went
+      from one reported failure to **three**.
+        - `00_landing` — **16.76% / 55832px, the biggest diff in the file, and
+          the gate had never reported it.** Pre-existing: it fails on clean
+          HEAD at the identical 55832 px. Not a layout change — the baseline
+          holds content in bands y170-425 while the new render has it in
+          y425-680, i.e. the page is laid out differently, and it **passes in
+          a full suite run but fails when the file is run alone**, which points
+          at first-paint/font warm-up rather than at the app. Still unexplained.
+        - `12_chat` — 0.01% / 43px, unchanged, the known pre-existing one.
+        - `07_project_detail` — **0.05% / 152px, and the baseline was
+          genuinely stale.** Proven, not assumed: the diff is a 152 px block at
+          x227-246, y731-748, which is the duration line. Reverting **only**
+          `quoteDurationLineAr(quote.estimatedDays)` back to the interpolated
+          `'مدة الإنجاز: ${quote.estimatedDays} يوم'` and regenerating
+          reproduced the committed baseline with **0** differing pixels;
+          restoring the fix reproduced the new one with **0**. The whole delta
+          is last tick's copy fix, and the baseline has been stale since — the
+          exact blind spot this item closes. Had the loop still been aborting,
+          nothing could have caught that.
+      *Evidence:* `flutter analyze` → **No issues found!** (4.6 s);
+      `flutter test` → **+670 ~3 -1**, up from +662, 8 new test cases (one per
+      main screen, minus the single looping test they replace). Only
+      `12_chat` fails. The a11y sweep and the clock-pinning test both still
+      pass, so the builder refactor did not weaken either gate.
+      *Proven to work, not just to compile:* with an injected probe on
+      `10_browse`, the run continued **past** both earlier failures and still
+      reached and compared `07_project_detail`. Under the old loop it stopped
+      at `00_landing` and never got there.
+      *A decoder caught in the act, worth a line:* the first pixel check used a
+      4-byte stride against `tool/png_read.py`, which returns 3 bytes per
+      pixel, and reported "0 differing pixels" on two images the comparator
+      called 55832px apart. The probe was wrong, not the comparator. Both
+      tools agree at 55832 once the stride is right.
+      Files: `test/design_shots_test.dart`,
+      `test/goldens/07_project_detail.png` (re-baselined, the delta above).
+      Local `7a189a4`, remote `c7755cf`; both blobs verified `MATCH` against
+      the live remote tree. No app code touched, so no screenshot is claimed.
+
+- [ ] **The landing page's own baseline is wrong and nobody knows why.**
+      Surfaced the moment the golden gate was fixed: `00_landing` differs from
+      its committed baseline by **16.76% / 55832 px** — the largest diff in the
+      file, and it was invisible while the loop aborted early. It fails on clean
+      HEAD at the identical pixel count, so it is not a recent change, but it
+      **passes in a full `flutter test` run and fails when `design_shots_test.dart`
+      is run on its own**, which is the clue: something is order-dependent or
+      warm-up dependent. The committed baseline shows the page content in
+      bands y170-425 and y510-680 while the new render puts it in y425-680,
+      so the layout genuinely differs, not just anti-aliasing.
+      *Do not simply re-baseline it* — the last tick in this repo re-baselined
+      a screen without understanding the diff and got a stale baseline that
+      silently hid a real regression for four cycles. Find the cause first:
+      is the first `pump` painting before the fonts/layout settle (the file
+      loads real Cairo faces in `setUpAll`, and an isolated run registers them
+      in a different order than a full-suite run does), is something caching
+      between tests, or is the landing page genuinely broken in isolation.
+      Then either fix the cause and re-baseline, or re-baseline with the
+      finding written down. `12_chat`'s 0.01% remains the other known-red
+      golden and still needs the founder's call, since re-baselining it is
+      what unblocks a fully green design gate.
