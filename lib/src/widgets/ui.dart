@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/motion.dart';
 import '../data/review_count.dart';
+import '../data/star_row_shape.dart';
 import '../data/taxonomy.dart';
 import 'a11y.dart';
 import 'motion.dart';
@@ -486,15 +487,8 @@ class RatingStars extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           for (var i = 1; i <= 5; i++)
-            Icon(
-              i <= rating.round()
-                  ? Icons.star_rounded
-                  : (i - 0.5 <= rating
-                      ? Icons.star_half_rounded
-                      : Icons.star_outline_rounded),
-              size: size,
-              color: AppTheme.star,
-            ),
+            Icon(starIconFor(i, rating),
+                size: size, color: AppTheme.star),
           const SizedBox(width: 6),
           Text(
             rating.toStringAsFixed(1),

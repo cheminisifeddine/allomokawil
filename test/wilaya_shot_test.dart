@@ -22,7 +22,6 @@ import 'package:allomokawil/src/core/app_scope.dart';
 import 'package:allomokawil/src/core/network/api_client.dart';
 import 'package:allomokawil/src/core/security/auth_state.dart';
 import 'package:allomokawil/src/core/theme/app_theme.dart';
-import 'package:allomokawil/src/data/repository.dart';
 import 'package:allomokawil/src/models/project.dart';
 import 'package:allomokawil/src/widgets/project_card.dart';
 
