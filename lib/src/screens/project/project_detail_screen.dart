@@ -4,6 +4,7 @@ import '../../core/app_scope.dart';
 import '../../core/format/money.dart';
 import '../../core/text/dz_number.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/quote_duration_copy.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
 import '../../models/enums.dart';
@@ -796,6 +797,10 @@ class _QuoteCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Built once: the row's visibility and its text are the same value, and
+    // asking the copy file twice to reach the same answer is the kind of
+    // drift this file exists to stop.
+    final durationLine = quoteDurationLineAr(quote.estimatedDays);
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -841,7 +846,7 @@ class _QuoteCard extends StatelessWidget {
                 Text('المبلغ: ${Money.dzd(quote.amount)}',
                     style: AppTheme.h2
                         .copyWith(fontSize: AppTheme.fsBar, color: AppTheme.navy)),
-                if (quote.estimatedDays != null) ...[
+                if (durationLine.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Row(
                     children: [
@@ -849,7 +854,7 @@ class _QuoteCard extends StatelessWidget {
                           size: 15, color: AppTheme.textSecondary),
                       const SizedBox(width: 6),
                       Expanded(
-                        child: Text('مدة الإنجاز: ${quote.estimatedDays} يوم',
+                        child: Text(durationLine,
                             style: AppTheme.bodySoft.copyWith(fontSize: AppTheme.fsMeta)),
                       ),
                     ],
