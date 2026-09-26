@@ -3023,3 +3023,43 @@ Phase 1.
       *Local* `7249834` — *remote* `c6c3d92`, all 7 blobs verified **MATCH**
       against the live remote tree (the exit code of a green push is not
       evidence; see the protocol).
+
+- [x] **A new tradesman was published as «0.0 out of five» — a score nobody
+      gave, on the card a customer picks him from.** The fifth unmeasured
+      number, and the first one that is a **verdict on a person** rather than a
+      measurement of his own business.
+      The server sends `avg_rating: 0` for a contractor with no reviews. The
+      review form is 1–5, so a 0 cannot be a mean — it is the server's "nobody
+      has rated me yet" sentinel — and every star row printed it
+      unconditionally: five empty stars, the score **«0.0»**, «(0)» beside it.
+      *On the live `/api/mobile/workers/search` payload checked 26 Sep,
+      **15 of 26** contractors were in that state, every one of them
+      `verification_status: pending`* — new tradesmen, presented as the
+      worst-rated on the platform for the crime of being new.
+      The other four were «0 سنة خبرة», «استجابة خلال 0h» and «نصف قطر الخدمة:
+      0 كم». Nobody is defamed by zero years of experience. They are by zero
+      stars.
+      *Shipped:* `WorkerProfile.avgRating` is `double?`; a stored 0 folds to
+      null through `_rating`, the same reading a stored 0 radius already got.
+      `hasRating` is the single gate shared by all four surfaces that print a
+      score — both `WorkerCard` variants, the public profile cover and the
+      contractor's own stats line — so they cannot disagree about the same
+      profile. The row says the true thing instead: **«لا تقييمات بعد»**,
+      from the new `noRatingAr()`. The wilaya chip shares the rating row in the
+      row variant, so it is kept either way: dropping the score must not cost
+      an Algerian customer the one thing they filter browse by, and a test
+      says so.
+      *Evidence:* `flutter analyze` -> **No issues found!**. Full suite ->
+      **+809 ~3, all passed** (was +796; +13 new, 3 skips pre-existing, **0
+      regressions**). The `04_customer_home` golden **caught a 6px spacing
+      change on the first cut** and forced the rated case to keep its exact old
+      layout — the gate earning its keep. *Mutation-gated, both halves:* the
+      parser's `v > 0` reverted -> **+10 -5**; both card guards reverted ->
+      **+10 -3**.
+      *Rendered, not assumed:* `/tmp/shots/rating_strip_compare.png` (1176x1200,
+      real Cairo faces, harness `test/zero_score_shot_test.dart`).
+      **0** pixels of the star token `#B5790B` on the unrated card against
+      **1910** on the rated one, and the unrated card's ink bands are one line
+      shorter. `tool/contrast_audit.py` **28/28**.
+      *Local* `6b95f82` — *remote* `24e39c9`, all 7 blobs verified **MATCH**
+      against the live remote tree.
