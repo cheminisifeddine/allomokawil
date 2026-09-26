@@ -2368,6 +2368,69 @@ it is a correctness gap that duplicates a user's data.
       Local `6e515fd`, remote `fe0e532`; all 5 blobs verified **MATCH** against
       a fresh clone of the live remote. No APK, no release, no tag.
 
+- [x] **An unknown wilaya was published as «الجزائر» — on the one field that
+      decides where a job is, and in the search index too.** Found 27 Sep 2026
+      with zero unchecked items left, so this cycle hunted: every "unmeasured
+      number" defect this loop had already fixed (`avg_rating`, `service_radius_km`,
+      `response_time_hours`, `experience_years`, `renews_in_days`) was a **0 or a
+      fallback standing in for a measurement**, and the wilaya was the last one
+      of that shape still printing a place.
+      `Taxonomy.wilayaName` ended in `return 'الجزائر'`. So "I do not know where
+      this is" was answered with the name of the capital. Two shapes reach that
+      line and **both are live**, checked against the API on 27 Sep:
+      * `Project.fromJson` reads `wilaya: (json['wilaya'] as String?) ?? ''`, so
+        every project row sent without a wilaya becomes `''` — not in the table,
+        so its card, its status row and its detail header all published
+        «الجزائر» for a job nobody had placed;
+      * a code this build has not heard of: a 59th wilaya in D1, `'9'` written
+        instead of `'09'`, or a `user_wilaya` written by any other client. 51 of
+        the 59 contractors on `/api/mobile/workers/search` have no wilaya at all
+        today, so that half of the market is one code away from this.
+      *Not cosmetic.* A contractor filtering «الجزائر» to find work near him is
+      sent to the one wilaya this getter names when it is wrong, and the other 57
+      are right — so nobody notices except the man who cannot find the job 40 km
+      outside his own gate. **In search it was worse:** with the fallback sitting
+      in the haystack, typing «الجزائر» matched *every* project on the platform.
+      *Shipped:* new `Taxonomy.wilayaNameOrNull` returns null for blank and
+      unknown codes, and the ten server-fed call sites now drop the clause
+      instead of naming a place — `project_card.dart`, the detail `_locationLabel`
+      and `_StatusRow`, `worker_card.dart`, `worker_home_screen.dart`,
+      `worker_profile_screen.dart`, `profile_screen.dart`,
+      `customer_home_screen.dart`, and both search paths
+      (`project_search.dart`, `browse_screen.dart`). On the detail screen an
+      unknown wilaya now keeps the **commune** it does have rather than printing
+      «الجزاير — X». The total `wilayaName` keeps its non-null signature for the
+      five callers whose codes are ours by construction (the two pickers, the
+      GPS seat table, the wilaya filter chips) and its fallback is now **«—»**,
+      a dash, never a wilaya.
+      *Evidence:* `flutter analyze` → **No issues found!** (10.8 s);
+      `flutter test` → **+907 ~3, all passed** (was +896: **+11 new, 0
+      regressions**). **The new test was proven against the defect** — restoring
+      the `return 'الجزائر'` turns it red in 4 places, so `wilaya_truth_test.dart`
+      pins the defect and not the fix.
+      *Screenshots:* rendered through the same `RepaintBoundary`/`runAsync`
+      writer `design_shots_test.dart` uses, to
+      **`/tmp/shots/20_wilaya_truth.png`** (1176×2550): three cards of one job —
+      a real Algiers one, one the server sent with no wilaya, one with an
+      unknown code. Measured off the pixels: the Algiers card lays out **5 text
+      rows / 459 px**, the other two are **identical at 4 rows / 381 px**. The
+      place row is gone, not relabelled, and the two unplaceable cards render
+      byte-for-byte the same shape. I cannot view images in this session, so the
+      claim is backed by the ink-band measurement, not by my eye — and the
+      screenshot itself is on disk if you want to look.
+      *And the tool that hid it again, second half:* the previous cycle fixed
+      `selects()` in `gh_push.py` so a directory argument covers what is beneath
+      it — but left the **upload set** at line 239 building on `p in only`, the
+      exact-match test `selects()` exists to replace. So `-- lib test` walked all
+      306 files, selected **0 of them**, and the new guard fired with *"selected 0
+      of 306 tracked files"*. One call site in two places, which is the same class
+      of bug as the 26 Sep one: fixing the function is not the same as fixing
+      every call to it. Both sites now call `selects()`, and the prefix trap is
+      re-checked (`libfoo/x` and `libsrc/a` still do **not** match `lib`).
+      Local `0556e20`, remote **`be659cd`**; all **12/12 blobs verified MATCH**
+      against the live remote tree. `allomokawil.com` **200**, API **200**. No
+      APK, no release, no tag.
+
 ---
 
 ## Completed
