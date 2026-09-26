@@ -639,10 +639,13 @@ class _HeaderSection extends StatelessWidget {
                                 color: AppTheme.danger,
                                 wash: AppTheme.dangerWash,
                                 icon: Icons.report_gmailerrorred_rounded),
-                          if (worker.wilaya != null &&
-                              worker.wilaya!.isNotEmpty)
+                          // Resolved name, not a non-empty string: an
+                          // unknown code is no chip at all rather than a chip
+                          // reading «الجزائر» (see `wilayaNameOrNull`).
+                          if (Taxonomy.wilayaNameOrNull(worker.wilaya) case
+                              final name?)
                             StatusPill(
-                                label: Taxonomy.wilayaName(worker.wilaya!),
+                                label: name,
                                 color: AppTheme.info,
                                 wash: AppTheme.infoWash,
                                 icon: Icons.location_on_rounded),

@@ -162,15 +162,19 @@ class WorkerCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: AppTheme.caption),
                       ),
-                    if (worker.wilaya != null &&
-                        worker.wilaya!.isNotEmpty) ...[
+                    // Gate on the *resolved* name, not on a non-empty string:
+                    // a contractor whose `user_wilaya` is a code this build does
+                    // not know used to have the chip removed and «الجزائر»
+                    // printed in its place, so he appeared to work in the
+                    // capital from every wilaya. The chip is simply absent.
+                    if (Taxonomy.wilayaNameOrNull(worker.wilaya) != null) ...[
                       const SizedBox(width: 10),
                       Icon(Icons.location_on_rounded,
                           size: 13, color: AppTheme.textMuted),
                       const SizedBox(width: 2),
                       Flexible(
                         child: Text(
-                          Taxonomy.wilayaName(worker.wilaya!),
+                          Taxonomy.wilayaNameOrNull(worker.wilaya)!,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: AppTheme.caption,

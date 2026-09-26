@@ -91,7 +91,9 @@ class _BrowseScreenState extends State<BrowseScreen> {
       w.fullName,
       w.bio,
       w.commune,
-      w.wilaya == null ? null : Taxonomy.wilayaName(w.wilaya!),
+      // Null for a blank or unknown code, so the old «الجزائر» fallback could
+      // not make every contractor answer a search for Algiers.
+      Taxonomy.wilayaNameOrNull(w.wilaya),
       w.specialties.map(Taxonomy.categoryName).join(' '),
     ]);
   }

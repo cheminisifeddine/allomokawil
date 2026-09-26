@@ -298,11 +298,17 @@ class _ExploreView extends StatelessWidget {
     final wilayaId = (profileWilaya == null || profileWilaya.isEmpty)
         ? fromPhone
         : profileWilaya;
-    final location = (wilayaId == null || wilayaId.isEmpty)
+    // Resolved before the branch, not after: the old code only asked whether the
+    // id was *non-empty*, so a code this build does not know passed the test and
+    // then printed the fallback — the customer's home header greeted him with
+    // «الجزائر» for a wilaya nobody had named. An id that resolves to nothing
+    // is the same as no id at all, and the header says «كل الولايات».
+    final resolvedWilaya = Taxonomy.wilayaNameOrNull(wilayaId);
+    final location = resolvedWilaya == null
         ? 'كل الولايات'
         : fromPhone != null
-            ? '${Taxonomy.wilayaName(wilayaId)} • موقعك'
-            : Taxonomy.wilayaName(wilayaId);
+            ? '$resolvedWilaya • موقعك'
+            : resolvedWilaya;
 
     return CustomScrollView(
       slivers: [

@@ -355,12 +355,23 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     return const SizedBox.shrink();
   }
 
+  /// «الجزائر — حسين داي» on the details card, or the wilaya alone.
+  ///
+  /// **The em dash is the whole point of the null branch.** This is server
+  /// data, so the wilaya can be absent (`Project.fromJson` turns a missing
+  /// field into `''`) or be a code this build does not know. The old body
+  /// resolved both through the fallback and printed «الجزائر», so a project
+  /// with no location at all was filed under the capital — and a commune alone
+  /// with no wilaya printed «الجزائر — X» on a row the client had no evidence
+  /// for. Now an unknown wilaya keeps the commune it does have, and a row with
+  /// neither prints nothing rather than inventing a place.
   String _locationLabel(Project project) {
+    final wilaya = Taxonomy.wilayaNameOrNull(project.wilaya);
     final commune = project.commune;
-    if (commune == null || commune.isEmpty) {
-      return Taxonomy.wilayaName(project.wilaya);
-    }
-    return '${Taxonomy.wilayaName(project.wilaya)} — $commune';
+    final hasCommune = commune != null && commune.isNotEmpty;
+    if (wilaya == null) return hasCommune ? commune : '—';
+    if (!hasCommune) return wilaya;
+    return '$wilaya — $commune';
   }
 
   String _urgencyLabel(UrgencyLevel u) {
@@ -536,9 +547,15 @@ class _StatusRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final commune = project.commune;
-    final place = (commune == null || commune.isEmpty)
-        ? Taxonomy.wilayaName(project.wilaya)
-        : '${Taxonomy.wilayaName(project.wilaya)} — $commune';
+    // Same rule as `_locationLabel`, read off the payload rather than off the
+    // project object: an unknown wilaya leaves the commune it does have, and
+    // neither field means the chip is dropped instead of named wrong.
+    final wilaya = Taxonomy.wilayaNameOrNull(project.wilaya);
+    final hasCommune = commune != null && commune.isNotEmpty;
+    final place = wilaya == null
+        ? (hasCommune ? commune : null)
+        : (hasCommune ? '$wilaya — $commune' : wilaya);
+    if (place == null) return const SizedBox.shrink();
     return Wrap(
       spacing: 8,
       runSpacing: 8,

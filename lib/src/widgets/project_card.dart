@@ -15,6 +15,7 @@ class ProjectCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final placeLabel = Taxonomy.wilayaNameOrNull(project.wilaya);
     return AppCard(
       onTap: onTap,
       padding: AppTheme.cardPad,
@@ -50,22 +51,29 @@ class ProjectCard extends StatelessWidget {
                     ],
                   ],
                 ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Icon(Icons.location_on_rounded,
-                        size: 14, color: AppTheme.textMuted),
-                    const SizedBox(width: 3),
-                    Expanded(
-                      child: Text(
-                        Taxonomy.wilayaName(project.wilaya),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTheme.caption,
+                // The place row is *server* data, so the wilaya can be missing
+                // or a code this build has not heard of. The row then drops
+                // entirely rather than naming Algiers: before, `''` fell
+                // through to the fallback and every project without a wilaya
+                // was published in «الجزائر». See `Taxonomy.wilayaNameOrNull`.
+                if (placeLabel != null) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.location_on_rounded,
+                          size: 14, color: AppTheme.textMuted),
+                      const SizedBox(width: 3),
+                      Expanded(
+                        child: Text(
+                          placeLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.caption,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 9),
                 Row(
                   children: [StatusPill.project(project.status.name)],

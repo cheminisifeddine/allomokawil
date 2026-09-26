@@ -273,10 +273,59 @@ class Taxonomy {
     return const Color(0xFFEFF0F2);
   }
 
-  static String wilayaName(String id) {
+  /// The Arabic name of [id], or **null** when the code is blank or is not one
+  /// of the 58 wilayas this build knows.
+  ///
+  /// Found 26 Sep 2026, and it is the same defect class as the five "unmeasured
+  /// number" fixes this loop has already shipped, on the one field that decides
+  /// where a job is. The old body was:
+  ///
+  ///     for (final w in wilayas) { if (w.id == id) return w.name; }
+  ///     return 'الجزائر';
+  ///
+  /// That last line answered "I do not know" with **the capital's name**. Two
+  /// shapes reach it, and neither is hypothetical:
+  ///
+  ///   * **A blank code.** `Project.fromJson` reads
+  ///     `wilaya: (json['wilaya'] as String?) ?? ''`, so a project row the
+  ///     server sent without a wilaya became `''` — and `''` is not in the
+  ///     table, so every project card, the status row and the detail header
+  ///     printed **«الجزائر»** for a job whose location nobody had stated.
+  ///   * **A code this build has not heard of.** The table is a compile-time
+  ///     list of 58. D1 adding a wilaya, a code reformatted to `'9'` instead of
+  ///     `'09'`, or a `user_wilaya` written by any other client all land on the
+  ///     same line, and a project 350 km from Algiers is labelled Algiers.
+  ///
+  /// Neither is cosmetic. A contractor filtering «الجزائر» to find work near
+  /// him is sent to the one wilaya this getter names when it is wrong, and the
+  /// other 57 are right — so the error is invisible to everyone but the man who
+  /// cannot find the job that is 40 km outside his own gate.
+  ///
+  /// Null is the answer this app gives every other thing it cannot measure: a
+  /// caller that can drop the clause drops it, and a caller that must print
+  /// something prints nothing rather than a place. See [wilayaName] for the
+  /// total form, kept only for the call sites that already hold a real code.
+  static String? wilayaNameOrNull(String? id) {
+    final key = id?.trim() ?? '';
+    if (key.isEmpty) return null;
     for (final w in wilayas) {
-      if (w.id == id) return w.name;
+      if (w.id == key) return w.name;
     }
-    return 'الجزائر';
+    return null;
   }
+
+  /// The Arabic name of [id], never null.
+  ///
+  /// **The fallback is «—», a dash, and not a wilaya.** This form exists for the
+  /// call sites whose code is provably one of ours — the pickers read
+  /// [wilayas] to build their own list, and the GPS path reads
+  /// `wilaya_centers.dart`, whose keys [wilaya_gps_test] pins to [wilayas] — so
+  /// the fallback is unreachable there and is a guard against a future caller
+  /// wiring an unknown code in by accident. It is a dash because that is what
+  /// «I have nothing to print» looks like everywhere else in this app; it must
+  /// never become the name of a place.
+  ///
+  /// Any row fed by **server** data must use [wilayaNameOrNull] instead: that
+  /// is where a missing or drifted code is a real, reachable shape.
+  static String wilayaName(String id) => wilayaNameOrNull(id) ?? '—';
 }

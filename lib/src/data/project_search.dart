@@ -18,8 +18,9 @@ import 'taxonomy.dart';
 /// foreign" failure the backlog is about.
 ///
 /// The wilaya name is only considered when the project actually carries a
-/// wilaya: [Taxonomy.wilayaName] falls back to 'الجزائر' for an unknown code,
-/// and that fallback must not make every project match a wilaya search.
+/// wilaya: [Taxonomy.wilayaNameOrNull] is null for a blank or unknown code, and
+/// that absence must not make every project match a wilaya search — the
+/// fallback used to do exactly that.
 bool projectMatchesQuery(Project project, String query) {
   if (ArabicSearch.normalize(query).isEmpty) return true;
   return ArabicSearch.matches(query, [
@@ -30,7 +31,9 @@ bool projectMatchesQuery(Project project, String query) {
       Taxonomy.categoryName(slug),
       slug,
     ],
-    project.wilaya.isEmpty ? null : Taxonomy.wilayaName(project.wilaya),
+    // Null when the code is blank or unknown, so the fallback name cannot make
+    // every project match a «الجزائر» search. `matches` already drops nulls.
+    Taxonomy.wilayaNameOrNull(project.wilaya),
   ]);
 }
 

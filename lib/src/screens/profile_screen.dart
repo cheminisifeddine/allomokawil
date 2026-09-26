@@ -54,12 +54,15 @@ class ProfileScreen extends StatelessWidget {
                   title: 'رقم الهاتف',
                   value: u.phone,
                 ),
-                if (u.wilaya != null) ...[
+                // Not `u.wilaya != null`: an empty or unrecognised code is
+                // not a wilaya, and the row used to print the fallback name
+                // for one. Dropped, like the commune row below it.
+                if (Taxonomy.wilayaNameOrNull(u.wilaya) case final wilaya?) ...[
                   const _RowDivider(),
                   _SettingsRow(
                     icon: Icons.location_on_rounded,
                     title: 'الولاية',
-                    value: Taxonomy.wilayaName(u.wilaya!),
+                    value: wilaya,
                   ),
                 ],
                 if (commune != null && commune.isNotEmpty) ...[

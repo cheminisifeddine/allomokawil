@@ -308,7 +308,11 @@ class _WorkFacts extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final w = worker;
-    final hasWilaya = w.wilaya != null && w.wilaya!.isNotEmpty;
+    // Resolved, not merely non-empty: a code this build does not know used to
+    // pass this gate and then print the fallback, so a contractor in
+    // Ghardaïa-on-the-server published «الولاية: الجزائر» on his own profile.
+    // The row is dropped instead — same rule as the radius row above it.
+    final wilayaName = Taxonomy.wilayaNameOrNull(w.wilaya);
     return AppCard(
       child: Column(
         children: [
@@ -337,11 +341,11 @@ class _WorkFacts extends StatelessWidget {
               color: AppTheme.navy,
             ),
           ],
-          if (hasWilaya)
+          if (wilayaName != null)
             InfoRow(
               icon: Icons.location_on_rounded,
               label: 'الولاية',
-              value: Taxonomy.wilayaName(w.wilaya!),
+              value: wilayaName,
               color: AppTheme.success,
             ),
         ],
