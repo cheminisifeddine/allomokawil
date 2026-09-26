@@ -453,27 +453,34 @@ Future<void> _golden(
 /// It exists so neither gate can quietly stop covering a screen: the golden
 /// pass and the accessibility sweep both walk *this*, and a screen that is not
 /// here is in neither.
-List<(String, Widget)> _mainScreens(Repository repo) => [
-      ('00_landing', const LandingScreen()),
-      ('01_signin', const AuthScreen(mode: AuthMode.signIn)),
-      ('04_customer_home', const CustomerHomeScreen()),
-      ('08_worker_home', const WorkerHomeScreen()),
-      ('10_browse', const BrowseScreen()),
+///
+/// Each entry is a *builder*, not a widget: the golden pass now runs one test
+/// per screen and each of those boots its own fake API, so a widget captured
+/// outside that test would hold the repository of whichever test happened to
+/// build the list. `_mainScreens(repo)` still works — the builder simply
+/// ignores the argument it is handed when the caller already has a repo.
+List<(String, Widget Function(Repository))> _mainScreens(Repository repo) => [
+      ('00_landing', (_) => const LandingScreen()),
+      ('01_signin', (_) => const AuthScreen(mode: AuthMode.signIn)),
+      ('04_customer_home', (_) => const CustomerHomeScreen()),
+      ('08_worker_home', (_) => const WorkerHomeScreen()),
+      ('10_browse', (_) => const BrowseScreen()),
       // The signed-out dashboard *is* the dashboard: a visitor gets the same
       // worker home as a signed-in contractor, so the shot is the same screen.
-      ('16_guest_worker', const WorkerHomeScreen()),
+      ('16_guest_worker', (_) => const WorkerHomeScreen()),
       (
         '12_chat',
-        ChatScreen(
+        (r) => ChatScreen(
             conversationId: 5,
             otherUserId: 31,
             otherName: 'مقاول تجربة',
-            repo: repo),
+            repo: r),
       ),
-      ('15_notifications', NotificationsScreen(clock: () => _pinnedClock)),
+      ('15_notifications', (_) => NotificationsScreen(clock: () => _pinnedClock)),
       (
         '07_project_detail',
-        ProjectDetailScreen(projectId: _project['id'] as String, repo: repo),
+        (r) => ProjectDetailScreen(
+            projectId: _project['id'] as String, repo: r),
       ),
     ];
 
@@ -660,13 +667,32 @@ void main() {
   // One baseline per main screen. The /tmp shots above exist for a human to
   // look at; these exist for the suite to fail on, so a design regression is
   // caught by the gate instead of by the founder.
-  testWidgets('goldens: the main screens', (tester) async {
-    final s = await boot();
-    final repo = Repository(s.api);
-    for (final (name, screen) in _mainScreens(repo)) {
-      await _golden(tester, name, screen, s.api, s.auth);
-    }
-  });
+  //
+  // One test per screen, generated from the one list.
+  //
+  // This used to be a single test that looped. A loop is what hid the gate:
+  // `matchesGoldenFile` reports a pixel difference by throwing *asynchronously*
+  // out of the running test, so the first stale baseline ended the test and
+  // every screen listed after it was never compared. 12_chat has sat at 0.01%
+  // for days and it is followed by 15_notifications and 07_project_detail, so
+  // a green "goldens: the main screens" line was evidence of nothing at all —
+  // and 07 is the screen four cycles of Arabic copy fixes have been editing.
+  //
+  // Splitting the loop is the fix that matches the failure mode: each golden is
+  // its own test case, so a throw is scoped to its own screen, the runner
+  // executes all of them, and the report names every screen that differs at
+  // once. A `try`/`catch` around `expectLater` does *not* work here — the
+  // failure is not delivered through the awaited future, so it lands in the
+  // test zone and is still reported as an unhandled async error.
+  //
+  // The list is still the single source of truth: adding a screen to
+  // [_mainScreens] adds its golden test here and its a11y check below.
+  for (final (name, build) in _mainScreens(Repository(_fakeApi()))) {
+    testWidgets('golden: $name', (tester) async {
+      final s = await boot();
+      await _golden(tester, name, build(Repository(s.api)), s.api, s.auth);
+    });
+  }
 
   // ── The sweep, so "every control is named" is not a hand-written list ─────
   // `a11y_semantics_test.dart` proves the nine controls the 13 Sep audit found
@@ -688,8 +714,8 @@ void main() {
 
     final silent = <String, List<String>>{};
     final silentFields = <String>[];
-    for (final (name, screen) in _mainScreens(repo)) {
-      await _pumpScreen(tester, name, screen, s.api, s.auth);
+    for (final (name, build) in _mainScreens(repo)) {
+      await _pumpScreen(tester, name, build(repo), s.api, s.auth);
       final unnamed = <String>[];
       for (final node in tester.semantics.simulatedAccessibilityTraversal()) {
         final d = node.getSemanticsData();
