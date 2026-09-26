@@ -122,6 +122,14 @@ class SubscriptionStatus {
   final int quoteLimit;
   final int portfolioLimit;
   final int quotesUsedThisMonth;
+
+  /// The server's own day count. Parsed and deliberately **not displayed**.
+  ///
+  /// Kept so the field still lands if the Worker grows one, but the app prints
+  /// [expiryCountdownAr] instead: a count computed in UTC from a date the user
+  /// reads in Algiers disagrees at the day boundary, and it arrived at the card
+  /// without a floor, so `0` read "بعد 0 يوماً" and a negative read "بعد -3
+  /// يوماً". Nothing in the UI may print this again.
   final int? renewsInDays;
 
   bool get isFree => plan == 'free_trial';
@@ -153,6 +161,61 @@ class SubscriptionStatus {
   DateTime? get expiresAtLocal => isFree
       ? null
       : parseServerTime(expiresAt);
+
+  /// Longest remaining run still described as a day count.
+  ///
+  /// A year of prepaid cover is the longest thing the founder sells, so past
+  /// 365 days the number stops being information the user can use and becomes
+  /// an artefact of a date nobody set. Above it the date alone is printed, which
+  /// is true whatever the row says.
+  static const int maxCountedDays = 365;
+
+  /// Whole calendar days from today to the day this plan ends, in the phone's
+  /// own timezone. Null when there is no readable expiry.
+  ///
+  /// Calendar days, not elapsed hours: the user is asking "how many days do I
+  /// still have", and the answer has to be the number of midnights he crosses.
+  int? get daysUntilExpiry {
+    final end = expiresAtLocal;
+    if (end == null) return null;
+    final now = DateTime.now();
+    // Both are local, and both are stripped of their time, so the difference
+    // cannot be pushed off by the hour the raw timestamps disagree about.
+    final today = DateTime(now.year, now.month, now.day);
+    final lastDay = DateTime(end.year, end.month, end.day);
+    return lastDay.difference(today).inDays;
+  }
+
+  /// The Arabic sentence that says when the paid months run out, or null when
+  /// there is nothing to say.
+  ///
+  /// This replaces printing the server's own `renews_in_days` count. Two
+  /// reasons, both about trusting a computed number over a real timestamp:
+  ///
+  ///   * The app already holds the exact instant (`expires_at`) and a parser
+  ///     proven correct in Algiers, so a server-side day count is a rounded
+  ///     second opinion about data we have exactly. D1 computes it in UTC, the
+  ///     date the user reads is local, and the two disagree by a day at every
+  ///     boundary.
+  ///   * The count is only as sane as its rounding, and it reached the card
+  ///     unguarded: `0` printed "ينتهي الاشتراك بعد 0 يوماً" and a stale
+  ///     negative printed "بعد -3 يوماً" — Arabic that means nothing, on the
+  ///     one card whose job is to tell a paying man how long he has paid for.
+  ///
+  /// The count and the date are printed together so they cannot contradict
+  /// each other, and the count is only claimed when it means something to a
+  /// person: below a day, the date alone; beyond [maxCountedDays], the date
+  /// alone again, because a plan that long is not sold here and a count like
+  /// «بعد 26560 يوماً» is a number no contractor can read as time.
+  String? get expiryCountdownAr {
+    final end = subscriptionEndDateLabel(expiresAtLocal);
+    if (end == null) return null;
+    final days = daysUntilExpiry;
+    if (days == null || days < 1 || days > maxCountedDays) {
+      return 'ينتهي الاشتراك في $end';
+    }
+    return 'ينتهي الاشتراك بعد $days يوماً — $end';
+  }
 
   /// A paid plan that passes its expiry date is expired even if the row still
   /// says active; the server re-checks, and so does the card.

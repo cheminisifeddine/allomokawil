@@ -287,9 +287,10 @@ class _CurrentPlanCard extends StatelessWidget {
           if (status.expiresAt != null && paid) ...[
             const SizedBox(height: AppTheme.s12),
             Text(
-              status.renewsInDays != null
-                  ? 'ينتهي الاشتراك بعد ${status.renewsInDays} يوماً'
-                  : 'ينتهي الاشتراك في ${_shortDate(status.expiresAt!)}',
+              // Count and date from the same instant, so the two can never
+              // disagree the way a server-computed count and a locally-formatted
+              // date did. Null only when the expiry is unreadable.
+              status.expiryCountdownAr ?? _shortDate(status.expiresAt!),
               style: AppTheme.caption.copyWith(color: AppTheme.textSecondary),
             ),
           ],

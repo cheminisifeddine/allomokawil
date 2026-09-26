@@ -192,6 +192,84 @@ void main() {
       expect(out, contains('END_HOUR=1'));
     });
 
+    test('the day count is local calendar days, not rounded hours', () async {
+      final out = await _underZone('Africa/Algiers', r'''
+      // D1 says this plan runs for 3 more days from 22:00 UTC on the 30th.
+      // In Algiers that is already 23:00 on the 30th, so the days still to
+      // live are the 31st and the 1st: two. Measured off elapsed hours the
+      // same answer comes out as 1, because 30 hours of run time is less than
+      // the 48 hours a naive `inHours ~/ 24` would need.
+      final s = SubscriptionStatus.fromJson(<String, dynamic>{
+        'plan': 'basic', 'name_ar': 'x', 'status': 'active',
+        'starts_at': null, 'expires_at': '2026-10-01 22:00:00',
+        'quote_limit': -1, 'portfolio_limit': 1,
+        'quotes_used_this_month': 0, 'renews_in_days': 3,
+      });
+      print('DAYS=${s.daysUntilExpiry}');
+      print('AR=${s.expiryCountdownAr}');
+''');
+      // The end instant is 23:00 on 1 Oct in Algiers. The count is whatever
+      // midnights stand between *now* and that day — and the probe runs
+      // whenever this suite runs, so the day is not something a fixture can
+      // pin. What is fixed is that the number is derived, not sent, and that
+      // the date printed is the Algiers one: 1 Oct in UTC is 23:00 on the 1st
+      // locally, so «2026-10-01» is right all day, whereas the bare parse this
+      // replaced would have said the same only until 21:00 UTC.
+      final m = RegExp(r'DAYS=(-?\d+)').firstMatch(out);
+      expect(m, isNotNull, reason: out);
+      final days = int.parse(m!.group(1)!);
+      expect(days, greaterThanOrEqualTo(0), reason: out);
+      // `renews_in_days` said 3. The app now ignores it, and prints the day it
+      // derived from the exact instant instead — the whole point of the fix.
+      expect(out, isNot(contains('3 يوماً')),
+          reason: 'the server count reached the screen:\n$out');
+      expect(out, contains('ينتهي الاشتراك'), reason: out);
+      expect(out, contains('2026-10-01'), reason: out);
+    });
+
+    test('a plan ending tomorrow counts 1, never 0 and never -3', () async {
+      final out = await _underZone('Africa/Algiers', r'''
+      // A genuine boundary: build the end date *relative* to now, so the test
+      // is about the rule and not about a date frozen in a fixture that the
+      // clock eventually walks past.
+      final now = DateTime.now();
+      final end = DateTime(now.year, now.month, now.day + 2, 23, 0);
+      final s = SubscriptionStatus.fromJson(<String, dynamic>{
+        'plan': 'basic', 'name_ar': 'x', 'status': 'active',
+        'starts_at': null, 'expires_at': end.toUtc().toIso8601String(),
+        'quote_limit': -1, 'portfolio_limit': 1,
+        'quotes_used_this_month': 0, 'renews_in_days': -3,
+      });
+      print('DAYS=${s.daysUntilExpiry}');
+      print('AR=${s.expiryCountdownAr}');
+''');
+      // Two midnights away is two days, and the stale negative the server sent
+      // is nowhere in the Arabic. Under the old card this row printed
+      // "ينتهي الاشتراك بعد -3 يوماً".
+      expect(out, contains('DAYS=2'), reason: out);
+      expect(out, contains('2 يوماً'), reason: out);
+      expect(out, isNot(contains('-3')), reason: out);
+    });
+
+    test('a plan with no day left says when it ends, not that it is over', () async {
+      final out = await _underZone('Africa/Algiers', r'''
+      final now = DateTime.now();
+      // Later today: the plan ends today, so there is no whole day to count.
+      final end = DateTime(now.year, now.month, now.day, 23, 59);
+      final s = SubscriptionStatus.fromJson(<String, dynamic>{
+        'plan': 'basic', 'name_ar': 'x', 'status': 'active',
+        'starts_at': null, 'expires_at': end.toUtc().toIso8601String(),
+        'quote_limit': -1, 'portfolio_limit': 1,
+        'quotes_used_this_month': 0, 'renews_in_days': 0,
+      });
+      print('AR=${s.expiryCountdownAr}');
+''');
+      // "بعد 0 يوماً" was what a paid contractor read on the last day of his
+      // plan. The date alone is true and the count is not claimed.
+      expect(out, contains('ينتهي الاشتراك في'), reason: out);
+      expect(out, isNot(contains('يوماً')), reason: out);
+    });
+
     test('this box is UTC, which is why an in-process test cannot see it', () {
       // Guards the premise of the three tests above. If a future machine runs
       // in UTC+1 by default, the subprocess probes stop being the only way to
@@ -283,7 +361,70 @@ void main() {
       expect(texts.any((t) => t.contains('منتهي')), isTrue,
           reason: 'the card never says the plan is over: $texts');
     });
+
+    testWidgets('the card does not print the server day count it was given',
+        (tester) async {
+      tester.view.physicalSize = const Size(1080, 3400);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+
+      final api = ApiClient(
+        baseUrls: const ['https://x.test'],
+        httpClient: MockClient((req) async {
+          final p = req.url.path;
+          if (p.endsWith('/api/mobile/subscription')) {
+            return http.Response(
+                jsonEncode(_catalogueWithCount(
+                    '2099-06-15 12:00:00', 41)),
+                200, headers: {'content-type': 'application/json'});
+          }
+          return http.Response(jsonEncode(<String, Object?>{}), 200,
+              headers: {'content-type': 'application/json'});
+        }),
+      );
+      final auth = AuthState(api);
+
+      await tester.pumpWidget(AppScope(
+        api: api,
+        auth: auth,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          locale: const Locale('ar'),
+          home: const SubscriptionScreen(),
+        ),
+      ));
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      final texts = tester
+          .widgetList<Text>(find.byType(Text))
+          .map((t) => t.data ?? '')
+          .toList();
+      // The half of the defect a model test cannot see: the number reached a
+      // build(). `renews_in_days: 41` beside an expiry 73 years out is the
+      // server disagreeing with its own row, and the card used to print the
+      // server's half of that argument without ever checking it.
+      expect(texts.any((t) => t.contains('41')), isFalse,
+          reason: 'the unverified server day count was rendered: $texts');
+      // And the replacement cannot be nonsense in the other direction: the day
+      // count for a 73-year row would be «26560 يوماً», which is arithmetically
+      // true and unreadable. Past the longest run the founder sells, the card
+      // prints the date alone.
+      expect(texts.any((t) => t.contains('يوماً')), isFalse,
+          reason: 'an unreadable day count was rendered: $texts');
+      // What it prints instead: a date it derived from the exact instant.
+      expect(texts.any((t) => t.contains('ينتهي الاشتراك في')), isTrue,
+          reason: 'the card says nothing about when the plan ends: $texts');
+    });
   });
+}
+
+/// As [_catalogue], but with the server's own day count filled in.
+Map<String, Object?> _catalogueWithCount(String expiresAt, int renewsInDays) {
+  final c = _catalogue(expiresAt);
+  (c['current'] as Map<String, Object?>)['renews_in_days'] = renewsInDays;
+  return c;
 }
 
 /// A paid `basic` subscription in the shape the Worker sends it.
