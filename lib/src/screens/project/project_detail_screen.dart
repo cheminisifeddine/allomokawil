@@ -7,6 +7,7 @@ import '../../core/theme/app_theme.dart';
 import '../../data/quote_duration_copy.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
+import '../../data/worker_stats_copy.dart';
 import '../../models/enums.dart';
 import '../../models/project.dart';
 import '../../models/quote_review.dart';
@@ -819,13 +820,18 @@ class _QuoteCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 4),
-                    if (quote.workerTotalReviews > 0)
+                    // Gated on the score, not on the review count. The count
+                    // is a different field: a payload can say "he has reviews"
+                    // and still omit the score, and then the old guard drew five
+                    // empty stars and «0.0» for a man somebody did rate. Same
+                    // sentinel, same fix as [WorkerProfile.avgRating].
+                    if (quote.hasRating)
                       RatingStars(
-                          rating: quote.workerAvgRating,
+                          rating: quote.workerAvgRating!,
                           count: quote.workerTotalReviews,
                           size: 14)
                     else
-                      Text('لا تقييمات بعد',
+                      Text(noRatingAr(),
                           style: AppTheme.caption
                               .copyWith(color: AppTheme.textSecondary)),
                   ],

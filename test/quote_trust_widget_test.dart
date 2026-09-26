@@ -43,6 +43,8 @@ Map<String, Object?> _quoteRow({
   required String name,
   required String status,
   String? avatar,
+  double? avgRating = 0,
+  int? totalReviews = 0,
 }) =>
     <String, Object?>{
       'id': id,
@@ -56,8 +58,8 @@ Map<String, Object?> _quoteRow({
       'updated_at': '2026-09-11 20:23:45',
       'worker_full_name': name,
       'worker_avatar_url': avatar,
-      'worker_avg_rating': 0,
-      'worker_total_reviews': 0,
+      'worker_avg_rating': avgRating,
+      'worker_total_reviews': totalReviews,
       'worker_verification_status': status,
     };
 
@@ -284,6 +286,80 @@ void main() {
         findsOneWidget,
         reason: 'only `rejected` is silent; `pending` is an unanswered check',
       );
+    });
+  });
+
+  group('the score the card prints, or the fact that there is none', () {
+    // The unit cases in `quote_zero_score_test.dart` are about the model. These
+    // are about the card, because a correct model wired to a screen that still
+    // prints the sentinel is how this whole class of bug rots silently: when
+    // the card guard was reverted to `workerTotalReviews > 0`, every unit test
+    // in the suite still passed.
+    Future<void> openOne(Map<String, Object?> row) async {
+      _rows = <Map<String, Object?>>[row];
+    }
+
+    testWidgets('a bid with no score says so, and prints no «0.0»',
+        (tester) async {
+      await openOne(_quoteRow(
+          id: 20, name: 'مقاول جديد', status: 'pending'));
+      await _open(tester);
+
+      expect(find.text('لا تقييمات بعد'), findsOneWidget,
+          reason: 'the card states the truth about the scoreboard');
+      // Scoped to the star row's own text, because a bare global search for
+      // "0.0" would also match any price or budget printed on the page.
+      expect(
+        find.descendant(
+          of: find.byType(RatingStars),
+          matching: find.text('0.0'),
+        ),
+        findsNothing,
+      );
+      expect(find.byType(RatingStars), findsNothing,
+          reason: 'no stars at all for a score nobody gave');
+    });
+
+    testWidgets('reviews-without-a-score is not drawn as «0.0»', (tester) async {
+      // The payload the old guard got wrong: the count says he has reviews, so
+      // `workerTotalReviews > 0` passed, and the card printed five empty stars
+      // and «0.0» for a tradesman somebody did rate.
+      await openOne(_quoteRow(id: 21, name: 'مقاول مُقيَّم', status: 'pending',
+          avgRating: 0, totalReviews: 7));
+      await _open(tester);
+
+      expect(find.byType(RatingStars), findsNothing);
+      expect(find.text('لا تقييمات بعد'), findsOneWidget);
+    });
+
+    testWidgets('a real score still draws its stars and its count',
+        (tester) async {
+      await openOne(_quoteRow(id: 22, name: 'مقاول موثّق', status: 'verified',
+          avgRating: 4.7, totalReviews: 30));
+      await _open(tester);
+
+      expect(find.byType(RatingStars), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(RatingStars),
+          matching: find.text('4.7'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('لا تقييمات بعد'), findsNothing,
+          reason: 'the fix must not silence a real score');
+    });
+
+    testWidgets('a score with no review count still draws its stars',
+        (tester) async {
+      // The mirror case, so the guard cannot be quietly swapped back for a
+      // count check in the other direction.
+      await openOne(_quoteRow(id: 23, name: 'مقاول مصدَّر', status: 'verified',
+          avgRating: 5, totalReviews: 0));
+      await _open(tester);
+
+      expect(find.byType(RatingStars), findsOneWidget);
+      expect(find.text('لا تقييمات بعد'), findsNothing);
     });
   });
 }

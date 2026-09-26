@@ -8,7 +8,20 @@ class Quote {
   final int? estimatedDays;
   final String workerFullName;
   final String? workerAvatarUrl;
-  final double workerAvgRating;
+  /// The score customers gave this contractor, or null when nobody has.
+  ///
+  /// **Null, not 0.0 — the same sentinel [WorkerProfile.avgRating] refuses.**
+  /// `GET /api/mobile/projects/{id}/quotes` sends `worker_avg_rating: 0` for
+  /// a contractor with no reviews, which is the server's "not rated yet" marker
+  /// rather than a mean: the review form is 1-5, so no set of reviews can
+  /// average to zero.
+  ///
+  /// This field was a non-nullable `double` that folded to `0`, so it read the
+  /// *same wire value* the worker model reads as null, and it did so while
+  /// [hasRating] — the gate the browse card and the profile use — was deciding
+  /// a few lines away. Two models, one payload, two opposite answers about
+  /// whether a score exists.
+  final double? workerAvgRating;
   final int workerTotalReviews;
   final String workerVerificationStatus;
 
@@ -21,7 +34,7 @@ class Quote {
     this.estimatedDays,
     required this.workerFullName,
     this.workerAvatarUrl,
-    required this.workerAvgRating,
+    this.workerAvgRating,
     required this.workerTotalReviews,
     required this.workerVerificationStatus,
   });
@@ -36,13 +49,30 @@ class Quote {
         workerFullName:
             (json['worker_full_name'] ?? '') as String,
         workerAvatarUrl: json['worker_avatar_url'] as String?,
-        workerAvgRating:
-            (json['worker_avg_rating'] as num?)?.toDouble() ?? 0,
+        // A stored 0 is the server's "nobody has rated me yet" sentinel, not a
+        // score. Folded to null exactly as [WorkerProfile.avgRating] folds it,
+        // so both models read one wire value one way.
+        workerAvgRating: _rating(json['worker_avg_rating']),
         workerTotalReviews:
             (json['worker_total_reviews'] as num?)?.toInt() ?? 0,
         workerVerificationStatus:
             (json['worker_verification_status'] ?? '') as String,
       );
+
+  /// True when there is a real score to print, as opposed to a `0` the server
+  /// sent to mean "nobody has rated me yet".
+  ///
+  /// Mirrors [WorkerProfile.hasRating] deliberately: the bid card and the
+  /// browse card are the two places a customer chooses a tradesman from, and
+  /// they must not answer differently about the same man.
+  bool get hasRating => workerAvgRating != null;
+
+  /// Null for a missing score and for a `0` the server sent as a sentinel.
+  static double? _rating(Object? raw) {
+    if (raw is! num) return null;
+    final v = raw.toDouble();
+    return v > 0 ? v : null;
+  }
 }
 
 /// A customer's rating + comment left after a job completes.
