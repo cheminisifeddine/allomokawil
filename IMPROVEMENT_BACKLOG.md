@@ -1964,6 +1964,78 @@ it is a correctness gap that duplicates a user's data.
       `MATCH` against `origin/main`'s tree after a real `git fetch`, not trusted
       from the push helper's exit code.
 
+- [x] **A contractor's own four numbers were built by string interpolation,
+      and a reply time that was never measured printed as `0h`.** The
+      countdown fix one cycle earlier moved the agreement rule into
+      `core/l10n/arabic_agreement.dart`; this is the same defect one file
+      over, and it is still on the screen a customer reads before he sends
+      anyone a message.
+      *The grammar half.* `worker_card.dart` (both variants),
+      `worker_home_screen.dart` and `worker_profile_screen.dart` each wrote
+      `'${worker.experienceYears} سنة خبرة'` — one fixed noun for every
+      count. So «3 سنة خبرة», «11 سنة خبرة» for a noun whose plural is
+      «سنوات», and «3 تقييم» for a noun whose plural is «تقييمات».
+      *The worse half.* The profile cover printed
+      `'استجابة خلال ${worker.responseTimeHours ?? 0}h'`. The column is
+      nullable and every new account has never been timed, so every one of
+      them announced «استجابة خلال 0h» — the app stating, as a measured fact
+      on the profile a customer picks from, that a man who has answered
+      nobody answers within the hour. A missing measurement is not a
+      measurement: null now drops the clause, and a real 0 (a reply that came
+      back under an hour) reads «أقل من ساعة», which is a different fact and
+      is still said.
+      *Not a fifth copy of the rule.* `lib/src/data/worker_stats_copy.dart`
+      holds the nouns only and delegates to the shared `arabicCounted`, so
+      this cannot drift from the notification clock, the outbox or the
+      countdown the way the four hand-written copies did. Every helper returns
+      null at zero, which is what makes «0 سنة خبرة» and «0 مشروع منجز»
+      unrepresentable instead of merely absent.
+      *Evidence:* `flutter analyze` → **No issues found!** (3.9 s).
+      `flutter test` → **+594 ~3 -1**, up from +583, nothing lost;
+      `test/worker_stats_copy_test.dart` adds 11 tests. Rendered and looked
+      at, not asserted: `/tmp/shots/stats/` — `BEFORE.png` (the five wrong
+      lines, 36 678 danger-red px) against `AFTER_1.png` / `AFTER_2.png`
+      (all 11 counts in default ink, 0 red px, the dropped-clause line in
+      success green). The four screens that render a worker stat —
+      `04_customer_home`, `08_worker_home`, `10_browse`, `16_guest_worker` —
+      are the only goldens that moved, which is itself the proof that the
+      change is exactly where it was intended to be.
+      The `12_chat` golden is **untouched**: its 0.01% / 43px failure was
+      re-proved on clean HEAD by stashing, and `--update-goldens` rewrote it
+      as collateral, so it was restored byte-identical rather than
+      re-baselined.
+      Files: `lib/src/data/worker_stats_copy.dart` (new),
+      `lib/src/widgets/worker_card.dart`,
+      `lib/src/screens/worker/worker_home_screen.dart`,
+      `lib/src/screens/worker/worker_profile_screen.dart`,
+      `test/worker_stats_copy_test.dart` (new), 4 re-baselined goldens.
+      Local commit `eb96581`, remote **`063b0cc`** — every blob verified
+      `MATCH` against the remote tree after a real `git fetch`, including
+      `12_chat.png`.
+
+- [ ] **A11y.reviews is the fourth hand-written copy of the count rule, and
+      it disagrees with the other three on the line above it.** Found while
+      auditing the item above, deliberately left for its own cycle because it
+      is a different file and a different failure.
+      `lib/src/widgets/a11y.dart` writes its own thresholds by hand:
+      `count <= 0 → «لا مراجعات»`, `1 → «مراجعة واحدة»`, `2 → «مراجعتان»`,
+      `3–10 → «N مراجعات»`, `11+ → «N مراجعة»`. Those thresholds are right.
+      The thing next to it is not: the same sentence's score line reads
+      `«التقييم 4.5 من ٥»` — an **Arabic-Indic** ٥, spelled through a private
+      `_spoken()` digit table in the same class — while the count beside it is
+      Latin, because `reviews()` returns `'$count مراجعات'` with no
+      conversion. So one screen-reader pass reads «التقييم 4.5 من ٥، 3
+      مراجعات»: the same "of five" written two different ways in one
+      sentence, the one the file's own comment says it was written to prevent.
+      *Not done yet.* Needs a decision, not just a refactor: either the score
+      line moves to Latin `5` like the rest of the app, or the count does, and
+      only one of them is consistent with `dz_number`/`chat_time`, which both
+      deliberately print **Latin** digits (`05 50 12 34 56`, `09:05`) because
+      an RTL run renders Arabic-Indic digits in an order the user did not
+      type. The existing tests at `test/a11y_semantics_test.dart:69-85` pin
+      `«من ٥»` and `«3 مراجعات»` together, so they encode the bug and have to
+      be rewritten deliberately, not updated.
+
 - [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent
       writes.** The app cannot make `POST /api/mobile/projects` safe to retry on
       its own. A `Idempotency-Key` request header, stored with the created row
