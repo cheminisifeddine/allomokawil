@@ -2989,3 +2989,37 @@ Phase 1.
       confirms `payment_style: "prepaid"`, `auto_renew: false` and the four
       prepaid durations per plan. `requestSubscription` still has no test
       against a real response — it is a write, and writing is founder-gated.
+
+- [x] **The last unmeasured number on the contractor's card was printing a
+      zero — «نصف قطر الخدمة: 0 كم» — about a business nobody measured.**
+      `POST /api/register` sends no `service_radius_km` and nothing on the way
+      in asks for one, so every brand-new contractor's profile arrives without
+      it. The parser folded the absent field to `0` and the public profile
+      printed the row unconditionally, so the card a customer picks a tradesman
+      from claimed a man would not travel past his own street. Zero is the
+      loudest possible reading of a blank: it does not look missing, it looks
+      like an answer.
+      *Shipped:* `serviceRadiusKm` is `int?` end to end, the same shape as
+      `responseTimeHours` one row up. A stored `0` folds to null as well — the
+      slider's floor is 1, so this app cannot save one, and reading a server
+      default as a decision is the same error twice. The profile **drops the
+      row** rather than printing a number nobody set, and the edit screen opens
+      on its own `_kDefaultRadiusKm` (30) instead of `clamp(1, 200)`, which
+      would have turned a null into «كيلومتر واحد» the moment anyone opened
+      the form.
+      *A radius that was set still reads,* now through the app's shared
+      `arabicCounted`: 1 → «كيلومتر واحد», 2 → «كيلومترين», 3–10 →
+      «كيلومترات», 11+ counted singular. The old «كم» abbreviation has no dual
+      and no broken plural and so could not express any of it.
+      *Evidence:* `flutter analyze` -> **No issues found!**. Full suite ->
+      **+796 ~3, all passed** (was +786; +10 new, 3 skips pre-existing).
+      *Mutation-gated, both halves:* reverting the parser to `?? 0` ->
+      **+21 -1**; restoring the unconditional `InfoRow` -> **+10 -2**.
+      *Rendered, not assumed:* `/tmp/shots/profile_no_radius.png`, 1176x3000.
+      The 21 amber pixels are the app's own accent — their x-columns are
+      **identical** to the baseline `09_worker_profile.png`, so they are not
+      RenderFlex overflow stripes, and **0 rows** carry dark ink within 40px of
+      an edge. `tool/contrast_audit.py` 28/28.
+      *Local* `7249834` — *remote* `c6c3d92`, all 7 blobs verified **MATCH**
+      against the live remote tree (the exit code of a green push is not
+      evidence; see the protocol).
