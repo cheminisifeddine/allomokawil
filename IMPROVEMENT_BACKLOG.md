@@ -1809,6 +1809,70 @@ it is a correctness gap that duplicates a user's data.
       Remote `1269143` (local `fb06959`), blobs verified against the remote
       tree.
 
+- [x] **A subscription that had not expired yet was called expired, an
+      end date landed on the wrong day, and the account row called a lapsed
+      plan «نشط».**
+      Found on 26 Sep by a read-only audit of the billing model, not from a wish
+      list — and it is the app's own rule, applied everywhere except here.
+      `models/chat.dart` says so in the file header:
+      *Timestamps come from D1 as `YYYY-MM-DD HH:MM:SS` in UTC with no zone
+      marker, so they go through `parseServerTime` … which would read them as
+      local wall-clock and print every message an hour off in Algiers.*
+      Chat and notifications go through it. Billing did not. Three sites parsed
+      `expires_at` bare: `isExpired`, the subscription card's `_shortDate`, and
+      the account row's `_planSummary`, which took `expiresAt.split(' ').first`
+      — the server's raw string, printed to the user.
+      Algeria is UTC+1, so one hour is **the entire width of the day an expiry
+      lands on**. Measured on the pre-fix code under `TZ=Africa/Algiers`:
+      a plan ending `2026-09-30 23:00:00` UTC was read as **day 30**; it ends
+      on the **1st**. A paying contractor loses a day he paid for, and
+      `isExpired` fires an hour early — his paid features go dark while 59
+      minutes of subscription remain.
+      The account row was the worst of the three: it said «نشط» whatever the
+      date was, on the one row whose entire job is to send him to the renewal
+      screen. A plan that lapsed in 2020 read `أساسي — نشط حتى 2020-01-01`.
+      **Shipped:** `SubscriptionStatus.expiresAtLocal` routes through
+      `parseServerTime` — the app's single server-clock parser — and `isExpired`
+      is written in terms of it, so there is no second parse left to drift. A
+      free plan and an unreadable date both answer *not expired*: a plan whose
+      expiry cannot be read is not *known* to be over, and claiming otherwise
+      would take a paying man's features away on a formatting guess. One shared
+      `subscriptionEndDateLabel` now formats the day for both screens, so the
+      card and the account row cannot disagree. The account row finally reads
+      the state instead of assuming it: «منتهية» / «انتهت في …».
+      *Evidence (real output).* `flutter analyze` -> **No issues found!**
+      (6.1 s). New `test/subscription_clock_test.dart` (8 tests) — the three
+      zone tests **fail on the pre-fix lib** with the defect's own numbers
+      (pre-fix `OLD_DAY=30`, post-fix `DAY=1`, proven by running the old
+      expression verbatim under `TZ=Africa/Algiers`); passes on the new.
+      `flutter test` -> **+567 ~3 -1**, up from +559, nothing lost. The one
+      failure is the pre-existing `12_chat.png` golden, **proved not mine** by
+      stashing the change and re-running clean HEAD: identical 0.01% / 43px.
+      Not re-baselined.
+      *Two bugs the work itself produced, caught by testing rather than
+      reasoning.* The probe could not resolve `package:allomokawil/...` from a
+      system temp dir, and `dart run` on a file outside the package does not
+      fail fast — it **hangs** until the test's 30 s timeout, so three tests
+      died on `TimeoutException` with no output, which reads exactly like a
+      broken machine. Moved the probe inside git-ignored `build/`. The real
+      one: **`Platform.resolvedExecutable` under `flutter test` is
+      `flutter_tester`**, which does not take a script path — it starts, loads
+      nothing and sits there. Same silent hang, six orphaned processes holding
+      `build/unit_test_assets`. Resolved the Dart VM from `FLUTTER_ROOT` the
+      way `design_shots_test.dart` already does, and killed only those six
+      orphans (their argv named the deleted probe dirs, so they were provably
+      mine — no Gradle or another writer's process was touched).
+      **Worth knowing:** a pinned `DateTime.now()` cannot test this. The drift
+      is between two *interpretations* of one string, so the suite has to run a
+      second process under a real `TZ` — a timezone-database lookup, not a
+      shifted fake clock. The last test in the group asserts this box is UTC
+      precisely so the subprocess probes are not deleted as redundant.
+      Files: `lib/src/models/plan.dart`,
+      `lib/src/screens/worker/subscription_screen.dart`,
+      `lib/src/screens/profile_screen.dart`,
+      `test/subscription_clock_test.dart` (new).
+      Local commit `PENDING`.
+
 - [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent
       writes.** The app cannot make `POST /api/mobile/projects` safe to retry on
       its own. A `Idempotency-Key` request header, stored with the created row

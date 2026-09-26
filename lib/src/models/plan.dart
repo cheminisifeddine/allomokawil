@@ -13,6 +13,7 @@
 library;
 
 import '../core/format/money.dart';
+import 'notification.dart' show parseServerTime;
 
 /// Monthly or annual. Algeria pays in cash and by transfer, so the yearly plan
 /// is the one that matters most to a contractor who dislikes small recurring
@@ -137,11 +138,26 @@ class SubscriptionStatus {
   /// worth showing ahead of everything else.
   bool get isQuotaSpent => !hasUnlimitedQuotes && (quotesLeft ?? 0) == 0;
 
+  /// The moment the paid plan stops being paid for, in the phone's own timezone.
+  ///
+  /// D1 stores `expires_at` the way SQLite's `CURRENT_TIMESTAMP` writes it —
+  /// `YYYY-MM-DD HH:MM:SS`, in **UTC with no zone marker** — so it must be read
+  /// through [parseServerTime], the app's single server-clock parser, exactly as
+  /// every chat and notification timestamp already is. Parsing it as bare
+  /// wall-clock (`DateTime.tryParse` with no `Z`) read an instant that is one
+  /// hour early in Algiers, which is the whole width of the bug below.
+  ///
+  /// Null when the plan is free or the server sent no date: a plan whose
+  /// expiry cannot be read is not *known* to be over, and claiming otherwise
+  /// would take a paying contractor's features away on a formatting guess.
+  DateTime? get expiresAtLocal => isFree
+      ? null
+      : parseServerTime(expiresAt);
+
   /// A paid plan that passes its expiry date is expired even if the row still
   /// says active; the server re-checks, and so does the card.
   bool get isExpired {
-    if (isFree || expiresAt == null) return false;
-    final end = DateTime.tryParse(expiresAt!.replaceFirst(' ', 'T'));
+    final end = expiresAtLocal;
     if (end == null) return false;
     return end.isBefore(DateTime.now());
   }
@@ -311,6 +327,21 @@ class PlanCatalogue {
         ],
         noteAr: '${json['note_ar'] ?? ''}',
       );
+}
+
+/// `2026-09-13 12:04:11` (UTC, as D1 writes it) -> `2026-09-13`, the day in the
+/// phone's own timezone. Null when the string cannot be read.
+///
+/// One formatter for the two places that print a subscription's end date, so
+/// the subscription card and the account row cannot drift into disagreeing
+/// about when the paid months run out. The conversion is the whole point: read
+/// as bare wall-clock, a UTC day is an hour early in Algiers, and a plan that
+/// ends at `2026-10-01 00:00:00` UTC ends on the 30th for the man paying for it.
+String? subscriptionEndDateLabel(DateTime? local) {
+  if (local == null) return null;
+  final d = local.toLocal();
+  return '${d.year}-${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
 }
 
 int _int(Object? value) {

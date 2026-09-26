@@ -201,7 +201,15 @@ String _planSummary(SubscriptionStatus? s, ConnectionState state) {
         : 'اختر خطتك — شهري أو سنوي';
   }
   if (s.isFree) return 'الباقة المجانية — اطّلع على الخطط';
-  final end = s.expiresAt?.split(' ').first;
+  // An expired plan must not be described as «نشط» on the row the contractor
+  // taps to renew. The line below used to print the server's raw SQLite string
+  // and call it active whatever the date said, so a lapsed subscription still
+  // read "أساسي — نشط حتى 2020-01-01" on the screen whose only job is to send
+  // him to the renewal screen.
+  final end = subscriptionEndDateLabel(s.expiresAtLocal);
+  if (s.isExpired) {
+    return end == null ? '${s.nameAr} — منتهية' : '${s.nameAr} — انتهت في $end';
+  }
   return end == null ? s.nameAr : '${s.nameAr} — نشط حتى $end';
 }
 

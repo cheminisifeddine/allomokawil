@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
 import '../../data/repository.dart';
 import '../../models/plan.dart';
+import '../../models/notification.dart' show parseServerTime;
 import '../../widgets/skeletons.dart';
 import '../../widgets/a11y.dart';
 import '../../widgets/ui.dart';
@@ -845,10 +846,13 @@ class _PayInstructions extends StatelessWidget {
 
 /// `2026-09-13 12:04:11` -> `2026-09-13`. Server timestamps are UTC SQLite
 /// strings; the app only needs the day, so it never pretends to know the hour.
+///
+/// Read through [parseServerTime] like every other server clock in the app, so
+/// the day is the day in **Algiers**. Parsed as bare wall-clock the same string
+/// gave a day that is one early for every hour of the day in a UTC+1 country —
+/// the card could say «ينتهي في 2026-09-13» about a subscription D1 says runs to
+/// the 14th. The raw string is only echoed back when it cannot be read at all,
+/// which is better than printing a day nobody can trust.
 String _shortDate(String raw) {
-  final iso = raw.replaceFirst(' ', 'T');
-  final parsed = DateTime.tryParse(iso);
-  if (parsed == null) return raw;
-  return '${parsed.year}-${parsed.month.toString().padLeft(2, '0')}-'
-      '${parsed.day.toString().padLeft(2, '0')}';
+  return subscriptionEndDateLabel(parseServerTime(raw)) ?? raw;
 }
