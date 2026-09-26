@@ -1497,6 +1497,41 @@ it is a correctness gap that duplicates a user's data.
       the row landed. Small: one reload per write screen behind a typed check on
       the failure message, plus a test that a stalled publish refetches and shows
       the row when the API does have it.
+- [x] **The outbox re-sent a message the server may already have.**
+      `5a7052a` stopped the network layer re-sending a POST on a timeout and
+      `c428929` made the write screens re-read. Both guarded the moment the
+      failure happens; neither guarded the next one — the outbox. A chat
+      message is written to the device *before* its first attempt, and on the
+      next thread open the screen restored every queued record and **flushed**
+      it. That flush is the re-send the network layer refused, performed by the
+      app itself with no user action: type an address on a bad connection, the
+      POST reaches the Worker and is stored, no answer comes back, close the app,
+      reopen the thread — and the second copy is on its way. The contractor gets
+      «العنوان: حسين داي» twice and the user did nothing wrong.
+      The queue now records *why* a record is still there. `SendState.failed`
+      is a fact (the server refused it) and re-sends as before;
+      `SendState.unconfirmed` is not, and is persisted, skipped by the startup
+      flush and by «send everything again», drawn with a neutral
+      «لم يتأكّد وصولها — النتيجة غير معروفة» and **no** retry affordance (a
+      retry line is the instruction that creates the duplicate), and kept in the
+      banner behind a «تحقّق» button that *re-reads* instead of «إرسال», which
+      would promise a re-send it must not make. A re-read that comes back empty
+      clears the mark — the words are known absent, so a retry is real again.
+      The mark is written *before* the re-read runs: if the phone dies during
+      it, the next cold start must find a record that says do not send again.
+      *Found in the same fix:* `_restoreQueued` appended the local bubble
+      unconditionally, so a message the server had already stored appeared
+      **twice** the moment the thread opened. An unconfirmed record the fresh
+      read already accounts for now yields to the real row.
+      *Evidence (real output):* `flutter analyze` -> **No issues found!**
+      (8.2 s); `flutter test` -> **541 passed / 3 skipped / 0 failed** (was
+      532/3; the +9 are the new cases, no existing test changed). The cold-start
+      case is a true regression test: reverting the flush and the restore guard
+      makes it fail with a second POST. Screenshot of the rendered thread
+      (`/tmp/shots/chat_unconfirmed.png`) scanned for pixels: the danger red
+      `#C33F39` of the retry line is **absent**, the muted `#6C707A` line is
+      present under the bubble, the banner `#9B6415` at the bottom of the frame.
+      **DONE `43e767f`** (remote `fbf6204`).
 - [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent writes.**
       The app cannot make `POST /api/mobile/projects` safe to retry on its own.
       A `Idempotency-Key` request header, stored with the created row and
