@@ -3063,3 +3063,34 @@ Phase 1.
       shorter. `tool/contrast_audit.py` **28/28**.
       *Local* `6b95f82` — *remote* `24e39c9`, all 7 blobs verified **MATCH**
       against the live remote tree.
+
+- [x] **A bid said «0.0 out of five» for a contractor who *does* have reviews —
+      the same verdict one layer over, still live.** The zero-score fix folded
+      `WorkerProfile.avgRating` to null; it did not fold `Quote.workerAvgRating`,
+      which was a non-nullable `double` defaulting to `0`. The bid card then
+      gated its star row on **`quote.workerTotalReviews > 0`** — a different
+      field from the score. A payload saying "he has reviews" and omitting the
+      score sailed past that guard and drew five empty stars and **«0.0»** for a
+      tradesman somebody did rate, while the browse card showed the same man as
+      «لا تقييمات بعد». Two screens a customer picks a contractor from,
+      disagreeing about him, from one payload.
+      *Shipped:* `Quote.workerAvgRating` is `double?` with a stored 0 folded to
+      null through the same `_rating` reading `WorkerProfile` uses, and
+      `Quote.hasRating` mirrors `WorkerProfile.hasRating` as the single gate.
+      The card gates on the score rather than the count, and its inline Arabic
+      literal — a second copy of the sentence — is now the shared `noRatingAr()`.
+      A test asserts both models read one wire value the same way.
+      *Evidence:* `flutter analyze` -> **No issues found!**. Full suite ->
+      **+823 ~3, all passed** (was +809; +14 new, **0 regressions**).
+      *Mutation-gated, both halves:* the parser's `v > 0` reverted -> **+11 -6**;
+      the card guard reverted to `workerTotalReviews > 0` -> **+15 -2**. The
+      card mutation is the one that mattered: **the first pass of the unit tests
+      passed clean under it**, so the four cases were moved onto the real
+      screen, where they fail as they should.
+      *Rendered, not assumed:* `/tmp/shots/quote_rating_compare.png` (1176x900,
+      real Cairo) plus `quote_rating_count_only.png`. All **1845** star-token
+      `#B5790B` pixels fall in the y-range **469-495**, which is the rated card
+      alone; the unrated card above it and the count-only card carry **0**.
+      `tool/contrast_audit.py` **28/28**.
+      *Local* `d21678b` — *remote* `839ad35`, all 5 blobs verified **MATCH**
+      against the live remote tree.
