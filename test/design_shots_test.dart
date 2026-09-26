@@ -310,6 +310,44 @@ Future<void> _loadFonts() async {
   stdout.writeln('FONTS: Cairo family registered');
 }
 
+/// Put the bundled images in the image cache before a screen is pumped.
+///
+/// This is the fix for `00_landing`, which failed its own baseline by 16.76% /
+/// 55832 px **only when `design_shots_test.dart` ran on its own** — it passed in
+/// a full `flutter test`. That order dependence is the whole story:
+///
+///   * `Image.asset` resolves its provider, which decodes the PNG off the asset
+///     bundle. In `testWidgets` the whole body runs inside a *fake* async zone,
+///     so that decode never completes while the fake clock only pumps frames.
+///     The widget stays at its placeholder and paints nothing.
+///   * `imageCache` is a process-wide singleton owned by the binding, not by the
+///     test. So whichever test happened to decode the mark through a
+///     `tester.runAsync` — the real event loop — left it cached, and the landing
+///     page then painted it correctly for the rest of the run. Running the file
+///     alone means nothing warmed it first, so the mark vanished.
+///
+/// The band layout proves it, and the numbers are the proof this was a real
+/// defect rather than a stale baseline: the committed PNG has content at
+/// y169-302 (the 140 dp mark) and the isolated render has *nothing* there —
+/// every other band is present at an identical height, the whole page just
+/// slides up 65 px into the space the image would have occupied.
+///
+/// Decoding needs a real event loop, so it has to happen inside `runAsync`.
+/// Doing it up front, before `pumpWidget`, is what makes the render
+/// deterministic and independent of test order.
+Future<void> _warmImages(WidgetTester tester, BuildContext context) async {
+  for (final asset in _bundleImages) {
+    if (imageCache.containsKey(asset)) continue;
+    await tester.runAsync(() async {
+      await precacheImage(AssetImage(asset), context);
+    });
+  }
+}
+
+/// Every bundled image a main screen renders.
+const _bundleImages = <String>['assets/brand/mark.png'];
+
+
 /// Pump a screen at real phone dimensions and write it to [_outDir].
 Future<void> _shoot(
   WidgetTester tester,
@@ -347,6 +385,11 @@ Future<void> _shoot(
       child: AppScope(api: api, auth: auth, child: screen),
     ),
   ));
+
+  // Decoding an asset image needs a *real* event-loop turn — see [_warmImages].
+  // It has to run after the first pump so the Image widget has subscribed to
+  // the stream it is about to complete.
+  await _warmImages(tester, key.currentContext!);
 
   // Let the screens' futures settle without waiting on infinite animations.
   for (var i = 0; i < 8; i++) {
@@ -424,6 +467,9 @@ Future<GlobalKey> _pumpScreen(
       child: AppScope(api: api, auth: auth, child: screen),
     ),
   ));
+
+  // Same reason as in _shoot — see [_warmImages].
+  await _warmImages(tester, key.currentContext!);
 
   for (var i = 0; i < 8; i++) {
     await tester.pump(const Duration(milliseconds: 80));
