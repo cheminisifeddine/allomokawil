@@ -2510,24 +2510,32 @@ Phase 1.
       Local `7a189a4`, remote `c7755cf`; both blobs verified `MATCH` against
       the live remote tree. No app code touched, so no screenshot is claimed.
 
-- [ ] **The landing page's own baseline is wrong and nobody knows why.**
-      Surfaced the moment the golden gate was fixed: `00_landing` differs from
-      its committed baseline by **16.76% / 55832 px** — the largest diff in the
-      file, and it was invisible while the loop aborted early. It fails on clean
-      HEAD at the identical pixel count, so it is not a recent change, but it
-      **passes in a full `flutter test` run and fails when `design_shots_test.dart`
-      is run on its own**, which is the clue: something is order-dependent or
-      warm-up dependent. The committed baseline shows the page content in
-      bands y170-425 and y510-680 while the new render puts it in y425-680,
-      so the layout genuinely differs, not just anti-aliasing.
-      *Do not simply re-baseline it* — the last tick in this repo re-baselined
-      a screen without understanding the diff and got a stale baseline that
-      silently hid a real regression for four cycles. Find the cause first:
-      is the first `pump` painting before the fonts/layout settle (the file
-      loads real Cairo faces in `setUpAll`, and an isolated run registers them
-      in a different order than a full-suite run does), is something caching
-      between tests, or is the landing page genuinely broken in isolation.
-      Then either fix the cause and re-baseline, or re-baseline with the
-      finding written down. `12_chat`'s 0.01% remains the other known-red
-      golden and still needs the founder's call, since re-baselining it is
-      what unblocks a fully green design gate.
+- [x] **The landing page's own baseline is wrong and nobody knows why.** DONE
+      `d2721d2` (remote `af2e137`).
+      *The cause was not a stale baseline. No PNG was re-shot, and the
+      committed one was correct all along.* The band layout gave it away: the
+      baseline has content at y169-302 — the 140 dp brand mark — and the
+      isolated render had **nothing** there, at y240 the mark's brand gold
+      (219,183,121) against white. Every other band was present at an
+      identical height; the page had simply slid up 65 px into the space the
+      image should have held. A missing image, not a layout change.
+      **Why it only failed alone:** `Image.asset` decodes off the asset bundle,
+      and inside `testWidgets` the body runs in a fake-async zone where that
+      decode never completes while the fake clock only pumps frames — the
+      widget sits at its placeholder. `imageCache` is a binding-wide singleton,
+      so whichever earlier test decoded the mark through a `tester.runAsync`
+      (a real event loop) left it cached for the whole run. Isolated, nothing
+      warmed it and the mark vanished. So the gate could report a **false**
+      regression — and, worse, could equally let a real one hide.
+      **Fixed** in `test/design_shots_test.dart`: `_warmImages` precaches every
+      bundled image inside `runAsync` before the settle loop, in both `_shoot`
+      and `_pumpScreen`, so the cache is warmed per test instead of inherited
+      from whichever test happened to run first. Re-baselining here would have
+      pinned the bug and gone green while the landing page lost its logo.
+      *Evidence:* `flutter analyze` → **No issues found!** (1.7 s);
+      `flutter test test/design_shots_test.dart` → **+18 -1** with `00_landing`
+      green **in isolation**, the exact check this item asked for;
+      `flutter test` → **+670 ~3 -1**, unchanged. The `/tmp` capture's mark band
+      is back at y170-301 and reads brand gold at its midpoint. `12_chat` stays
+      red, the known local-clock label in the thread, still needs the founder's
+      call.
