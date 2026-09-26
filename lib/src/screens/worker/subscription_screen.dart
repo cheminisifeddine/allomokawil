@@ -9,6 +9,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
 import '../../data/pending_request_copy.dart';
 import '../../data/subscription_write_outcome.dart';
+import '../../data/subscription_ack.dart';
 import '../../data/plan_renewal_copy.dart';
 import '../../data/quote_count_copy.dart';
 import '../../data/repository.dart';
@@ -114,13 +115,26 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }) async {
     setState(() => _busy = true);
     try {
-      await _repo.requestSubscription(
+      // The answer carries the one figure the follow-up read cannot: the server
+      // says what to transfer, while the pending row it files carries
+      // `amount_paid: 0` until a human confirms. It used to be discarded here
+      // and the man was told only that his request arrived.
+      final answer = await _repo.requestSubscription(
         plan: plan.id,
         period: _period,
         method: method.id,
         reference: reference,
       );
-      _say(S.planRequestOk);
+      final ack = SubscriptionAck.tryParse(answer);
+      _say(subscriptionAckAr(ack) ?? S.planRequestOk);
+      // The sheet's price is the app's arithmetic over a catalogue fetched
+      // earlier; the answer's amount is D1's, computed now. If a price moved in
+      // between, both are reported and neither is asserted.
+      final mismatch = subscriptionAmountMismatchAr(
+        plan.priceFor(_period),
+        ack?.amountDzd,
+      );
+      if (mismatch != null) _say(mismatch);
       await _load();
     } catch (e) {
       if (isWriteUnconfirmed(e)) {
