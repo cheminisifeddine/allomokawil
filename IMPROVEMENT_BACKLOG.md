@@ -2064,6 +2064,67 @@ it is a correctness gap that duplicates a user's data.
       Local commit `37d2d48`, remote `8a9da73` — both blobs verified `MATCH`
       against the live remote tree.
 
+- [x] **The commune picker counted with one fixed noun, and was wrong for a
+      quarter of the country.** `project_new_screen` printed its count twice by
+      hand — `'$_total بلدية'` for the wilaya and
+      `matches == 1 ? 'بلدية واحدة' : '$matches بلدية'` for the search — with
+      the broken plural `بلدية` hard-coded for everything from 2 up. Arabic uses
+      `بلدية` for 3-10, `بلديتان` for 2, and the bare `بلدية` again for 11+, so
+      **14 of the 58 wilayas** were wrong: Tindouf, Bordj Badji Mokhtar, In
+      Guezzam and Djanet have exactly **two** communes, In Salah and El Menia
+      three, Ghardaïa and Timimoun ten. The search count is smaller than the
+      total on every keystroke, so the broken form was also the common one. It
+      read «2 بلدية» where the language requires «بلديتان», on the screen a user
+      opens to choose where the renovation happens.
+      Fixed by delegating to the one shared rule (`arabicCounted`) through a new
+      `lib/src/data/commune_count_copy.dart` that owns only the nouns — a fourth
+      hand-written copy of this table is what the file exists to prevent. `1`
+      branches before the rule for «بلدية واحدة»; the bare singular goes in
+      *after* it, because passing that word as the singular would make 11 print
+      «11 بلدية واحدة» (caught while writing it). `0` stays silence: the total
+      renders only after load, and an empty search already has its own
+      «لا توجد بلدية بهذا الاسم» state.
+      **Tests drive the real bundled dataset, not just the string function**,
+      because "wrong for a quarter of the country" is a claim about the data: all
+      58 wilaya counts are checked against the rule, the two-commune wilayas are
+      pinned so the coverage cannot lapse, and a search narrowing to one is
+      covered.
+      `flutter analyze` → **No issues found!** (4.9 s). `flutter test` → **+605
+      ~3 -1**, up from +598, nothing lost, 7 new tests. **Nothing on glass
+      moved, proved not asserted:** the changed screen is not one of the nine
+      goldens, and `12_chat` — the one golden that has failed at 0.01% / 43px on
+      main for several cycles — fails at the **same 0.01% / 43px on clean HEAD**
+      (stash → full `design_shots_test.dart` → pop), so the one failure is not
+      this change. The other three files the same audit flagged
+      (`plan.dart:85` and the two quota sentences in `subscription_screen` /
+      `worker_home_screen`, which print `quote_limit` with one fixed noun — not
+      visibly wrong today because production ships 3) are recorded below and
+      **not** fixed here; one item per loop.
+      Files: `lib/src/data/commune_count_copy.dart` (new),
+      `lib/src/screens/project/project_new_screen.dart`,
+      `test/commune_count_copy_test.dart` (new).
+      Local commit `a7333cf`, remote `fd51d53` — all three blobs verified
+      `MATCH` against the live remote tree.
+
+- [ ] **The quote allowance is written by hand in three places, with one fixed
+      noun, and `Plan.quoteAllowanceAr` is dead code.** Audited this tick, not
+      fixed. `quote_limit` is server-driven and a D1 UPDATE away from any value
+      the app has never seen: `plan.dart:85` prints `حتى $quoteLimit عروض في
+      الشهر` (the getter is **never called** — the screen renders
+      `plan.features` from the server instead), `subscription_screen.dart:311`
+      prints `أرسلت ${quotesUsedThisMonth} هذا الشهر` under an unlimited plan,
+      `:313/:314` print `من ${quoteLimit} عروض` / `من ${quoteLimit} عرضاً` with
+      one noun for two different counts, and `worker_home_screen.dart:1382`
+      prints `بقي $left من ${quoteLimit} عروض`. Production ships `quote_limit` 3
+      (free) and -1 (all paid), so **nothing is visibly wrong today** — 3 is in
+      the 3-10 plural. The day someone adds a 1-quote trial or a 20-quote plan,
+      three screens that sell subscriptions say «حتى 1 عروض» and «بقي 20 من 20
+      عروض» about a limit the user can change with no app release. Same rule,
+      same file shape as the commune fix: one `arabicCounted` delegate owning
+      the nouns, with `0` and the unlimited case branched as copy that is not a
+      count. `quoteAllowanceAr` should also be either used or deleted — a dead
+      getter is a fourth copy nobody can see drifting.
+
 - [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent
       writes.** The app cannot make `POST /api/mobile/projects` safe to retry on
       its own. A `Idempotency-Key` request header, stored with the created row
