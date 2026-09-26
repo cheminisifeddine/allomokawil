@@ -2689,3 +2689,62 @@ Phase 1.
       nothing.
       Local `872aa0c`, remote `8c2f44`, all 5 blobs verified **MATCH** against the
       live remote tree. No APK, no release, no tag.
+
+- [x] **The plan's photo allowance was parsed and never read.** Filed on
+      26 Sep 2026, the same day as the project photo cap above, and it is the
+      same class of defect one layer up: that cap was a *product* rule the
+      screen enforced, and beside it sat a *plan* rule that nothing enforced.
+      `portfolio_limit` is deserialised on both `Plan` and
+      `SubscriptionStatus` and **read by nothing in the app** — verified by
+      grep across `lib/`, where the field appears only in `models/plan.dart`,
+      four test fixtures and a comment. Its sibling on the *same payload*,
+      `quote_limit`, has a left-count line on the dashboard, a usage bar on
+      the subscription card and a 402 paywall on the bid button. Two limits,
+      one endpoint, one of them invisible.
+      So the free plan sold five photos and the app never said so, on the one
+      screen whose whole job is his gallery; the only way to learn the
+      allowance was to upload until the server refused, and the paid tiers sell
+      30/60/120 of a thing whose price the buyer cannot see.
+      **The reason this is not a three-line gate is that zero is ambiguous.**
+      `_int()` in `models/plan.dart` returns 0 for a missing, null or
+      unparseable value, and `portfolio_limit` is read with no null guard. Read
+      naively, 0 is "zero photos allowed" — a gate that locks a **paying**
+      contractor out of the gallery he is looking at, caused by a server that
+      simply did not send the field. The quote side survives the same parser
+      only because `quoteLimit` carries an explicit `== null ? 3 :` default and
+      a negative means unlimited; the portfolio side had neither.
+      **Changed** — `lib/src/data/portfolio_allowance.dart` (new: the
+      allowance as arithmetic, the absent-value default, the unlimited
+      negative, the floor on the room, and the three lines the header can say),
+      `my_portfolio_screen.dart` (the plan is read **after** the gallery is on
+      screen, so a plan that never loads is a missing line and not a spinner
+      that never resolves; the add tile and the add button both gate on
+      `isFull`; the count follows the server's own list rather than a local
+      counter; a full gallery **says** which limit it hit, because a missing
+      control on its own reads as a broken screen), 3 test files.
+      The gate is a UI affordance, not a paywall: BACKEND-API is the only
+      thing that can actually refuse an upload, and the screen fails **open**
+      while the plan is unknown rather than closing a gallery the contractor
+      came to see.
+      *Evidence:* `flutter analyze` → **No issues found!**; `flutter test` →
+      **+703 ~3 -0**, up from +686, 17 new tests, zero failures. 12 unit, 4
+      widget driving the real screen **both ways** (a one-sided test passes on a
+      gate that never opens), 1 shot. **Both mutations were caught** — making 0
+      mean 0 fails 3 tests, and making `isFull` constant-false fails 2 — then
+      the tree was restored green, because a test that cannot fail is a
+      decoration.
+      **Rendered at 392×850 and read off the pixels:** the amber primary button
+      measures **136,817 px** with the gallery open and **exactly 0 px** at the
+      limit, while the green header persists in both (18,550 vs 17,894 px), and
+      the two sublines differ in ink (2,245 vs 1,848 px, 38 vs 31 column
+      bands) as the two different sentences should. Shots
+      `/tmp/shots/allowance_01_open.png`, `/tmp/shots/allowance_02_full.png`
+      (1078×2338).
+      **What this cycle got wrong and fixed before committing:** the first
+      capture came back as a row of identical empty boxes — the shot file had
+      not registered Cairo, so the Arabic was tofu and the image was evidence
+      of nothing but the fact that a box had been drawn. Had I trusted it, this
+      entry would have shipped a screenshot of tofu. Re-shot with the same font
+      loader the golden tests use; the band is now real connected letterforms.
+      Local `1b7c658`, remote `9903cb0`, all 5 blobs verified **MATCH** against
+      the live remote tree. No APK, no release, no tag.
