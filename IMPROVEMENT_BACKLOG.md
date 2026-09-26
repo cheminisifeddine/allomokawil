@@ -2242,7 +2242,7 @@ it is a correctness gap that duplicates a user's data.
 
 ---
 
-- [ ] **The contractor's dashboard gallery badge hand-wrote its own photo
+- [x] **The contractor's dashboard gallery badge hand-wrote its own photo
       count, and got two of the four ranges wrong at once.**
       *Found 26 Sep while auditing what the portfolio fix left — same vein, four
       cycles running, and the reason the rule keeps re-breaking: a count is
@@ -2274,6 +2274,54 @@ it is a correctness gap that duplicates a user's data.
       *Not hypothetical:* the free plan ships `portfolio_limit: 5` and the app
       never caps the list, so a paid contractor walks straight past ten on the
       tile whose job is to tell him his gallery is growing.
+      *Shipped:* the branch is deleted, not extended. `label: photosAr(n)` —
+      the same noun the portfolio header uses, so the tile and the header cannot
+      drift apart a second time. `lib/src/screens/worker/worker_home_screen.dart`
+      (1 import + 1 label, branch removed), `test/portfolio_badge_copy_test.dart`
+      (new, 9 tests, 5 of them mounting the real `WorkerHomeScreen`).
+      **The tests were proved to catch the defect, not merely to pass next to
+      it:** the old branch was restored on purpose and the new file failed 3
+      tests; the fix was put back and it passes 9. A green suite that has never
+      seen the bug is not evidence of anything.
+      **Three bugs in the new tests, and every one of them had the gate
+      reporting green over a screen that was not on the page:**
+      1. **«صورة» contains the substring «صور»** — so the mirror assertion
+         `isNot(contains('صور'))`, the obvious way to write "11+ is not the
+         plural", forbids the exact string the fix is trying to produce. It
+         failed loudly rather than passing, which is the only reason it was
+         caught. The negative arm is now asserted on the whole word with its
+         boundary, and in *both* directions.
+      2. A profile with no `total_completed_jobs`/`total_reviews` renders
+         `_GettingStarted` **instead of** the tool strip, so the tile never
+         built and every widget assertion passed vacuously against a page that
+         did not contain it. The `expect(texts, isNotEmpty)` guard was not
+         enough on its own — a dashboard full of other strings satisfies it.
+      3. The dashboard reads `AuthGate.isGuest(context)`, which is just
+         `auth.user == null`. Mounted over a bare `AuthState` the screen is a
+         **signed-out visitor** that never asks for a profile, so the tile is
+         absent by construction. The test now signs in and asserts
+         `auth.user != null` before pumping, so the tile cannot silently go
+         missing again.
+      **Do not read the green golden as evidence for this fix.** The design
+      shot harness always answers `/portfolio` with an empty list
+      (`design_shots_test.dart:247`), so the badge renders the zero branch
+      `«أضف صوراً»` both before and after this change. `08_worker_home` passing
+      is the pixel suite being blind to this code path — it is a zero-count
+      case, and every count this fix is about is a non-zero one. If a later
+      tick wants a golden that can actually see the tile, the harness has to
+      be taught to return a real photo list.
+      *Evidence:* `flutter analyze` → **No issues found!** (4.1 s);
+      `flutter test` → **+648 ~3 -1**, up from +639, 9 new tests, nothing lost.
+      **`12_chat` still fails at 0.01% / 43px and fails at that exact number on
+      clean HEAD** (stash → run → pop), so it is not this change; the other 8
+      goldens pass, including `08_worker_home` and `16_guest_worker`.
+      **No layout, colour, size or geometry was touched — the diff is one
+      import and one string**, so no screenshot is claimed, and the web
+      render path is in fact unavailable on this rebuilt host anyway
+      (`build_web.sh` and `pngscan.py` are both gone, and no Chrome is
+      installed). Nothing was taken on faith.
+      Local `a9c95a2`, remote `9bb8784`, all 3 blobs verified `MATCH` against
+      the live remote tree. No APK, no release, no tag.
 
 ---
 
