@@ -3342,3 +3342,67 @@ Phase 1.
       test loads no Cairo font, so the Arabic renders as tofu boxes. Enough to
       verify that a run of text is gone and the stars remain; not enough to
       sign off on a typeface. `3ebe5cb`.
+
+---
+
+- [x] **The payment confirmation threw away the amount to transfer** — the one
+      number the contractor needed existed for a single `await` and vanished.
+      *Shipped 26 Sep 2026 (commit `54e5d17`, pushed as remote `234b52`).*
+      `POST /api/mobile/subscription` answers with the figure the app cannot
+      know any other way:
+      `{"ok":true,"request_id":42,"status":"pending","period":"year","months":12,"amount_dzd":15000}`.
+      `Repository.requestSubscription` returned that map and `_request()`
+      discarded every field of it, showing `S.planRequestOk` — «تم استلام طلبك» —
+      then reloading. The follow-up GET cannot repair that: the pending row
+      carries `amount_paid: 0` until a human confirms, and `pendingAmountLabelAr`
+      correctly refuses to print a zero. So the transfer amount vanished on
+      exactly the screen standing between the contractor and his bank transfer.
+      *Shipped:* `SubscriptionAck` parses the answer; `tryParse` survives a
+      body that is not a JSON object and an absent amount is null, never 0.
+      `subscriptionAckAr` names the figure and the term in the toggle's own
+      words, reusing `pendingPeriodLabelAr` so the toast and the pending card
+      cannot spell one term two ways; a term the server filed as something
+      unnameable drops the clause rather than claiming «شهري».
+      `subscriptionAmountMismatchAr` guards the number against the sheet's own
+      price. Verified against the live Worker on 26 Sep 2026 (requests 30-42,
+      throwaway accounts): `amount_dzd` is present and correct on every
+      accepted POST.
+      *Files:* `lib/src/data/subscription_ack.dart` (new, pure),
+      `lib/src/screens/worker/subscription_screen.dart`,
+      `test/subscription_ack_test.dart` (new),
+      `test/subscription_ack_shot_test.dart` (new).
+      *Evidence:* `flutter analyze` -> **No issues found!**. Full suite ->
+      **+896 ~3, all passed** (was +875; **+21 new, 0 regressions**). All four
+      blobs re-verified **MATCH** against the remote tree after the push.
+      *On the visual claim:* no Chrome and no JDK on this box, so the
+      `build_web.sh` + headless-Chrome path cannot run here; these states were
+      rasterised through the same writer `design_shots_test.dart` uses, with real
+      Cairo loaded via `FontLoader`. Geometry and glyph counts were read, not
+      a typeface sign-off.
+
+- [x] **The push helper silently discarded a whole cycle's work** — a shipped,
+      green, fully-tested fix sat on this machine and was never on the remote.
+      *Found 26 Sep 2026; the stranded work was `54e5d17` above.*
+      The previous cycle committed the amount fix locally, reported it, and
+      ended the tick. The next tick read `gh_push.py`'s docstring usage line,
+      passed the **directory** arguments `lib test IMPROVEMENT_BACKLOG.md`,
+      and the helper answered:
+          base: existing branch 'main'
+          No changes to push.
+      and exited **0**. The commit was never on the remote for four hours
+      across twelve ticks. The bug is in `walk_local()`: the path filter is an
+      **exact set membership** test, `p in only`, so a directory never matches
+      its contents. Measured on this tree: the filter `-- lib test` selected
+      **1 of 195** files, and the one it did select was the one already
+      identical to the remote — hence "no changes". A path filter that matches
+      almost nothing is indistinguishable from a filter that matches nothing,
+      and the helper reported silence for both.
+      *Shipped:* the helper now expands a path argument to every tracked file
+      beneath it, so `-- lib test` means what every caller has always meant,
+      and it **refuses** when a filter selects zero files rather than reporting
+      "No changes" — the confusing half of this failure was that the tool
+      claimed success. Documented in the protocol table so the next tick does
+      not re-introduce it by copying an old command line.
+      *Evidence:* the four files pushed this cycle with explicit paths landed,
+      and every one re-verified `MATCH` against the remote tree; the same
+      command with directory arguments had produced a green no-op.
