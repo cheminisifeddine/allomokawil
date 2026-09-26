@@ -1740,6 +1740,43 @@ it is a correctness gap that duplicates a user's data.
       Local commit `5bfe85c`; pushed as `d2f0149` (after a botched first push,
       see the item above).
 
+- [x] **A dead session left the previous account's unsent messages on the
+      phone.** `profile_screen.dart` cleared the chat outbox before
+      `auth.logout()` — and only the profile screen did. `AuthState.logout()`
+      has two callers: that button, and `handleUnauthorized()`, which runs
+      when the server answers 401 and the stored token is dead. The 401 path
+      never touched the queue at all, and it is not the rare one — a stale
+      token is exactly the failure the founder already photographed from a
+      real phone («انتهت جلستك» over an empty home).
+      So the commonest way to lose a session stranded user A's unsent words
+      on the device. They are addressed to *A's* counterpart — a client
+      telling a contractor where to come — and the next person to sign in on
+      the phone inherited them: the inbox showed a badge for a thread they
+      had never opened, and opening it auto-sent A's message under B's
+      token, from B's account, to A's contractor. A client broadcasting
+      their home address as someone else, with no prompt and no way to stop
+      it.
+      *Shipped:* the clear moved into `AuthState.logout()`, so every path out
+      of a session takes the queue with it, and the profile screen no longer
+      has to remember. The outbox is injectable for tests but **defaults to
+      the real queue, not to nothing** — an opt-in could be forgotten at a
+      construction site and would silently reinstate the leak. It is cleared
+      *after* the session keys, so a store that will not open can never
+      strand a dead session on screen, and it never throws.
+      Nothing actionable is discarded: the queue only holds what the server
+      refused, and the session that could re-send it no longer exists.
+      *Evidence:* `flutter analyze` **No issues found!** (1.6 s). The new
+      `test/outbox_session_leak_test.dart` **fails on the old code** with the
+      exact defect — `Expected: empty, Actual: [Instance of
+      'PendingMessage']` — and passes on the new, so the test pins the bug and
+      not the fix. `flutter test` **+554 ~3 -1**, up from +552, nothing lost.
+      The one failure is the pre-existing `12_chat.png` golden, confirmed by
+      stashing the change and re-running clean HEAD: identical 0.01% / 43px
+      diff. Not re-baselined.
+      *Found by* a read-only audit of the write path, not from a wish list —
+      the same way Phase 5 was opened.
+      Local commit `68e3536`.
+
 - [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent
       writes.** The app cannot make `POST /api/mobile/projects` safe to retry on
       its own. A `Idempotency-Key` request header, stored with the created row

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../data/chat_outbox.dart';
 import '../../models/enums.dart';
 import '../../models/user.dart';
 import '../l10n/strings.dart';
@@ -11,7 +12,12 @@ import '../network/api_client.dart';
 /// Holds the signed-in user and role, gates which home screen is shown,
 /// and persists the session token locally.
 class AuthState extends ChangeNotifier {
-  AuthState(this._api) {
+  /// [outbox] is injectable so a test can hold the queue in memory. It defaults
+  /// to the real device-local queue rather than to nothing: the invariant below
+  /// is the whole point of this change, and an opt-in one could be forgotten at
+  /// a construction site and silently reinstate the leak. Construction costs
+  /// nothing — the store is opened on first use, inside a `try`.
+  AuthState(this._api, {ChatOutbox? outbox}) : _outbox = outbox ?? ChatOutbox() {
     // The session owner is the only object that can act on a rejected token, so
     // the hook is installed here rather than at each construction site: production
     // and tests both get the recovery path without remembering to wire it.
@@ -19,6 +25,16 @@ class AuthState extends ChangeNotifier {
   }
 
   final ApiClient _api;
+
+  /// The phone's queue of chat messages the server has not stored yet.
+  ///
+  /// Held here so that *every* way out of a session takes the queue with it.
+  /// The outbox holds unsent words addressed to one account: a client telling a
+  /// contractor where to come. It is device storage, not account storage, so
+  /// the person who signs in next on this phone would otherwise inherit it and
+  /// the thread would auto-send those words under *their* token, with *their*
+  /// name on them. See [logout].
+  final ChatOutbox _outbox;
 
   static const _tokenKey = 'auth.token';
   static const _userKey = 'auth.user';
@@ -216,6 +232,31 @@ class AuthState extends ChangeNotifier {
     }
   }
 
+  /// Drops the session: token, user and guest choice off the device.
+  ///
+  /// The chat outbox goes with them, **here** and not in the screen that
+  /// happens to call this. `logout()` has two callers, and only one of them
+  /// remembered to clear the queue:
+  ///
+  ///   * the profile screen, which taps «تسجيل الخروج» — it did clear it, in
+  ///     the screen, before calling;
+  ///   * [handleUnauthorized], when the server answers 401 and the stored
+  ///     session is dead. This is not the rare path. It is what happens when a
+  ///     token simply goes stale, which is the failure the founder already
+  ///     reported from a real phone, and it never touched the queue at all.
+  ///
+  /// So the one way a session dies most often left the previous account's
+  /// unsent words sitting on the device. They are addressed to *that* account's
+  /// counterpart — a client telling a contractor where to come — and the next
+  /// person to sign in on the phone inherited them: the inbox showed a badge
+  /// for a thread they had never opened, and opening it auto-sent the first
+  /// user's message under the second user's token, from the second user's
+  /// account, to the first user's contractor.
+  ///
+  /// Nothing is lost that the user can still act on: [PendingMessage] only
+  /// ever holds what the server had *refused*, and the session that could have
+  /// re-sent it no longer exists. Anything the server may already hold was
+  /// settled against the last successful read.
   Future<void> logout() async {
     _api.token = null;
     _user = null;
@@ -224,7 +265,21 @@ class AuthState extends ChangeNotifier {
     await prefs.remove(_tokenKey);
     await prefs.remove(_userKey);
     await prefs.remove(_guestKey);
+    // After the keys, not before: a store that will not open must not stop the
+    // session from being dropped, and the session is the part the user sees.
+    await _clearOutbox();
     notifyListeners();
+  }
+
+  /// Empties the device queue. Never throws and never blocks the sign-out: a
+  /// queue that cannot be cleared is a privacy problem to report, not a reason
+  /// to leave a dead session on screen.
+  Future<void> _clearOutbox() async {
+    try {
+      await _outbox.clear();
+    } catch (error) {
+      debugPrint('auth: could not clear the chat queue on sign-out ($error)');
+    }
   }
 }
 

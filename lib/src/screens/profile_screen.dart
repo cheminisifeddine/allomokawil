@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../core/app_scope.dart';
 import '../core/auth_gate.dart';
 import '../core/theme/app_theme.dart';
-import '../data/chat_outbox.dart';
 import '../data/repository.dart';
 import '../data/taxonomy.dart';
 import '../models/enums.dart';
@@ -136,12 +135,10 @@ class ProfileScreen extends StatelessWidget {
           const SizedBox(height: 14),
           AppCard(
             padding: EdgeInsets.zero,
-            onTap: () async {
-              // Signing out of a phone must not leave the previous account's
-              // unsent messages on it.
-              await ChatOutbox().clear();
-              await scope.auth.logout();
-            },
+            // The queue of unsent messages goes with the session inside
+            // `auth.logout()`, which is the only place that knows every way a
+            // session can end — including the 401 this screen never sees.
+            onTap: scope.auth.logout,
             child: const _SettingsRow(
               icon: Icons.logout_rounded,
               title: 'تسجيل الخروج',
