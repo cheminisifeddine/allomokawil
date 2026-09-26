@@ -1920,6 +1920,50 @@ it is a correctness gap that duplicates a user's data.
       (rebuilt 26 Sep). The widget test asserts the Arabic copy instead. Not
       claiming a visual proof I do not have.
 
+- [x] **The subscription countdown printed one fixed noun for every day count.**
+      The line the previous cycle shipped, `expiryCountdownAr`, ended
+      `return 'ينتهي الاشتراك بعد $days يوماً — $end';` — so «بعد 1 يوماً» on
+      the last day of the month a contractor paid for, «بعد 2 يوماً» two days
+      out, «بعد 4 أيام» correctly by accident, and «بعد 100 يوماً» for a
+      three-month run. Arabic changes the noun, not the number: 1 singular
+      («يوم», uncounted), 2 dual («يومين», uncounted), 3–10 broken plural
+      («أيام»), 11+ counted singular («100 يوم», never «100 أيام»). One of
+      every four counts was right, and it was wrong on the card whose whole job
+      is to say how long a man has paid for.
+      *The root cause, not the symptom:* the rule had been implemented three
+      times in three files with three noun sets. `_ago` (notifications) and
+      `queuedCountLabel` (outbox) were right; the third copy was written from
+      the same understanding and shipped unchecked. A rule small enough to
+      hold in your head is not evidence you are holding it.
+      *Shipped:* `lib/src/core/l10n/arabic_agreement.dart` — `arabicCount`
+      (noun only) and `arabicCounted` (noun with the number, omitting it for
+      the singular and the dual). All three call sites now use it, so the
+      countdown is fixed and the two correct ones can no longer drift from
+      each other. Nouns are passed at the call site, never derived, so a
+      feminine singular cannot land in the dual slot.
+      *Evidence:* `flutter analyze` -> **No issues found!** (4.1 s);
+      `flutter test` -> **+583 ~3 -1**, up from +572, nothing lost. Twelve new
+      tests pin the four forms, the 10/11 boundary, a feminine noun (رسالة /
+      رسائل), and that all three screens agree with each other. **Two of them
+      caught real mistakes in the first version of this change** — the
+      singular was counted as «1 يوم», the English habit, and the existing
+      notification test caught it.
+      *Rendered, not asserted:* the real `SubscriptionScreen` screenshotted at
+      1, 2, 4 and 100 days (`/tmp/shots/countdown_*.png`, 1179×1528) and reads
+      «بعد يوم», «بعد يومين», «بعد 4 أيام», «بعد 100 يوم» on the card. Found
+      the line by diffing the four renders against each other rather than by
+      guessing a y-offset.
+      The one failure is the pre-existing `12_chat` golden, **proved not mine**
+      by stashing and re-running clean HEAD: identical **0.01% / 43px**. Not
+      re-baselined.
+      Files: `lib/src/core/l10n/arabic_agreement.dart` (new),
+      `lib/src/models/plan.dart`, `lib/src/data/notification_copy.dart`,
+      `lib/src/data/chat_outbox.dart`, `test/arabic_agreement_test.dart` (new),
+      `test/subscription_clock_test.dart`.
+      Local commit `256e319`, remote **`a26eef7`** — all six blobs verified
+      `MATCH` against `origin/main`'s tree after a real `git fetch`, not trusted
+      from the push helper's exit code.
+
 - [ ] **[HANDOFF — BACKEND-API, needs Cloudflare credentials] Idempotent
       writes.** The app cannot make `POST /api/mobile/projects` safe to retry on
       its own. A `Idempotency-Key` request header, stored with the created row
