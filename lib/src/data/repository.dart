@@ -642,6 +642,42 @@ String _whyItFailed(Object error) {
   return error.runtimeType.toString();
 }
 
+/// Why a **row** could not be read, by the shape that broke rather than by the
+/// value that broke it.
+///
+/// The sibling of [_whyItFailed], and the other half of the same defect. A
+/// dropped row is a different failure from a lost page — it is never the
+/// network, it is the shape of what the Worker sent — and it arrives as the
+/// same Arabic sentence, because the parser refuses a column and keeps only
+/// what it refused.
+///
+/// **The refused thing is the value, and the value is not the finding.** A
+/// drifted `wilaya` made the record read `null`, a `user_id` that came back as
+/// a string made it read `abc`: a log line that is literally the server's
+/// payload, carrying no type, no column and no way to tell a null from a
+/// missing key. What a support reply can act on is *which shape arrived where
+/// an int was expected* — that names the line in the model to go and read, and
+/// the same value can be perfectly valid somewhere else.
+String _whyRowFailed(ApiException error) {
+  final cause = error.cause;
+  if (cause == null) return error.message;
+  // `_asMap`/`_asInt` keep the value they refused, and a failed cast keeps the
+  // `TypeError`. `runtimeType` is the part of either that survives being a user
+  // datum — and it is the part that points at a line of a model to go and read.
+  return _publicName(cause.runtimeType);
+}
+
+/// [Type] as a support log should read it: `TypeError`, not `_TypeError`.
+///
+/// Dart's own error types are private, so their `runtimeType` prints with a
+/// leading underscore — a name that does not exist in any source file and would
+/// send a support reply looking for a class the project has never heard of.
+/// Everything else is already the name a developer would type.
+String _publicName(Type type) {
+  final name = type.toString();
+  return name.startsWith('_') ? name.substring(1) : name;
+}
+
 /// A list of rows, parsed row by row so one malformed row cannot take the
 /// whole screen down with an `Error`.
 ///
@@ -688,18 +724,33 @@ List<T> _rows<T>(
   final arrived = _asList(value);
   final out = <T>[];
   Object? firstFailure;
-  for (final row in arrived) {
+  // The distinct causes, in first-seen order, so the record can name the
+  // shapes it could not read without repeating one of them per row.
+  final causes = <String>[];
+  var lost = 0;
+  for (var i = 0; i < arrived.length; i++) {
     try {
-      out.add(_row(row, fromJson));
+      out.add(_row(arrived[i], fromJson));
     } on ApiException catch (e) {
       firstFailure ??= e;
-      CrashReporter.active?.capture(
-        e.cause ?? e.message,
-        null,
-        kind: 'row',
-        context: '1 of ${arrived.length} rows could not be read',
-      );
+      lost++;
+      final why = _whyRowFailed(e);
+      if (!causes.contains(why)) causes.add(why);
     }
+  }
+  // **One record per parse, not one per dropped row.** The capture used to sit
+  // inside the loop, so a feed that lost three rows wrote three lines, and each
+  // of them read «1 of 5 rows could not be read» — the log said 1, 1 and 1 for a
+  // feed that was missing a third of the market. It is a report about the
+  // response, not about a row, so it is written once the response is read.
+  if (lost > 0) {
+    CrashReporter.active?.capture(
+      'سطر غير قابل للقراءة ($T)',
+      null,
+      kind: 'row',
+      context: '$lost of ${arrived.length} rows could not be read'
+          '${causes.isEmpty ? '' : ' · ${causes.join(', ')}'}',
+    );
   }
   final failure = firstFailure;
   if (out.isEmpty && failure != null) {

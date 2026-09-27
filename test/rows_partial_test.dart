@@ -122,5 +122,89 @@ void main() {
       final workers = await repo.topWorkers();
       expect(workers.map((w) => w.id), [1, 2]);
     });
+
+    test('three dropped rows are one record carrying the real count', () async {
+      // **The record used to lie about its own size.** The capture sat inside
+      // the loop, so every dropped row wrote its own line reading
+      // «1 of 5 rows could not be read» — three times over, for a feed that
+      // lost three rows. Support reading the log sees "1" and "1" and "1" and
+      // concludes a single bad profile, on a feed where a third of the market
+      // is missing.
+      final reporter = CrashReporter(store: _MemoryStore());
+      reporter.install();
+      addTearDown(reporter.uninstall);
+
+      final repo = Repository(_api((_) async => _json([
+            _worker(1, 'أحمد البناء'),
+            {'full_name': 'بلا معرّف'},
+            {'full_name': 'بلا معرّف'},
+            _worker(4, 'كريم النجّار'),
+            {'full_name': 'بلا معرّف'},
+          ])));
+      final workers = await repo.topWorkers();
+
+      expect(workers.map((w) => w.id), [1, 4],
+          reason: 'the readable rows are still returned');
+      expect(reporter.log.records, hasLength(1),
+          reason: 'one parse, one record — not one line per dropped row');
+      final detail = reporter.log.records.single.detail;
+      expect(detail, contains('3 of 5 rows could not be read'),
+          reason: 'the record states how many rows were actually lost');
+      expect(detail, isNot(contains('1 of 5')),
+          reason: 'each dropped row used to claim 1 while 3 were gone');
+    });
+
+    test('a drifted row is recorded as a type, never as its own value', () async {
+      // `_asMap` keeps the value it refused as the cause, and the record used
+      // to print that cause as its message: the log line was literally the
+      // server's value. What the log is for is naming the shape, not storing
+      // whatever the Worker happened to send.
+      final reporter = CrashReporter(store: _MemoryStore());
+      reporter.install();
+      addTearDown(reporter.uninstall);
+
+      final repo = Repository(_api((_) async => _json([
+            _worker(1, 'أحمد البناء'),
+            'drifted-column-value',
+          ])));
+      await repo.topWorkers();
+
+      final record = reporter.log.records.single;
+      expect(record.detail, contains('String'),
+          reason: 'the refused shape is named by type, so the fix is findable');
+      expect('${record.message}\n${record.detail}',
+          isNot(contains('drifted-column-value')),
+          reason: 'a raw server value never reaches the on-device log');
+    });
+
+    test('every distinct cause is named, and a repeat is not listed twice',
+        () async {
+      // Two different defects in one feed must not collapse into one line: a
+      // missing `id` and a row that is not an object at all are different
+      // columns to go and look at, and they arrive as the same sentence.
+      final reporter = CrashReporter(store: _MemoryStore());
+      reporter.install();
+      addTearDown(reporter.uninstall);
+
+      final repo = Repository(_api((_) async => _json([
+            {'full_name': 'بلا معرّف'},
+            {'full_name': 'بلا معرّف مرتين'},
+            {'id': 3},
+            'bare-string',
+          ])));
+
+      await expectLater(repo.topWorkers(), throwsA(isA<ApiException>()));
+      final detail = reporter.log.records.single.detail;
+      expect(detail, contains('4 of 4 rows could not be read'));
+      expect(detail, contains('TypeError'),
+          reason: 'a column that came back as the wrong type is named');
+      expect(detail, isNot(contains('_TypeError')),
+          reason: "Dart's private type names must not reach a support log as "
+              '`_TypeError` — a class the project has never heard of');
+      expect(detail, contains('String'),
+          reason: 'a row that is not an object at all is named too');
+      expect('TypeError'.allMatches(detail).length, 1,
+          reason: 'the same cause three times is one line, not three');
+    });
   });
 }

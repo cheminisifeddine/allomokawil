@@ -3962,3 +3962,49 @@ Phase 1.
       `test/browse_pages_partial_test.dart`.
       **DONE `cb3bd0f`** (remote tip `3e35a69`, all 2 blobs MATCH against
       the remote tree).
+
+### Phase 5 — engineering hardening: a dropped row said how many, never which shape
+
+- [x] **`_rows` recorded *how many* rows were lost and *why not*: the capture
+      sat inside the loop, and it printed the server's own value as the
+      record's message.** The other half of the defect the previous tick
+      closed for pages.
+      *The defect, and it is two defects wearing one coat.* First: the
+      `capture` call was **inside** the per-row loop, so a feed that lost
+      three rows wrote three log lines — each reading
+      «1 of 5 rows could not be read». The log said 1, 1 and 1 for a screen
+      missing a third of the market. Second, and worse: the message was
+      `e.cause ?? e.message`, and `_asMap`/`_asInt` keep **the value they
+      refused**, so a drifted `wilaya` made the record literally read `null`
+      and a `user_id` that arrived as a string made it read `abc`. The on-
+      device log was storing the server's payload instead of a finding: no
+      type, no column, no way to tell a null from a missing key, and a value
+      that is perfectly valid three lines away in the same response.
+      *Shipped.* The capture moved **out** of the loop, so one parse writes
+      one record, and the record states the real loss —
+      `3 of 4 rows could not be read` — followed by the **distinct** causes
+      (a repeat is listed once, not once per row). `_whyRowFailed` names the
+      refused shape by type, and `_publicName` strips the leading underscore
+      off Dart's private error types: `runtimeType` prints `_TypeError`, a
+      class name that exists in no source file here and would send a support
+      reply hunting for one.
+      The message is now a fixed Arabic sentence naming the model
+      (`سطر غير قابل للقراءة (WorkerProfile)`) instead of the payload, and
+      `T` supplies the model rather than a hand-passed string that could be
+      wrong at a call site. Logging only — no screen reads it.
+      *Tests written first and measured failing:* **−3**, all three asserting
+      the *same* property three ways — the lying count, the value-as-message,
+      and the collapsed causes.
+      *Evidence:* `flutter analyze` → **No issues found!** (3.4 s);
+      `flutter test` → **+992 ~3, all passed** (was +989; **+3 net, 0
+      regressions**). Mutation-gated **three ways** — moving the capture
+      back inside the loop **−3**, keeping the record but dropping the causes
+      **−2**, and dropping `_publicName` so the log prints `_TypeError`
+      **−1**. All reverted, re-verified green.
+      *Measured output, the whole point of the item:*
+      `KIND=row | MSG=سطر غير قابل للقراءة (WorkerProfile) | DETAIL=3 of 4 rows could not be read · TypeError, String`
+      — against `crash[row]: bare-string` before, which is a user datum in a
+      support log.
+      *Not visual* — data layer only, so no screenshot claim.
+      *Files:* `lib/src/data/repository.dart`, `test/rows_partial_test.dart`.
+      **DONE `49ca4c9`**.
