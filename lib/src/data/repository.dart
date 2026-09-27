@@ -144,6 +144,38 @@ class Repository {
   /// Pages are fetched concurrently and de-duplicated by id. One failing page
   /// does not sink the batch; if *every* page fails the first page is re-issued
   /// so the caller still gets the real error instead of a silently empty market.
+  ///
+  /// **That doc was half true, and the half that was false is the half that
+  /// happens in the field.** The batch was judged on `every (b) => b == null`:
+  /// only pages that *threw* counted as lost. But a search widens to
+  /// [pages] rows precisely because the market is bigger than one page — and
+  /// on a marketplace that is still growing, the tail pages legitimately answer
+  /// `[]` because there is no page 6. An empty page is a *successful* answer,
+  /// so a batch where four of five pages were lost still passed the check and
+  /// the search quietly narrowed to the pages that happened to be alive.
+  ///
+  /// The contractor's screen cannot see the difference. He types «دهان», gets
+  /// «لا توجد نتائج», and reads *nothing on the market matches* — while a
+  /// third of the postings he never saw are sitting on the server. «No
+  /// results» and «I could not read a third of the market» are identical on
+  /// screen and mean opposite things.
+  ///
+  /// So the batch is now judged on pages **lost**, not on pages that threw:
+  ///
+  ///   * **A lost page is recorded**, with the page number, so a short result
+  ///     set is never a silent under-search.
+  ///   * **The head page is re-issued whenever it was one of the lost ones.**
+  ///     Page 1 is every newest posting — the ones a contractor opening the
+  ///     app most wants to quote on. Losing it is the case that turns a live
+  ///     market into an empty one, because a marketplace with fewer than 20
+  ///     open projects answers pages 2-5 with `[]` truthfully: so every
+  ///     *other* page looks healthy while the one that carries the market is
+  ///     gone, and «every page failed» is false when the batch is in exactly
+  ///     the state that matters. Re-issuing it turns that one-sided truth back
+  ///     into a real answer.
+  ///   * **A page that answered empty is still an answer.** A wilaya with no
+  ///     open projects is an empty market, not an error, and must keep
+  ///     rendering the empty state.
   Future<List<Project>> browseProjects({
     String? category,
     String? wilaya,
@@ -164,7 +196,24 @@ class Repository {
           page: page + i,
         ),
     ]);
-    if (batches.every((b) => b == null)) {
+    final lost = <int>[
+      for (var i = 0; i < batches.length; i++)
+        if (batches[i] == null) page + i,
+    ];
+    for (final missing in lost) {
+      CrashReporter.active?.capture(
+        'صفحة $missing من بحث السوق لم تصل',
+        null,
+        kind: 'page',
+        context: '${lost.length} of $pages pages could not be read',
+      );
+    }
+    // The head page carries the newest postings, so losing it is the case that
+    // turns a live market into an empty one: on a marketplace with fewer open
+    // projects than one page holds, every other page answers `[]` truthfully
+    // and looks healthy. Re-issue it — and if it is the only page that was
+    // lost, this is the only chance to get the market back.
+    if (lost.isNotEmpty && lost.first == page) {
       return _browseProjectsPage(
           category: category, wilaya: wilaya, status: status, page: page);
     }
