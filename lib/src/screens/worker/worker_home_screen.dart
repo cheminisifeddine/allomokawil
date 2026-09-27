@@ -265,7 +265,36 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   @override
   void initState() {
     super.initState();
-    _me = widget.guest ? null : widget.repo.myProfile();
+    if (!widget.guest) _me = widget.repo.myProfile();
+  }
+
+  /// Re-issues the profile read after a failure.
+  ///
+  /// Without this the header's «تعذّر جلب ملفك» was a dead end with no control
+  /// attached: the only way back was to leave the tab and come back, which
+  /// nothing on screen said was possible. A read that failed once on a dropped
+  /// connection must be retryable in place, exactly like the market feed below
+  /// it.
+  ///
+  /// `_me` is replaced inside the same [setState] that triggers the rebuild, so
+  /// the `FutureBuilder` drawing the header is already listening to the new
+  /// read by the end of this call. There is no frame in which the request is in
+  /// flight with nothing attached to it, which is why this read needs no error
+  /// listener of its own (the quote read on the project screen does: its
+  /// builder is not constructed until the project read answers).
+  ///
+  /// The block body is load-bearing, not a style choice. Written as
+  /// `=> setState(() => _me = ...)`, the callback's value *is* the assigned
+  /// `Future`, and Flutter asserts on a `setState` callback that returns one —
+  /// "setState() callback argument returned a Future". The read was issued and
+  /// the tap appeared to work, while the rebuild never happened and the failure
+  /// state stayed on screen: a retry that did nothing. Measured, not assumed:
+  /// the log showed the second `GET /api/mobile/my/profile` and the failure
+  /// state on screen at the same time.
+  void _retryProfile() {
+    setState(() {
+      _me = widget.repo.myProfile();
+    });
   }
 
   void _reload() {
@@ -378,6 +407,7 @@ class _MarketplaceViewState extends State<MarketplaceView> {
               onEdit: _editProfile,
               galleryRuns: _galleryRuns,
               onGalleryClosed: _onGalleryClosed,
+              onRetryProfile: _retryProfile,
             )),
           SliverToBoxAdapter(
             child: _FilterBar(
@@ -538,12 +568,17 @@ class _HeaderSection extends StatelessWidget {
   final int galleryRuns;
   final VoidCallback onGalleryClosed;
 
+  /// Re-issues the profile read after it failed. The state that owns the read
+  /// owns the repair too; this widget only renders the failure and the button.
+  final VoidCallback onRetryProfile;
+
   const _HeaderSection({
     required this.profile,
     required this.guest,
     required this.onEdit,
     required this.galleryRuns,
     required this.onGalleryClosed,
+    required this.onRetryProfile,
   });
 
   /// What a visitor gets where the contractor's own card would be: the same
@@ -622,11 +657,26 @@ class _HeaderSection extends StatelessWidget {
                   else if (worker == null && guest)
                     ..._guestBody(context)
                   else if (worker == null)
-                    Text(
-                      'تعذّر جلب ملفك',
-                      style: AppTheme.bodySoft
-                          .copyWith(color: AppTheme.onNavyMuted),
-                    )
+                    // **A failed read is not an empty profile.**
+                    //
+                    // `snap.data` is null on an error exactly as it is on a read
+                    // that has not answered, and this builder asked which of the
+                    // two it was holding only implicitly, through `loading` —
+                    // which is keyed on the *future*, not on the snapshot. One
+                    // 500 on `GET /api/mobile/my/profile` and every row gated on
+                    // `worker != null` below it disappeared at once: the
+                    // identity row, the stats line, the three tool tiles and
+                    // the subscription row.
+                    //
+                    // So a signed-in contractor who could not load his own
+                    // profile lost the gallery he uploads work to, the state of
+                    // his verification papers, his commercial profile and his
+                    // plan — the whole contractor half of the product — and the
+                    // only thing left on screen was a sentence with no button
+                    // under it, on a scroll view with no pull-to-refresh. The
+                    // only recovery the UI offered was leaving the tab and
+                    // coming back, and nothing said that was possible.
+                    ..._headerFailed(context, snap.error)
                   else ...[
                     _identity(worker),
                     if (worker.hasHistory) ...[
@@ -710,6 +760,52 @@ class _HeaderSection extends StatelessWidget {
       },
     );
   }
+
+  /// The failure state, drawn in the navy card's own colours.
+  ///
+  /// [EmptyView] is deliberately not reused here: it paints its title and body
+  /// in `textPrimary` and `bodySoft`, which are near-black, and would put black
+  /// text on the navy header. The control is the same accent pill «أنشئ حساب
+  /// مقاول» uses two widgets up, so the one button on this card looks like the
+  /// other button on this card.
+  List<Widget> _headerFailed(BuildContext context, Object? error) => [
+        IconBubble(
+          icon: Icons.cloud_off_rounded,
+          tint: AppTheme.onNavyMuted,
+          wash: AppTheme.navySoft,
+          size: 42,
+        ),
+        const SizedBox(height: 14),
+        Text(
+          'تعذّر جلب ملفك',
+          textAlign: TextAlign.center,
+          style: AppTheme.h2
+              .copyWith(fontSize: AppTheme.fsH2, color: AppTheme.onNavy),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          // The same sentence every other failed read in the app renders, so
+          // this one reports a fact about the connection instead of a line
+          // written for the card.
+          errorCopy(error),
+          textAlign: TextAlign.center,
+          style: AppTheme.bodySoft.copyWith(color: AppTheme.onNavyMuted),
+        ),
+        const SizedBox(height: 16),
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: FilledButton(
+            key: const Key('worker-header-retry'),
+            onPressed: onRetryProfile,
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.accent,
+              foregroundColor: AppTheme.navy,
+              minimumSize: const Size.fromHeight(AppTheme.tapMin),
+            ),
+            child: const Text('إعادة المحاولة'),
+          ),
+        ),
+      ];
 
   static Widget _availabilityPill(WorkerProfile w) => StatusPill(
         label: w.isAvailable ? 'متاح الآن' : 'غير متاح',
