@@ -453,8 +453,23 @@ class Repository {
     }), Message.fromJson);
   }
 
-  Future<Message> sendImage(int conversationId, File image) async {
+  /// Uploads a picture and posts it into [conversationId].
+  ///
+  /// [onUploaded] is called with the R2 URL the upload returned, **before** the
+  /// message row is posted, and it exists because a picture cannot be identified
+  /// in a later re-read without it. The row the server holds carries
+  /// `image_url`; the phone holds a local path. Those are different namespaces
+  /// and were never equal, so the phone asked the re-read «did my message
+  /// arrive?» with a comparison that could not possibly match a photo — and
+  /// `null == null` matched one anyway. See `data/thread_match.dart`.
+  ///
+  /// The callback is awaited, so a caller that has somewhere to put the URL has
+  /// put it there by the time this returns, and an upload whose answer arrived
+  /// but whose message row did not can still be recognised as delivered.
+  Future<Message> sendImage(int conversationId, File image,
+      {Future<void> Function(String url)? onUploaded}) async {
     final url = await _api.uploadPhoto(image);
+    if (onUploaded != null) await onUploaded(url);
     return _row(await _api.post('/api/messages/$conversationId', body: {
       'image_url': url,
       'message_type': 'image',

@@ -53,6 +53,22 @@ class PendingMessage {
   /// Absolute path of a photo that has not been uploaded yet, or null.
   final String? imagePath;
 
+  /// The R2 URL this picture's upload returned, once it has — or null if the
+  /// upload has not answered, or never did.
+  ///
+  /// This is the *only* thing that can identify a photo in a re-read of the
+  /// thread, because that read returns the server's URL while [imagePath] is a
+  /// path on this phone. The two are different namespaces and can never be
+  /// equal, and the comparison that used to stand in for them (`null == null`
+  /// on `content`) matched every picture with every other picture. Persisting
+  /// the URL is what makes «did my photo arrive?» answerable on the **next**
+  /// launch, which is the launch that matters: the cold start is the one with no
+  /// upload in flight and therefore no chance to learn the URL again.
+  ///
+  /// Null is a real answer, not a gap: it means the upload's own request never
+  /// came back, so there is no row this device can claim to have sent.
+  final String? uploadedUrl;
+
   final DateTime createdAt;
 
   /// Why this record is still here. `null` — the default and the only value an
@@ -71,6 +87,7 @@ class PendingMessage {
     required this.conversationId,
     this.text,
     this.imagePath,
+    this.uploadedUrl,
     required this.createdAt,
     this.uncertain,
   });
@@ -83,6 +100,7 @@ class PendingMessage {
         'conversation_id': conversationId,
         if (text != null) 'text': text,
         if (imagePath != null) 'image_path': imagePath,
+        if (uploadedUrl != null) 'uploaded_url': uploadedUrl,
         // Epoch millis, UTC: a stored queue must not drift if the phone's
         // timezone changes between two opens.
         'created_at': createdAt.toUtc().millisecondsSinceEpoch,
@@ -117,11 +135,20 @@ class PendingMessage {
             rawUncertain == SendState.unconfirmed.name
         ? SendState.unconfirmed
         : null;
+    // An absent or empty `uploaded_url` is the same answer as an absent
+    // `image_path`: this picture has no server-side identity, so it must not be
+    // claimed as delivered. Reading it as anything else would re-open the exact
+    // hole this field closes.
+    final uploaded = raw['uploaded_url'] is String
+        ? raw['uploaded_url'] as String
+        : null;
+    final hasUploaded = uploaded != null && uploaded.isNotEmpty;
     return PendingMessage(
       id: id,
       conversationId: conv.toInt(),
       text: hasText ? text : null,
       imagePath: hasImage ? image : null,
+      uploadedUrl: hasUploaded ? uploaded : null,
       createdAt:
           DateTime.fromMillisecondsSinceEpoch(stamp.toInt(), isUtc: true)
               .toLocal(),
@@ -367,8 +394,48 @@ class ChatOutbox {
         conversationId: items[at].conversationId,
         text: items[at].text,
         imagePath: items[at].imagePath,
+        // Carried forward, never re-derived: a record rebuilt without it would
+        // quietly drop the picture's only server-side identity, and the next
+        // re-read would conclude the picture never arrived — after the very send
+        // that this mark was written to protect.
+        uploadedUrl: items[at].uploadedUrl,
         createdAt: items[at].createdAt,
         uncertain: uncertain,
+      );
+      return _write(next);
+    });
+  }
+
+  /// Records the R2 URL [url] for the picture in [id], so a later re-read of
+  /// the thread can tell this device's picture from every other one.
+  ///
+  /// Written the moment the upload answers and before the message row is
+  /// posted, because that is the only window in which the URL exists anywhere on
+  /// the phone and the app could not survive losing it: a re-read after a cold
+  /// start has no upload in flight to ask. Answers whether it reached the disk
+  /// for the same reason [markUncertain] does — a store that refuses this write
+  /// leaves the picture unidentifiable, and the caller decides what to say.
+  ///
+  /// Never throws, like every other write here.
+  Future<bool> noteUploadedUrl(String id, String url) async {
+    if (url.isEmpty) return true; // nothing learned: the disk is already right
+    return _serialised(() async {
+      final items = await all();
+      final at = items.indexWhere((m) => m.id == id);
+      // Not in the queue. The record is gone, so nothing on the disk can be
+      // re-sent or re-checked against this write, and the bubble that owned it
+      // is about to be replaced by the server's own row.
+      if (at < 0) return true;
+      if (items[at].uploadedUrl == url) return true;
+      final next = List<PendingMessage>.of(items);
+      next[at] = PendingMessage(
+        id: items[at].id,
+        conversationId: items[at].conversationId,
+        text: items[at].text,
+        imagePath: items[at].imagePath,
+        uploadedUrl: url,
+        createdAt: items[at].createdAt,
+        uncertain: items[at].uncertain,
       );
       return _write(next);
     });

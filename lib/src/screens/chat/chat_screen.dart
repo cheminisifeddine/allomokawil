@@ -9,6 +9,7 @@ import '../../core/l10n/write_outcome.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/chat_outbox.dart';
 import '../../data/chat_time.dart';
+import '../../data/thread_match.dart';
 import '../../data/repository.dart';
 import '../../models/chat.dart';
 import '../../widgets/a11y.dart';
@@ -208,14 +209,24 @@ class _ChatScreenState extends State<ChatScreen> {
     final pending = await _outbox.pendingFor(convId);
     if (pending.isEmpty || !mounted) return;
     final me = _me;
+    // What the disk already knows about each picture, read once: a photo whose
+    // upload answered during a *previous* session has a URL here, and the cold
+    // start that restores this queue is the one moment it can still be used.
+    for (final p in pending) {
+      final url = p.uploadedUrl;
+      if (url != null && url.isNotEmpty) _pendingUrls[p.id] = url;
+    }
     setState(() {
       for (final p in pending) {
         // A record whose answer never came may already be stored. If the thread
         // we just read holds the same words from the same person, the server
         // has it: forget the record and draw nothing.
         if (p.uncertain != null) {
-          final stored = _messages.any((m) =>
-              m.content == p.text && (me <= 0 || m.senderId == me));
+          final stored = _messages.any((m) => threadHolds(
+              m,
+              LocalIdentity(
+                  text: p.text, imagePath: p.imagePath, uploadedUrl: p.uploadedUrl),
+              me: me));
           if (stored) {
             _forgetQuietly(p.id);
             continue;
@@ -430,9 +441,22 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     try {
+      // The identity of a picture, for every question asked about it later. The
+      // upload's URL is the only name the server will ever know it by, so it is
+      // written down the moment it exists — see [_noteUploaded].
+      final uploaded = <String>[];
       final sent = local.type == MessageType.image
-          ? await widget.repo.sendImage(convId, File(local.imageUrl!))
+          ? await widget.repo.sendImage(convId, File(local.imageUrl!),
+              onUploaded: (url) async {
+            uploaded.add(url);
+            await _noteUploaded(local, url);
+          })
           : await widget.repo.sendText(convId, local.content ?? '');
+      if (sent.type == MessageType.image && sent.imageUrl != null) {
+        // Kept in memory too, so a re-read in this same session can answer for a
+        // record whose write to the disk was refused.
+        uploaded.add(sent.imageUrl!);
+      }
       // The server has the row: the phone no longer owes it. Order matters —
       // forgetting first would lose the message if the app died right here.
       await _forget(local);
@@ -455,8 +479,7 @@ class _ChatScreenState extends State<ChatScreen> {
         final outcome = await resolveWriteOutcome(
           recheck: () async {
             final fresh = await widget.repo.messages(convId);
-            return fresh.any((m) =>
-                m.content == local.content && (me <= 0 || m.senderId == me));
+            return fresh.any((m) => threadHolds(m, _identity(local), me: me));
           },
         );
         if (!mounted) return;
@@ -502,6 +525,56 @@ class _ChatScreenState extends State<ChatScreen> {
   void _forgetQuietly(String id) {
     _outbox.remove(id).catchError((Object _) {});
   }
+
+  /// Writes the URL a picture's upload returned onto its queue record.
+  ///
+  /// Best-effort by design, and the difference is deliberate: a refused write
+  /// here costs the *ability to recognise* the picture later, while a refusal
+  /// that threw would cost the send itself. The upload already succeeded and the
+  /// row is about to be posted, so the message is delivered either way — what a
+  /// refusal removes is the one question that is asked only in the rare
+  /// «no answer came back» case, and the answer there is «not delivered», which
+  /// is the safe direction.
+  Future<void> _noteUploaded(Message local, String url) async {
+    final recordId = _queuedIds[local.id];
+    if (recordId == null) return;
+    await _outbox.noteUploadedUrl(recordId, url);
+    _uploaded[local.id] = url;
+    _knownUrls[recordId] = url;
+    _pendingUrls[recordId] = url;
+  }
+
+  /// Local bubble id -> the R2 URL its picture was uploaded to, learned in this
+  /// session. The stored copy is the one that survives a cold start; this is the
+  /// one that answers a question in the same run, including after a refused
+  /// write. Absent means «not learned», which the matcher reads as «this picture
+  /// cannot be claimed as delivered».
+  final Map<int, String> _uploaded = <int, String>{};
+
+  /// What [local] is called, in the only terms a re-read of the thread can
+  /// check. For words that is the words; for a picture it is the URL its upload
+  /// returned, preferring the one just learned and falling back to the stored
+  /// record's. A picture with neither is unidentifiable, and
+  /// [threadHolds] answers false for it.
+  LocalIdentity _identity(Message local) {
+    final recordId = _queuedIds[local.id];
+    if (local.type != MessageType.image) {
+      return LocalIdentity(text: local.content);
+    }
+    final url = _uploaded[local.id] ??
+        (recordId == null ? null : (_knownUrls[recordId] ?? _pendingUrls[recordId]));
+    return LocalIdentity(imagePath: local.imageUrl, uploadedUrl: url);
+  }
+
+  /// URLs learned this session, by record id — the fallback for a record id the
+  /// bubble map no longer holds.
+  final Map<String, String> _knownUrls = <String, String>{};
+
+  /// URLs as they stand on the disk, by record id. Populated when the queue is
+  /// restored so a cold start can answer for a picture whose upload answered
+  /// during the *previous* session — the case that has no in-flight upload to
+  /// ask, and the one this whole file is about.
+  final Map<String, String> _pendingUrls = <String, String>{};
 
   /// Drops [local]'s queue record, if it has one.
   Future<void> _forget(Message local) async {
@@ -564,7 +637,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (conv != null) {
         final me = _me;
         for (final m in await widget.repo.messages(conv)) {
-          if (m.content == local.content && (me <= 0 || m.senderId == me)) {
+          if (threadHolds(m, _identity(local), me: me)) {
             row = m;
             break;
           }
@@ -641,8 +714,7 @@ class _ChatScreenState extends State<ChatScreen> {
         .where((m) => m.sendState == SendState.unconfirmed)) {
       final fresh = await resolveWriteOutcome(recheck: () async {
         final rows = await widget.repo.messages(convId);
-        return rows.any((r) =>
-            r.content == m.content && (me <= 0 || r.senderId == me));
+        return rows.any((r) => threadHolds(r, _identity(m), me: me));
       });
       if (!mounted) return;
       if (fresh == WriteOutcome.landed) {
