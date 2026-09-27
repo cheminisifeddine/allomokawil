@@ -4796,3 +4796,130 @@ remaining-quota count — read at two different moments, neither dated.
       numbers at all, so there is nothing to date and nothing wrong. Worth
       confirming rather than assuming, because the audit that finds silence is
       also the one that invents defects.
+
+### Phase 5 — engineering hardening: the guest header audited (nothing wrong), and the build gate that reports its own shell
+
+**This tick shipped no code, and the reason is on the box.** `flutter_tester`
+pid 14759, ppid 1 (systemd), over an hour old and `do_epoll_wait`, has been
+holding `build/unit_test_assets` since before this tick started. Per the hard
+rule in step 5 of the Loop protocol — *report it, do not kill it* — no
+`flutter test`, no `flutter analyze`, no Gradle and no web bundle was started.
+CPU across its whole life is **2.99 s** (`utime 265 + stime 34` ticks at
+100 Hz), so it is a leaked listener, not a build. `pgrep -c java` = 0, and no
+`dart`, `gradle`, `jvm` or `aapt2` is running. This is the third time this
+orphan has cost a tick, and the **founder question from 13 Sep is still
+unanswered**: may a tick reap a `flutter_tester` older than 30 min? It is the
+only thing now standing between the loop and shipping code. One word from him
+ends it.
+
+  - [x] **The guest header, confirmed rather than assumed — and it is
+        correct.** The previous entry nominated it as "worth confirming rather
+        than assuming, because the audit that finds silence is also the one
+        that invents defects." Confirmed. Four properties, each read in the
+        code, each with the line that carries it:
+
+      *1. Nothing to date, and that is right, not an omission.* A visitor's
+      card renders `سوق المقاولين`, one line of market copy and one button
+      (`worker_home_screen.dart:819`). There is no read, no number and no
+      `readAt` on it, so there is no age to print and no stale figure to
+      misdate. The mirror of the plan row is not a degenerate case of it; it is
+      a different object.
+
+      *2. The visitor never issues the read he has no account for.* `initState`
+      calls `_readMe()` **only** when `!widget.guest` (`:307`), and
+      `_readProfileForRefresh` returns immediately for a guest (`:442`), so
+      neither a first paint nor a pull-to-refresh sends
+      `GET /api/mobile/my/profile`. The header is mounted whenever
+      `_me != null || widget.guest` (`:622`) and the `else if
+      (worker == null && guest)` branch (`:889`) draws the visitor card. The
+      founder's original report — a visitor's dashboard printing
+      «تعذّر جلب ملفك» — cannot be reproduced by this path.
+
+      *3. The age machinery is quiet for a visitor, on purpose.* The
+      once-a-minute freshness tick returns before its `setState` when
+      `_meReadAt == null` (`:565`), and `_readMe` is the only thing that
+      stamps it. A signed-out visitor therefore gets **zero** rebuilds a
+      minute from a timer that exists to age numbers he does not have — which
+      matters here, because this tab lives in an `IndexedStack` that never
+      unmounts, so the cost would be paid for as long as the app is open.
+
+      *4. The one thing the guest card claims, the feed actually does.*
+      «تصفّح المشاريع المفتوحة **في ولايتك**» is a promise about the data, and
+      it is kept: `didChangeDependencies` seeds `_wilaya` from
+      `AppScope.place` before the first build asks for anything
+      (`_seedFromPlace`), the filter chip names the applied wilaya rather than
+      hiding it, and `_clearFilters` gives the way back to «كل الولايات». A
+      seeded wilaya that the user did not choose is a hint, not a cage.
+
+      **No defect found, none invented, nothing changed.** Recorded so the
+      next tick does not re-audit it.
+
+  - [x] **The build-safety pattern reports its own shell — the previous
+        tick's diagnosis was right, and its proposed fix was not.**
+
+      The claim last tick: *"`pgrep -fc "[f]lutter"` matches its own shell
+      command line, so it reported a phantom build every tick."* **The
+      mechanism is real and I reproduced it.** The identity of the phantom is
+      the part worth recording, because it is not the shell a human would
+      guess.
+
+      Measured on this box, orphan pid 14759 present throughout. A probe
+      written to a file carries no bare word in its own `cmdline`, so it is
+      the honest baseline:
+
+      | pattern | matches | who |
+      | --- | --- | --- |
+      | `pgrep -f "[f]lutter"` (the protocol's, line 137) | **1** | the orphan alone |
+      | the same, in a shell whose cmdline *also* contains the bare word | **2** | the orphan + **a `bash` whose ppid is 2295** |
+      | `pgrep -f "[f]lutter/bin|flutter_tester"` (last tick's proposal) | **2** | same two |
+      | `pgrep -f "[f]lutter/bin|[f]lutter_tester"` (both bracketed) | **1** | the orphan alone |
+
+      **The phantom is the Hermes command wrapper**, not the user's shell and
+      not `pgrep` itself. Every command this loop runs is spawned through a
+      `bash -c` whose full expanded text sits in its own
+      `/proc/<pid>/cmdline`, with **ppid 2295 — the hermes process**. It
+      matches because its cmdline *carries* the pattern text, and that is
+      independent of how the pattern is bracketed: the wrapper is handed the
+      pattern already expanded, so no bracket placement excludes it. The
+      bracket trick is designed for a shell that typed `f``l``u``t``t``e``r`
+      literally; it cannot help here.
+
+      *The control that isolates it.* Run from a file (`python3 m.py`), the
+      pattern returns **1** and the only match is the orphan. Add the bare
+      word to that same command line — `echo "…flutter…"; python3 m.py` — and
+      the same `pgrep -f "[f]lutter"` returns **2**, the extra being the
+      wrapper, `exe bash`, `ppid 2295`, hit `'flutter'`. Same pattern, same
+      box, same second: the difference is only whether the wrapper is
+      carrying the word.
+
+      **The fix is a different match mode, not a better pattern.** Match the
+      process **name** instead of a substring of a command line:
+
+      ```bash
+      # -x compares NAME: a wrapper whose name is "bash" can never match,
+      # however the pattern is spelled. Returns 1 here -- the orphan alone.
+      pgrep -x flutter_tester; pgrep -x dart; pgrep -c java
+      ```
+
+      **Not changed in the file this tick.** Line 137 is a *safety* rule and I
+      could not run a single `flutter analyze` on a box where that gate is
+      precisely the thing under examination, so an edit to it stays unwritten
+      until a tick with a green build can validate it. Recorded here instead.
+
+      *And the cost, honestly:* the previous tick's replacement
+      `"[f]lutter/bin|flutter_tester"` brackets the first alternative and
+      leaves the second bare. That form still matches the wrapper — the bare
+      alternative *is* the text being carried. Both alternatives need
+      bracketing, and even both-bracketed only helps a shell that typed the
+      pattern literally, which this one does not.
+
+**Tree state.** Clean at the top of this tick, clean now. Nothing was
+committed, because there is no code change to commit: an audit that found
+nothing and a measurement that is only true while this box keeps its current
+shell wrapper are both worth writing down, and neither is worth shipping as
+code. This entry is the artifact.
+
+**Next:** still no unchecked item in any phase. The only work left is the
+founder's one-word answer on reaping the `flutter_tester` orphan, after which
+the loop can ship code again. Until then a tick should audit rather than
+invent.
