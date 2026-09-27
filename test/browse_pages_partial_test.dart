@@ -161,6 +161,86 @@ void main() {
           reason: 'the newest page comes back on the retry');
     });
 
+    test('a recovered head page does not throw the good pages away', () async {
+      // THE REGRESSION. The head page is re-issued so the market comes back,
+      // and the re-issue `return`s that page straight to the caller. Everything
+      // the *other* pages answered in the same batch is dropped on the floor:
+      // the union was never built, because the `return` sits above it.
+      //
+      // The pre-existing test above cannot see this, because there every other
+      // page is empty — there is nothing to lose. Here the market is full:
+      // pages 2-5 answer with rows, page 1 blips, and the retry heals it. The
+      // contractor gets page 1 back and loses the other 4 pages that had
+      // arrived perfectly. A search that healed itself by *dropping* results is
+      // worse than the bug it replaced: the widen exists so «دهان» can reach a
+      // project on page 3, and the recovery makes that page 3 unreachable.
+      var asked = 0;
+      final repo = Repository(ApiClient(
+        httpClient: MockClient((req) async {
+          final page = int.parse(
+              Uri.parse(req.url.toString()).queryParameters['page'] ?? '1');
+          if (page == 1) {
+            asked++;
+            if (asked == 1) {
+              return http.Response('{"error":"boom"}', 500,
+                  headers: {'content-type': 'application/json'});
+            }
+            return _json([_project('p1', 'مشروع جديد')]);
+          }
+          return _json([_project('p$page', 'مشروع $page')]);
+        }),
+        baseUrls: ['https://x.test'],
+      ));
+
+      final rows = await repo.browseProjects(pages: 5);
+
+      expect(rows.map((p) => p.id), ['p1', 'p2', 'p3', 'p4', 'p5'],
+          reason: 'a head page that heals must join the union, not replace it');
+      expect(asked, greaterThanOrEqualTo(2));
+    });
+
+    test('a head page that heals and a lost tail page both report', () async {
+      // Two things have to survive the retry: the rows, and the record. The
+      // retry heals the head, so a naive fix that simply deletes the re-issue
+      // passes the row test above and silently re-opens the empty-market bug.
+      // The tail page is still dead, so the log must still say so.
+      final reporter = CrashReporter(store: _MemoryStore());
+      reporter.install();
+      addTearDown(reporter.uninstall);
+
+      var asked = 0;
+      final repo = Repository(ApiClient(
+        httpClient: MockClient((req) async {
+          final page = int.parse(
+              Uri.parse(req.url.toString()).queryParameters['page'] ?? '1');
+          if (page == 1) {
+            asked++;
+            if (asked == 1) {
+              return http.Response('{"error":"boom"}', 500,
+                  headers: {'content-type': 'application/json'});
+            }
+            return _json([_project('p1', 'مشروع جديد')]);
+          }
+          if (page == 4) {
+            return http.Response('{"error":"boom"}', 500,
+                headers: {'content-type': 'application/json'});
+          }
+          return _json([_project('p$page', 'مشروع $page')]);
+        }),
+        baseUrls: ['https://x.test'],
+      ));
+
+      final rows = await repo.browseProjects(pages: 5);
+
+      expect(rows.map((p) => p.id), ['p1', 'p2', 'p3', 'p5'],
+          reason: 'the healed head joins the pages that answered');
+      expect(reporter.log.records, isNotEmpty,
+          reason: 'the page that is still dead is still recorded');
+      expect(reporter.log.records.last.kind, 'page');
+      expect(reporter.log.records.last.message, contains('4'),
+          reason: 'the record names the page that never arrived');
+    });
+
     test('every page empty is a real answer, not a failure', () async {
       // A wilaya with no open projects. The tail is empty and so is the head,
       // but nothing failed: this is a genuinely empty market and the screen

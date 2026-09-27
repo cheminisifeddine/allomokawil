@@ -211,10 +211,17 @@ class Repository {
     // The head page carries the newest postings, so losing it is the case that
     // turns a live market into an empty one: on a marketplace with fewer open
     // projects than one page holds, every other page answers `[]` truthfully
-    // and looks healthy. Re-issue it — and if it is the only page that was
-    // lost, this is the only chance to get the market back.
+    // and looks healthy. Re-issue it — and if it is still dead the caller gets
+    // the real error, never an empty list that reads as «لا توجد نتائج».
+    //
+    // **The re-issue heals the head, it does not replace the batch.** It used
+    // to `return` the re-issued page straight to the caller, which threw away
+    // every page that had answered in the same batch: on a full market the
+    // search came back holding *one* page instead of five, so the widen that
+    // exists to reach a project on page 3 was making page 3 unreachable. The
+    // retry is a repair, and a repair merges.
     if (lost.isNotEmpty && lost.first == page) {
-      return _browseProjectsPage(
+      batches[0] = await _browseProjectsPage(
           category: category, wilaya: wilaya, status: status, page: page);
     }
     final seen = <String>{};

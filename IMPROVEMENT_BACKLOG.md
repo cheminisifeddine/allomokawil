@@ -3875,3 +3875,43 @@ Phase 1.
       `test/browse_pages_partial_test.dart` (new).
       **DONE `b506d78`** (remote `7a6ce80`, both blobs verified against the
       remote tree).
+
+- [x] **The head-page retry threw away every page that had answered — a
+      regression the previous cycle shipped with its own fix.** The item
+      above added a re-issue so a lost head page could not turn a live
+      market into an empty one. It re-issued correctly and then
+      `return`ed the re-issued page **straight to the caller**, above the
+      union:
+      ```dart
+      if (lost.isNotEmpty && lost.first == page) {
+        return _browseProjectsPage(... page: page);   // ← the rest of the batch dies here
+      }
+      ```
+      On a market with fewer than 40 open projects the blast radius is
+      zero — pages 2-5 answer `[]` anyway, so nothing is lost and the
+      pre-existing test passes. On a **full** market it is the whole
+      batch: pages 2-5 arrive with rows, page 1 blips, the retry heals
+      it, and the caller gets **page 1 alone** — 1 page instead of 5.
+      The widen exists precisely so «دهان» can reach a project on page 3;
+      the recovery made page 3 *unreachable*. A search that heals itself
+      by dropping results is worse than the bug it replaced, and it
+      shipped wearing the fix's own commit message.
+      *Shipped:* the retry now **heals the head in place**
+      (`batches[0] = await …`) and falls through to the union. It is a
+      repair, and a repair merges. The "still dead ⇒ raise the real
+      error" boundary is untouched: a retry that throws still propagates
+      and the caller never sees an empty list that reads as «لا توجد نتائج».
+      *Tests written first and measured failing:* `Actual: ['p1']` where
+      five pages had answered — the four good ones were gone. The
+      pre-existing head-page test could not see it because every other
+      page in that fixture is empty; there is nothing there to lose.
+      *Evidence:* `flutter analyze` → **No issues found!** (5.1 s);
+      `flutter test` → **+986 ~3, all passed** (was +984; **+2 net, 0
+      regressions**). Mutation-gated **both ways** — making the retry
+      discard its own result **−3**, and restoring the exact `return`
+      shape that shipped in `7ca806e` **−2**. Both reverted, re-verified
+      green (`+11` in that file).
+      *Not visual* — data layer only, so no screenshot claim.
+      *Files:* `lib/src/data/repository.dart`,
+      `test/browse_pages_partial_test.dart`.
+      **DONE `971e0dd`** (remote tip verified against the remote tree).
