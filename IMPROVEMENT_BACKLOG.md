@@ -99,6 +99,12 @@ in this file that dies on arrival is how two ticks were lost.
        print(("MATCH  " if local == remote.get(f) else "DIFFER "), f)
    PY
    ```
+   **A new file is not pushed until it is committed.** `gh_push.py` uploads
+   the paths you name, but only the ones git already tracks; on 27 Sep a push
+   reported `Pushed 1 changed` for a two-file change, printed a green SHA, and
+   left `test/portfolio_badge_failure_test.dart` off the remote — the blob check
+   above is what caught it (`DIFFER`, not an error from the helper). `git add`
+   the new file first, or the gate in step 6 is measuring nothing.
    Two notes on the shape of it, both learned the hard way on 27 Sep. The
    `/git/trees/<sha>` path takes the **branch tip sha** directly and GitHub
    dereferences it to the commit's tree — I first wrote a comment here claiming
@@ -4113,3 +4119,58 @@ Phase 1.
       *Not visual* — data layer only, so no screenshot claim.
       *Files:* `lib/src/data/communes.dart`, `test/commune_reload_test.dart`.
       **DONE `648718b`** (remote `eb54a8e`, 2 blobs verified against the tree).
+
+- [x] **A failed gallery read told the contractor to upload work he had already
+      uploaded — and re-read the gallery on every keystroke.** Same vein as the
+      profile-page fix one tick earlier, the other end of the same gallery, and
+      the worse of the two: `_PortfolioBadge` on the contractor's **own home**
+      ended on `final n = snap.data?.length ?? 0;`, and `snap.data` is null on
+      an error exactly as it is on an empty list. One 500 — one dropped
+      connection, one host not answering, one captive portal — told a man with
+      twelve photos that he had none, **and told him to go and add some**, in the
+      gold (`accentDeep`) that means "you should do this". The public profile
+      makes a *false claim* («لم يضف صوراً بعد»); this tile issues a
+      *directive* («أضف صوراً»). The contractor obeys it: he re-picks photos of
+      finished jobs, pushes them to R2 on a mobile connection, and concludes his
+      work is not showing up.
+      The second half is why the first survived: the fetch was written **inside
+      `build`**, so it re-ran on every rebuild of the strip, and the search box
+      calls `setState` on every keystroke. Typing «دهان» fired one
+      `GET /portfolio` per character — **measured 1 request on open, 5 after
+      three keystrokes** — and flashed the tile back to «...» each time.
+      Three changes, all in `lib/src/screens/worker/worker_home_screen.dart`:
+      the read is a **field** (a rebuild redraws the answer instead of re-asking
+      for it), the failure branch is **separated from the empty one** («تعذّر
+      العرض» in `danger`, never «أضف صوراً»), and the tile **carries its own
+      retry** — the whole card already opens the gallery, and the gallery's own
+      load is the request that just failed, so tapping through was the same 500
+      one screen later rather than an action.
+      Holding the read is only half of it, and the second half is the one the
+      existing test caught: once the count stopped moving, a contractor who
+      uploads four photos, goes back, and still reads «3 صور» under his own work
+      has been told a number the app itself just disproved. The tile cannot
+      watch the route (this app has no `RouteObserver`), so `_MarketplaceView`
+      counts gallery returns and the badge re-reads on `didUpdateWidget` — keyed
+      on the *API instance* as well, so signing in or out under the badge
+      re-reads rather than keeping another account's count.
+      The retry is a 56 dp control (measured on the rendered box, not claimed in
+      a comment — the same defect the tap-target work fixed twice already), and
+      it carries a `Semantics` label, because a refresh icon is not a label and
+      the two words on the line do not say the tile re-reads.
+      *Tests written first, measured failing:* **+3 −4** on unfixed code.
+      Mutation-gated **four ways** — the `?? 0` lie restored **−3**, the fetch
+      put back inside `build` **−6**, the retry removed **−2**, and the
+      return-refresh removed **−1**. All reverted, re-verified green.
+      **The gate caught a lie in itself on the first pass:** the `?? 0` mutation
+      reported as *surviving* because `str.replace(..., 1)` had patched a
+      different screen's `if (snap.hasError)` and never touched this one — the
+      same way a "green" push can describe code that never left the box. Re-run
+      against a verified target, it fails **−3**.
+      `flutter analyze` → **No issues found!** · `flutter test` → **+1015 ~3, all
+      passed** (was +1006; **+9 net, 0 regressions**). Visual:
+      `/tmp/shots/portfolio_badge_failed.png` (1176×2700) — `danger 0xc33f39` =
+      **1613 px** in the tool strip, where the old build put `accentDeep` and
+      told him to upload. `contrast_audit` **28/28**.
+      *Files:* `lib/src/screens/worker/worker_home_screen.dart`,
+      `test/portfolio_badge_failure_test.dart`.
+      **DONE `fb1f308`** (remote `0b8a16`, 2/2 blobs verified against the tree).
