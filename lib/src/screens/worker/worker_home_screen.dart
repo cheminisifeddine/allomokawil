@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
+import '../../core/network/api_client.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/location/place_state.dart';
 import '../../core/auth_gate.dart';
@@ -199,6 +200,18 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   /// One widen per filter set. Reset whenever the filters change.
   bool _widened = false;
 
+  /// How many times the contractor has come back from his own gallery.
+  ///
+  /// A count, not a bool, because two visits to the gallery are two different
+  /// questions and a single flag would drop the second.
+  int _galleryRuns = 0;
+
+  /// The gallery was closed — the photo count on the tile may have moved.
+  void _onGalleryClosed() {
+    if (!mounted) return;
+    setState(() => _galleryRuns++);
+  }
+
   /// Bumped on every reload so a stale widen cannot write into a newer feed.
   int _searchToken = 0;
 
@@ -363,6 +376,8 @@ class _MarketplaceViewState extends State<MarketplaceView> {
               profile: _me,
               guest: widget.guest,
               onEdit: _editProfile,
+              galleryRuns: _galleryRuns,
+              onGalleryClosed: _onGalleryClosed,
             )),
           SliverToBoxAdapter(
             child: _FilterBar(
@@ -514,8 +529,22 @@ class _HeaderSection extends StatelessWidget {
   final Future<WorkerProfile>? profile;
   final bool guest;
   final VoidCallback onEdit;
-  const _HeaderSection(
-      {required this.profile, required this.guest, required this.onEdit});
+
+  /// Gallery visit count and its callback, forwarded to the photo tile.
+  ///
+  /// This widget is stateless and cannot own the counter: the read it feeds
+  /// lives in a child [State], and the increment has to survive the header
+  /// being rebuilt by every keystroke in the search box below it.
+  final int galleryRuns;
+  final VoidCallback onGalleryClosed;
+
+  const _HeaderSection({
+    required this.profile,
+    required this.guest,
+    required this.onEdit,
+    required this.galleryRuns,
+    required this.onGalleryClosed,
+  });
 
   /// What a visitor gets where the contractor's own card would be: the same
   /// navy card, a line saying what the market is, and the one way in. It never
@@ -663,7 +692,12 @@ class _HeaderSection extends StatelessWidget {
               _GettingStarted(worker: worker, onEdit: onEdit),
             // His three doors, one row instead of three full-width tiles.
             if (!loading && worker != null)
-              _ToolStrip(worker: worker, onEdit: onEdit),
+              _ToolStrip(
+                worker: worker,
+                onEdit: onEdit,
+                galleryRuns: galleryRuns,
+                onGalleryClosed: onGalleryClosed,
+              ),
             // The subscription row sits directly under his tools. The app now
             // earns from the contractor, so his plan, its remaining quota and
             // the way to pay must be one tap from home — not buried in a menu.
@@ -1186,7 +1220,17 @@ class _ToolStrip extends StatelessWidget {
   final WorkerProfile worker;
   final VoidCallback onEdit;
 
-  const _ToolStrip({required this.worker, required this.onEdit});
+  /// How many times the gallery has been opened. Passed to the badge so it
+  /// re-reads when the contractor comes back from uploading.
+  final int galleryRuns;
+  final VoidCallback onGalleryClosed;
+
+  const _ToolStrip({
+    required this.worker,
+    required this.onEdit,
+    required this.galleryRuns,
+    required this.onGalleryClosed,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1204,10 +1248,21 @@ class _ToolStrip extends StatelessWidget {
                 tint: AppTheme.accentDeep,
                 wash: AppTheme.accentWash,
                 label: 'معرض أعمالي',
-                badge: _PortfolioBadge(workerId: worker.id),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const MyPortfolioScreen()),
-                ),
+                badge: _PortfolioBadge(
+                    workerId: worker.id, galleryRuns: galleryRuns),
+                // The badge lives *under* this card, so the retry line is the
+                // only control on the tile that is not the card — see
+                // `_ToolBadge`, which gives the line its own touch floor.
+                onTap: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => const MyPortfolioScreen()),
+                  );
+                  // Whatever happened in there — three uploads, a delete, a
+                  // failure — the count on this tile is now a question the
+                  // server has a fresh answer to.
+                  onGalleryClosed();
+                },
               ),
             ),
             const SizedBox(width: 8),
@@ -1289,44 +1344,112 @@ class _ToolTile extends StatelessWidget {
   }
 }
 
-/// One line of state under a tool tile — deliberately not a [StatusPill], which
-/// is taller than a third of a row can afford.
-class _ToolBadge extends StatelessWidget {
-  final String label;
-  final Color color;
-
-  const _ToolBadge({required this.label, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      label,
-      textAlign: TextAlign.center,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: AppTheme.caption.copyWith(
-          fontSize: AppTheme.fsBadge,
-          fontWeight: FontWeight.w700,
-          color: color),
-    );
-  }
-}
-
 /// Reads the gallery size so the tile can say «3 صور» instead of being silent.
-class _PortfolioBadge extends StatelessWidget {
+///
+/// **A failed read is not an empty gallery.** The line this widget used to end
+/// on was `final n = snap.data?.length ?? 0;` — and `snap.data` is null on an
+/// error exactly as it is on an empty list. One 500, one dropped connection,
+/// one host not answering, and a contractor with twelve photos was told
+/// «أضف صوراً» — in the gold that means "you should do this". The public
+/// profile makes a false claim about his gallery; this tile issues a directive
+/// to upload work he has already uploaded, and the contractor who obeys it
+/// pushes duplicates to R2 on a mobile connection and concludes his work is
+/// not showing up. Same class of lie as `«نصف قطر الخدمة: 0 كم»` and the
+/// `«لم يضف صوراً بعد»` row, on the one screen he opens first.
+///
+/// **The read is issued once, not on every rebuild.** The fetch used to be
+/// written inside `build`, so it re-ran on every rebuild of the strip. The
+/// search box calls `setState` on every keystroke, which means typing «دهان»
+/// fired one `GET /portfolio` per character (measured: 1 request on open, 5
+/// after three keystrokes) and flashed the tile back to «...» each time. The
+/// future is a field, so a rebuild redraws the answer instead of re-asking for
+/// it, and only [_retry] puts a new one in its place.
+///
+/// The retry lives on the badge rather than behind a second navigation: the
+/// whole tile already opens the gallery, and the gallery's own load is the
+/// request that just failed, so tapping through is the same 500 one screen
+/// later rather than an action.
+class _PortfolioBadge extends StatefulWidget {
   final int workerId;
 
-  const _PortfolioBadge({required this.workerId});
+  /// Bumped by the screen after the gallery is closed.
+  ///
+  /// A read held in a field is a read that is *not* re-issued, which is the
+  /// whole point — but the gallery is where the count changes, and a
+  /// contractor who uploads four photos, goes back, and still reads «3 صور»
+  /// under his own work has been told a number the app itself just proved
+  /// wrong. The tile cannot watch the route (there is no [RouteObserver] in
+  /// this app), so the screen that pushed it says when it came back.
+  final int galleryRuns;
+
+  const _PortfolioBadge(
+      {required this.workerId, required this.galleryRuns});
+
+  @override
+  State<_PortfolioBadge> createState() => _PortfolioBadgeState();
+}
+
+class _PortfolioBadgeState extends State<_PortfolioBadge> {
+  /// The one read this badge holds. Deliberately a field and not a
+  /// `build`-local future, so a parent rebuild does not re-issue it.
+  Future<List<String>>? _images;
+
+  ApiClient? _api;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // AppScope is an InheritedWidget, so it cannot be read in initState — and
+    // a *different* client means a different session and a different gallery.
+    // Keyed on the client rather than guarded by a bool, so signing in or out
+    // under this badge re-reads instead of keeping another account's count.
+    final api = AppScope.of(context).api;
+    if (identical(api, _api)) return;
+    _api = api;
+    _read();
+  }
+
+  @override
+  void didUpdateWidget(_PortfolioBadge old) {
+    super.didUpdateWidget(old);
+    // Exactly the two things that make the held answer wrong: another
+    // contractor's id, and a gallery that was visited since it was read.
+    if (old.workerId != widget.workerId ||
+        old.galleryRuns != widget.galleryRuns) {
+      _read();
+    }
+  }
+
+  /// Issues the one read this badge holds.
+  ///
+  /// `void` on purpose, and never handed straight to `setState`: an
+  /// expression body would return the assigned `Future`, and `setState`
+  /// rejects a callback that returns one (it is then treated as an async
+  /// `setState`, which is the error it is trying to prevent).
+  void _read() {
+    _images = Repository(_api!).portfolioImages(widget.workerId);
+  }
+
+  /// Re-reads, once, on the user's own say-so.
+  void _retry() => setState(_read);
 
   @override
   Widget build(BuildContext context) {
-    final future =
-        Repository(AppScope.of(context).api).portfolioImages(workerId);
     return FutureBuilder<List<String>>(
-      future: future,
+      future: _images,
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
           return const _ToolBadge(label: '...', color: AppTheme.textMuted);
+        }
+        if (snap.hasError) {
+          return _ToolBadge(
+            key: const Key('worker-portfolio-badge-error'),
+            label: 'تعذّر العرض',
+            color: AppTheme.danger,
+            icon: Icons.refresh_rounded,
+            onTap: _retry,
+            onRetryKey: const Key('worker-portfolio-badge-retry'),
+          );
         }
         // This line used to read `'\$n صور'` — an escaped dollar, so every
         // contractor with photos saw the literal "\$n صور" and not a count.
@@ -1336,7 +1459,11 @@ class _PortfolioBadge extends StatelessWidget {
         // «صورتان» and takes no number, and 11+ is counted singular «11 صورة».
         // Both are delegated to [photosAr] now — the same noun the portfolio
         // header uses — so this tile cannot drift from it a second time.
-        final n = snap.data?.length ?? 0;
+        //
+        // The `?? 0` that came with it is gone: an unanswered read is not a
+        // zero, and a contractor with no photos is told so by the line below
+        // and nobody else.
+        final n = snap.data!.length;
         if (n == 0) {
           return const _ToolBadge(label: 'أضف صوراً', color: AppTheme.accentDeep);
         }
@@ -1345,6 +1472,82 @@ class _PortfolioBadge extends StatelessWidget {
           color: AppTheme.success,
         );
       },
+    );
+  }
+}
+
+/// One line of state under a tool tile — deliberately not a [StatusPill], which
+/// is taller than a third of a row can afford.
+///
+/// [onTap] makes the line itself the control. A tile that only says "I don't
+/// know" strands the contractor, and a 56 dp control does not fit a 113 dp
+/// third of a row, so the line carries the action and takes the app's own
+/// touch floor as its height.
+class _ToolBadge extends StatelessWidget {
+  final String label;
+  final Color color;
+  final IconData? icon;
+  final VoidCallback? onTap;
+  final Key? onRetryKey;
+
+  const _ToolBadge({
+    super.key,
+    required this.label,
+    required this.color,
+    this.icon,
+    this.onTap,
+    this.onRetryKey,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final style = AppTheme.caption.copyWith(
+        fontSize: AppTheme.fsBadge,
+        fontWeight: FontWeight.w700,
+        color: color);
+    if (onTap == null) {
+      return Text(
+        label,
+        textAlign: TextAlign.center,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: style,
+      );
+    }
+    return Semantics(
+      button: true,
+      // What it does, for a screen reader: the icon alone is not a label and
+      // the two words on the line do not say that the tile re-reads.
+      label: 'تعذّر عرض عدد الصور، اضغط لإعادة المحاولة',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          key: onRetryKey,
+          height: AppTheme.tapMin,
+          alignment: Alignment.center,
+          // The tile is ~113 dp wide and the text is one line of `fsBadge`;
+          // the icon goes ahead of the words rather than behind them, so the
+          // line can never clip the way a trailing icon would on a long label.
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 13, color: color),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: style,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
