@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../core/diagnostics/crash_reporter.dart';
 import '../core/l10n/strings.dart';
 import '../core/network/api_client.dart';
 import '../models/chat.dart';
@@ -541,5 +542,66 @@ T _row<T>(Object? value, T Function(Map<String, dynamic>) fromJson) {
 
 /// A list of rows, parsed row by row so one malformed row cannot take the
 /// whole screen down with an `Error`.
-List<T> _rows<T>(Object? value, T Function(Map<String, dynamic>) fromJson) =>
-    [for (final row in _asList(value)) _row(row, fromJson)];
+///
+/// **The doc was a promise the code did not keep.** This was a list
+/// comprehension, which builds every element eagerly, so the first drifted
+/// column — one `id` that came back null, one `wilaya` SQLite handed over as
+/// an integer — raised out of the whole expression. The caller got the Arabic
+/// «حدث خطأ غير متوقع» sentence with an **empty screen behind it**, and the
+/// workers that came back in the very same 200, perfectly readable, were thrown
+/// away with the broken one.
+///
+/// That is the worst possible reading of a 200. A feed is not one row: a
+/// contractor whose profile drifted cannot be the reason a visitor opening the
+/// app sees an empty market, or a man waiting on a quote sees an empty list,
+/// because a *different* profile has a bad column. The blast radius was the
+/// whole page instead of one card.
+///
+/// So a row that will not parse is **dropped** and the readable ones are
+/// returned. Two boundaries hold that line, and both are load-bearing:
+///
+///   * **An empty answer is not a failure.** `[]` is what the Worker sends
+///     when a contractor has no projects, a wilaya has no workers or the bell
+///     has nothing. Throwing there would turn every genuinely empty screen in
+///     the app into an error card — so the count that decides is the number of
+///     rows **arrived**, not the number that parsed.
+///   * **Nothing readable is still a failure.** When rows arrived and every
+///     one of them failed, the screen must not render «لا توجد إشعارات بعد» —
+///     copy that says *there is nothing here*, where the truth is *we could not
+///     read what is here*. Those two look identical to a user and mean opposite
+///     things, so this case keeps raising, with the **first row's own**
+///     exception re-thrown, so its status code and cause survive unchanged.
+///
+/// A dropped row is **not silent**: it is captured on the diagnostics channel
+/// with `kind: 'row'`, so it lands in the log the next support message reads.
+/// That is the whole reason a partial feed is safe to render — the contractor
+/// the user came for can be the one that was dropped, and without a record of
+/// it the app has no way to say so. [CrashReporter.active] is null before boot
+/// installs the reporter, which is correct: there is nowhere to write to yet,
+/// and the screen still renders everything it could read.
+List<T> _rows<T>(
+  Object? value,
+  T Function(Map<String, dynamic>) fromJson,
+) {
+  final arrived = _asList(value);
+  final out = <T>[];
+  Object? firstFailure;
+  for (final row in arrived) {
+    try {
+      out.add(_row(row, fromJson));
+    } on ApiException catch (e) {
+      firstFailure ??= e;
+      CrashReporter.active?.capture(
+        e.cause ?? e.message,
+        null,
+        kind: 'row',
+        context: '1 of ${arrived.length} rows could not be read',
+      );
+    }
+  }
+  final failure = firstFailure;
+  if (out.isEmpty && failure != null) {
+    throw failure;
+  }
+  return out;
+}
