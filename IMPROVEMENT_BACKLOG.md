@@ -4697,3 +4697,102 @@ Phase 1.
       one that invents defects. Start with the plan row: two ages on one
       screen is the sharper statement, and it is the one a paying contractor
       is reading when he decides whether to renew.
+
+### Phase 5 — engineering hardening: a plan card that re-read on every rebuild, and aged itself on every dependency
+
+Found 27 Sep 2026, immediately after the header got its age. The previous entry
+named this as the next thing and gave the reason: **`_PlanEntry` runs a second
+read**, so the screen carried two numbers — a completed-jobs count and a
+remaining-quota count — read at two different moments, neither dated.
+
+  - [x] **The plan row: three defects in nine lines, and a fourth the brief
+        did not predict.**
+
+      *1. It re-read on every frame.* `future: repo.subscription()` was
+      evaluated inside `build`, so *every* rebuild of the header issued a new
+      `GET /api/mobile/subscription`. The once-a-minute freshness tick shipped
+      the previous cycle turned "once per visit" into **sixty requests an hour
+      for the whole session**, because the shell is an `IndexedStack` and the
+      tab never unmounts. The only visible symptom was a plan that
+      occasionally flickered through «جارٍ التحميل...». The read is cached in
+      `_PlanEntryState` now.
+
+      *2. A failed read published the upsell.* A 500 printed «خطتك وحدود
+      العروض وتفعيل الاشتراك» — the invitation to buy — on the one card whose
+      whole job is to get him to the renewal screen. The account tab
+      (`_PlanAccountRow`) says the same thing about the same money and was
+      fixed in `b8508de`-era work; this one was missed because it is a
+      different widget in a different file. A **paying** contractor whose read
+      failed was told, in the app's own voice, that he had no plan. It now says
+      «تعذّر جلب خطتك» at danger tone and offers a retry that latches, so a
+      second tap on a bad connection cannot queue a second request. The
+      chevron does not come back with it: an "open your plan" affordance on a
+      card with no plan to read is the same lie in a different font.
+
+      *3. No age.* Same contract as the header: under a minute the clause is
+      **absent**, not «الآن»; an hour or older is accent tone at `w800`.
+
+      *4. The one the brief did not predict, and the one that mattered most.*
+      `_stamp()` sat on its own line **after** the `??=`, so it ran on every
+      `didChangeDependencies`. The age on screen was therefore the age of the
+      **last rebuild**, not the age of the read: a three-hour-old quota went
+      back to reading as fresh every time any dependency changed, and the
+      clause this card was opened for would have been decorative in production
+      while being true in the test. Moving the stamp **inside** the null guard
+      is the actual fix. *The age of a read is a fact about the read.*
+
+      *DONE `6804bca` (local) / `cc02ff2` (remote).* *Files:*
+      `lib/src/screens/worker/worker_home_screen.dart`,
+      `test/plan_row_read_truth_test.dart` (new, 11 tests),
+      `test/worker_header_failure_test.dart`, `test/design_shots_test.dart`,
+      `test/goldens/08_worker_home.png`, `test/goldens/16_guest_worker.png`.
+      `flutter analyze` -> **No issues found!**; `flutter test` -> **+1090 ~3
+      all passed** (was +1079: **+11 net, 0 regressions**).
+
+      *Four mutants injected, all four die:* re-stamping outside the null
+      guard, restoring the upsell on failure, moving the read back into
+      `build`, keeping the chevron in the error state.
+
+      *And the first mutant survived the entire file.* That is the part worth
+      keeping. Two rebuilds after the clock moved still showed «قبل 3 ساعات»,
+      because the clause appears the instant *anything* rebuilds — so a test
+      that checked the age once passed against the broken code. The reason is
+      that `AppScope` is an `InheritedWidget` whose `updateShouldNotify`
+      compares the api, auth and place **instances** (app_scope.dart:53), and a
+      `setState` swaps none of them, so `didChangeDependencies` never re-ran.
+      The test now **swaps `AppScope`** — signing out and back in builds a
+      fresh `ApiClient` and every `didChangeDependencies` in the tree fires.
+      That is a real user path, and on it the un-guarded stamp reset the plan
+      row's age to zero. A test that cannot produce the event under test is
+      decoration; the defect is the age, so the event has to be the
+      dependency change.
+
+      *Two dead fixtures were hiding this rather than causing it.*
+      `worker_header_failure_test` and `design_shots_test` both mocked
+      `/api/mobile/my/subscription`, which is **not an endpoint this app
+      calls** — the real one is `/api/mobile/subscription` (repository.dart
+      :529). Neither mock had ever matched a single request; both fell
+      through to a bare `[]` that `BillingCatalogue` cannot parse, and the
+      plan row rendered its failure state. The design shot was a **picture of
+      an error filed as a picture of the product**. Hence the re-shot
+      goldens: `08_worker_home` first differed by **33033px (9.91%)** of
+      failure UI, and after the fixture was fixed by **one 18-row line of
+      real copy — 1493px, 0.45%, no size change**. A uniform 8px shift at
+      match-ratio 0.968 accounted for the rest. The mocks were fixed rather
+      than the goldens regenerated, because the shot was the thing that was
+      wrong.
+
+      *Also worth recording:* the plan row is not the only live reader of that
+      endpoint, and pretending otherwise would have had me "fix" a correct
+      screen. `WorkerHomeScreen` **is** the tab shell and mounts `ProfileScreen`
+      inside its `IndexedStack` (worker_home_screen.dart:108), so a man on his
+      home tab has **two** live subscription reads on screen, one per card, and
+      both are correct. The tests render `MarketplaceView` — the widget that
+      carries the behaviour — which also has the `clock` seam the shell lacks.
+
+      *Next:* nothing on the plan row. The read is cached, dated honestly, and
+      fails visibly. The remaining item from the previous entry is the
+      **guest header** — the mirror case, which renders a market card with no
+      numbers at all, so there is nothing to date and nothing wrong. Worth
+      confirming rather than assuming, because the audit that finds silence is
+      also the one that invents defects.
