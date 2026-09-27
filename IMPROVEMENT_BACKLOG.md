@@ -3914,4 +3914,4 @@ Phase 1.
       *Not visual* — data layer only, so no screenshot claim.
       *Files:* `lib/src/data/repository.dart`,
       `test/browse_pages_partial_test.dart`.
-      **DONE `971e0dd`** (remote tip verified against the remote tree).
+      **DONE `291777e`** (remote tip verified against the remote tree).
