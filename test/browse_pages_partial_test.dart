@@ -14,6 +14,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -304,6 +305,121 @@ void main() {
 
       await expectLater(
           repo.browseProjects(), throwsA(isA<ApiException>()));
+    });
+
+    test('a lost page records why it died, not just which one', () async {
+      // The record used to be a hand-written sentence naming the page: «صفحة 3
+      // من بحث السوق لم تصل». That says *which* page, and nothing about *why*,
+      // and the `catch (_) { return null; }` in `_safeBrowsePage` threw the
+      // `ApiException` away on the way — the status code and the cause, the
+      // only two things that distinguish the four failures that actually happen
+      // in the field:
+      //
+      //   * a 500 from the Worker  -> the server, nothing the phone can do
+      //   * a 401 while signed in  -> the session died mid-search
+      //   * a timeout / socket     -> the network, retrying is the fix
+      //   * a 5xx from a bad deploy-> the API shape guard has a lead
+      //
+      // All four reach the log as the same line. Support gets «صفحة 3 لم تصل»
+      // and cannot tell a client with no signal from a Worker that is 500ing,
+      // so the question can only be answered by guessing and shipping a guess
+      // to a user. The cause has to survive the catch, or the record is a
+      // timestamp and nothing else.
+      final reporter = CrashReporter(store: _MemoryStore());
+      reporter.install();
+      addTearDown(reporter.uninstall);
+
+      final repo = Repository(ApiClient(
+        httpClient: MockClient((req) async {
+          final page = int.parse(
+              Uri.parse(req.url.toString()).queryParameters['page'] ?? '1');
+          if (page == 3) {
+            return http.Response('{"error":"boom"}', 500,
+                headers: {'content-type': 'application/json'});
+          }
+          return _json([_project('p$page', 'مشروع $page')]);
+        }),
+        baseUrls: ['https://x.test'],
+      ));
+
+      await repo.browseProjects(pages: 5);
+
+      final record = reporter.log.records.last;
+      expect(record.kind, 'page');
+      expect(record.detail, contains('500'),
+          reason: 'the HTTP status has to reach the log, not just the page');
+    });
+
+    test('a timeout and a 500 are told apart in the log', () async {
+      // One test, two very different worlds. A 500 is the API's problem and
+      // the shape guard is the lead; a timeout is the network's and retrying
+      // fixes it. A support reply that treats them as the same thing either
+      // ships a fix for the wrong system or tells a user with no signal to
+      // reinstall an app that is fine.
+      final reporter = CrashReporter(store: _MemoryStore());
+      reporter.install();
+      addTearDown(reporter.uninstall);
+
+      final repo = Repository(ApiClient(
+        httpClient: MockClient((req) async {
+          final page = int.parse(
+              Uri.parse(req.url.toString()).queryParameters['page'] ?? '1');
+          if (page == 3) {
+            return http.Response('{"error":"boom"}', 500,
+                headers: {'content-type': 'application/json'});
+          }
+          if (page == 4) {
+            throw const SocketException('Failed host lookup');
+          }
+          return _json([_project('p$page', 'مشروع $page')]);
+        }),
+        baseUrls: ['https://x.test'],
+      ));
+
+      await repo.browseProjects(pages: 5);
+
+      final details = reporter.log.records
+          .where((r) => r.kind == 'page')
+          .map((r) => r.detail)
+          .toList();
+      expect(details, hasLength(2),
+          reason: 'both lost pages are recorded');
+      expect(details.any((d) => d.contains('500')), isTrue,
+          reason: 'a server fault names its status');
+      expect(details.any((d) => d.contains('SocketException')
+              || d.contains('socket')),
+          isTrue,
+          reason: 'a dead socket is not a 500, and the log must say so');
+    });
+
+    test('a lost page that is not an ApiException still gets a reason', () async {
+      // `_safeBrowsePage` catches everything with `catch (_)`, not just
+      // `ApiException` — a row that will not parse raises a `TypeError` from
+      // `_row`, and a bug in the widening loop must not be silently recorded
+      // as a dead page. Dropping the error object for *those* too would leave
+      // the record empty, which is the failure this whole change is about.
+      final reporter = CrashReporter(store: _MemoryStore());
+      reporter.install();
+      addTearDown(reporter.uninstall);
+
+      final repo = Repository(ApiClient(
+        httpClient: MockClient((req) async {
+          final page = int.parse(
+              Uri.parse(req.url.toString()).queryParameters['page'] ?? '1');
+          if (page == 2) {
+            throw StateError('row shape the parser never saw');
+          }
+          return _json([_project('p$page', 'مشروع $page')]);
+        }),
+        baseUrls: ['https://x.test'],
+      ));
+
+      await repo.browseProjects(pages: 5);
+
+      final record = reporter.log.records.last;
+      expect(record.kind, 'page');
+      expect(record.detail, contains('StateError'),
+          reason: 'a non-API failure keeps its own type name');
     });
 
     test('a full market is returned whole', () async {

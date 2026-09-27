@@ -187,7 +187,7 @@ class Repository {
       return _browseProjectsPage(
           category: category, wilaya: wilaya, status: status, page: page);
     }
-    final batches = await Future.wait<List<Project>?>([
+    final batches = await Future.wait<_PageBatch>([
       for (var i = 0; i < pages; i++)
         _safeBrowsePage(
           category: category,
@@ -198,14 +198,17 @@ class Repository {
     ]);
     final lost = <int>[
       for (var i = 0; i < batches.length; i++)
-        if (batches[i] == null) page + i,
+        if (batches[i].failure != null) page + i,
     ];
-    for (final missing in lost) {
+    for (var i = 0; i < batches.length; i++) {
+      final failure = batches[i].failure;
+      if (failure == null) continue;
       CrashReporter.active?.capture(
-        'صفحة $missing من بحث السوق لم تصل',
+        'صفحة ${page + i} من بحث السوق لم تصل',
         null,
         kind: 'page',
-        context: '${lost.length} of $pages pages could not be read',
+        context: '${lost.length} of $pages pages could not be read'
+            ' · ${_whyItFailed(failure)}',
       );
     }
     // The head page carries the newest postings, so losing it is the case that
@@ -221,31 +224,37 @@ class Repository {
     // exists to reach a project on page 3 was making page 3 unreachable. The
     // retry is a repair, and a repair merges.
     if (lost.isNotEmpty && lost.first == page) {
-      batches[0] = await _browseProjectsPage(
-          category: category, wilaya: wilaya, status: status, page: page);
+      batches[0] = _PageBatch(await _browseProjectsPage(
+          category: category, wilaya: wilaya, status: status, page: page));
     }
     final seen = <String>{};
     final merged = <Project>[];
     for (final batch in batches) {
-      for (final p in batch ?? const <Project>[]) {
+      for (final p in batch.rows ?? const <Project>[]) {
         if (seen.add(p.id)) merged.add(p);
       }
     }
     return merged;
   }
 
-  /// One page, or `null` when that page failed.
-  Future<List<Project>?> _safeBrowsePage({
+  /// One page, or a record holding the error that stopped it answering.
+  ///
+  /// The error used to be dropped here and the page reduced to `null`, so the
+  /// `ApiException` — with the status code and the cause, the only two
+  /// things that say *which* failure this was — never reached the record.
+  /// Carrying it costs one nullable field and is the difference between a
+  /// support log that can answer the question and one that only timestamps it.
+  Future<_PageBatch> _safeBrowsePage({
     String? category,
     String? wilaya,
     ProjectStatus? status,
     required int page,
   }) async {
     try {
-      return await _browseProjectsPage(
-          category: category, wilaya: wilaya, status: status, page: page);
-    } catch (_) {
-      return null;
+      return _PageBatch(await _browseProjectsPage(
+          category: category, wilaya: wilaya, status: status, page: page));
+    } catch (error) {
+      return _PageBatch(null, error);
     }
   }
 
@@ -594,6 +603,43 @@ T _row<T>(Object? value, T Function(Map<String, dynamic>) fromJson) {
   } catch (e) {
     throw ApiException(S.errUnexpected, cause: e);
   }
+}
+
+/// One page of a widened search: the rows it answered with, or the error that
+/// stopped it answering. Exactly one of the two is set.
+class _PageBatch {
+  const _PageBatch(this.rows, [this.failure]);
+
+  /// The rows, or `null` when the page never answered.
+  final List<Project>? rows;
+
+  /// What the page threw, kept so the record can say *why* it is missing.
+  final Object? failure;
+}
+
+/// Why a page could not be read, in the terms a support reply can act on.
+///
+/// The four failures that actually happen in the field are indistinguishable
+/// from the page number alone: a 500 from the Worker, a 401 that means the
+/// session died mid-search, a dead socket or a timeout, and a row shape the
+/// parser has never seen. The first two are the API's problem, the third is
+/// the phone's network, the fourth is a bug in the app — and the fix for
+/// each is different, so a record that cannot separate them can only be
+/// answered with a guess shipped to a user.
+///
+/// Logging only: this never reaches a screen. [ApiException.cause] is already
+/// documented as never shown to the user, and a type name is not copy.
+String _whyItFailed(Object error) {
+  if (error is ApiException) {
+    final status = error.statusCode;
+    final cause = error.cause;
+    return <String>[
+      if (status != null) 'HTTP $status',
+      if (cause != null) cause.runtimeType.toString(),
+      if (status == null && cause == null) error.message,
+    ].join(' · ');
+  }
+  return error.runtimeType.toString();
 }
 
 /// A list of rows, parsed row by row so one malformed row cannot take the
