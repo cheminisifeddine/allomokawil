@@ -15,6 +15,7 @@ import '../../widgets/skeletons.dart';
 import '../auth/auth_screen.dart';
 import '../chat/chat_screen.dart';
 import '../../core/l10n/error_copy.dart';
+import '../../core/l10n/strings.dart';
 
 /// Public contractor profile: bio, specialties, price range, portfolio
 /// gallery, reviews + contact.
@@ -33,8 +34,19 @@ class WorkerProfileScreen extends StatefulWidget {
 class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
   late final Repository _repo;
   late Future<WorkerProfile> _profile;
-  late final Future<List<Review>> _reviews;
-  late final Future<List<String>> _portfolio;
+
+  ///
+  /// Not `late final`, and that is the fix. Captured once in
+  /// [didChangeDependencies], the two section futures were *permanently*
+  /// unfetchable: a failed `/portfolio` read left the rejected future in place
+  /// and the screen's only retry, [_retry], re-read `_profile` alone. So a
+  /// customer who opened the page while the host was down, watched the header
+  /// recover, then scrolled to a gallery that had failed a moment earlier was
+  /// shown the old answer for the rest of the visit — nothing on the page could
+  /// fix it, and neither could the user. The three reads are one page, so they
+  /// retry together; each section can also retry just itself.
+  late Future<List<Review>> _reviews;
+  late Future<List<String>> _portfolio;
 
   bool _scopeReady = false;
 
@@ -46,12 +58,55 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
     _scopeReady = true;
     _repo = Repository(AppScope.of(context).api);
     _profile = _repo.getWorker(widget.workerId);
-    _reviews = _repo.workerReviews(widget.workerId);
-    _portfolio = _repo.portfolioImages(widget.workerId);
+    // Started here, not at first use: a section that loaded after the header
+    // would paint late, and the gallery is the page's main event.
+    _startSections();
   }
 
+  /// Retries the whole page: header, gallery and reviews are one view of one
+  /// contractor, and one dead host fails all three.
   void _retry() {
-    setState(() => _profile = _repo.getWorker(widget.workerId));
+    setState(() {
+      _profile = _repo.getWorker(widget.workerId);
+      _startSections();
+    });
+  }
+
+  /// Retries one section, leaving the rest of the page — and its already-good
+  /// answers — alone.
+  void _retryReviews() {
+    setState(() {
+      _reviews = _repo.workerReviews(widget.workerId);
+      _reviews.ignore();
+    });
+  }
+
+  void _retryPortfolio() {
+    setState(() {
+      _portfolio = _repo.portfolioImages(widget.workerId);
+      _portfolio.ignore();
+    });
+  }
+
+  /// Issues both section reads and marks them as observed.
+  ///
+  /// [FutureBuilder] subscribes to a future only while its section is on
+  /// screen, so a read that outlives its own error view has no listener. When
+  /// `/workers/:id` fails, `_body()` never runs, no FutureBuilder ever
+  /// subscribes to these two, and their rejections went straight to
+  /// `PlatformDispatcher.onError` and into the crash log as
+  /// «خلل مؤقّت في الخادم» with no stack pointing at anything: every offline
+  /// visit wrote three phantom crashes, two of them for requests the user never
+  /// saw. The future still fails; it is now observed, so the log names the read
+  /// that failed.
+  ///
+  /// Every attempt goes through here, retries included, so a second header
+  /// failure after «إعادة المحاولة» cannot start two more.
+  void _startSections() {
+    _reviews = _repo.workerReviews(widget.workerId);
+    _portfolio = _repo.portfolioImages(widget.workerId);
+    _reviews.ignore();
+    _portfolio.ignore();
   }
 
   void _openChat(WorkerProfile w) {
@@ -136,9 +191,14 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
           portfolio: _portfolio,
           slug: slug,
           onContact: () => _openChat(w),
+          onRetry: _retryPortfolio,
         ),
         const SectionTitle('التقييمات', icon: Icons.star_rounded),
-        _ReviewsSection(reviews: _reviews, onContact: () => _openChat(w)),
+        _ReviewsSection(
+          reviews: _reviews,
+          onContact: () => _openChat(w),
+          onRetry: _retryReviews,
+        ),
         const SizedBox(height: 8),
       ],
     );
@@ -379,10 +439,16 @@ class _PortfolioGrid extends StatelessWidget {
   /// is now the way to do it.
   final VoidCallback onContact;
 
+  /// Re-reads the gallery after a failure. Without it the section was stuck:
+  /// the empty state reads as a fact about the contractor, so a failed fetch
+  /// printed that fact and gave the reader nothing to do about it.
+  final VoidCallback onRetry;
+
   const _PortfolioGrid({
     required this.portfolio,
     this.slug,
     required this.onContact,
+    required this.onRetry,
   });
 
   @override
@@ -392,6 +458,49 @@ class _PortfolioGrid extends StatelessWidget {
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
           return const Shimmer(child: _PortfolioSkeleton());
+        }
+        // A failure is not an empty gallery. `snap.data` is null on error
+        // exactly as it is on an empty list, and this line conflated them: one
+        // dead host printed "لم يضف صوراً بعد" on a contractor with twelve
+        // photos, on the one page a customer picks him from. Same class of lie
+        // the "نصف قطر الخدمة: 0 كم" row used to publish.
+        if (snap.hasError) {
+          return AppCard(
+            key: const Key('profile-portfolio-error'),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    const IconBubble(
+                        icon: Icons.cloud_off_rounded,
+                        tint: AppTheme.danger,
+                        wash: AppTheme.dangerWash,
+                        size: 42),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('تعذّر تحميل معرض الأعمال',
+                              style: AppTheme.bodySoft),
+                          const SizedBox(height: 3),
+                          Text(errorCopy(snap.error),
+                              style: AppTheme.caption),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SecondaryButton(
+                  key: const Key('profile-portfolio-retry'),
+                  label: S.retry,
+                  icon: Icons.refresh_rounded,
+                  onPressed: onRetry,
+                ),
+              ],
+            ),
+          );
         }
         final urls = snap.data ?? const <String>[];
         if (urls.isEmpty) {
@@ -490,7 +599,16 @@ class _ReviewsSection extends StatelessWidget {
   /// starting the conversation — the same row idiom the account screen uses,
   /// rather than another full-width button next to the sticky "مراسلة" CTA.
   final VoidCallback onContact;
-  const _ReviewsSection({required this.reviews, required this.onContact});
+
+  /// Re-reads the reviews after a failure. See [_PortfolioGrid.onRetry]: the
+  /// same conflation, on the section that carries a man's reputation.
+  final VoidCallback onRetry;
+
+  const _ReviewsSection({
+    required this.reviews,
+    required this.onContact,
+    required this.onRetry,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -499,6 +617,47 @@ class _ReviewsSection extends StatelessWidget {
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
           return const Shimmer(child: _ReviewsSkeleton());
+        }
+        // "لا تقييمات بعد" on a 500 is the sharpest version of the
+        // same lie: a customer reads it as a rating of zero and picks somebody
+        // else, and no amount of scrolling will contradict it.
+        if (snap.hasError) {
+          return AppCard(
+            key: const Key('profile-reviews-error'),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    const IconBubble(
+                        icon: Icons.cloud_off_rounded,
+                        tint: AppTheme.danger,
+                        wash: AppTheme.dangerWash,
+                        size: 42),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('تعذّر تحميل التقييمات',
+                              style: AppTheme.bodySoft),
+                          const SizedBox(height: 3),
+                          Text(errorCopy(snap.error),
+                              style: AppTheme.caption),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SecondaryButton(
+                  key: const Key('profile-reviews-retry'),
+                  label: S.retry,
+                  icon: Icons.refresh_rounded,
+                  onPressed: onRetry,
+                ),
+              ],
+            ),
+          );
         }
         final list = snap.data ?? const <Review>[];
         if (list.isEmpty) {

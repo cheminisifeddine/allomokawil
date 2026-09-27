@@ -2431,6 +2431,46 @@ it is a correctness gap that duplicates a user's data.
       against the live remote tree. `allomokawil.com` **200**, API **200**. No
       APK, no release, no tag.
 
+- [x] **A failed gallery read was published as an empty gallery.** DONE `b8508de`.
+      On the contractor profile — the page a customer picks him from — the
+      gallery and the reviews both did `snap.data ?? const []`, and `snap.data`
+      is null on error exactly as it is on an empty list. One 500, one dropped
+      connection, one host that holds the photos not answering, and the screen
+      printed **«لم يضف صوراً بعد»** and **«لا تقييمات بعد»** on a man with
+      twelve photos and forty five-star ratings. The customer reads that as a
+      fact and picks somebody else. The same class of lie the
+      «نصف قطر الخدمة: 0 كم» row used to publish, one layer down: the field
+      printed a zero where nothing had been measured, this one printed an
+      *absence* where nothing had been read.
+      **Two more defects surfaced because the tests kept failing after the
+      first fix looked done:**
+      1. `_reviews` and `_portfolio` were `late final`, assigned once in
+         `didChangeDependencies`, while `_retry()` re-read `_profile` alone. A
+         failed section was therefore **unfetchable for the rest of the visit**:
+         the header could recover and the gallery could not, and the only action
+         on the page was useless. They are `late` now, retried together with the
+         header (one dead host fails all three reads) and individually.
+      2. Both section futures were issued **eagerly**, so when `/workers/:id`
+         itself failed, `_body()` never ran, no `FutureBuilder` ever subscribed,
+         and their rejections went straight to `PlatformDispatcher.onError` into
+         the crash log as «خلل مؤقّت في الخادم» with no stack pointing at
+         anything. Every offline visit wrote **three phantom crashes, two of them
+         for requests the user never saw**. `_startSections()` issues every
+         attempt — retries included — and marks it observed.
+      Tests written first, measured **+3 −8** on the unfixed code: 11 widget
+      tests driving the real screen, the real `Repository` and a fake HTTP
+      client failing with a 500 + HTML body. **Mutation-gated three ways** —
+      failure branches disabled **−6**, header retry no longer refetching the
+      sections **−1**, unhandled-rejection guard removed **−8**. All reverted,
+      re-verified green. Gate: **1006 passed, 0 regressions, 3 skips unchanged**
+      (was 995). Visual: the failure shot carries `dangerWash` `0xfcedec` in
+      **2404 px** and the empty shot in **0 px** — the empty state is still an
+      empty state and is not dressed as a failure. `contrast_audit` **28/28**.
+      Screens `/tmp/shots/profile_sections_{failed,empty}.png` (1176x4200).
+      One of my own tests was half-written and asserted nothing (a `sanity:`
+      expect on a fixture I had not made fail); rewritten to drive the real
+      header-error → retry path, and it failed until the fixture was corrected.
+
 ---
 
 ## Completed
