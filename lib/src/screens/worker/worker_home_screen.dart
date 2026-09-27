@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
@@ -12,6 +14,7 @@ import '../../data/project_search.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
 import '../../data/quote_count_copy.dart';
+import '../../data/stats_freshness_copy.dart';
 import '../../data/worker_stats_copy.dart';
 import '../../models/enums.dart';
 import '../../models/plan.dart';
@@ -152,7 +155,16 @@ class MarketplaceView extends StatefulWidget {
   /// branded "my stats" header needs an account.
   final bool guest;
 
-  const MarketplaceView({super.key, required this.repo, this.guest = false});
+  /// The wall clock the header's freshness line is measured against.
+  ///
+  /// Injected so the test can pin it: a header that renders «قبل 3 ساعات» only
+  /// on the one run where the mock's clock happened to advance is a test that
+  /// is green whenever it is green and worth nothing the day it is not. Null
+  /// in production, which is [DateTime.now].
+  final DateTime Function()? clock;
+
+  const MarketplaceView(
+      {super.key, required this.repo, this.guest = false, this.clock});
 
   @override
   State<MarketplaceView> createState() => _MarketplaceViewState();
@@ -221,6 +233,32 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   /// the feed is public, his stats are not.
   Future<WorkerProfile>? _me;
 
+  /// When the profile read currently in [\_me] actually returned, not when it
+  /// was issued. Paired with that future so the header can say how old its own
+  /// numbers are.
+  ///
+  /// Set in the same `setState` that installs the future, because the two are
+  /// one fact: a timestamp from a *different* read than the one on screen is
+  /// worse than no timestamp, because it is now confidently wrong. The future
+  /// itself cannot carry this — [Future] has no completion time, and
+  /// `Future.then` would have to race the `FutureBuilder` that is already
+  /// listening to the same object.
+  DateTime? _meReadAt;
+
+  /// Ticks once a minute so an honest header does not need a re-read to become
+  /// an honest header.
+  ///
+  /// Without it the freshness line is frozen at whatever it said when the
+  /// profile was read: it would read «الآن» for a contractor who left the app
+  /// open over lunch, which is the same lie in a slower costume. A minute is
+  /// the resolution [statsFreshnessAr] reports at, so a tick per resolution
+  /// cannot make the line stale by more than the copy it prints.
+  ///
+  /// Paired with `dispose` through `mounted`, and it is the only timer in this
+  /// screen — the shell is an `IndexedStack` that keeps all three tabs alive,
+  /// so a timer that is not cancelled here would outlive the tab by hours.
+  Timer? _freshnessTimer;
+
   /// Where the phone is, once the app knows. Its wilaya opens the market on the
   /// projects a contractor standing in that wilaya can actually take, which is
   /// the founder's «show related offers» brief. It stays a seed: the first
@@ -265,7 +303,7 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   @override
   void initState() {
     super.initState();
-    if (!widget.guest) _me = widget.repo.myProfile();
+    if (!widget.guest) _readMe();
   }
 
   /// Re-issues the profile read after a failure.
@@ -292,9 +330,23 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   /// the log showed the second `GET /api/mobile/my/profile` and the failure
   /// state on screen at the same time.
   void _retryProfile() {
+    _readMe();
+  }
+
+  /// Issues the header read and stamps it, keeping the two in one `setState`.
+  ///
+  /// Every path that puts a profile on screen goes through here, which is the
+  /// point: there are four of them (first build, the retry button, a pull, and
+  /// a save in the editor) and any one of them that stamped a time separately
+  /// would be free to stamp it at the wrong moment. The stamp is the clock
+  /// *now*, not the request's start, so a read held open by a slow connection
+  /// is not credited with being fresh the moment it was issued.
+  void _readMe() {
     setState(() {
       _me = widget.repo.myProfile();
+      _meReadAt = _now();
     });
+    _armFreshnessTick();
   }
 
   void _reload() {
@@ -393,6 +445,7 @@ class _MarketplaceViewState extends State<MarketplaceView> {
     // against in debug (framework.dart:1202-1214) — the read would run and the
     // rebuild would never happen.
     final previous = _me;
+    final previousReadAt = _meReadAt;
     final next = widget.repo.myProfile();
     // The block body is load-bearing, and the test above proves it: an arrow
     // here makes the `setState` callback *return* the assigned `Future`, and
@@ -403,7 +456,9 @@ class _MarketplaceViewState extends State<MarketplaceView> {
     // has been bitten by it.
     setState(() {
       _me = next;
+      _meReadAt = _now();
     });
+    _armFreshnessTick();
     try {
       await next;
     } catch (_) {
@@ -418,6 +473,12 @@ class _MarketplaceViewState extends State<MarketplaceView> {
         // restore would be the thing that throws.
         setState(() {
           _me = previous;
+          // The previous profile's own age goes back with it. Leaving the
+          // failed read's stamp behind would date numbers the contractor has
+          // been looking at for an hour as though they had just arrived — the
+          // one case where the freshness line would be a lie *because* the
+          // repair worked.
+          _meReadAt = previousReadAt;
         });
       }
     }
@@ -474,7 +535,35 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   void dispose() {
     _place?.removeListener(_onPlaceChanged);
     _search.dispose();
+    // The `IndexedStack` in the shell keeps this tab alive across every other
+    // one, so an uncancelled timer keeps firing — and calling `setState` after
+    // dispose — for as long as the app is open.
+    _freshnessTimer?.cancel();
     super.dispose();
+  }
+
+  /// The wall clock, injectable for tests. See [MarketplaceView.clock].
+  DateTime _now() => (widget.clock ?? DateTime.now)();
+
+  /// Starts the once-a-minute tick that ages the header, once there is a
+  /// header to age.
+  ///
+  /// Guarded on [mounted] and re-armed from the same place each time the stamp
+  /// changes, so a failed read — which puts the old stamp back — does not end
+  /// up with two live timers. Called from [_readMe] and the refresh install
+  /// rather than from `build`, because a timer created in `build` is a new
+  /// timer on every frame and the tick would multiply.
+  void _armFreshnessTick() {
+    if (!mounted) return;
+    _freshnessTimer?.cancel();
+    _freshnessTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted) return;
+      // `setState` even when nothing is on screen yet: the header only exists
+      // for a signed-in contractor, and a visitor's empty tick would be a
+      // rebuild of the public market once a minute for nothing.
+      if (_meReadAt == null) return;
+      setState(() {});
+    });
   }
 
   /// Opens the profile editor and, on save, refreshes without a round trip to
@@ -484,7 +573,12 @@ class _MarketplaceViewState extends State<MarketplaceView> {
       MaterialPageRoute(builder: (_) => const ProfileEditScreen()),
     );
     if (updated == null || !mounted) return;
-    setState(() => _me = Future<WorkerProfile>.value(updated));
+    setState(() {
+      _me = Future<WorkerProfile>.value(updated);
+      // The editor read is as current as this screen's newest data is, and
+      // the numbers it just wrote are the ones now on screen.
+      _meReadAt = _now();
+    });
     // Specialties may have changed, so re-run the feed against the new trades.
     _reload();
   }
@@ -533,6 +627,8 @@ class _MarketplaceViewState extends State<MarketplaceView> {
                 galleryRuns: _galleryRuns,
                 onGalleryClosed: _onGalleryClosed,
                 onRetryProfile: _retryProfile,
+                readAt: _meReadAt,
+                now: _now,
               )),
             SliverToBoxAdapter(
               child: _FilterBar(
@@ -698,6 +794,13 @@ class _HeaderSection extends StatelessWidget {
   /// owns the repair too; this widget only renders the failure and the button.
   final VoidCallback onRetryProfile;
 
+  /// When the profile on screen was read, so the stats line can date itself.
+  final DateTime? readAt;
+
+  /// The clock the freshness line is measured against. See
+  /// `MarketplaceView.clock`.
+  final DateTime Function()? now;
+
   const _HeaderSection({
     required this.profile,
     required this.guest,
@@ -705,6 +808,8 @@ class _HeaderSection extends StatelessWidget {
     required this.galleryRuns,
     required this.onGalleryClosed,
     required this.onRetryProfile,
+    required this.readAt,
+    required this.now,
   });
 
   /// What a visitor gets where the contractor's own card would be: the same
@@ -807,7 +912,7 @@ class _HeaderSection extends StatelessWidget {
                     _identity(worker),
                     if (worker.hasHistory) ...[
                       const SizedBox(height: 8),
-                      _StatsLine(worker: worker),
+                      _StatsLine(worker: worker, readAt: readAt, now: now),
                     ],
                     if (worker.verificationStatus ==
                             VerificationStatus.verified ||
@@ -1021,7 +1126,16 @@ class _HeaderSection extends StatelessWidget {
 class _StatsLine extends StatelessWidget {
   final WorkerProfile worker;
 
-  const _StatsLine({required this.worker});
+  /// When this profile was read, and the clock to measure it against.
+  ///
+  /// Both are about the *same* line of copy, so they are one unit: a caller
+  /// that passed a stamp but no clock would render a real time against the
+  /// test's frozen now, and a caller that passed a clock but no stamp would
+  /// render a correctly-aged nothing.
+  final DateTime? readAt;
+  final DateTime Function()? now;
+
+  const _StatsLine({required this.worker, required this.readAt, this.now});
 
   @override
   Widget build(BuildContext context) {
@@ -1037,6 +1151,22 @@ class _StatsLine extends StatelessWidget {
       if (reviews != null) reviews,
       if (years != null) years,
     ].join(' · ');
+
+    // The one clause this line was missing. Every other number here is a fact
+    // about the contractor and none of them is a fact about *this screen* —
+    // which is the problem: «4 مشاريع منجزة · 5 سنوات خبرة» reads as the state
+    // of his business and is in fact the state of his business as of whenever
+    // the tab was built. The pull-to-refresh on this tab is what made the gap
+    // unavoidable rather than merely unfortunate: the app now offers the
+    // contractor a way to make these numbers current, so a stale one is a
+    // choice he was given the means to avoid and nothing says he has not made
+    // it.
+    //
+    // Suppressed entirely under a minute (see [statsFreshnessAr]), because
+    // «الآن» under three clauses of numbers is a fourth clause of noise.
+    final clock = now?.call();
+    final freshness = statsFreshnessAr(readAt, now: clock);
+    final stale = statsAreStale(readAt, now: clock);
 
     return Row(
       children: [
@@ -1064,13 +1194,37 @@ class _StatsLine extends StatelessWidget {
         ],
         if (tail.isNotEmpty) ...[
           const SizedBox(width: 6),
-          Expanded(
+          Flexible(
             child: Text(
               '· $tail',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppTheme.label.copyWith(
                   fontSize: AppTheme.fsMeta, color: AppTheme.onNavyMuted),
+            ),
+          ),
+        ],
+        if (freshness.isNotEmpty) ...[
+          const SizedBox(width: 6),
+          // Not `Expanded`. The tail is the part that can be long and
+          // ellipsised; the freshness clause is three or four glyphs and
+          // shrinking it is how a «قبل 3 ساعات» quietly becomes «قبل…». It
+          // keeps its own room, and the tail is what gives way when the row is
+          // too narrow for both — the numbers stay readable even when the age
+          // is the thing that gets cut.
+          Text(
+            freshness,
+            key: const Key('stats-read-at'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTheme.label.copyWith(
+              fontSize: AppTheme.fsMeta,
+              // A quarter-old header is a different kind of statement from a
+              // fresh one, and the colour is what says so before the words are
+              // read. Same accent the rating star already uses on this line,
+              // so it reads as part of the header rather than as an alert.
+              color: stale ? AppTheme.accent : AppTheme.onNavyMuted,
+              fontWeight: stale ? FontWeight.w800 : null,
             ),
           ),
         ],
