@@ -278,17 +278,57 @@ class AuthState extends ChangeNotifier {
   /// ever holds what the server had *refused*, and the session that could have
   /// re-sent it no longer exists. Anything the server may already hold was
   /// settled against the last successful read.
+  /// Never throws, whatever the device's preference store does.
+  ///
+  /// It was the one method in this file with no `try` around it, and it is the
+  /// method [handleUnauthorized] calls — from a callback nobody awaits. Three
+  /// harms came out of that, and the first is the founder's own bug:
+  ///
+  ///   * the 401 recovery threw inside the un-awaited handler. The token was
+  ///     already stale, so the app had correctly decided to sign the user out,
+  ///     and then the sign-out itself died. The phone was left signed out in
+  ///     memory with the dead token **still written on disk**: the next launch
+  ///     restored it and the same 401 came back. The user is stuck in
+  ///     «انتهت جلستك» with no way forward but reinstalling.
+  ///   * the «تسجيل الخروج» tap is a `VoidCallback`, so a throw there is a red
+  ///     screen over a signed-in home.
+  ///   * [notifyListeners] is the last statement, so a throw from any removal
+  ///     skipped it: the session was gone and the root gate never heard, so
+  ///     the home screen stayed on top.
+  ///
+  /// The order is the one the rest of the file already keeps — in-memory
+  /// session first, because that is the part the user is looking at; then each
+  /// key removal on its own, so one refused write cannot strand the others;
+  /// then the queue; then the notify that actually redraws the app. The
+  /// consequence worth stating plainly: if the store refuses, the keys stay on
+  /// disk, so the next launch may restore a session this sign-out dropped. The
+  /// alternative — a sign-out that never completes — is strictly worse, and is
+  /// the loop above.
   Future<void> logout() async {
     _api.token = null;
     _user = null;
     _guestRole = null;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_tokenKey);
-    await prefs.remove(_userKey);
-    await prefs.remove(_guestKey);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // One refusal must not skip the keys beside it: leaving `auth.user` on
+      // disk while `auth.token` is gone manufactures the half-pair that
+      // `restore()` treats as a session to discard.
+      for (final key in [_tokenKey, _userKey, _guestKey]) {
+        try {
+          await prefs.remove(key);
+        } catch (error) {
+          debugPrint('logout: could not clear $key ($error)');
+        }
+      }
+    } catch (error) {
+      debugPrint('logout: preference store unavailable ($error)');
+    }
     // After the keys, not before: a store that will not open must not stop the
     // session from being dropped, and the session is the part the user sees.
     await _clearOutbox();
+    // Last, and unconditional: this is the redraw that takes the user to the
+    // landing page, and it is the one statement that must survive everything
+    // above it.
     notifyListeners();
   }
 

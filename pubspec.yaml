@@ -22,6 +22,10 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  # The refusing-store test seam in test/logout_store_failure_test.dart extends
+  # this package's InMemorySharedPreferencesStore, which is not re-exported by
+  # shared_preferences. Dev-only: no production code imports it.
+  shared_preferences_platform_interface: ^2.4.0
 
 flutter:
   uses-material-design: true
