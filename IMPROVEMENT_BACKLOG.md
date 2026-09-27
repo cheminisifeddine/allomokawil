@@ -5196,8 +5196,8 @@ running app for defects like these rather than inventing a feature.
       path (`outbox_session_leak`, `session_restore`, `session_expired_recovery`,
       `auth_gate`, `boot_warmup`, `guest_parity`) were run together first: 27
       passed.
-      *Commit:* local `c01bd5e`, remote `PENDING` (blobs verified against the
-      remote tree).
+      *Commit:* local `c01bd5e`, remote `47215a0` — all three blobs verified
+      `MATCH` against the remote tree, not trusted from the exit code.
       *Found by* the substrate audit the previous item left open: it named
       `auth_state.dart` as the third writer to the outbox key, unaudited. The
       lock it asked for was already in place; the leak was a level up, in a
