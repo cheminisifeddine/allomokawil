@@ -5155,3 +5155,50 @@ running app for defects like these rather than inventing a feature.
       the 600 s foreground cap — it is run in the background from now on.
       *Commit:* local `e848849`, remote `22e1b22` (both blobs verified `MATCH`
       against the remote tree).
+
+- [x] **Discarding a stored session dropped the keys alone and left the previous
+      user's unsent chat messages on the phone — the fourth way out of a
+      session, and the one the leak fix had missed.** `AuthState.logout()` clears
+      the outbox, so both callers of the *sign-out* path take the messages with
+      the session: the tap on «تسجيل الخروج» and `handleUnauthorized()`'s 401.
+      That is what `outbox_session_leak_test.dart` was written to hold, and it
+      holds it. The gap is the path that file did not name: `restore()`'s
+      `_discardSession()`, which runs at cold start when the stored pair will not
+      parse — a preferences file another version wrote, one a crash left
+      half-written, or a token present with no user beside it. It removed
+      `_tokenKey` and `_userKey` and left `chat.outbox` exactly as it found it.
+      *Why it is not a rare branch:* it is the same phone. The founder's reported
+      symptom — a token that quietly goes stale until every screen answers 401 —
+      is the phone whose stored pair eventually goes bad, and a launch is the
+      only moment that pair is read. The fix that closed the 401 leak made the
+      401 path safe and left this one untouched, so "every way out of a session
+      takes the queue with it" was true of three paths out of four.
+      *The leak is identical to the one already fixed:* user A's «العنوان:
+      حسين داي» is owed to the server, the pair goes bad, the app opens on the
+      login form. User B signs in on the same phone. The inbox carries A's badge
+      for a thread B never opened, and opening it auto-sends A's words under B's
+      token, to A's contractor, with B's name on them.
+      *Shipped:* `await _clearOutbox();` at the end of `_discardSession`
+      (`lib/src/core/security/auth_state.dart:180`). Keys first, queue second, for
+      the reason `logout()` already documents: the session is the part the user
+      is looking at, `_clearOutbox` swallows its own failure, and a store that
+      will not open must still land him on the login form. One line, and it
+      covers **both** branches that call it — a half-pair of the wrong type and
+      an unparseable user object — because the two paths share the method.
+      *Red before green, and the diff is the defect:* against the old source
+      `Expected: empty` / `Actual: [Instance of 'PendingMessage']`. The test
+      asserts on `_stored()` — `decodeOutbox` of the raw preferences string, what
+      the next cold start actually reads — and pins the session as gone first,
+      so a test that passed on a half-finished fix would say so.
+      *Evidence:* `flutter analyze` → **No issues found!** (6.0 s);
+      `flutter test` → **1096 passed / 3 skipped / 0 failed**, up from the
+      1095/3/0 baseline, so the new test is the +1. The six files that touch this
+      path (`outbox_session_leak`, `session_restore`, `session_expired_recovery`,
+      `auth_gate`, `boot_warmup`, `guest_parity`) were run together first: 27
+      passed.
+      *Commit:* local `c01bd5e`, remote `PENDING` (blobs verified against the
+      remote tree).
+      *Found by* the substrate audit the previous item left open: it named
+      `auth_state.dart` as the third writer to the outbox key, unaudited. The
+      lock it asked for was already in place; the leak was a level up, in a
+      method no outbox test had ever opened.

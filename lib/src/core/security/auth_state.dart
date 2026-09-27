@@ -142,10 +142,30 @@ class AuthState extends ChangeNotifier {
     }
   }
 
-  /// Remove both session keys, so the next launch starts from a known state.
+  /// Remove both session keys, so the next launch starts from a known state,
+  /// **and take the chat queue with them**.
+  ///
+  /// This is the fourth way out of a session, and until now it was the only one
+  /// that did not take the outbox. The invariant the app wants is a single
+  /// sentence — *no session on this phone, no unsent message from a session on
+  /// this phone* — and [logout] holds it for the tap and for the 401. Here the
+  /// session is dropped at cold start, when the stored pair is unreadable: a
+  /// preferences file another version wrote, one a crash left half-written, or
+  /// a token present with no user beside it. The user lands on the login form
+  /// holding nobody's messages today, and the next account to sign in inherits
+  /// them tomorrow: the inbox shows a badge for a thread they never opened, and
+  /// opening it auto-sends the first user's words under the second user's token,
+  /// to the first user's contractor.
+  ///
+  /// Reached from [restore] alone, and it is not a rare branch — the same
+  /// founder-reported dead-session phone that keeps answering 401 is the phone
+  /// whose stored pair eventually goes bad, and a launch is the moment the pair
+  /// is read.
   ///
   /// Never rethrows: a preferences store that refuses the write is still not a
-  /// reason to fail the launch.
+  /// reason to fail the launch. The keys go first for the same reason they do
+  /// in [logout] — the session is the part the user is looking at — and
+  /// [_clearOutbox] swallows its own failure.
   Future<void> _discardSession(SharedPreferences prefs) async {
     try {
       await prefs.remove(_tokenKey);
@@ -153,6 +173,7 @@ class AuthState extends ChangeNotifier {
     } catch (error) {
       debugPrint('restore: could not clear the stored session ($error)');
     }
+    await _clearOutbox();
   }
 
   Future<void> login({

@@ -115,4 +115,37 @@ void main() {
 
     expect(auth.sessionExpired, isFalse);
   });
+
+  test('a stored session that will not parse still takes the queue with it',
+      () async {
+    SharedPreferences.setMockInitialValues({
+      // A preferences file another version wrote, or one a crash left
+      // half-written: the user object is present but is not a string, so
+      // there is no session to restore.
+      'auth.token': 'stale-token',
+      'auth.user': <String, dynamic>{'id': 1},
+      // User A's message, already owed to the server, sitting on the phone.
+      chatOutboxKey: jsonEncode([
+        {
+          'id': '5.1700000000000000.0',
+          'conversation_id': 5,
+          'text': _words,
+          'created_at': 1700000000000,
+        }
+      ]),
+    });
+
+    final api = ApiClient(
+      httpClient: MockClient((req) async => http.Response('{}', 500)),
+      baseUrls: ['https://x.test'],
+    );
+    final auth = AuthState(api);
+    await auth.restore();
+
+    expect(auth.isAuthenticated, isFalse,
+        reason: 'a session that will not parse is not a session');
+    expect(await _stored(), isEmpty,
+        reason: 'discarding the stored session must take the queue with it, '
+            'exactly as signing out and the 401 already do');
+  });
 }
