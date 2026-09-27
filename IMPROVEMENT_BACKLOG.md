@@ -5039,6 +5039,58 @@ nothing and a measurement that is only true while this box keeps its current
 shell wrapper are both worth writing down, and neither is worth shipping as
 code. This entry is the artifact.
 
+- [x] **The fix for «a message can lose its words» opened a window where a
+      second tap on send sends the same message twice — a regression shipped
+      by the cycle that fixed the first one.** `_sendText` now writes the queue
+      before it empties the composer, which is the correct order, and it is
+      also the only thing that used to stop a second tap. In the old code the
+      clear was **synchronous**: with nothing refused,
+      `if (_unsent.isNotEmpty) await _retryUnsent();` is skipped entirely, so a
+      plain send reached `_input.clear()` with no `await` in between and the
+      field was empty before the next frame was built. After the move the first
+      `await` is `_enqueue` — a real `SharedPreferences` write — so for its
+      whole duration the composer still holds the words and «إرسال» is still
+      live. A second tap in that window builds a second bubble and posts a
+      second copy of the same address.
+      *Why it matters more than it looks:* the duplicate is the one failure
+      Phase 5 exists to kill, and the gesture is not exotic. An impatient tap on
+      send, or the keyboard submit followed by the button, is what a man does
+      when a thread feels slow on 3G. A contractor receives the same address
+      twice and cannot tell which one is stale.
+      *Shipped:* a `_sending` flag claimed **before** the first `await` and
+      released in a `finally`, so a throwing body cannot wedge the composer and
+      wedge every send after it. The body moved to `_sendClaimed(String text)`;
+      `text` is captured on entry and every `context` read is still hoisted
+      above the first await, so the unmount fix is intact. The durability is not
+      given back — the clear stays below the write, with a comment at it saying
+      not to move it up, because the next tick reading this file will otherwise
+      "simplify" the guard away.
+      *Red before green, and the diff is the defect itself:*
+      `Expected: ['العنوان: حسين داي']` /
+      `Actual: ['العنوان: حسين داي', 'العنوان: حسين داي']`.
+      The test counts POSTs the server **accepted**, not the queue, because both
+      sends confirm and the queue ends up empty either way — by the time it is
+      inspected the second copy has already reached the contractor. It also
+      asserts the draft is *still full* mid-window, which is the previous fix
+      working; asserting it empty there would pin the very defect being fixed.
+      *Evidence:* `flutter analyze` → **No issues found!** (1.8 s);
+      `flutter test` → **1094 passed / 3 skipped / 0 failed**, up from the
+      1093/3/0 baseline, so the new test is the +1.
+      *The sweep that found it, and the trap in it.* No item was unchecked, so
+      this tick audited the app for the class the last two ticks shipped —
+      post-`await` State use. That class is **clean**: 15 candidate methods, and
+      the two that looked worst (`verification_screen._pickCert`/`_pickFor`, the
+      file with the weakest guard coverage in the app at 2 `mounted` against 7
+      `await`) are not reachable — they resume in the *same microtask* as the
+      picker, so no pop can land between the await and the `setState`. That is
+      the "wrong premise" trap the previous tick wrote down, met again: a guard
+      added there would have been a no-op with a test written to justify it.
+      The real find was in the code its own predecessor had just shipped, which
+      is the argument for auditing the last commit's diff rather than the oldest
+      unexamined file.
+      *Commit:* local `0967393`, remote `6f182e0` (both blobs verified against
+      the remote tree).
+
 **Next:** the orphan question is still open, but it is no longer blocking:
 it exited on its own before this tick and the build gate has been green since.
 This tick shipped code again on the strength of the gate rather than on the
