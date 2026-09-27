@@ -5097,3 +5097,61 @@ This tick shipped code again on the strength of the gate rather than on the
 founder's word — the two are separate, and only one of them was the gate.
 Still no unchecked item in any phase, so a next tick should keep auditing the
 running app for defects like these rather than inventing a feature.
+
+- [x] **Two messages written at the same instant lost one of them off the
+      disk — the outbox the last three fixes were built on had no lock on it.**
+      Every mutator on `ChatOutbox` is a read-modify-write against one
+      `SharedPreferences` key: read the whole JSON string, change it in memory,
+      write it back. Nothing serialises them. Two overlapping mutations both
+      read the same old blob, each writes back a queue holding only its own
+      record, and the slower write **erases the faster one's message from the
+      device**. The record is gone before the server ever hears about it, the
+      user was told nothing, and the bubble on screen is the only copy left.
+      *The class this file exists to prevent, one layer below the fixes.* The
+      header of `chat_outbox.dart` is explicit that a queue which eats a message
+      is «the very failure this file exists to prevent» — and a torn read-
+      modify-write does exactly that, silently, to the user's own words.
+      *What the last two cycles did to make it reachable.* Both shipped
+      changes to the send path that put a **wide** read-modify-write window in
+      front of every send: `d55e078` moved the queue write to be the *first*
+      thing a send does, so Android cannot kill a draft, and `0967393` then
+      made that first write the thing a second tap is refused behind. The
+      window is the feature. The lock that should have been there to survive it
+      was not.
+      *Two ordinary sources of overlap, neither exotic.* (1) The app builds
+      **more than one `ChatOutbox` over the same key**: `AuthState` owns one for
+      sign-out, `ChatListScreen` builds another for the inbox badges
+      (`chat_list_screen.dart:64`) and hands it down, and `ChatScreen` uses
+      whichever it is given (`chat_screen.dart:118`). Two threads open, or the
+      inbox counts a badge while a send is being written, and two objects write
+      one key with no shared lock. (2) `_forgetQuietly` fires `_outbox.remove`
+      **without awaiting it**, from inside a `setState` callback
+      (`chat_screen.dart:426`) — the app itself manufactures a concurrent
+      writer on a single object.
+      *Shipped:* a lock keyed by `chatOutboxKey`, **not by instance**, and it
+      covers the **read** as well as the write. Both details are load-bearing
+      and each was a wrong fix that had to be ruled out on paper: a lock that
+      wrapped only `_write` would still let two callers read the same blob and
+      each hand `_write` a queue missing the other's row, so the fix would be
+      theatre; an instance lock would serialise one object against itself and
+      leave two objects interleaving exactly as before. `markUncertain` is the
+      case that proves the point — its first draft hoisted the `indexWhere`
+      lookup *above* the lock, which is a decision about a queue that may no
+      longer be the one on disk, written back over the newer one. The previous
+      holder is awaited for **completion, not its value**, so a throwing send
+      cannot wedge every later one behind a failed future.
+      *Red before green, and the diff is the defect:* against the old source
+      `Expected: ['العنوان: حسين داي', 'المقاول يصل غدا']` /
+      `Actual: ['المقاول يصل غدا']` — **the first message gone from the disk.**
+      The test parks *both* writes on a barrier rather than only the first: a
+      store that gated one write would hide a lost record behind scheduling,
+      which is the `_FirstWriteGatedStore` trap `chat_send_keeps_the_draft_test`
+      already records. It asserts on `decodeOutbox(store.raw)` — what the next
+      cold start actually reads — and on the record ids, because a record that
+      exists only in memory protects nothing.
+      *Evidence:* `flutter analyze` → **No issues found!** (6.8 s);
+      `flutter test` → **1095 passed / 3 skipped / 0 failed**, up from the
+      1094/3/0 baseline, so the new test is the +1. The suite took 5m15s, past
+      the 600 s foreground cap — it is run in the background from now on.
+      *Commit:* local `e848849`, remote `22e1b22` (both blobs verified `MATCH`
+      against the remote tree).
