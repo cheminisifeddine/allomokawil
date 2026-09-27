@@ -4284,3 +4284,58 @@ Phase 1.
       *Files:* `lib/src/screens/worker/worker_home_screen.dart`,
       `test/worker_header_failure_test.dart`. 2/2 blobs verified `MATCH`
       against remote tip `5f379fa`.
+
+- [x] **A refused commit was the only write in the app with no failure
+      handling.** `_accept` on the project detail screen — the one action in
+      the product that cannot be undone, since the backend rejects every other
+      quote on the first accept and the project is committed to a contractor —
+      shipped as six lines with no `catch`, no busy guard, and a confirmation
+      that could outlive the state it described. A 409 (the web app already
+      took a different bid), a 500 or a dropped connection escaped as an
+      *unhandled* async error: a red screen in release, and the owner never
+      learns whether the bid he just made is live. `_complete` and `_cancel`,
+      the two sibling owner actions twenty lines away, both wrap their call and
+      report through `errorCopy(e)`; this one ran bare. The quotes are a
+      `ListView` and «قبول العرض» stayed enabled for the whole round-trip, so a
+      second tap on a slow connection — what everyone does, and what a lost
+      connection provokes — fired a second POST against a project the server
+      had already committed. Third and last screen in the "unhandled owner
+      write" family.
+      **And a defect this change found by looking at its own screenshot:**
+      *a busy button was painting in the disabled palette.* `PrimaryButton`
+      computed `enabled = onPressed != null && !loading` and handed the null
+      callback to a style whose `disabledBackgroundColor` is `AppTheme.line` —
+      so **every loading button in the app rendered grey**, the exact colour
+      this app uses for an action that is refused, and `BigButton` carried the
+      same line of code. Nine call sites inherit it: sign-in, register, posting
+      a project, submitting a review, sending a verification document, saving
+      the profile, uploading to the portfolio, subscribing, and this accept.
+      The one moment a screen waits on the network was the one moment the app
+      looked like it had refused to act.
+      **DONE `6aafbd0`** (pushed `4752067`).
+      *Evidence:* 13 tests, written first. The 8 accept tests measured **+2 −6**
+      on the unfixed screen; the 5 button tests measured **+3 −2** on the
+      unfixed widget. `flutter analyze` -> **No issues found!**; `flutter test`
+      -> **+1041 ~3 all passed** (was +1028: **+13 net, 0 regressions**, skips
+      unchanged). Mutation-gated: reverting the busy fill **−1**, and making a
+      busy button tappable **−1** — each reverted and re-verified.
+      *Visual, measured:* pre-fix, the committing button was **99.6 % `e8e8ec`**
+      and so were the two dead siblings — pixel-identical, so the owner could
+      not tell which bid was committing. Post-fix the same two rectangles read
+      **99.5 % accent** (committing) and **95.2 % grey** (refused). The isolated
+      button pins the three-way distinction: idle 94.2 % amber, **loading
+      98.1 % amber / 0.0 % grey**, disabled 94.3 % grey / 0.0 % amber. Navy
+      spinner on amber is 7.37:1. A test also pins that a busy button still
+      *swallows taps* — making it amber must not make it re-submittable.
+      *Files:* `lib/src/screens/project/project_detail_screen.dart`,
+      `lib/src/widgets/ui.dart`, `lib/src/widgets/big_button.dart`,
+      `test/accept_quote_failure_test.dart`, `test/loading_button_test.dart`.
+      5/5 blobs verified `MATCH` against remote tip `4752067`.
+      *A lesson worth keeping, from my own harness.* The first version of the
+      button test measured **0.0 % accent on a perfectly amber button**: the
+      histogram is 24-bit RGB and `Color.value` is 32-bit ARGB, so every lookup
+      missed and the assertion failed for the wrong reason. A test that cannot
+      distinguish "the bug" from "my harness" is a test that will be deleted as
+      flaky. It also could not tap a busy button by its label, because a busy
+      button has *no* label — it is now tapped by its rect, which is the honest
+      gesture anyway.
