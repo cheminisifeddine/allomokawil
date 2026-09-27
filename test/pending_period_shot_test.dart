@@ -64,6 +64,7 @@ Widget _card({
                           request.method, (id) => 'بريدي موب (تحويل)'),
                       dayLabel: formatPendingDay(request.createdAt),
                       periodLabel: pendingPeriodLabelAr(request.period),
+                      numberLabel: pendingRequestNumberAr(request.id),
                     ) !=
                     null) ...[
                   const SizedBox(height: AppTheme.s12),
@@ -75,6 +76,7 @@ Widget _card({
                           request.method, (id) => 'بريدي موب (تحويل)'),
                       dayLabel: formatPendingDay(request.createdAt),
                       periodLabel: pendingPeriodLabelAr(request.period),
+                      numberLabel: pendingRequestNumberAr(request.id),
                     )!,
                     key: const Key('facts'),
                     style: AppTheme.caption.copyWith(

@@ -5,9 +5,9 @@
 // it, and the screen drops it. This one is a **money** path, not a badge.
 //
 // `GET /api/mobile/subscription` answers a `pending_request` object, and
-// `PendingRequest.fromJson` parses five facts off it: the request id, the plan
-// id, the amount he paid (`amount_paid`/`amount_dzd`), the method he used and
-// the moment he sent it. The subscription screen then rendered a fixed card:
+// `PendingRequest.fromJson` parses six facts off it: the request id, the plan
+// id, the amount he paid (`amount_paid`/`amount_dzd`), the method he used, the
+// moment he sent it and the term he filed. The subscription screen then rendered a fixed card:
 //
 //     const _PendingCard();
 //
@@ -144,12 +144,47 @@ String? pendingMethodLabelAr(String? methodId, String? Function(String) labelFor
   return labelFor(id);
 }
 
+/// «رقم الطلب 43» — the one number support asks a man to quote, or null.
+///
+/// **Why this is on the card at all.** `PendingRequest.fromJson` has parsed
+/// `id` since the pending card was first built, and it has never reached a
+/// screen: grepping `request.id` across `lib/` returns nothing, so the field is
+/// read into a model and printed nowhere. That is the same shape as the
+/// `quote_limit` and `wilaya_span` defects, but this one lands on a **receipt**.
+/// The card's body promises a notification when the plan is activated, and the
+/// contractor's next move when it does not arrive is to open the chat and say
+/// «my payment went, what now?» — and the only handle he has to give support is
+/// the request id, which the app parsed and then dropped on the floor. Without
+/// it support has to identify the row by phone number and a date the man
+/// cannot remember, which is how a legitimate request sits unconfirmed for a
+/// day and the man concludes the platform took his money.
+///
+/// The number is the server's own, verbatim, for the same reason every other
+/// clause here is: it is the key D1 files the row under, so it is the one value
+/// a human at the other end can look up.
+///
+/// **Null for a non-positive id, and the id is never invented.** A payload with
+/// no id, an id of `0`, or an id that did not parse produces no clause rather
+/// than «رقم الطلب 0» — printing a placeholder a man could quote to support is
+/// worse than leaving the number off, because support would look it up and find
+/// someone else's row. Ids are D1's autoincrement and start at 1, so zero and
+/// negatives can only mean "absent", never "request zero".
+///
+/// The clause is built from the raw int rather than through [arabicCounted]:
+/// this is an identifier, not a counted quantity, so «3 طلبات» would be a
+/// different sentence about a different thing and the digits must stand alone
+/// with no Arabic-Indic substitution that would stop matching the database.
+String? pendingRequestNumberAr(int? id) {
+  if (id == null || id <= 0) return null;
+  return 'رقم الطلب $id';
+}
+
 /// The receipt under the pending title, joined from the facts that arrived.
 ///
 /// **Every clause is dropped when its own field is missing**, which is the
 /// whole point: this payload is server-controlled, and a line built from absent
 /// fields would print «—» three times in a row to a man waiting to hear whether
-/// his bank transfer landed. The server sends five facts and may send none, so
+/// his bank transfer landed. The server sends six facts and may send none, so
 /// this returns null and the card falls back to its two fixed sentences — the
 /// behaviour that shipped before, which is the correct rendering of "we do not
 /// know yet".
@@ -159,8 +194,10 @@ String? pendingFactsAr({
   String? methodLabel,
   String? dayLabel,
   String? periodLabel,
+  String? numberLabel,
 }) {
   final parts = [
+    if (numberLabel != null) numberLabel,
     if (planLabel != null) planLabel,
     if (periodLabel != null) periodLabel,
     if (amountLabel != null) amountLabel,

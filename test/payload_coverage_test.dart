@@ -58,11 +58,26 @@ void main() {
     'longitude',
     // The prepaid term catalogue: four `durations` per plan (1/3/6/12 months)
     // with a discounted `amount` and `per_month`. A genuine gap, not an unused
-    // key — the app cannot *order* a 3-month term, because the Worker rejects
-    // any `period` it does not know and the source that would accept
-    // `3month` is not on this host. Parked on purpose; see
-    // IMPROVEMENT_BACKLOG. The name leaves this list the same tick the Worker
-    // starts accepting those terms.
+    // key — the app cannot *order* a 3-month term, because filing one as a
+    // 3-month term needs Worker source that is not on this host. Parked on
+    // purpose; see IMPROVEMENT_BACKLOG. The name leaves this list the same tick
+    // the Worker can be shown to STORE those terms rather than a month.
+    //
+    // **Corrected 27 Sep, against the live Worker.** This note used to read
+    // «the Worker rejects any `period` it does not know», and that was wrong in
+    // the way that matters: a rejection would be safe, and a silent accept is
+    // not. Probing `POST /api/mobile/subscription` on a fresh account per
+    // spelling, reading the STORED row back (not the ack):
+    //   `3month` -> ack `period: "month", months: 1`  | STORED `period: "month"`
+    //   `6month` -> ack `period: "month", months: 1`  | STORED `period: "month"`
+    //   `quarter`-> ack `period: "month", months: 1`  | STORED `period: "month"`
+    //   `month`  -> ack `period: "month", months: 1`  | STORED `period: "month"`
+    //   `year`   -> ack `period: "year",  months: 12` | STORED `period: "year"`
+    // Every answer was `ok: true`. So the Worker does not reject an unknown
+    // term, it **accepts the order and files it as a month** — which is why the
+    // app must not offer the 3/6-month terms it can see priced, and why the
+    // card prints the term the server actually stored rather than the one that
+    // was asked for.
     'durations',
     // `"payment_style": "prepaid"`. Redundant with `auto_renew: false` on the
     // same payload, which the app *does* read and print: `isPrepaid` is

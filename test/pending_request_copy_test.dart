@@ -371,13 +371,54 @@ void main() {
       expect(line, contains('2026'));
     });
 
+    testWidgets('the card names the request support would ask for',
+        (tester) async {
+      // The receipt a contractor forwards. Until this tick it printed the plan,
+      // the amount, the method and the day — and not the number of the request
+      // he is waiting on, so the one thing he could read out to support was
+      // missing. Driven through the real screen, not through a getter, because
+      // the defect was always "parsed, printed nowhere".
+      await rendered(
+        tester,
+        payload: _withPending({
+          'id': 49,
+          'plan': 'pro',
+          'amount_paid': 0,
+          'payment_method': 'baridimob',
+          'created_at': '2026-09-27 02:17:47',
+        }),
+      );
+
+      final receipt =
+          tester.widget<Text>(find.byKey(const Key('pendingFacts'))).data!;
+      expect(receipt, contains('رقم الطلب 49'),
+          reason: 'the request number never reached the card: $receipt');
+      // It leads the line, so it is the clause he reads before anything else.
+      expect(receipt, startsWith('رقم الطلب 49'), reason: receipt);
+      // The rest of the receipt is unchanged, and the unconfirmed amount is
+      // still not printed as money.
+      expect(receipt, contains('محترف'));
+      expect(receipt, isNot(contains('دج')));
+    });
+
     testWidgets('the receipt is absent when the server sent nothing usable',
         (tester) async {
-      final texts = await rendered(tester, payload: _withPending({'id': 7}));
-      // The old card is still correct for "we know nothing yet" — it must not
-      // regress into printing separators with nothing between them.
+      // No id either: the request number is a usable fact now, so a payload
+      // carrying only `id` legitimately earns a one-clause receipt. The case
+      // this test is about is a row where the server sent *nothing* — that one
+      // must not regress into printing separators with nothing between them.
+      final texts = await rendered(tester, payload: _withPending({'id': 0}));
       expect(find.byKey(const Key('pendingFacts')), findsNothing);
       expect(texts.any((t) => t.contains('طلبك قيد المراجعة')), isTrue);
+    });
+
+    testWidgets('a row carrying only an id prints only that id', (tester) async {
+      // The other half of the case above, pinned so the receipt is not
+      // suppressed by accident when a fact the man can act on did arrive.
+      await rendered(tester, payload: _withPending({'id': 49}));
+      final receipt =
+          tester.widget<Text>(find.byKey(const Key('pendingFacts'))).data!;
+      expect(receipt, 'رقم الطلب 49');
     });
 
     testWidgets('an unknown amount does not print «0 دج» on the card',
@@ -402,8 +443,15 @@ void main() {
               '$receipt');
       // The plan is still named — the known fact survives the unknown one.
       expect(receipt, contains('محترف'));
-      // ...and the single separator is the one joining the two real facts.
-      expect('·'.allMatches(receipt).length, 1, reason: receipt);
+      // One separator per gap between real facts, and no other. This was `1`
+      // when the receipt was two clauses; it is `2` now that the request number
+      // leads it, and the assertion that matters is the shape — never a leading,
+      // trailing or doubled separator, which is what « · · » looks like.
+      expect(receipt, contains('رقم الطلب 7'), reason: receipt);
+      expect('·'.allMatches(receipt).length, 2, reason: receipt);
+      expect(receipt.startsWith('·'), isFalse, reason: receipt);
+      expect(receipt.endsWith('·'), isFalse, reason: receipt);
+      expect(receipt.contains('··'), isFalse, reason: receipt);
     });
   });
 }

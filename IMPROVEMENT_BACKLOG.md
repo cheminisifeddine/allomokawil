@@ -3712,3 +3712,72 @@ Phase 1.
       before the commit.
       *Commit `5b75fc3`*, pushed as remote **`1bc8cac`**, all three blobs
       re-verified `MATCH` against the remote tree.
+- [x] **The pending-payment card parsed the request id and printed it
+      nowhere — the one number a man can read out to support was the one the
+      app dropped.** `PendingRequest.fromJson` has read `id` since the pending
+      card was first built, and it reached no screen: `grep -rn "request.id"
+      lib/` returns nothing. The card showed the plan, the amount, the method
+      and the day, and every one of those is server-owned and printed — the
+      single value a human at the other end can look up is the one this repo
+      discarded. Same shape as the `quote_limit` and `wilaya_span` defects,
+      but on a **receipt**, and the card's own body promises «سيصلك إشعار عند
+      التفعيل». When that notification does not arrive, the contractor's next
+      move is the support chat, and what he can say is «حولت المبلغ، ما وضع
+      طلبي؟» — support then identifies the row by phone number and a date
+      the man cannot remember, which is how a real payment sits unconfirmed for
+      a day and he concludes the platform took his money.
+      *Verified live, not assumed.* Registered a throwaway contractor and posted
+      `plan=pro&period=year` on 27 Sep: the Worker filed request **49** and
+      `GET /api/mobile/subscription` answered
+      `pending_request = {"id": 49, "plan": "pro", "period": "year",
+      "amount_paid": 0, ...}`. The number is there; the app was not reading it.
+      *Shipped:* `pendingRequestNumberAr(int?)` in
+      `lib/src/data/pending_request_copy.dart`, wired into `pendingFactsAr` as a
+      new `numberLabel` that **leads** the receipt, so it is the clause he reads
+      before anything else. Null for absent, `0` and negatives — a man quoting
+      «رقم الطلب 0» at support gets somebody else's row, since D1's autoincrement
+      starts at 1, so a non-positive id can only mean "not sent". The digits
+      stay western, deliberately: this is a database key, not a counted
+      quantity, so it is not routed through `arabicCounted` and «٤٣» cannot be
+      matched against the row filed as `43`.
+      *What was checked and found NOT to be a defect, so as not to "fix" it:*
+      the same live row carries `amount_paid: 0` while `amount_dzd: 30000` is in
+      the ack. That is correct — the funds are unconfirmed — and the model
+      already refuses to print a zero amount
+      (`pendingAmountLabelAr(0) == null`), with a test on it. Left alone.
+      *Files:* `lib/src/data/pending_request_copy.dart`,
+      `lib/src/screens/worker/subscription_screen.dart`,
+      `test/pending_request_number_test.dart` (new),
+      `test/pending_request_copy_test.dart`, `test/pending_period_shot_test.dart`,
+      `test/payload_coverage_test.dart`.
+      *Evidence:* the implementation landed but the previous tick died before
+      it was ever gated, so the numbers below are from the tick that finished
+      it. `flutter analyze` -> **No issues found!** (6.5 s). Full suite ->
+      **+969 ~3, all passed** (was +961: **+8 net, 0 regressions**).
+      Mutation-gated: neutering the one line that builds the clause
+      (`return 'رقم الطلب $id'` -> `return null`) fails **6 tests** (measured:
+      `+32 -6`), including the one that drives the real `SubscriptionScreen`
+      and reads the rendered `pendingFacts` key. Restored and re-verified.
+      The card gained a fifth clause on a caption line, so the overflow risk was
+      measured too: `pending_period_shot_test.dart` passes, and
+      `flutter_test` raises on `RenderFlex` overflow, so the receipt is
+      confirmed to wrap rather than overflow at phone width.
+      *Two pre-existing tests failed on the first run and both were fixed
+      honestly, not deleted.* `the receipt is absent when the server sent
+      nothing usable` passed `{'id': 7}` and asserted **no receipt at all** —
+      an id is a usable fact now, so the test was re-aimed at `{'id': 0}` (the
+      genuinely-empty row) and a companion test was added pinning that a row
+      carrying only an id prints exactly `رقم الطلب 49`. The separator count in
+      `an unknown amount does not print «0 دج»` was `1` for a two-clause
+      receipt and is `2` for a three-clause one; the assertion that was actually
+      worth keeping — no leading, trailing or doubled separator — is now stated
+      directly, so it survives the next clause that gets added.
+      *Correction to the record, from the same probe.* The `durations` allow-
+      list note in `payload_coverage_test.dart` said the Worker «rejects a
+      `period` it does not know». It does not reject, and the difference is the
+      whole point: every one of `3month`, `6month` and `quarter` came back
+      `ok: true` and was **stored as `period: "month"`**. A rejection would be
+      safe; a silent accept means a 6-month order arrives looking like a monthly
+      one. The note now carries the measured table, and the reason `durations`
+      stays parked is that filing those terms correctly needs Worker source that
+      is not on this host.

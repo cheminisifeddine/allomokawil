@@ -804,6 +804,9 @@ class _PendingCard extends StatelessWidget {
       dayLabel: formatPendingDay(request.createdAt),
       // The term, read off the row the server actually filed.
       periodLabel: pendingPeriodLabelAr(request.period),
+      // The number support asks the man to quote. It leads the receipt because
+      // it is the one clause he reads out loud; see `pendingRequestNumberAr`.
+      numberLabel: pendingRequestNumberAr(request.id),
     );
 
     // Only set on a payload whose period is present and is neither arm of
