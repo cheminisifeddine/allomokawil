@@ -3915,3 +3915,50 @@ Phase 1.
       *Files:* `lib/src/data/repository.dart`,
       `test/browse_pages_partial_test.dart`.
       **DONE `291777e`** (remote tip verified against the remote tree).
+
+### Phase 4 — engineering hardening: a lost page recorded which page, never why
+
+- [x] **`_safeBrowsePage`'s `catch (_) { return null; }` destroyed the
+      `ApiException` before the `page` record could carry it.** The carry
+      itself was shipped by the previous tick; this closed the last hole at
+      the same boundary, so the record now names the *cause* and not only
+      the page number.
+      *The defect.* The catch reduced a failure to `null`, and `capture`
+      was handed a hand-written Arabic sentence naming the page. The
+      status code and the cause — the only two things that identify the
+      failure — were thrown away one line earlier. Every lost page reached
+      the log as the same `1 of 5 pages could not be read`, which cannot
+      tell a Worker answering 500 from a 401 that means the session died
+      from a dead socket from a row shape the parser has never seen. Four
+      failures, one line, and the fix for each is a different system:
+      the API, the session, the phone's network, or this app. Support's
+      only remaining move is a guess shipped to a user.
+      *Shipped.* `_PageBatch` carries the rows **or** the error; the
+      record appends `_whyItFailed(error)` — `HTTP <status> · <cause type>`,
+      falling back to the exception's own type name for a non-API failure.
+      Logging only: no screen reads the log, and `ApiException.cause` is
+      already documented as never user-facing.
+      *Tests written first and measured failing:* **−3**, all three
+      asserting the *same* detail string for a 500, a socket and a
+      `StateError` — the defect stated three ways rather than one.
+      *Evidence:* `flutter analyze` → **No issues found!**;
+      `flutter test` → **+989 ~3, all passed** (was +986; **+3 net, 0
+      regressions**). Mutation-gated **both ways** — reverting the catch
+      to `catch (_) { return null; }` **−3**, and keeping the error
+      carried but dropping it from the context **−3**. Both reverted,
+      re-verified green.
+      *A defect this cycle introduced and caught before committing:* the
+      helpers were first inserted **between `_rows`'s long doc comment and
+      its declaration**, orphaning that documentation from the function it
+      documents. `flutter analyze` stayed green through it — the compiler
+      does not check doc adjacency — so it was found by reading the diff,
+      not by the gate. That is the shape of bug the gate cannot catch.
+      *Measured output, the whole point of the item:*
+      `KIND=page | MSG=صفحة 2 … | DETAIL=3 of 5 pages could not be read · HTTP 500`
+      `KIND=page | MSG=صفحة 3 … | DETAIL=3 of 5 pages could not be read · SocketException`
+      `KIND=page | MSG=صفحة 4 … | DETAIL=3 of 5 pages could not be read · StateError`
+      *Not visual* — data layer only, so no screenshot claim.
+      *Files:* `lib/src/data/repository.dart`,
+      `test/browse_pages_partial_test.dart`.
+      **DONE `cb3bd0f`** (remote tip `3e35a69`, all 2 blobs MATCH against
+      the remote tree).
