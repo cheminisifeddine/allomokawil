@@ -4539,10 +4539,59 @@ Phase 1.
       hits them. A third: the pull's callback fires at ~300 ms on this page,
       so a single `pump(400ms)` races the *fling*, not the contract.
 
-      *Next, unasked:* `worker_home_screen.dart` is the one remaining shell
-      with a `CustomScrollView` and no indicator of its own — and it is the
-      contractor's home, the busiest surface in the product. It is also a
-      `CustomScrollView`, so it inherits every trap written down above. Worth
-      an audit of the worker tab's reads before writing the handler: the strip
-      that is probably wrong is the one nobody can refresh, not the one the
-      gesture reaches.
+      *Followed up, 27 Sep, and it found a second defect on the same path.*
+      `worker_home_screen.dart` was the last `CustomScrollView` in the app with
+      no `RefreshIndicator`, and it was the busiest surface in the product. It
+      now has one, behind a contract that took the same three questions the
+      client home did plus a fourth of its own: two reads sit behind the gesture
+      (feed + header), they fail independently, the indicator waits on both, a
+      failed market read says nothing because the feed's own `FutureBuilder`
+      already states it in place, and **a failed profile read puts the previous
+      one back** — otherwise a flaky network on a pull would replace a working
+      header with «تعذّر جلب ملفك», which removes his name, his stats line, his
+      three tool tiles and his subscription row. A visitor is never sent the
+      contractor endpoint, and a live search is re-widened rather than silently
+      demoted to the newest 20 rows. **DONE `c496560`.**
+      *Files:* `lib/src/screens/worker/worker_home_screen.dart`,
+      `test/worker_home_pull_to_refresh_test.dart` (new, 6 tests).
+      `flutter analyze` -> **No issues found!**; `flutter test` -> **+1073 ~3
+      all passed** (was +1067: **+6 net, 0 regressions**).
+      *Four mutants injected, all four die:* dropping the `_widening` reset,
+      not restoring the header, clearing the read list instead of waiting on it,
+      and removing the guest guard.
+
+      *The audit found a second, worse bug than the one it was sent for.*
+      `_reload` bumped `_searchToken` — which is what makes an in-flight
+      `_widenForSearch` discard its answer — but neither of that method's two
+      early-return guards clears `_widening`, so the flag was left `true` with
+      nothing in the air to clear it, **permanently**. Type a word into the
+      search box, change the trade before the widened read answers, and the
+      hairline progress bar never went away and the empty branch answered with
+      an **eternal shimmer**: «لا مشاريع مفتوحة حالياً» and the button under it
+      could never be shown, with no way out of a screen that looked like it was
+      still loading. One line. Reachable from five controls before this — filter
+      change, clear, retry, profile-save — and the pull is the fastest of them.
+
+      *Four harness traps on the first run, all kept in the test.* `req.url
+      .path` excludes the query string, so `endsWith('/mobile/projects')`
+      matches **nothing** — the first version of this file measured its own
+      harness. `contains` is worse: the `IndexedStack` builds the projects tab
+      at boot and `my/projects` then serves it the market's fixture. A window
+      tall enough to build the whole market is **worse than a phone**, because
+      nothing overflows and the pull has nothing to pull against — the strip is
+      scrolled into view instead, the way the client-home test does it. And the
+      header's first-run checklist is *also* a `LinearProgressIndicator`, so the
+      type-wide finder measured that meter and stayed green after the widen had
+      gone; the assertion is now scoped to the indeterminate bar. That last one
+      is the same class as the positional `Scrollable` finder: a check that
+      keeps passing after the thing it was written for has gone.
+
+      *Next, unasked:* the `RefreshIndicator` audit itself is now exhausted —
+      every scrollable read in the app answers the gesture. The next class of
+      defect is a **settled state that is not honest about being settled**: the
+      same family as the failed-read states this backlog has been closing for
+      weeks, but on the *success* path — a screen that renders a number, a count
+      or an availability without saying when it was read. Start with the
+      contractor's own stats line («4 من 4» completed jobs, the monthly quote
+      count) on the header this loop just touched: a value that is an hour old
+      must be visibly an hour old, or the contractor acts on it.
