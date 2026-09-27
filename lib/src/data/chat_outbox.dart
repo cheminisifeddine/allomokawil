@@ -13,6 +13,7 @@
 // start, and the record is removed the moment the server confirms a row.
 // Nothing here is a second copy of the thread — only what this device owes.
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -247,26 +248,32 @@ class ChatOutbox {
     String? imagePath,
     SendState? uncertain,
   }) async {
-    final at = _clock();
-    final record = PendingMessage(
-      id: '$conversationId.${at.toUtc().microsecondsSinceEpoch}.${_seq++}',
-      conversationId: conversationId,
-      text: text,
-      imagePath: imagePath,
-      createdAt: at,
-      uncertain: uncertain,
-    );
-    final items = await all();
-    items.add(record);
-    PendingMessage? dropped;
-    while (items.length > chatOutboxMax) {
-      dropped = items.removeAt(0);
-    }
-    await _write(items);
-    // Reported *after* the write: if the store refuses, the dropped record is
-    // still on the device and a "your message was lost" toast would be a lie.
-    lastDropped = dropped;
-    return record;
+    // Inside the lock, and the lock covers the *read* as well as the write.
+    // The whole read-modify-write has to be one step, or the fix is theatre:
+    // a lock that only wrapped `_write` would still let two callers read the
+    // same old blob and each hand `_write` a queue missing the other's row.
+    return _serialised(() async {
+      final at = _clock();
+      final record = PendingMessage(
+        id: '$conversationId.${at.toUtc().microsecondsSinceEpoch}.${_seq++}',
+        conversationId: conversationId,
+        text: text,
+        imagePath: imagePath,
+        createdAt: at,
+        uncertain: uncertain,
+      );
+      final items = await all();
+      items.add(record);
+      PendingMessage? dropped;
+      while (items.length > chatOutboxMax) {
+        dropped = items.removeAt(0);
+      }
+      await _write(items);
+      // Reported *after* the write: if the store refuses, the dropped record is
+      // still on the device and a "your message was lost" toast would be a lie.
+      lastDropped = dropped;
+      return record;
+    });
   }
 
   /// The record the bound pushed off the queue during the last [add], or null.
@@ -281,37 +288,95 @@ class ChatOutbox {
   /// retry again. An unknown id is not an error: the record may already have
   /// been forgotten, and the state that matters is then already correct.
   Future<void> markUncertain(String id, {SendState? uncertain}) async {
-    final items = await all();
-    final at = items.indexWhere((m) => m.id == id);
-    if (at < 0) return;
-    if (items[at].uncertain == uncertain) return;
-    final next = List<PendingMessage>.of(items);
-    next[at] = PendingMessage(
-      id: items[at].id,
-      conversationId: items[at].conversationId,
-      text: items[at].text,
-      imagePath: items[at].imagePath,
-      createdAt: items[at].createdAt,
-      uncertain: uncertain,
-    );
-    await _write(next);
+    // The lookup is *inside* the lock, for the reason [remove] states: a mark
+    // computed from a queue read before the lock is a decision about a queue
+    // that may no longer be the one on the disk, and it writes that stale view
+    // back over the newer one.
+    return _serialised(() async {
+      final items = await all();
+      final at = items.indexWhere((m) => m.id == id);
+      if (at < 0) return;
+      if (items[at].uncertain == uncertain) return;
+      final next = List<PendingMessage>.of(items);
+      next[at] = PendingMessage(
+        id: items[at].id,
+        conversationId: items[at].conversationId,
+        text: items[at].text,
+        imagePath: items[at].imagePath,
+        createdAt: items[at].createdAt,
+        uncertain: uncertain,
+      );
+      await _write(next);
+    });
   }
 
   /// Forgets one message: called the moment the server stores it, and when a
   /// queued photo's file is gone and it can never be sent.
   Future<void> remove(String id) async {
-    final items = await all();
-    final kept = <PendingMessage>[
-      for (final m in items)
-        if (m.id != id) m,
-    ];
-    if (kept.length == items.length) return;
-    await _write(kept);
+    // Locked for the same reason [add] is: a forget that interleaves with a
+    // send would write back a queue the send never saw, and the record for the
+    // message the user is *right now* typing would be the one that disappears.
+    return _serialised(() async {
+      final items = await all();
+      final kept = <PendingMessage>[
+        for (final m in items)
+          if (m.id != id) m,
+      ];
+      if (kept.length == items.length) return;
+      await _write(kept);
+    });
   }
 
   /// Drops the whole queue. Signing out of a device must not leave someone
   /// else's unsent messages sitting on it.
-  Future<void> clear() async => _write(<PendingMessage>[]);
+  Future<void> clear() async =>
+      _serialised(() => _write(<PendingMessage>[]));
+
+  /// Runs [body] with exclusive access to the queue, and hands the previous
+  /// one's slot straight to it.
+  ///
+  /// **The lock is per-key and static, not per-object, and that is the whole
+  /// point.** The app builds more than one [ChatOutbox] over the same
+  /// `SharedPreferences` key: `AuthState` owns one for sign-out,
+  /// `ChatListScreen` builds another for the inbox badges
+  /// (`chat_list_screen.dart:64`) and passes it down, and `ChatScreen` uses
+  /// whichever it is handed. An instance lock would have serialised one object
+  /// against itself and let two objects interleave exactly as before — the
+  /// race survives a per-instance fix untouched, which is why the lock is
+  /// keyed by [chatOutboxKey] instead.
+  ///
+  /// A single slot rather than a queue of futures, because the only thing that
+  /// must not interleave is the read-modify-write; there is no fairness to
+  /// promise and no starvation to fear at this rate of traffic.
+  static final Map<String, Future<void>> _locks = <String, Future<void>>{};
+
+  Future<T> _serialised<T>(Future<T> Function() body) {
+    final previous = _locks[chatOutboxKey] ?? Future<void>.value();
+    final completer = Completer<void>();
+    _locks[chatOutboxKey] = completer.future;
+    return () async {
+      // Awaited for its completion, not its value: if the previous holder
+      // threw, `previous` is a failed future and awaiting its *result* would
+      // throw here too — in a method that has not even started yet, in a
+      // queue that would then be wedged shut for every later send.
+      try {
+        await previous;
+      } catch (_) {
+        // The previous holder already reported its own failure; the queue is
+        // still on disk and this one is a normal read-modify-write.
+      }
+      try {
+        return await body();
+      } finally {
+        // Released even when the body throws: one failed send must not wedge
+        // every later one behind a lock nobody will ever take off.
+        if (identical(_locks[chatOutboxKey], completer.future)) {
+          _locks.remove(chatOutboxKey);
+        }
+        completer.complete();
+      }
+    }();
+  }
 
   /// A store that refuses the write leaves a degraded queue — a message that is
   /// only on the screen — but never a failed send: the bubble keeps its text and
