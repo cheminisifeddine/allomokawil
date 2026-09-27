@@ -3643,3 +3643,72 @@ Phase 1.
       test. Files: `test/payload_coverage_test.dart` (new).
       *Commit `21fca17`*, pushed as remote **`ae6e256`**, blob
       `967c0e75` re-verified `MATCH` against the remote tree.
+
+---
+
+- [x] **The unread pip could never go up, only down** — the one line on the
+      home screen that claims something arrived was frozen at launch.
+      *Found on 27 Sep 2026* by taking the vein the previous cycle named. The
+      payload sweep made "parsed but never read" a build failure, and the last
+      note said the next direction is the one layer 2 cannot see. The blind
+      spot is named in the file's own header: a field consumed by a getter on
+      its own model. The harness was therefore run in the *opposite*
+      direction — for every public getter in `lib/`, count its references
+      outside its own file. 60 public getters, 15 unreferenced. Almost all of
+      them are honest (`isLoaded`, `knownTypes`, `baseUrl` and the rest are
+      read by tests or by the framework itself: `PageTransitionsBuilder`'s
+      `transitionDuration` is called by Flutter, not by this app, so "no
+      reference" there means nothing). The models came back clean.
+      *What the sweep actually found was a screen that is stale by
+      construction.* `NotificationsBell` fetched `/api/unread` exactly once,
+      from `didChangeDependencies`, and never again — and `WidgetsBindingObserver`
+      appears **nowhere in `lib/`**, verified, so no other widget was
+      compensating. The pip was therefore correct at open and wrong for the
+      rest of the session.
+      *Why it is the worst kind of wrong.* The badge is not a page the user
+      visits; it is a glance. A stale list can be re-read and the user finds
+      the truth in a second, but a pip that sits at zero over a quote worth
+      40 000 DZD does not look broken — **it looks like a quiet day.** A
+      contractor who leaves the app open in another window while that quote
+      lands comes back to a home screen that says nothing happened, and the
+      notification he is owed is only found if he happens to tap the bell for
+      no reason. The founder's own framing of this screen is the inverse
+      case: the centre exists *because* the app was closed while things
+      happened, and the pip is the half of that promise that costs nothing to
+      keep.
+      *Shipped:* the bell re-reads on `AppLifecycleState.resumed` and on
+      **nothing else**. `inactive` is excluded on purpose — it fires for the
+      app switcher, an incoming dialog and a permission sheet, when the
+      screen behind is not readable yet, so a read there spends the user's
+      data to draw a number he has not looked at; a test pins all four
+      non-resumed states as zero requests. A `_refreshing` guard keeps one
+      read in flight, because a phone that resumes and locks again inside a
+      single 3G request would otherwise race two answers into `setState` and
+      let the slower — older — one win, so **the pip could go backwards**;
+      that is worse than briefly stale and it is what the guard prevents. A
+      `_wired` check guards the read itself, because the engine can deliver
+      the first lifecycle message before `didChangeDependencies` runs, and a
+      throw on a `late final` there is swallowed into a red-screen report
+      about a bug the user never caused.
+      *The pixel claim is measured, not asserted.* `bell_pip_shot_test.dart`
+      rasterises the bell at pixelRatio 3 and counts device pixels that are
+      **exactly** `AppTheme.danger` (`0xFFC33F39`). Before resume: **0**.
+      After: **1269**, a 44×44 block = **14.7 logical px** at the header's end
+      corner. The first version of that count used a fuzzy tolerance and
+      reported **15** "danger" pixels on a build with no badge at all — the
+      icon glyph is antialiased through the same reds, so a loose match
+      passes for the wrong reason. It now counts one exact colour and the
+      alpha byte with it, which is the number that reads 0 on the broken
+      build.
+      *Files:* `lib/src/widgets/notifications_bell.dart`,
+      `test/notification_center_test.dart`, `test/bell_pip_shot_test.dart`
+      (new).
+      *Evidence:* `flutter analyze` -> **No issues found!** (7.1 s). Full
+      suite -> **+961 ~3, all passed** (was +957: **+4 new tests, 0
+      regressions**). Mutation-gated **twice, each guard on its own**:
+      neutering the `resumed` handler -> **+17 −4** (fails the three widget
+      tests *and* the pixel test); deleting the `_refreshing` guard -> fails
+      exactly the double-resume request count. Both restored and re-verified
+      before the commit.
+      *Commit `5b75fc3`*, pushed as remote **`1bc8cac`**, all three blobs
+      re-verified `MATCH` against the remote tree.
