@@ -7,6 +7,7 @@ import '../data/repository.dart';
 import '../data/taxonomy.dart';
 import '../models/enums.dart';
 import '../models/plan.dart';
+import '../widgets/a11y.dart';
 import '../widgets/ui.dart';
 import 'verify/verification_screen.dart';
 import 'worker/my_portfolio_screen.dart';
@@ -168,10 +169,32 @@ class _PlanAccountRow extends StatefulWidget {
 class _PlanAccountRowState extends State<_PlanAccountRow> {
   Future<BillingCatalogue>? _future;
 
+  /// True while a *retry* is in flight, so the one control this row owns does
+  /// not keep offering itself after it has been pressed.
+  bool _retrying = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _future ??= Repository(AppScope.of(context).api).subscription();
+  }
+
+  /// Re-issue the read. The block body is load-bearing: an arrow-form
+  /// `setState(() => _future = ...)` returns the assigned `Future`, and Flutter
+  /// asserts on a `setState` callback that returns one.
+  void _retry() {
+    if (_retrying) return;
+    // The read is issued from the `AppScope` in context, not from a field
+    // cached in `didChangeDependencies`: this widget can outlive a rebuild that
+    // swapped the scope, and the row must ask again rather than reuse a client
+    // from a session that has ended.
+    final api = AppScope.of(context).api;
+    setState(() {
+      _retrying = true;
+      _future = Repository(api).subscription().whenComplete(() {
+        if (mounted) setState(() => _retrying = false);
+      });
+    });
   }
 
   @override
@@ -183,13 +206,92 @@ class _PlanAccountRowState extends State<_PlanAccountRow> {
           MaterialPageRoute(builder: (_) => const SubscriptionScreen())),
       child: FutureBuilder<BillingCatalogue>(
         future: _future,
-        builder: (context, snap) => _SettingsRow(
-          icon: Icons.workspace_premium_outlined,
-          title: 'اشتراكي',
-          value: _planSummary(snap.data?.current, snap.connectionState),
-          tint: AppTheme.accentDeep,
-          wash: AppTheme.accentWash,
-          trailing: const _Chevron(),
+        builder: (context, snap) {
+          // A failed read is not a free trial, and this row used to say it was.
+          //
+          // `_planSummary` keys on `s == null`, and `snap.data` is null on an
+          // error exactly as it is on a read that has not answered — so a 500
+          // fell into the same branch as a settled read and printed
+          // «اختر خطتك — شهري أو سنوي». A contractor on a paid plan whose read
+          // failed was told, in the app's own voice, that he had no plan, on the
+          // one row whose entire job is to get him to the renewal screen.
+          //
+          // A pending read is a different state from a failed one and is left
+          // to `_planSummary`, which already says «جارٍ التحقق من اشتراكك…».
+          if (snap.hasError) {
+            return _SettingsRow(
+              icon: Icons.workspace_premium_outlined,
+              title: 'اشتراكي',
+              value: 'تعذّر جلب اشتراكك',
+              valueColor: AppTheme.danger,
+              tint: AppTheme.danger,
+              wash: AppTheme.dangerWash,
+              trailing: _PlanRetry(
+                onTap: _retry,
+                busy: _retrying,
+              ),
+            );
+          }
+          return _SettingsRow(
+            icon: Icons.workspace_premium_outlined,
+            title: 'اشتراكي',
+            value: _planSummary(snap.data?.current, snap.connectionState),
+            tint: AppTheme.accentDeep,
+            wash: AppTheme.accentWash,
+            trailing: const _Chevron(),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// The row's way back from a failed read: a real control, not a label.
+///
+/// The row itself stays tappable — it is the door to the plan screen, and a
+/// contractor who cannot see his plan can still go and look for it — so the
+/// retry sits inside the row's trailing slot rather than replacing it.
+class _PlanRetry extends StatelessWidget {
+  final VoidCallback onTap;
+  final bool busy;
+
+  const _PlanRetry({required this.onTap, required this.busy});
+
+  /// Kept as a field so the busy branch is a real callback and not a rebuilt
+  /// closure on every frame.
+  static void _swallow() {}
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      // What it does, for a screen reader: the icon alone is not a label.
+      label: 'تعذّر جلب اشتراكك، اضغط لإعادة المحاولة',
+      child: A11y.tap(
+        label: 'إعادة المحاولة',
+        enabled: !busy,
+        child: InkWell(
+          key: const Key('account-subscription-retry'),
+          borderRadius: BorderRadius.circular(AppTheme.rPill),
+          // A busy retry must still *win* the gesture arena, so this is a
+          // no-op callback and never `null`. Passing null drops the recogniser
+          // out of the arena entirely, and since this control sits inside the
+          // row's own `AppCard.onTap`, the second tap on a slow connection was
+          // caught by the card: the man who pressed "retry" was silently taken
+          // to the plan screen instead, with the retry still running behind
+          // him. Swallowing the tap is the behaviour; the hourglass says why.
+          onTap: busy ? _swallow : onTap,
+          child: Container(
+            constraints: const BoxConstraints(
+                minWidth: AppTheme.tapMin, minHeight: AppTheme.tapMin),
+            padding: const EdgeInsets.symmetric(horizontal: AppTheme.s8),
+            alignment: Alignment.center,
+            child: Icon(
+              busy ? Icons.hourglass_empty_rounded : Icons.refresh_rounded,
+              size: 20,
+              color: AppTheme.danger,
+            ),
+          ),
         ),
       ),
     );
@@ -330,6 +432,11 @@ class _SettingsRow extends StatelessWidget {
   final IconData icon;
   final String title;
   final String? value;
+
+  /// Colour of the [value] line. Defaults to muted, like every other secondary
+  /// line on this screen; a row whose read failed passes `AppTheme.danger` so
+  /// the sentence that replaced a real answer is not dressed as ordinary text.
+  final Color? valueColor;
   final Color tint;
   final Color wash;
   final Color titleColor;
@@ -340,6 +447,7 @@ class _SettingsRow extends StatelessWidget {
     required this.icon,
     required this.title,
     this.value,
+    this.valueColor,
     this.tint = AppTheme.navy,
     this.wash = AppTheme.lineSoft,
     this.titleColor = AppTheme.textPrimary,
