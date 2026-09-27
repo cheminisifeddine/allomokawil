@@ -3578,3 +3578,68 @@ Phase 1.
       really on the card.
       *Commit `ac6f5a2`*, pushed as remote **`6e333be`**; all **7/7** blobs
       re-verified `MATCH` against the remote tree, not the exit code.
+
+- [x] **The "parsed but never read" defect now fails the build, instead of
+      depending on somebody remembering to grep.**
+      Nine fields in a row were one bug in different clothes:
+      `quote_limit`, `portfolio_limit`, `search_boost`, `wilaya_span`,
+      `auto_renew`, `renew_note_ar`, `worker_avatar_url`,
+      `worker_verification_status`, `amount_paid`. The Worker published a
+      fact, the parser kept it, and no screen printed it. Every one was
+      found by memory, because **nothing else in the repo can see a dead
+      field** — the code compiles, the tests pass, the row renders, and
+      reading a model never suggests that a field is unused. The last
+      tick's own next-step said so outright: "a systematic sweep of every
+      parsed field is the honest way to find the rest". This is that
+      sweep, and it runs on every `flutter test`.
+      `test/payload_coverage_test.dart` (new, 9 tests) in two layers,
+      because the defect comes in two shapes: **layer 1 — never read**, no
+      file in `lib/` subscripts the key; **layer 2 — read into a model,
+      named on no screen**, the `wilaya_span` shape and the one that
+      reaches a customer, resolved as an import closure from
+      `lib/src/screens` and `lib/src/widgets`.
+      **The allow-lists are the real content.** `durations` is parked on
+      purpose (the Worker rejects a `period` it does not know and that
+      source is not on this host), `payment_style` is redundant with
+      `auto_renew` (which the app does read and print), `latitude` and
+      `longitude` are every null on a box with no map, `nameFr` needs a
+      real French locale rather than a French string under an Arabic one.
+      Every entry carries its reason and a test fails if a reason is
+      shorter than a sentence — because *absent* and *not-yet-checked*
+      look identical, so a key is never allowed to be merely missing. Two
+      tests police the lists themselves: a name on the unread list that
+      `lib/` actually reads fails, and a name left behind by a Worker
+      rename fails against the captured payload, so the list cannot go
+      green for the wrong reason. A sixth test caps the allow-list at 7 of
+      59 keys, so it cannot decay into a dump.
+      **Three false positives had to be fixed before the file could be
+      trusted, and each was the detector manufacturing a read that does
+      not exist.** `required this.nameFr,` reads as `nameFr: nameFr`, so
+      a constructor forwarding parameter called a dead field live.
+      `nameFr: '${json['name_fr'] ?? ''}',` is the field being **filled
+      in** by the one file guaranteed to name every field it declares — a
+      `wilaya_span` landing on such a line and nowhere else is the defect
+      itself, so its own constructor must not manufacture the read that
+      dismisses it. And `bool get isPrepaid => autoRenew == false;` is the
+      only read of `autoRenew` anywhere in the app, a bare identifier that
+      neither `.field` nor `field:` sees. The third was caught by the file
+      failing on a field the subscription screen really does print; the
+      first two by the file failing on the field it was written to prove
+      dead. A fourth attempt — a `RegExp` for the `RegExp` that finds
+      parse sites — silently matched **zero** lines on a tail-expression
+      character class and was replaced by a rule stated in words, for the
+      reason already written at the top of the file: a quote inside a
+      regex character class ends that class.
+      **Layer 2 is deliberately a lower bound.** It only ever claims
+      "reaches no screen", never "reaches one". A field consumed by a
+      getter on its own model is a shape it cannot see without inheriting
+      the model's body and the model's exemption.
+      **Evidence:** `flutter analyze` → **No issues found!**. `flutter
+      test` → **+957 ~3, all passed** (was `+948 ~3`: **+9 new, 0
+      regressions**). The sweep bites: replacing
+      `planReachLineAr(plan.wilayaSpan)` with `planReachLineAr(1)` — the
+      app's only read of `wilayaSpan` — turns it red with
+      `['wilaya_span -> wilayaSpan']`, yesterday's defect caught by a
+      test. Files: `test/payload_coverage_test.dart` (new).
+      *Commit `21fca17`*, pushed as remote **`ae6e256`**, blob
+      `967c0e75` re-verified `MATCH` against the remote tree.
