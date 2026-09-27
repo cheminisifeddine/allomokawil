@@ -25,6 +25,7 @@ import '../../widgets/notifications_bell.dart';
 import '../../widgets/big_button.dart';
 import '../../widgets/feed_search_field.dart';
 import '../../widgets/project_card.dart';
+import '../../widgets/a11y.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
 import '../chat/chat_list_screen.dart';
@@ -982,9 +983,12 @@ class _HeaderSection extends StatelessWidget {
             // The subscription row sits directly under his tools. The app now
             // earns from the contractor, so his plan, its remaining quota and
             // the way to pay must be one tap from home — not buried in a menu.
+            // The plan row gets the same clock the stats line uses, for the
+            // same reason: two ages measured against two different "now"s on
+            // one screen is a second defect wearing the first one's clothes.
             if (!loading && worker != null) ...[
               const SizedBox(height: AppTheme.s12),
-              _PlanEntry(worker: worker),
+              _PlanEntry(worker: worker, now: now ?? DateTime.now),
             ],
           ],
         );
@@ -1959,21 +1963,135 @@ class _VerificationBadge extends StatelessWidget {
 /// is live and how many quotes are left this month — instead of showing an icon
 /// and hoping he taps. It reads the same endpoint the subscription screen writes
 /// to, so the two can never disagree.
-class _PlanEntry extends StatelessWidget {
-  const _PlanEntry({required this.worker});
+/// The contractor's plan card: his name, what he is owed this month, and the
+/// door to paying.
+///
+/// **This row is the second read on the header, and it was the only one that
+/// lied.** Three defects, all in the same nine lines, all shipped together.
+///
+/// 1. **It re-read on every frame.** `future: repo.subscription()` is
+///    evaluated inside `build`, so *every* rebuild of the header issued a new
+///    `GET /api/mobile/subscription`. The once-a-minute freshness tick added on
+///    27 Sep turns that from "once per visit" into "once a minute, forever, for
+///    as long as the tab is alive" — and the tab is alive for the whole session
+///    because the shell is an `IndexedStack`. A contractor who left the app open
+///    on his home overnight woke up to a phone that had asked the server about
+///    his money sixty times an hour. The future is cached in state now, which is
+///    what [_PlanEntryState] is for.
+/// 2. **A failed read published «اختر خطتك»** — the free-plan sentence, on
+///    the one card whose whole job is to get him to the renewal screen. The
+///    same lie the account tab had, fixed there in `b8508de`-era work and left
+///    running here. A contractor whose *paid* plan failed to load is told, in
+///    the app's own voice, that he has no plan.
+/// 3. **It never said when it was read**, while the stats line eight
+///    centimetres above it does. So the screen carried two numbers read at two
+///    different moments, and neither said which. The quota left on this card is
+///    the number he acts on when deciding whether to renew; an hour-old "2
+///    quotes left" and a fresh one are the same sentence, and only one of them
+///    is true.
+///
+/// The read is also the *second* one on this screen, and it fails
+/// independently of the header's. It keeps its own age so the two lines can be
+/// honestly different ages rather than pretending to be one number.
+class _PlanEntry extends StatefulWidget {
+  const _PlanEntry({required this.worker, required this.now});
 
   final WorkerProfile worker;
 
+  /// The same clock the stats line is measured against, so the two ages on one
+  /// screen cannot be measured against two different "now"s. See
+  /// `MarketplaceView.clock`.
+  final DateTime Function() now;
+
+  @override
+  State<_PlanEntry> createState() => _PlanEntryState();
+}
+
+class _PlanEntryState extends State<_PlanEntry> {
+  /// The cached read. Null until `didChangeDependencies` installs it, which is
+  /// the first time the row is built with an `AppScope` in context.
+  Future<BillingCatalogue>? _plan;
+
+  /// When the read now on screen actually returned — the same two facts about
+  /// one read, stamped in one place, for the same reason the header's are.
+  DateTime? _readAt;
+
+  /// True while a *retry* is in flight, so the one control this card owns
+  /// cannot be pressed twice into two requests.
+  bool _retrying = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // `??=` so a rebuild never re-issues it. Read through `AppScope` here
+    // rather than caching the client, for the reason `_PlanAccountRow._retry`
+    // gives: this widget can outlive a rebuild that swapped the scope.
+    //
+    // **The stamp belongs inside the guard, and that is the whole fix.** It
+    // used to sit on its own line after it, which re-dated the read every time
+    // *any* inherited dependency changed — so the age was not the age of the
+    // read, it was the age of the last rebuild, and a read an hour old kept
+    // printing as fresh for as long as the user touched the screen. The clause
+    // this card was opened for would have been decorative in production and
+    // only true in the test, which advanced a clock without changing a
+    // dependency. The age of a read is a fact about the read.
+    if (_plan == null) {
+      _plan = Repository(AppScope.of(context).api).subscription();
+      _stamp();
+    }
+  }
+
+  /// Pairs the pending read with the moment it answers.
+  ///
+  /// Deliberately stamps `DateTime.now` at *issue* time, not completion. The
+  /// alternative — `future.then((_) => _readAt = ...)` — credits a read held
+  /// open for nine seconds by a bad connection with being fresh, which is the
+  /// exact lie this row was opened for. A read issued at T is at best as fresh
+  /// as T.
+  void _stamp() {
+    _readAt = widget.now();
+  }
+
+  /// Re-issues the read after a failure, keeping the block body: an arrow-form
+  /// `setState(() => _plan = ...)` returns the assigned `Future` and Flutter
+  /// asserts against exactly that.
+  void _retry() {
+    if (_retrying) return;
+    final api = AppScope.of(context).api;
+    setState(() {
+      _retrying = true;
+      _plan = Repository(api).subscription().whenComplete(() {
+        if (mounted) setState(() => _retrying = false);
+      });
+      // A retry is a new read and gets a new age. Leaving the failed read's
+      // stamp behind would date the answer as though it had arrived the moment
+      // the failure did.
+      _stamp();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final repo = Repository(AppScope.of(context).api);
     return FutureBuilder<BillingCatalogue>(
-      future: repo.subscription(),
+      future: _plan,
       builder: (context, snap) {
         final current = snap.data?.current;
+        // The age of the read this line is printing. `null` before the first
+        // frame and after a failure that has not been retried; both are states
+        // where there is nothing to date, and [statsFreshnessAr] answers the
+        // empty string for both on purpose.
+        final freshness = statsFreshnessAr(_readAt, now: widget.now());
+
         String line;
         Color tone = AppTheme.textSecondary;
-        if (snap.connectionState != ConnectionState.done) {
+        if (snap.hasError) {
+          // Defect 2. A failed read is not a free trial. The account tab
+          // (`_PlanAccountRow`) already says this in Arabic and already proved
+          // the shape; this card is the same sentence about the same money, and
+          // it was still printing the upsell.
+          line = 'تعذّر جلب خطتك';
+          tone = AppTheme.danger;
+        } else if (snap.connectionState != ConnectionState.done) {
           line = 'جارٍ التحميل...';
         } else if (current == null) {
           line = 'خطتك وحدود العروض وتفعيل الاشتراك';
@@ -1987,6 +2105,7 @@ class _PlanEntry extends StatelessWidget {
               : quotesLeftLineAr(current.nameAr, left, current.quoteLimit);
           tone = current.isQuotaSpent ? AppTheme.danger : AppTheme.accentDeep;
         }
+
         return AppCard(
           key: const Key('worker-plan-entry'),
           onTap: () => Navigator.of(context).push(
@@ -2006,16 +2125,99 @@ class _PlanEntry extends StatelessWidget {
                   children: [
                     Text(S.planTitle, style: AppTheme.h2),
                     const SizedBox(height: AppTheme.s4),
+                    // The line and its age on one row, so the age cannot be
+                    // read as belonging to the stats line above it. Under a
+                    // minute the age is empty and the row is unchanged — the
+                    // same contract as the header, and for the same reason: a
+                    // clause that is never absent is a clause a reader learns to
+                    // skip.
                     Text(line,
                         style: AppTheme.caption.copyWith(color: tone)),
+                    if (freshness.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        freshness,
+                        key: const Key('plan-read-at'),
+                        style: AppTheme.label.copyWith(
+                          fontSize: AppTheme.fsMeta,
+                          // Same rule as the header: an hour-old quota is a
+                          // different kind of statement from a fresh one, and
+                          // the weight says so before the words are read.
+                          color: statsAreStale(_readAt, now: widget.now())
+                              ? AppTheme.accentDeep
+                              : AppTheme.textSecondary,
+                          fontWeight: statsAreStale(_readAt, now: widget.now())
+                              ? FontWeight.w800
+                              : null,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_left_rounded, color: AppTheme.textSecondary),
+              if (snap.hasError)
+                _PlanRetry(onTap: _retry, busy: _retrying)
+              else
+                const Icon(Icons.chevron_left_rounded,
+                    color: AppTheme.textSecondary),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+/// The card's way back from a failed read.
+///
+/// The card itself stays tappable — it is the door to the plan screen, and a
+/// contractor who cannot see his plan can still go and look for it — so the
+/// retry sits in the trailing slot where the chevron was, and the chevron does
+/// not come back with it. An "open your plan" affordance sitting on a card that
+/// has no plan to read is the same lie in a different font; that exact argument
+/// is already pinned for the account row in
+/// `test/plan_account_read_failure_test.dart`, and it applies here unchanged.
+class _PlanRetry extends StatelessWidget {
+  const _PlanRetry({required this.onTap, required this.busy});
+
+  final VoidCallback onTap;
+  final bool busy;
+
+  /// Kept as a field so the busy branch is a real callback and not a closure
+  /// rebuilt on every frame.
+  static void _swallow() {}
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'تعذّر جلب خطتك، اضغط لإعادة المحاولة',
+      child: A11y.tap(
+        label: 'إعادة المحاولة',
+        enabled: !busy,
+        child: InkWell(
+          key: const Key('worker-plan-retry'),
+          borderRadius: BorderRadius.circular(AppTheme.rPill),
+          // A busy retry must still *win* the gesture arena, so this is a
+          // no-op callback and never `null` — the control sits inside the
+          // card's own `onTap`, and a null callback drops the recogniser out
+          // of the arena entirely, so the second tap would be caught by the
+          // card and the man pressing "retry" would be sent to the plan screen
+          // with the retry still running behind him.
+          onTap: busy ? _swallow : onTap,
+          child: Container(
+            constraints: const BoxConstraints(
+                minWidth: AppTheme.tapMin, minHeight: AppTheme.tapMin),
+            padding: const EdgeInsets.symmetric(horizontal: AppTheme.s8),
+            alignment: Alignment.center,
+            child: Icon(
+              busy ? Icons.hourglass_empty_rounded : Icons.refresh_rounded,
+              size: 20,
+              color: AppTheme.danger,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

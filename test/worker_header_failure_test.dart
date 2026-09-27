@@ -128,10 +128,35 @@ Future<({ApiClient api, AuthState auth, List<String> log})> _boot({
       }
       if (p.endsWith('/api/unread')) return _json(0);
       if (p.endsWith('/api/mobile/my/profile')) return profile();
-      if (p.endsWith('/api/mobile/my/subscription')) {
+      // The real endpoint is `/api/mobile/subscription` — **not**
+      // `/api/mobile/my/subscription`. This fixture used the latter, so it never
+      // matched a single request and the plan row fell through to the default
+      // branch below, which is a bare `[]` the catalogue cannot parse. The row
+      // then rendered its own failure sentence while this file asserted that a
+      // *successful profile* prints no failure anywhere on the screen — and the
+      // assertion was right about the profile and wrong about the plan.
+      //
+      // The shape is `BillingCatalogue`'s, so a settled row prints the real
+      // quota sentence rather than anything derived from a parse error.
+      if (p.endsWith('/api/mobile/subscription')) {
         return _json(<String, Object?>{
-          'plan': <String, Object?>{'id': 'basic', 'name_ar': 'أساسي'},
-          'usage': <String, Object?>{'quotes_used': 1, 'quote_limit': 3},
+          'currency': 'DZD',
+          'note_ar': 'الدفع مسبق',
+          'renew_note_ar': null,
+          'auto_renew': 0,
+          'commission_percent': 0,
+          'commission_per_order': 0,
+          'plans': <Object?>[],
+          'current': <String, Object?>{
+            'plan': 'basic',
+            'name_ar': 'أساسي',
+            'price_month': 4500,
+            'price_year': 45000,
+            'quote_limit': 3,
+            'quotes_used_this_month': 1,
+            'expires_at': '2027-01-01 00:00:00',
+          },
+          'pending_request': null,
           'payment': <String, Object?>{'methods': <Object?>[]},
         });
       }

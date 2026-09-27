@@ -256,9 +256,40 @@ ApiClient _fakeApi({
         if (p.contains('/workers')) return _json([_worker]);
         if (p.contains('/conversations')) return _json([_conversation]);
         if (p.contains('/my/profile')) return _json(profile ?? _worker);
+        // The plan card reads `/api/mobile/subscription`. This fixture served
+        // nothing for it, so the request fell through to the `[]` below, which
+        // `BillingCatalogue` cannot parse — and the card rendered its *failure*
+        // state, retry glyph and all, in a design shot meant to show the settled
+        // design. The mock is fixed rather than the golden regenerated, because
+        // the shot was wrong: it was a picture of an error, filed as a picture
+        // of the product.
+        if (p.contains('/subscription')) return _json(_catalogue());
         return _json(<Object>[]);
       }),
     );
+
+/// A paid plan with two of three quotes used, so the plan card renders the real
+/// quota sentence («بقي عرضان من 3 عروض هذا الشهر») rather than a spinner.
+Map<String, Object?> _catalogue() => <String, Object?>{
+      'currency': 'DZD',
+      'note_ar': 'الدفع مسبق',
+      'renew_note_ar': 'ادفع مسبقاً',
+      'auto_renew': 0,
+      'commission_percent': 0,
+      'commission_per_order': 0,
+      'plans': <Object?>[],
+      'current': <String, Object?>{
+        'plan': 'basic',
+        'name_ar': 'أساسي',
+        'price_month': 4500,
+        'price_year': 45000,
+        'quote_limit': 3,
+        'quotes_used_this_month': 1,
+        'expires_at': '2027-01-01 00:00:00',
+      },
+      'pending_request': null,
+      'payment': <String, Object?>{'methods': <Object?>[]},
+    };
 
 /// Register the real Cairo faces so Arabic renders as glyphs, not tofu.
 Future<void> _loadFonts() async {
