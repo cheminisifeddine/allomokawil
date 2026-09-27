@@ -2560,6 +2560,64 @@ it is a correctness gap that duplicates a user's data.
       expect on a fixture I had not made fail); rewritten to drive the real
       header-error → retry path, and it failed until the fixture was corrected.
 
+- [x] **A photo could never be recognised as sent, so one that was never sent
+      was deleted from the phone.** DONE `3934025`.
+      The lead was the tail of the previous cycle: the outbox audit was closed in
+      all three directions for the *queue write*, the *mark write* and the
+      *session write*, and the **photo** side of the send path had never been
+      through the same discipline. The writer it found is not a blind write — it
+      is worse than a duplicate, and the opposite direction from the last two.
+      *The defect.* Every place that asks «did this message arrive?» compared
+      `row.content == local.content` — four sites in `chat_screen.dart`
+      (`_restoreQueued`, `_deliver`, `_settleUnconfirmed`, `_recheckUnconfirmed`).
+      For a **picture** `content` is null on both sides, so the test was
+      `null == null`: **always true**. The thread was asked a question it could
+      not answer and replied yes anyway. Text was accidentally correct, which is
+      why 1100+ tests never saw it.
+      *What it cost, in the user's terms:*
+      * a photo the server never stored was reported as **delivered**, and the
+        screen then called `_forget` — the queue record was **deleted**. The
+        picture was not retried, not redrawn, and **no sentence anywhere said it
+        had not been sent**. The user is left holding a message he believes was
+        delivered, with nothing left on the device to send it from. That is not
+        a duplicate, it is the *loss* the outbox exists to prevent, produced by
+        the very mechanism built to prevent it;
+      * the row adopted as «mine» was whichever image happened to be first, so a
+        bubble could end up wearing a stranger's server id.
+      The reason it could never work in *any* build: the phone holds a **local
+      path** and the thread read back holds an **R2 URL**. Different namespaces,
+      never equal. The two were only ever compared by accident.
+      *Shipped.* A picture now has a name the server can be asked about — the URL
+      its upload returned:
+      * `chat_outbox.dart`: new `uploadedUrl` field (serialised, read back, and
+        **carried forward by `markUncertain`**, which rebuilds the record and
+        would otherwise have dropped the identity in exactly the window the mark
+        is written for) and `noteUploadedUrl`, which answers whether it landed.
+      * `repository.dart`: `sendImage` takes `onUploaded`, awaited, so the URL is
+        on the record before the row is posted — the only window it exists
+        anywhere on the phone.
+      * `thread_match.dart` (new): one predicate, `threadHolds`, used by all four
+        sites, so the rule cannot be right in one place and wrong in another. A
+        picture with **no** learned URL is unidentifiable and answers false —
+        the safe direction, because a false negative costs one duplicate while a
+        false positive deletes the user's own unsent picture.
+      * `chat_screen.dart`: the four sites, the cold-start restore that reads the
+        stored URLs, and the learned-URL maps.
+      *Evidence:* `flutter analyze` → **No issues found!**; `flutter test` →
+      **1129 passed / 3 skipped / 0 failed** (was 1116, **+13, 0 regressions**).
+      **Mutation-gated at both levels** — restoring `null == null` turns the
+      widget test red with the record gone (**Expected: length 1, Actual: []**,
+      the loss itself) and takes **4** of the predicate tests with it. The
+      widget test drives the real `ChatScreen`, real `Repository`, real
+      `ChatOutbox` and a real PNG on disk, and the thread is seeded with **a
+      different image from the same sender** — the decoy the old comparison was
+      incapable of telling apart, so the test would have passed for the wrong
+      reason without it.
+      Local `3934025`, remote **`cacb20a`**; **6/6 blobs verified MATCH** against
+      a fresh clone of the live remote tree. Not visual: storage and a re-read
+      predicate, no pixels moved, so no screenshot applies. No APK, no release,
+      no tag.
+
 ---
 
 ## Completed
