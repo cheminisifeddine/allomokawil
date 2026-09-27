@@ -99,7 +99,13 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   void _onPlaceChanged() {
     final id = _place?.wilayaId;
     if (!mounted || id == null) return;
-    setState(() => _topWorkers = _repo.topWorkers(limit: 12, preferWilaya: id));
+    // Block body for the reason written on [_reloadWorkers]: an arrow closure
+    // here returns the future it assigns, and `setState` throws on a
+    // Future-returning callback in debug. A GPS answer landing after boot is an
+    // everyday event on this screen, so this was throwing on the main path.
+    setState(() {
+      _topWorkers = _repo.topWorkers(limit: 12, preferWilaya: id);
+    });
   }
 
   @override
@@ -148,9 +154,57 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
 
   /// Retry handlers for the two home strips. They call the same repository
   /// methods the screen already used — just a second time, on demand.
-  void _reloadWorkers() => setState(() =>
-      _topWorkers = _repo.topWorkers(limit: 12, preferWilaya: _place?.wilayaId));
+  ///
+  /// Written with a block body, not `() => _topWorkers = …`. The arrow form made
+  /// the closure *return* the future it had just assigned, and
+  /// `State.setState` throws the moment a callback returns a `Future`
+  /// (framework.dart:1202-1214) — inside an assert, so only in debug, which is
+  /// exactly why it stayed invisible in a release build. The read still ran and
+  /// the strip still updated, so the button worked; it was throwing underneath
+  /// itself on every tap, and the pull gesture drove the same handler.
+  void _reloadWorkers() => setState(() {
+        _topWorkers =
+            _repo.topWorkers(limit: 12, preferWilaya: _place?.wilayaId);
+      });
   void _reloadProjects() => setState(_reloadStrips);
+
+  /// Pull-to-refresh on the explore tab.
+  ///
+  /// The gesture a user reaches for first when a home screen has gone stale,
+  /// and this was the last big read in the app with no way to answer it: a
+  /// client coming back after an hour — a contractor signed up across town, a
+  /// quote landed, his own project moved to «قيد التنفيذ» — got the same
+  /// screen and the only way to move it was killing the app.
+  ///
+  /// Unlike its four siblings this is **three** reads behind one gesture: the
+  /// top contractors, his own projects, and the conversations that decide the
+  /// first-run guide. So the contract is written down here instead of left to
+  /// chance:
+  ///
+  ///  * **What the indicator waits on** — all of them, through [Future.wait].
+  ///    A pull that fired and returned would take the spinner down while the
+  ///    home was still loading, which is the one thing the spinner is for.
+  ///  * **What it says when one of the three is dead** — nothing new. Every
+  ///    read already has its own `FutureBuilder` and its own error state, so a
+  ///    failed contractors call is announced in place as «تعذّر جلب المقاولين»
+  ///    with its own retry button, exactly as it is without a pull. Letting the
+  ///    gesture itself fail would throw away the two reads that did answer and
+  ///    trade a message that names the dead thing for a generic one.
+  ///  * **A visitor is never asked to read what he has no account for** — the
+  ///    two session-only strips stay null, so his pull is the contractor strip
+  ///    alone and the «إنشاء حساب» card is untouched.
+  Future<void> _refresh() async {
+    _reloadWorkers();
+    _reloadProjects();
+    // The setters above have already installed the new futures, so the wait is
+    // on the requests *this* pull issued and not on the ones it replaced.
+    final reads = <Future<void>>[
+      _topWorkers.then((_) {}, onError: (_, __) {}),
+      if (!_guest) _recentProjects!.then((_) {}, onError: (_, __) {}),
+      if (!_guest) _conversations!.then((_) {}, onError: (_, __) {}),
+    ];
+    await Future.wait(reads);
+  }
 
   /// Re-reads everything the explore tab knows about this client. The guide is
   /// derived from two of those answers, so it is re-evaluated with them. A
@@ -174,6 +228,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           guest: _guest,
           onRetryWorkers: _reloadWorkers,
           onRetryProjects: _reloadProjects,
+          onRefresh: _refresh,
           onPost: () => _gatedPost(),
           onBrowseAll: () => _push(const BrowseScreen(customerSide: true)),
           onSeeAllProjects: () => setState(() => _tab = 1),
@@ -261,6 +316,11 @@ class _ExploreView extends StatelessWidget {
   final bool guest;
   final VoidCallback onRetryWorkers;
   final VoidCallback onRetryProjects;
+
+  /// The pull gesture. A `Future<void>` rather than a `VoidCallback` so the
+  /// indicator can hold itself on screen until every read behind it answers.
+  final Future<void> Function() onRefresh;
+
   final VoidCallback onPost;
   final VoidCallback onBrowseAll;
   final VoidCallback onSeeAllProjects;
@@ -275,6 +335,7 @@ class _ExploreView extends StatelessWidget {
     required this.guest,
     required this.onRetryWorkers,
     required this.onRetryProjects,
+    required this.onRefresh,
     required this.onPost,
     required this.onBrowseAll,
     required this.onSeeAllProjects,
@@ -310,188 +371,201 @@ class _ExploreView extends StatelessWidget {
             ? '$resolvedWilaya • موقعك'
             : resolvedWilaya;
 
-    return CustomScrollView(
-      slivers: [
-        // ── Branded header (greeting + location + search) ────────────────
-        SliverToBoxAdapter(
-          child: _HomeHeader(
-            name: rawName.isEmpty ? null : rawName,
-            location: location,
-            onSearch: onBrowseAll,
-          ),
-        ),
-
-        // ── First-run guide ──────────────────────────────────────────────
-        // A project owner opening the app for the first time used to get the
-        // marketplace with no explanation of what to do first. He gets the
-        // three steps and one obvious action instead — right under the header,
-        // where he cannot miss them.
-        if (firstRun)
+    // `AlwaysScrollableScrollPhysics` is what keeps the gesture reachable when
+    // the page is short enough that the content does not overflow. `ScrollView`
+    // already defaults a vertical, controllerless scroll view to exactly that
+    // physics (scroll_view.dart:141-148), so on this screen the line is
+    // belt-and-braces — unlike the result list the sibling screen had to
+    // defend. It is written out because the test asserts the contract on the
+    // widget, and a contract nobody wrote down is one nobody can check.
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      color: AppTheme.navy,
+      backgroundColor: AppTheme.surface,
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          // ── Branded header (greeting + location + search) ────────────────
           SliverToBoxAdapter(
-            child: ClientStartCard(
-              onPost: onPost,
-              onBrowseWorkers: onBrowseAll,
-            ),
-          )
-        // ── The action this screen exists for ────────────────────────────
-        // Publishing a project is the only thing on this screen that gets work
-        // done; everything else here is browsing, and the categories and the
-        // contractor strip look the same to every visitor. So the one action
-        // leads. While the first-run guide is up it already carries this
-        // action twice, and the banner stands down.
-        else
-          SliverToBoxAdapter(child: _PostProjectBanner(onTap: onPost)),
-
-        // ── Categories ───────────────────────────────────────────────────
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SectionTitle(
-              'التخصصات',
-              icon: Icons.grid_view_rounded,
-              actionText: 'عرض الكل',
-              onAction: onBrowseAll,
+            child: _HomeHeader(
+              name: rawName.isEmpty ? null : rawName,
+              location: location,
+              onSearch: onBrowseAll,
             ),
           ),
-        ),
-        SliverToBoxAdapter(child: CategoryGrid(onTap: onBrowseCategory)),
 
-        // ── Top-rated contractors ────────────────────────────────────────
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SectionTitle(
-              'أفضل المقاولين',
-              icon: Icons.workspace_premium_rounded,
-              actionText: 'عرض الكل',
-              onAction: onBrowseAll,
-            ),
-          ),
-        ),
-        FutureBuilder<List<WorkerProfile>>(
-          future: topWorkers,
-          builder: (context, snap) {
-            if (snap.connectionState != ConnectionState.done) {
-              return const SliverToBoxAdapter(
-                  child: Shimmer(child: _WorkerStripSkeleton()));
-            }
-            if (snap.hasError) {
-              return SliverToBoxAdapter(
-                child: EmptyView(
-                  icon: Icons.wifi_off_rounded,
-                  title: 'تعذّر جلب المقاولين',
-                  message: 'تحقق من اتصالك بالإنترنت ثم أعد المحاولة',
-                  actionLabel: 'إعادة المحاولة',
-                  onAction: onRetryWorkers,
-                ),
-              );
-            }
-            final workers = snap.data ?? const <WorkerProfile>[];
-            if (workers.isEmpty) {
-              // "سيظهر أفضل المقاولين هنا" left the client with nothing to do.
-              // The one action that makes contractors appear for him is the one
-              // he can take himself: publish the project so it reaches them.
-              return SliverToBoxAdapter(
-                child: EmptyView(
-                  icon: Icons.people_outline_rounded,
-                  title: 'لا يوجد مقاولون بعد',
-                  message: 'لم يسجّل أي مقاول في منطقتك حتى الآن.\n'
-                      'انشر مشروعك وسيصل إليه أول المقاولين المسجّلين.',
-                  actionLabel: 'انشر مشروعاً ليصلك مقاول',
-                  actionIcon: Icons.add_rounded,
-                  onAction: onPost,
-                ),
-              );
-            }
-            return SliverToBoxAdapter(
-              child: SizedBox(
-                height: 190,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  itemCount: workers.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
-                  itemBuilder: (context, i) => WorkerCard(
-                    worker: workers[i],
-                    variant: WorkerCardVariant.vertical,
-                    onTap: () => onWorker(workers[i]),
-                  ),
-                ),
+          // ── First-run guide ──────────────────────────────────────────────
+          // A project owner opening the app for the first time used to get the
+          // marketplace with no explanation of what to do first. He gets the
+          // three steps and one obvious action instead — right under the header,
+          // where he cannot miss them.
+          if (firstRun)
+            SliverToBoxAdapter(
+              child: ClientStartCard(
+                onPost: onPost,
+                onBrowseWorkers: onBrowseAll,
               ),
-            );
-          },
-        ),
+            )
+          // ── The action this screen exists for ────────────────────────────
+          // Publishing a project is the only thing on this screen that gets work
+          // done; everything else here is browsing, and the categories and the
+          // contractor strip look the same to every visitor. So the one action
+          // leads. While the first-run guide is up it already carries this
+          // action twice, and the banner stands down.
+          else
+            SliverToBoxAdapter(child: _PostProjectBanner(onTap: onPost)),
 
-        // ── The client's own recent projects ─────────────────────────────
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SectionTitle(
-              'مشاريعي الأخيرة',
-              icon: Icons.folder_outlined,
-              actionText: 'عرض الكل',
-              onAction: onSeeAllProjects,
-            ),
-          ),
-        ),
-        if (recentProjects == null)
+          // ── Categories ───────────────────────────────────────────────────
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              child: _SignInForProjects(onPost: onPost),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: SectionTitle(
+                'التخصصات',
+                icon: Icons.grid_view_rounded,
+                actionText: 'عرض الكل',
+                onAction: onBrowseAll,
+              ),
             ),
-          )
-        else
-          FutureBuilder<List<Project>>(
-            future: recentProjects,
+          ),
+          SliverToBoxAdapter(child: CategoryGrid(onTap: onBrowseCategory)),
+
+          // ── Top-rated contractors ────────────────────────────────────────
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: SectionTitle(
+                'أفضل المقاولين',
+                icon: Icons.workspace_premium_rounded,
+                actionText: 'عرض الكل',
+                onAction: onBrowseAll,
+              ),
+            ),
+          ),
+          FutureBuilder<List<WorkerProfile>>(
+            future: topWorkers,
             builder: (context, snap) {
-            if (snap.connectionState != ConnectionState.done) {
-              return const SliverToBoxAdapter(
-                  child: Shimmer(child: _ProjectStripSkeleton(count: 2)));
-            }
-            if (snap.hasError) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const SliverToBoxAdapter(
+                    child: Shimmer(child: _WorkerStripSkeleton()));
+              }
+              if (snap.hasError) {
+                return SliverToBoxAdapter(
+                  child: EmptyView(
+                    icon: Icons.wifi_off_rounded,
+                    title: 'تعذّر جلب المقاولين',
+                    message: 'تحقق من اتصالك بالإنترنت ثم أعد المحاولة',
+                    actionLabel: 'إعادة المحاولة',
+                    onAction: onRetryWorkers,
+                  ),
+                );
+              }
+              final workers = snap.data ?? const <WorkerProfile>[];
+              if (workers.isEmpty) {
+                // "سيظهر أفضل المقاولين هنا" left the client with nothing to do.
+                // The one action that makes contractors appear for him is the one
+                // he can take himself: publish the project so it reaches them.
+                return SliverToBoxAdapter(
+                  child: EmptyView(
+                    icon: Icons.people_outline_rounded,
+                    title: 'لا يوجد مقاولون بعد',
+                    message: 'لم يسجّل أي مقاول في منطقتك حتى الآن.\n'
+                        'انشر مشروعك وسيصل إليه أول المقاولين المسجّلين.',
+                    actionLabel: 'انشر مشروعاً ليصلك مقاول',
+                    actionIcon: Icons.add_rounded,
+                    onAction: onPost,
+                  ),
+                );
+              }
               return SliverToBoxAdapter(
-                child: EmptyView(
-                  icon: Icons.wifi_off_rounded,
-                  title: 'تعذّر جلب المشاريع',
-                  message: 'تحقق من اتصالك بالإنترنت ثم أعد المحاولة',
-                  actionLabel: 'إعادة المحاولة',
-                  onAction: onRetryProjects,
+                child: SizedBox(
+                  height: 190,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    itemCount: workers.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 12),
+                    itemBuilder: (context, i) => WorkerCard(
+                      worker: workers[i],
+                      variant: WorkerCardVariant.vertical,
+                      onTap: () => onWorker(workers[i]),
+                    ),
+                  ),
                 ),
               );
-            }
-            final projects = snap.data ?? const <Project>[];
-            if (projects.isEmpty) {
-              return SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: firstRun
-                      ? const _FirstRunProjectsHint()
-                      : _NoProjectsCard(onPost: onPost),
-                ),
-              );
-            }
-            final recent = projects.take(3).toList();
-            return SliverToBoxAdapter(
+            },
+          ),
+
+          // ── The client's own recent projects ─────────────────────────────
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: SectionTitle(
+                'مشاريعي الأخيرة',
+                icon: Icons.folder_outlined,
+                actionText: 'عرض الكل',
+                onAction: onSeeAllProjects,
+              ),
+            ),
+          ),
+          if (recentProjects == null)
+            SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: Column(
-                  children: [
-                    for (var i = 0; i < recent.length; i++) ...[
-                      if (i > 0) const SizedBox(height: 12),
-                      ProjectCard(
-                        project: recent[i],
-                        onTap: () => onProject(recent[i]),
-                      ),
-                    ],
-                  ],
-                ),
+                child: _SignInForProjects(onPost: onPost),
               ),
-            );
-          },
-        ),
-        const SliverToBoxAdapter(child: SizedBox(height: 28)),
-      ],
+            )
+          else
+            FutureBuilder<List<Project>>(
+              future: recentProjects,
+              builder: (context, snap) {
+                if (snap.connectionState != ConnectionState.done) {
+                  return const SliverToBoxAdapter(
+                      child: Shimmer(child: _ProjectStripSkeleton(count: 2)));
+                }
+                if (snap.hasError) {
+                  return SliverToBoxAdapter(
+                    child: EmptyView(
+                      icon: Icons.wifi_off_rounded,
+                      title: 'تعذّر جلب المشاريع',
+                      message: 'تحقق من اتصالك بالإنترنت ثم أعد المحاولة',
+                      actionLabel: 'إعادة المحاولة',
+                      onAction: onRetryProjects,
+                    ),
+                  );
+                }
+                final projects = snap.data ?? const <Project>[];
+                if (projects.isEmpty) {
+                  return SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      child: firstRun
+                          ? const _FirstRunProjectsHint()
+                          : _NoProjectsCard(onPost: onPost),
+                    ),
+                  );
+                }
+                final recent = projects.take(3).toList();
+                return SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    child: Column(
+                      children: [
+                        for (var i = 0; i < recent.length; i++) ...[
+                          if (i > 0) const SizedBox(height: 12),
+                          ProjectCard(
+                            project: recent[i],
+                            onTap: () => onProject(recent[i]),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          const SliverToBoxAdapter(child: SizedBox(height: 28)),
+        ],
+      ),
     );
   }
 }
