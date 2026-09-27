@@ -63,6 +63,17 @@ class _ChatScreenState extends State<ChatScreen> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
 
+  /// True while one send is in flight, so a second tap cannot start a second.
+  ///
+  /// The composer is emptied only *after* the queue write has taken the words,
+  /// because a draft held for the length of a disk write is a draft the app can
+  /// still lose to Android killing it. That leaves a window in which the field
+  /// still holds the message and the send button is still live, and without
+  /// this flag a second tap in it reads the same text and sends it again — the
+  /// duplicate this app has an entire phase for killing. The flag closes the
+  /// window without giving the durability back.
+  bool _sending = false;
+
   int get _me => AppScope.of(context).auth.user?.id ?? 0;
 
   int? _convId;
@@ -251,8 +262,28 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _sendText() async {
+    // Set before the first `await`, which is the whole point: the tap that has
+    // to be refused arrives while the queue write is still on the disk, and a
+    // flag set after that write would already be too late. A second tap is
+    // dropped rather than queued, and the words stay in the composer for the
+    // send that is already running to deliver — nothing is lost by refusing it.
+    if (_sending) return;
     final text = _input.text.trim();
     if (text.isEmpty && _unsent.isEmpty) return;
+    _sending = true;
+    try {
+      await _sendClaimed(text);
+    } finally {
+      // Released even when the body throws, so one failed send cannot wedge the
+      // composer: a bubble the server refused must stay re-sendable.
+      _sending = false;
+    }
+  }
+
+  /// [text] is the composer's content captured on entry, and the composer still
+  /// holds it. Everything from here can await, and everything that touches
+  /// `context` is still read before the first of those awaits.
+  Future<void> _sendClaimed(String text) async {
     // Everything that reads `context` is read **before the first await**.
     // `_localBubble` asks the session who the user is, and that is a `context`
     // lookup — so building the bubble after any await means building it on a
@@ -284,6 +315,12 @@ class _ChatScreenState extends State<ChatScreen> {
     // left to say to a State that is gone, and no composer to clear: it was
     // disposed with the route. Only the draw needs the guard, and without it
     // this is a red screen over the message he just sent.
+    //
+    // Clearing here rather than before the write is what makes the composer
+    // durable, and it is the reason [_sending] exists: the field is full for
+    // exactly as long as the write takes, and the flag is what stops that window
+    // from becoming a second send. Do not move the clear back up to the top of
+    // the method — that is the loss the outbox was built to prevent.
     if (!mounted) return;
     _input.clear();
     setState(() => _messages = [..._messages, local]);

@@ -64,6 +64,32 @@ class _GatedStore implements OutboxStore {
   }
 }
 
+/// Gates only the **first** write, and lets every later one straight through.
+///
+/// [_GatedStore] parks the whole queue, which is right for a test about a
+/// single send and wrong for this one: the defect is a *second* send landing
+/// while the first is still in flight, so a store that stays shut would hide it
+/// behind a timeout rather than show it. Gating the first write and then letting
+/// the rest through means the second send is written immediately, and the
+/// duplicate is in the queue where the test can count it.
+class _FirstWriteGatedStore implements OutboxStore {
+  final gate = Completer<void>();
+  Object? raw;
+  bool _gated = false;
+
+  @override
+  Future<Object?> read() async => raw;
+
+  @override
+  Future<void> write(String value) async {
+    if (!_gated) {
+      _gated = true;
+      await gate.future;
+    }
+    raw = value;
+  }
+}
+
 final _me = <String, Object?>{
   'id': 30,
   'phone': '0773000000',
@@ -87,6 +113,14 @@ String _json(Object? body) => jsonEncode(body);
 /// instantly finishes the whole loop inside one frame and the pop never lands
 /// in the window. Arming it later matters too: the thread's own open-time flush
 /// must run to completion, or the bubbles are still mid-send when he types.
+/// Every message the server actually accepted, in order.
+///
+/// The queue is the wrong place to count duplicates: both sends confirm, so it
+/// ends up empty either way and the second copy has already reached the
+/// contractor. What a duplicate means to a user is a message delivered twice,
+/// so the test counts what went on the wire.
+final List<String> posted = <String>[];
+
 ApiClient _api({bool refusePost = false, List<Completer<void>?>? hold}) {
   final client = MockClient((req) async {
     final p = req.url.path;
@@ -115,6 +149,7 @@ ApiClient _api({bool refusePost = false, List<Completer<void>?>? hold}) {
             headers: {'content-type': 'application/json'});
       }
       final body = jsonDecode(req.body) as Map<String, dynamic>;
+      posted.add('${body['content']}');
       return http.Response(
           _json({
             'id': 900,
@@ -318,5 +353,66 @@ void main() {
     expect(kept, contains('مستعجل'),
         reason: 'the message he was sending must still reach the queue — the '
             'crash used to abort the send that was in progress');
+  });
+
+  // Defect 4 — a regression opened by the fix above, in the same method.
+  //
+  // Moving `_input.clear()` from before the queue write to after it was right
+  // for durability and cost the send its only re-entrancy guard. In the old
+  // code a plain send reached `_input.clear()` with no `await` in front of it —
+  // `_retryUnsent` is skipped entirely when nothing has been refused — so the
+  // composer was already empty by the time the next frame was built. After the
+  // fix the first `await` is the queue write, and the clear sits behind it: for
+  // the whole duration of a `SharedPreferences` write the field still holds the
+  // words and the send button is still live.
+  //
+  // So a second tap in that window reads the same text, builds a second bubble
+  // and queues a second record. The same address, sent twice — and the app
+  // already has a whole phase whose reason for existing is that a duplicate is
+  // the worst thing it can do to a user.
+  testWidgets('a second tap on send while the first is still writing queues once',
+      (tester) async {
+    posted.clear();
+    final store = _FirstWriteGatedStore();
+    final outbox = ChatOutbox(store: store);
+    final api = _api();
+    final auth = await _boot(api);
+    await _openThread(
+        tester, api: api, auth: auth, repo: Repository(api), outbox: outbox);
+
+    await tester.enterText(find.byType(TextField).last, 'العنوان: حسين داي');
+    await tester.pump();
+
+    // First tap. The send begins and parks inside the store write.
+    await tester.tap(find.byTooltip('إرسال'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 40));
+
+    // The composer is deliberately still full — that is the previous fix
+    // working, and it is what makes this window reachable. Asserting it is
+    // empty here would pin the very defect being fixed.
+    expect(
+      tester.widget<TextField>(find.byType(TextField).last).controller!.text,
+      'العنوان: حسين داي',
+      reason: 'the draft is held until the write lands — that is the point of '
+          'the previous fix, and the reason a second tap can reach it',
+    );
+
+    // Second tap on the same button, in the same window. An impatient tap on
+    // send, or the keyboard submit followed by the button, is exactly this.
+    await tester.tap(find.byTooltip('إرسال'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 40));
+
+    store.gate.complete();
+    await _pump(tester, 10);
+
+    // Both sends confirm, so the queue empties either way — counting the queue
+    // here would prove nothing. What counts is how many times the words were
+    // *put* on the wire, which is the duplicate the contractor would receive.
+    expect(posted, ['العنوان: حسين داي'],
+        reason: 'the same message must reach the server once, not twice; '
+            'before the fix a second tap in the write window queued and sent a '
+            'second copy of the same words');
   });
 }
