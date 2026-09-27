@@ -4339,3 +4339,59 @@ Phase 1.
       flaky. It also could not tap a busy button by its label, because a busy
       button has *no* label — it is now tapped by its rect, which is the honest
       gesture anyway.
+
+- [x] **A failed subscription read told the contractor he had no plan.**
+      `_PlanAccountRow` is the only read on the account tab, and the only one in
+      this family that did not even have a failure branch — it never asked
+      `snap.hasError` at all:
+      `value: _planSummary(snap.data?.current, snap.connectionState)`.
+      `_planSummary` keys on `s == null`, and `snap.data` is null on an error
+      exactly as it is on a read that has not answered, so the 500 branch and the
+      first-frame branch were the same string. A failed read therefore published a
+      *settlement*: «اختر خطتك — شهري أو سنوي» — "pick your plan" — as though the
+      server had answered "free trial". A contractor on a paid plan whose read
+      failed was told, in the app's own voice, that he had none, on the one row
+      whose entire job is to get him to the renewal screen. There was no recovery
+      either: the read is issued once in `didChangeDependencies` and never
+      re-issued, and the `ListView` has no `RefreshIndicator`.
+      *Shipped:* a failed read is now its own state — «تعذّر جلب اشتراكك» in the
+      danger palette with a real retry control in the trailing slot. The row
+      stays tappable (it is the door to the plan screen, and a man who cannot see
+      his plan can still go and look for it). A pending read keeps its own
+      sentence and is not a failure, so no retry is offered for it.
+      **DONE `07637d6`** (pushed `a47934c`).
+      *A second defect, found by the tests and caused by the fix.* A busy retry
+      that passes `onTap: null` drops out of the gesture arena entirely, and
+      because the control sits inside the row's own `AppCard.onTap`, the second
+      tap on a slow connection was caught by the card: the man who pressed
+      "retry" was silently taken to the plan screen instead, with the retry still
+      running behind him. The busy branch is now a no-op callback that still wins
+      the arena, and a test pins both halves.
+      *Evidence:* 10 widget tests driving the real screen, real `Repository` and a
+      fake client. On the unfixed code they measured **+8 −2** — the two reds are
+      the defect. `flutter analyze` -> **No issues found!**; `flutter test` ->
+      **+1051 ~3 all passed** (was +1041: **+10 net, 0 regressions**, skips
+      unchanged). Mutation-gated **four ways**, each reverted and re-verified:
+      failure branch removed **−1**; retry as a no-op redraw **−2**; busy retry
+      back to `onTap: null` **−1**; error row wearing the settled styling **−1**.
+      **The fourth survived the first pass**, so the styling assertion was added
+      rather than the mutation being dropped — a mutation that survives means the
+      test is missing, not that the code is fine.
+      *Visual, measured:* `/tmp/shots/plan_account_read_failed.png` (1176×2700).
+      `dangerWash fcedec` spans y 2098..2497 and `danger c33f39` peaks at 416 px
+      on the row; `accentWash` appears in **0** rows of that band, so the
+      settled-row amber is gone. The retry glyph measures **16 dp**, which is why
+      the ≥ 48 dp target is asserted in the test — the tap box is transparent and
+      no pixel scan of the shot could ever see it.
+      *A regression the full suite caught that my own file did not.* The retry's
+      `horizontal: 10` was an off-grid literal, so the 8pt ratchet in
+      `card_recipe_test.dart` went **197 → 198** and the suite went red. Fixed
+      with `AppTheme.s8` rather than by loosening the ratchet.
+      *Files:* `lib/src/screens/profile_screen.dart`,
+      `test/plan_account_read_failure_test.dart`. 3/3 blobs verified `MATCH`
+      against remote tip `a47934c`.
+      *One harness lesson, the same shape as last tick's.* The retry test first
+      used the same instant 500 as the first read; the busy state was over inside
+      one pump, so the test was asserting on a moment that no longer existed and
+      **would have kept passing if the control had never latched at all**. It now
+      holds the retry in flight for the whole assertion.
