@@ -118,7 +118,20 @@ void main() {
       expect(auth.isAuthenticated, isTrue);
       expect(auth.role, UserRole.customer);
       expect(auth.user!.fullName, 'Test Client');
-      expect(prefs.get('auth.token'), 'test-token');
+
+      // The session survives the boot, but no longer as two keys. This file
+      // was written when `restore()` read the split pair `auth.token` +
+      // `auth.user` and left it there; it is now migrated into the single
+      // `auth.session` envelope on the launch that finds it, so the window in
+      // which a process death could leave a token with no user beside it is
+      // closed rather than merely handled. Asserting the old pair survived
+      // would pin the defect in place. The upgrade itself - an old phone
+      // keeping its session - is covered in session_write_atomicity_test.dart.
+      expect(prefs.get('auth.token'), isNull,
+          reason: 'the split pair is collapsed into one value');
+      final envelope = jsonDecode(prefs.get('auth.session')! as String);
+      expect(envelope['token'], 'test-token');
+      expect((envelope['user'] as Map)['full_name'], 'Test Client');
     });
   });
 

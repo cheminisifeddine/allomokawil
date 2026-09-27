@@ -36,6 +36,13 @@ class AuthState extends ChangeNotifier {
   /// name on them. See [logout].
   final ChatOutbox _outbox;
 
+  /// The whole session as **one** value, so a process that dies mid-write
+  /// cannot leave half of it behind. See [_persist].
+  static const _sessionKey = 'auth.session';
+
+  /// The split pair [_sessionKey] replaced. Still written by an older build
+  /// on a phone that has not re-signed-in, so it is still *read* — see
+  /// [restore] — and still removed whenever the session is dropped.
   static const _tokenKey = 'auth.token';
   static const _userKey = 'auth.user';
   static const _guestKey = 'auth.guestRole';
@@ -103,29 +110,59 @@ class AuthState extends ChangeNotifier {
   /// The keys are therefore read through [SharedPreferences.get] and narrowed
   /// by hand instead of using `getString`. The typed getters are hard casts
   /// (`_preferenceCache[key] as String?`), so a single value of the wrong type
-  /// under `auth.user` — a corrupted or migrated preferences file — used to
-  /// throw a `_TypeError` out of `main()`. Anything that is not two strings
-  /// forming a parseable user is not a session: the keys are dropped and the
-  /// app opens on the logged-out landing page.
+  /// under the session key — a corrupted or migrated preferences file — used to
+  /// throw a `_TypeError` out of `main()`. Anything that is not a well-formed
+  /// session is not a session: the keys are dropped and the app opens on the
+  /// logged-out landing page.
+  ///
+  /// One build ago the session was two keys, `auth.token` and `auth.user`, and
+  /// a phone carrying that pair still carries it. It is read here, exactly
+  /// once, and then written back as a single envelope by [_migrate] — so a
+  /// sign-in that predates the change is not thrown away, and the window in
+  /// which a process death could leave half a session on disk (see
+  /// [_persist]) closes on the first launch after the upgrade.
   Future<void> restore() async {
     SharedPreferences? prefs;
     try {
       prefs = await SharedPreferences.getInstance();
-      final tokenRaw = prefs.get(_tokenKey);
-      final userRaw = prefs.get(_userKey);
-      if (tokenRaw is String && userRaw is String) {
-        // Decode before touching state: assigning the token first would leave
-        // a credential attached to a session with nobody in it.
-        final user = User.fromJson(jsonDecode(userRaw) as Map<String, dynamic>);
-        _api.token = tokenRaw;
-        _user = user;
-      } else if (tokenRaw != null || userRaw != null) {
-        // Wrong type, or only half of the pair.
+      final stored = prefs.get(_sessionKey);
+      if (stored is String) {
+        // The whole session in one value: either this is a session or it is
+        // not, and nothing can be left behind without its other half.
+        final session = _readSession(stored);
+        if (session == null) {
+          await _discardSession(prefs);
+        } else {
+          _api.token = session.token;
+          _user = session.user;
+        }
+      } else if (stored != null) {
+        // A wrong type under the envelope — a file another version wrote.
         await _discardSession(prefs);
       } else {
-        // No session, but this device already answered the first page's
-        // question: reopen that dashboard signed out instead of asking again.
-        _guestRole = _roleFromName(prefs.get(_guestKey));
+        // No envelope. A phone signed in by a build that wrote the split pair
+        // still has one, and this is the only launch that reads it.
+        final tokenRaw = prefs.get(_tokenKey);
+        final userRaw = prefs.get(_userKey);
+        if (tokenRaw is String && userRaw is String) {
+          // Decode before touching state: assigning the token first would
+          // leave a credential attached to a session with nobody in it.
+          final user = _readUser(userRaw);
+          if (user == null) {
+            await _discardSession(prefs);
+          } else {
+            _api.token = tokenRaw;
+            _user = user;
+            await _migrate(prefs, tokenRaw, user);
+          }
+        } else if (tokenRaw != null || userRaw != null) {
+          // Wrong type, or only half of the pair.
+          await _discardSession(prefs);
+        } else {
+          // No session, but this device already answered the first page's
+          // question: reopen that dashboard signed out instead of asking again.
+          _guestRole = _roleFromName(prefs.get(_guestKey));
+        }
       }
     } catch (error) {
       // Unreadable JSON, a value we cannot cast, or a store that will not open.
@@ -206,6 +243,29 @@ class AuthState extends ChangeNotifier {
     await _persist(session.token, session.user);
   }
 
+  /// Writes the session **and** clears the stale pair, as one envelope.
+  ///
+  /// This used to be two `setString` calls — the token, then the user — and
+  /// that is the one place in the app that *manufactures* the corrupt input
+  /// everything around it works so hard to survive. A process that dies between
+  /// the two writes (the OS reclaiming memory, a battery pull, the user force-
+  /// quitting from the switcher) leaves `auth.token` on disk with no user
+  /// beside it. `restore()` then does exactly what it does with a corrupt file:
+  /// discards the session and opens the login form, so a user who signed in
+  /// successfully is signed out again by the next launch, with nothing on
+  /// screen to say why.
+  ///
+  /// One value means there is no such window: either the write happened or it
+  /// did not, and a value that is not a session is discarded on the next boot
+  /// rather than half-restored. The old pair is removed in the same breath, so
+  /// a phone upgraded mid-session cannot leave a dead `auth.token` beside the
+  /// envelope for anything to read.
+  ///
+  /// The order is the one the rest of the file keeps: the in-memory session
+  /// first, because that is the part the user is looking at, and the store
+  /// second, because a store that will not write is not a reason to refuse a
+  /// sign-in that the server has already accepted. `notifyListeners()` is
+  /// unconditional so the root gate always hears about the new session.
   Future<void> _persist(String token, User user) async {
     _api.token = token;
     _user = user;
@@ -214,11 +274,96 @@ class AuthState extends ChangeNotifier {
     _guestRole = null;
     // A fresh session answers the notice: whatever token failed before is gone.
     _sessionExpired = false;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_tokenKey, token);
-    await prefs.setString(_userKey, jsonEncode(user.toJson()));
-    await prefs.remove(_guestKey);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_sessionKey, _encodeSession(token, user));
+      // One refusal must not skip the key beside it, and the envelope is the
+      // one that matters: if it fails, the old pair is still what the next
+      // launch reads, so leaving it would be harmless. Remove them anyway so
+      // no two copies of a session can exist on one phone.
+      for (final key in [_tokenKey, _userKey, _guestKey]) {
+        try {
+          await prefs.remove(key);
+        } catch (error) {
+          debugPrint('persist: could not clear $key ($error)');
+        }
+      }
+    } catch (error) {
+      // The account is signed in for as long as this process lives; it simply
+      // will not survive a restart, and the next launch asks again. Refusing
+      // the sign-in now would strand a session the server has already created.
+      debugPrint('persist: could not write the session ($error)');
+    }
     notifyListeners();
+  }
+
+  /// Copies a split-pair session into the envelope, once, on the launch that
+  /// finds it. A store that refuses is not a reason to sign the user out.
+  Future<void> _migrate(SharedPreferences prefs, String token, User user) async {
+    try {
+      await prefs.setString(_sessionKey, _encodeSession(token, user));
+      for (final key in [_tokenKey, _userKey]) {
+        try {
+          await prefs.remove(key);
+        } catch (error) {
+          debugPrint('restore: could not clear the legacy $key ($error)');
+        }
+      }
+    } catch (error) {
+      debugPrint('restore: could not migrate the stored session ($error)');
+    }
+  }
+
+  /// The one stored string: the token and the user it belongs to, together.
+  String _encodeSession(String token, User user) =>
+      jsonEncode(<String, dynamic>{'token': token, 'user': user.toJson()});
+
+  /// The envelope read back, or null when it is not a session — unreadable
+  /// JSON, a token that is not a string, a user object that will not build.
+  /// Never throws: every bad shape is the same outcome, a signed-out app.
+  _Session? _readSession(String raw) {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } catch (error) {
+      debugPrint('restore: stored session is not json ($error)');
+      return null;
+    }
+    if (decoded is! Map<String, dynamic>) return null;
+    final token = decoded['token'];
+    final user = decoded['user'];
+    if (token is! String || token.isEmpty || user is! Map<String, dynamic>) {
+      return null;
+    }
+    final parsed = _readUser(user);
+    if (parsed == null) return null;
+    return _Session(token, parsed);
+  }
+
+  /// A stored user object, or null when the value is not one that builds.
+  ///
+  /// Takes the decoded map rather than a string, because inside the envelope
+  /// the user is already a nested object. Written to accept a `String` as well
+  /// so both shapes can be narrowed in one place.
+  User? _readUser(Object? raw) {
+    final Object? decoded;
+    if (raw is String) {
+      try {
+        decoded = jsonDecode(raw);
+      } catch (error) {
+        debugPrint('restore: stored user is not json ($error)');
+        return null;
+      }
+    } else {
+      decoded = raw;
+    }
+    if (decoded is! Map<String, dynamic>) return null;
+    try {
+      return User.fromJson(decoded);
+    } catch (error) {
+      debugPrint('restore: stored user is not readable ($error)');
+      return null;
+    }
   }
 
   /// Opens the dashboard for [role] without an account.
@@ -313,7 +458,7 @@ class AuthState extends ChangeNotifier {
       // One refusal must not skip the keys beside it: leaving `auth.user` on
       // disk while `auth.token` is gone manufactures the half-pair that
       // `restore()` treats as a session to discard.
-      for (final key in [_tokenKey, _userKey, _guestKey]) {
+      for (final key in [_sessionKey, _tokenKey, _userKey, _guestKey]) {
         try {
           await prefs.remove(key);
         } catch (error) {
