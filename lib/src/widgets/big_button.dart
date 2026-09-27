@@ -53,13 +53,19 @@ class _KitPrimary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Same rule as `PrimaryButton` in `ui.dart`, which this delegates to: a
+    // busy button keeps its amber fill and only a genuinely dead one goes
+    // grey. Login, register, landing and the worker header all render through
+    // here, so the two kits have to agree or the app shows two states for one
+    // meaning.
     final btn = ElevatedButton(
       onPressed: loading ? null : onPressed,
       style: ElevatedButton.styleFrom(
         backgroundColor: AppTheme.accent,
         foregroundColor: AppTheme.navy,
-        disabledBackgroundColor: AppTheme.line,
-        disabledForegroundColor: AppTheme.textMuted,
+        disabledBackgroundColor: loading ? AppTheme.accent : AppTheme.line,
+        disabledForegroundColor:
+            loading ? AppTheme.navy : AppTheme.textMuted,
         elevation: 0,
         minimumSize: const Size.fromHeight(AppTheme.tapMin),
         shape: RoundedRectangleBorder(

@@ -168,14 +168,33 @@ class PrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final enabled = onPressed != null && !loading;
+    // Busy is not the same as dead. Both pass a null callback, so the button
+    // style cannot tell them apart — but they must not *look* alike.
+    //
+    // This computed `enabled = onPressed != null && !loading` and let the
+    // spinner fall through to the style's `disabledBackgroundColor`, so every
+    // busy button in the app painted grey: the same fill as a button the user
+    // cannot press. The one moment a screen is waiting on the network is the
+    // one moment the app looks like it has refused to act.
+    //
+    // Caught by measuring the pixels of the previous tick's own screenshot:
+    // the committing «قبول العرض» button was 99.6 % `e8e8ec` — identical to
+    // the two dead sibling buttons around it — while idle it is 100 % accent.
+    // A busy fill is supplied explicitly, which keeps the amber promise the
+    // rest of the app makes about its primary action.
+    final busy = loading;
+    final enabled = onPressed != null && !busy;
     final btn = ElevatedButton(
       onPressed: enabled ? onPressed : null,
       style: ElevatedButton.styleFrom(
         backgroundColor: AppTheme.accent,
         foregroundColor: AppTheme.navy,
-        disabledBackgroundColor: AppTheme.line,
-        disabledForegroundColor: AppTheme.textMuted,
+        // The disabled palette is kept for a button with no callback *and*
+        // nothing in flight; a busy one keeps the accent.
+        disabledBackgroundColor:
+            busy ? AppTheme.accent : AppTheme.line,
+        disabledForegroundColor:
+            busy ? AppTheme.navy : AppTheme.textMuted,
         elevation: 0,
         minimumSize: const Size.fromHeight(AppTheme.tapMin),
         shape: RoundedRectangleBorder(

@@ -45,6 +45,16 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
   late Future<Project> _project;
   late Future<List<Quote>> _quotes;
 
+  /// The quote being accepted right now, or null when the owner is not
+  /// mid-commit. Set before the POST is issued and cleared in a `finally`, so
+  /// the guard cannot outlive the request it was written for.
+  ///
+  /// Holding the id rather than a bool is what lets the right button show the
+  /// spinner and the *other* buttons simply go dead: the quotes are a
+  /// `ListView`, and a plain `loading` flag on every card would flash spinners
+  /// on bids the owner never touched.
+  int? _acceptingQuoteId;
+
   UserRole get _role => AppScope.of(context).auth.role;
 
   /// Guests read a project; they own nothing.
@@ -72,13 +82,13 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _project = widget.repo.getProject(widget.projectId);
+    _project = _observe(widget.repo.getProject(widget.projectId));
     _quotes = _observe(widget.repo.projectQuotes(widget.projectId));
   }
 
   void _reload() {
     setState(() {
-      _project = widget.repo.getProject(widget.projectId);
+      _project = _observe(widget.repo.getProject(widget.projectId));
       _quotes = _observe(widget.repo.projectQuotes(widget.projectId));
     });
   }
@@ -105,19 +115,59 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
   /// future handled. The error is not swallowed: [FutureBuilder] still sees
   /// `hasError` and still renders the state below, because this listener runs
   /// alongside the builder's rather than instead of it.
-  static Future<List<Quote>> _observe(Future<List<Quote>> f) {
+  ///
+  /// Generic because both reads on this screen need it. The quote read was
+  /// given one; the *project* read was not, and it is the one that fires on the
+  /// path this screen is judged by — `_accept` calls `_reload()`, and a server
+  /// that answers the accept but not the re-read left a failed future with no
+  /// listener, so the owner got a red screen in release *after* a successful
+  /// commit instead of the error state the screen can already draw.
+  static Future<T> _observe<T>(Future<T> f) {
     f.then<void>((_) {}, onError: (Object _, StackTrace __) {});
     return f;
   }
 
   /// Owner accepts a quote — the backend rejects every other one.
+  ///
+  /// This is the only write in the product that commits a contract, and it was
+  /// the only one shipping with no `catch`. `_complete` and `_cancel`, twenty
+  /// lines below, were repaired in earlier ticks and both wrap the call and
+  /// report through `errorCopy`; this one ran bare, so a refused accept — 409
+  /// because the web app already accepted a different bid, 500, a dropped
+  /// connection — escaped as an *unhandled* async error. In release that is a
+  /// red screen plus a crash report, and the owner never learns whether the
+  /// contractor he just hired is hired: the button looks tapped, nothing
+  /// happens, forever. It now answers in the same Arabic as its siblings.
+  ///
+  /// The `_acceptingQuoteId` guard is the half a `catch` cannot fix. The button
+  /// used to stay enabled for the whole round-trip, so a second tap on a slow
+  /// connection — which is what everyone does, and what a stalled POST
+  /// provokes — fired a second accept at a project the backend has already
+  /// committed to somebody else. The guard clears in `finally`, never in the
+  /// success path, so a failure does not leave the owner with a dead button
+  /// and no way to retry the one action on this screen he cannot walk back.
   Future<void> _accept(Quote q) async {
-    await widget.repo.acceptQuote(widget.projectId, q.id);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تم قبول العرض، سيتم رفض باقي العروض')));
-      _reload();
+    if (_acceptingQuoteId != null) return; // a commit is already in flight
+    setState(() => _acceptingQuoteId = q.id);
+    try {
+      await widget.repo.acceptQuote(widget.projectId, q.id);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(errorCopy(e))));
+      }
+      return;
+    } finally {
+      if (mounted) setState(() => _acceptingQuoteId = null);
     }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم قبول العرض، سيتم رفض باقي العروض')));
+    // Re-read after confirming. If this read fails the screen now shows its
+    // failed-read state, which is the honest answer: the quotes still listed
+    // below belong to a project the server has already reassigned, and their
+    // accept buttons would now all be refused.
+    _reload();
   }
 
   /// Owner closes the job, then rates the contractor.
@@ -302,6 +352,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                           onAccept: _accept,
                           onBid: () => _showBidSheet(project),
                           onRetry: _reload,
+                          acceptingQuoteId: _acceptingQuoteId,
                         ),
                         if (_isOwner) ...[
                           const SizedBox(height: 16),
@@ -739,6 +790,10 @@ class _QuotesSection extends StatelessWidget {
   final ValueChanged<Quote> onAccept;
   final VoidCallback onBid;
 
+  /// The quote with an accept POST in flight, or null. Every accept button is
+  /// disabled while this is set, and the matching one shows the spinner.
+  final int? acceptingQuoteId;
+
   /// Re-issues the quote read. The screen's own `_reload`, so the retry is a
   /// real request and not a redraw of the same failure.
   ///
@@ -755,6 +810,7 @@ class _QuotesSection extends StatelessWidget {
     required this.onAccept,
     required this.onBid,
     required this.onRetry,
+    required this.acceptingQuoteId,
   });
 
   @override
@@ -833,6 +889,11 @@ class _QuotesSection extends StatelessWidget {
               _QuoteCard(
                 quote: q,
                 isOwner: isOwner,
+                // Any accept in flight disables every button: the server
+                // rejects all other bids the moment one lands, so offering
+                // them as tappable is offering a dead end.
+                accepting: acceptingQuoteId != null,
+                isThisAccepting: acceptingQuoteId == q.id,
                 onAccept: () => onAccept(q),
               ),
               const SizedBox(height: 12),
@@ -881,8 +942,19 @@ class _QuoteCard extends StatelessWidget {
   final bool isOwner;
   final VoidCallback onAccept;
 
-  const _QuoteCard(
-      {required this.quote, required this.isOwner, required this.onAccept});
+  /// An accept POST is in flight somewhere on this project.
+  final bool accepting;
+
+  /// This card's quote is the one being accepted — the only card that spins.
+  final bool isThisAccepting;
+
+  const _QuoteCard({
+    required this.quote,
+    required this.isOwner,
+    required this.onAccept,
+    this.accepting = false,
+    this.isThisAccepting = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -974,7 +1046,10 @@ class _QuoteCard extends StatelessWidget {
                   child: PrimaryButton(
                     label: 'قبول العرض',
                     icon: Icons.check_circle_outline_rounded,
-                    onPressed: onAccept,
+                    // `loading` is what disables it, so the in-flight card and
+                    // its siblings are gated by the same flag.
+                    loading: isThisAccepting,
+                    onPressed: accepting ? null : onAccept,
                   ),
                 ),
               ],
