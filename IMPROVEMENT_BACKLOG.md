@@ -3840,3 +3840,38 @@ Phase 1.
       a term it does not currently understand — it answers any unknown
       `period` with `ok: true` and stores `month` — and that source is not on
       this host. Not attempted.
+
+- [x] **A contractor's market search could quietly lose pages and answer
+      «لا توجد نتائج» while a third of the postings sat unseen on the server.**
+      `Repository.browseProjects` is documented as «if *every* page fails the
+      caller still gets the real error instead of a silently empty market», and
+      the code kept that promise only for a page that **threw**: the batch was
+      judged on `every((b) => b == null)`. An empty page is a *successful*
+      answer, not a lost one — and a search widens to 5 pages precisely because
+      the market is bigger than one page, so on a marketplace still growing the
+      tail truthfully answers `[]` (there is no page 6). A batch that lost four
+      of five pages therefore passed the "every page failed?" check and the
+      search narrowed silently to whichever pages happened to be alive.
+      The worst shape is the one this market actually hits: fewer than 40 open
+      projects, so pages 2-5 answer `[]` and look **healthy** while page 1 —
+      every newest posting, the ones a contractor most wants to quote on — is
+      dead. Every other page looks fine, so nothing was re-issued and the union
+      came back empty.
+      *Shipped:* a lost page is recorded with its number (`kind: 'page'`,
+      «صفحة N من بحث السوق لم تصل»); a lost **head** page is re-issued, and if
+      it is still dead the caller gets the error, never an empty list that
+      reads as «nothing here»; a page that answered empty is still an answer,
+      so a wilaya with no open projects keeps its empty state.
+      *Tests written first and measured failing:* the lost-page record was
+      empty, and a dead head page returned `[]` for a market holding twenty
+      open projects. Mutation-gated both ways — neutering the record **−1**,
+      returning an empty list instead of raising **−2** including the
+      pre-existing all-pages-fail repro. Both restored, re-verified green.
+      *Evidence:* `flutter analyze` → **No issues found!** (5.3 s);
+      `flutter test` → **+984 ~3, all passed** (was +975; **+9 net, 0
+      regressions**). `crash[page]: صفحة 3 من بحث السوق لم تصل` printed by the
+      suite, so the record provably lands.
+      *Files:* `lib/src/data/repository.dart`,
+      `test/browse_pages_partial_test.dart` (new).
+      **DONE `b506d78`** (remote `7a6ce80`, both blobs verified against the
+      remote tree).
