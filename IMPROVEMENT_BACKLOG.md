@@ -5202,3 +5202,46 @@ running app for defects like these rather than inventing a feature.
       `auth_state.dart` as the third writer to the outbox key, unaudited. The
       lock it asked for was already in place; the leak was a level up, in a
       method no outbox test had ever opened.
+
+- [x] **Signing out threw when the device's preference store refused — the
+      401 recovery was the thing that crashed, and the dead token stayed on
+      disk.** `logout()` was the one method in `auth_state.dart` with no `try`
+      around any of it, and it is the method `handleUnauthorized()` calls, from
+      a callback nobody awaits. Every sibling already survives a store that
+      will not answer: `restore()` catches so a bad file cannot throw out of
+      `main()` before `runApp`, `_discardSession()` catches, `enterAsGuest()`
+      and `leaveGuest()` each catch their own write, `_clearOutbox()` catches
+      with the note that a queue which cannot be cleared is a problem to
+      report, not a reason to leave a dead session on screen.
+      *The founder's own bug.* The token goes stale, the server answers 401,
+      the app correctly decides to sign him out — and the sign-out throws.
+      The phone is left signed out in memory with the dead token **still
+      written on disk**: the next launch restores it and the same 401 comes
+      back, so the recovery never completes. «انتهت جلستك» loops with no way
+      forward but reinstalling. Three harms, all from the one missing `try`:
+      the 401 path, the «تسجيل الخروج» tap (a `VoidCallback`, so a red screen
+      over a signed-in home), and — because `notifyListeners()` is the last
+      statement — a throw from any removal skipped the redraw, so the session
+      was gone and the root gate never heard.
+      *Shipped:* each key is now removed independently inside one outer
+      `try`, so a single refused write cannot strand its neighbours — leaving
+      `auth.user` on disk while `auth.token` is gone manufactures exactly the
+      half-pair `restore()` discards — and the `notifyListeners()` that takes
+      the user to the landing page is unconditional
+      (`lib/src/core/security/auth_state.dart:288`).
+      *Red before green:* all three tests failed with Flutter naming
+      `auth_state.dart:286 AuthState.logout`, not a fixture mistake. One test
+      I wrote asserted `role != customer` and had to be corrected — `role`
+      falls back to the customer dashboard when there is no user, so it passed
+      whether or not the sign-out happened.
+      *Evidence:* `flutter analyze` -> **No issues found!** (1.7 s);
+      `flutter test` -> **1099 passed / 3 skipped / 0 failed** (was 1096/3/0;
+      the new file is the +3). The six auth-family files together: 31 passed.
+      *Cost noted:* the refusing store is built by extending
+      `InMemorySharedPreferencesStore`, which is not re-exported by
+      `shared_preferences`, so the test needs
+      `shared_preferences_platform_interface` — added as a **dev**
+      dependency (2.4.2, promoted from transitive, no version change,
+      resolved `--offline`). No production code imports it.
+      *Commit:* local `db642ee`, remote `d0aef33`. All four blobs verified
+      `MATCH` against the remote tree.
