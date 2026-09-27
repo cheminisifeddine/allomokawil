@@ -72,6 +72,39 @@ in this file that dies on arrival is how two ticks were lost.
    python3 /home/hatch/workspace/repos/gh_push.py \
      cheminisifeddine allomokawil main . -m "<message>" -- <files...>
    ```
+   **The blob check itself, written out**, because it is the one step in step 6
+   that cannot be reproduced from this shell by hand: `dynamic_credentials` is
+   not on `gh_push.py`'s import path unless *its* directory is added, and
+   `read_json_response` takes a **response**, not a request. Verified working
+   27 Sep against tip `bb07127`:
+   ```bash
+   cd /home/hatch/workspace/repos && python3 - <<'PY'
+   import sys, subprocess
+   sys.path.insert(0, "/opt/hatch/skills/skill-creator/bin")
+   from dynamic_credentials import add_surrogate_to_request, read_json_response
+   import urllib.request
+   def api(path):
+       req = urllib.request.Request("https://api.github.com" + path, method="GET")
+       req.add_header("Accept", "application/vnd.github+json")
+       add_surrogate_to_request(req, "custom.github", allowed_hosts=("api.github.com",))
+       with urllib.request.urlopen(req, timeout=60) as resp:
+           return read_json_response(resp)
+   sha = api("/repos/cheminisifeddine/allomokawil/git/ref/heads/main")["object"]["sha"]
+   tree = api("/repos/cheminisifeddine/allomokawil/git/trees/%s?recursive=1" % sha)["tree"]
+   remote = {e["path"]: e["sha"] for e in tree if e["type"] == "blob"}
+   for f in ["lib/src/screens/worker/worker_profile_screen.dart",
+             "test/profile_section_failure_test.dart", "IMPROVEMENT_BACKLOG.md"]:
+       local = subprocess.run(["git","hash-object",f], capture_output=True,
+                              text=True, cwd="/home/hatch/allomokawil").stdout.strip()
+       print(("MATCH  " if local == remote.get(f) else "DIFFER "), f)
+   PY
+   ```
+   Two notes on the shape of it, both learned the hard way on 27 Sep. The
+   `/git/trees/<sha>` path takes the **branch tip sha** directly and GitHub
+   dereferences it to the commit's tree — I first wrote a comment here claiming
+   it needed a tree sha, checked it, and it does not. And the trailing `PY`
+   heredoc is fed to `python3 -` on stdin, so the file list cannot be passed as
+   `sys.argv`; the working recipe loops over a literal list of paths.
    The helper pushes through the API and **never updates the local
    `origin/main` ref**, so after a successful push `git status` still reports
    `main` as "ahead 4" and a later tick can mistake unpushed work for pushed
