@@ -5245,3 +5245,57 @@ running app for defects like these rather than inventing a feature.
       resolved `--offline`). No production code imports it.
       *Commit:* local `db642ee`, remote `d0aef33`. All four blobs verified
       `MATCH` against the remote tree.
+
+- [x] **Signing in wrote the session as two keys, so a process death signed
+      the user out again on the next launch.** `_persist()` wrote `auth.token`
+      and then `auth.user` as two separate preference writes — the last
+      method in `auth_state.dart` that produced a *half* session on disk. The
+      founder-visible failure: sign in correctly, get the signed-in home, and
+      be signed out by the *next* launch, with no error, no «انتهت جلستك» and
+      nothing on screen saying a write died halfway. The account is fine on
+      the server; the phone forgot it, and re-typing the password does not
+      survive the second launch either. Only a reinstall clears it.
+      *Why this one mattered more than the rest:* it is the single place in
+      the app that **manufactured** the corrupt input every sibling method
+      exists to survive. `restore()`, `_discardSession()` and the `logout()`
+      fix all *handle* a bad preferences file; this was *writing* one.
+      *Shipped:* the session is one value, `auth.session`, holding
+      `{token, user}`. One write cannot be half-completed, so the window does
+      not exist. A phone signed in by the previous build still carries the
+      split pair — `restore()` reads it **once**, then rewrites it as the
+      envelope, so the upgrade keeps those users signed in and closes the
+      window on their next launch. The legacy keys are also removed by
+      `logout()` and `_discardSession()`, so no two copies of a session can
+      exist on one phone. A store that refuses to write no longer fails the
+      sign-in either: the server already accepted it, so the account is
+      signed in for this process and the next launch simply asks again;
+      `notifyListeners()` is unconditional so the root gate always redraws.
+      *The test models the real failure, not a mock of it:* a store that
+      **dies after exactly one successful write** (`writesBeforeDeath = 1`) —
+      the process is alive long enough to complete one platform write and is
+      gone before the second. Modelling it as "every write throws" would have
+      tested the *refusing* store, which is a different defect and is already
+      covered by `logout_store_failure_test.dart`.
+      *A harness bug that looked exactly like a product failure:* the platform
+      layer stores every key under a `flutter.` prefix while the app only ever
+      names `auth.token`. The relaunch in the first test was originally
+      hand-seeded with a map already in the app's vocabulary, so the platform
+      filtered every value and the "next launch" saw an empty phone — a
+      green-looking harness that could never fail. It is now seeded through
+      the real store, which is why the death survives the restart.
+      *One pre-existing test corrected, not waived:*
+      `session_restore_test.dart` asserted `prefs.get('auth.token') ==
+      'test-token'` after a healthy restore — i.e. it pinned the two-key
+      layout in place. The three assertions above it (authenticated, role,
+      full name) all passed, so the session genuinely was never lost; the
+      assertion encoded the storage detail the fix removes. It now asserts the
+      envelope instead and says why.
+      *Evidence:* `flutter analyze` -> **No issues found!** (6.9 s);
+      `flutter test` -> **1103 passed / 3 skipped / 0 failed** (was 1099/3/0;
+      the new file is the +4). The three session/auth-store files together:
+      13 passed. Not visual — no screenshot.
+      *Commit:* local `2f31e0b`, remote `5bd8e95`. All three blobs verified
+      `MATCH` against the remote tree.
+      *Left unaudited in this family:* `ChatOutbox` is the third writer to the
+      preferences file and has only been read, never audited, since the
+      substrate audit named it.
