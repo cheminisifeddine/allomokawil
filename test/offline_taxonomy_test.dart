@@ -131,11 +131,25 @@ void main() {
     // no connection — the names come from the bundled taxonomy, not from the
     // response that just failed.
     expect(find.text('كل الولايات'), findsOneWidget);
-    // Two scrollables exist here: the search field, then the trade row. The row
-    // is addressed by position because once it scrolls, the pill finder inside
-    // it goes empty and an ancestor lookup throws.
-    expect(find.byType(Scrollable), findsNWidgets(2));
-    final row = find.byType(Scrollable).last;
+    // The trade row is addressed by *what it is*, not by its position among the
+    // page's scrollables. It used to be `find.byType(Scrollable).last`, which
+    // was true by accident: the page had exactly two (the search field's own
+    // editable scroll, then the row), so "last" meant "the row" for as long as
+    // nothing was added. Adding pull-to-refresh put a vertical result list
+    // under the indicator, and the row stopped being last — which is how a
+    // gesture improvement can quietly break an unrelated offline test.
+    //
+    // A horizontal `ListView` is the row: the search field's scroll is an
+    // `EditableText`, not a list. Scrollable-by-type would be wrong twice
+    // over, since the result list under the indicator is one too.
+    final rowList = find.byWidgetPredicate((w) =>
+        w is ListView && w.scrollDirection == Axis.horizontal);
+    expect(rowList, findsOneWidget, reason: 'the trade row is the horizontal list');
+    // `scrollUntilVisible` needs the `Scrollable` itself, which the list builds
+    // as its child, so the row is identified by the list and driven by the
+    // scrollable under it.
+    final row = find.descendant(of: rowList, matching: find.byType(Scrollable));
+    expect(row, findsOneWidget);
     final last = Taxonomy.categories.take(8).last;
     await tester.scrollUntilVisible(find.text(last.name), 200, scrollable: row);
     expect(find.text(last.name), findsOneWidget, reason: 'chip ${last.slug}');

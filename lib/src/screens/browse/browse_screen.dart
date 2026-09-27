@@ -59,6 +59,27 @@ class _BrowseScreenState extends State<BrowseScreen> {
     });
   }
 
+  /// Pull-to-refresh. The gesture a user reaches for first on a feed that has
+  /// gone stale or come back from the background, and on this screen — the one
+  /// a client opens to find a contractor — it was the only refresh the feed did
+  /// not offer at all: the shimmer, the error state and the populated list were
+  /// all static, so a contractor who registered an hour ago never appeared
+  /// until the app was killed and reopened.
+  ///
+  /// Awaitable on purpose. [RefreshIndicator] holds the spinner until the
+  /// future it was handed resolves, so a pull that returned before the request
+  /// answered would snap the indicator away and leave a list that *looks*
+  /// freshly loaded while still holding the rows the user was trying to
+  /// replace.
+  Future<void> _refresh() async {
+    _reload();
+    try {
+      await _future;
+    } catch (_) {
+      // The FutureBuilder renders the error state; nothing to do here.
+    }
+  }
+
   /// Runs the search for what is currently in the box.
   void _submitSearch(String raw) {
     final next = raw.trim();
@@ -121,12 +142,24 @@ class _BrowseScreenState extends State<BrowseScreen> {
                     return const Shimmer(child: LoadingList(count: 5));
                   }
                   if (snap.hasError) {
-                    return EmptyView(
-                      icon: Icons.wifi_off_rounded,
-                      title: 'تعذّر جلب المقاولين',
-                      message: 'تحقّق من اتصالك بالإنترنت ثم أعد المحاولة',
-                      actionLabel: 'إعادة المحاولة',
-                      onAction: _reload,
+                    return RefreshIndicator(
+                      onRefresh: _refresh,
+                      color: AppTheme.navy,
+                      backgroundColor: AppTheme.surface,
+                      child: ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(
+                            AppTheme.s16, AppTheme.s16, AppTheme.s16, AppTheme.s28),
+                        children: [
+                          EmptyView(
+                            icon: Icons.wifi_off_rounded,
+                            title: 'تعذّر جلب المقاولين',
+                            message: 'تحقّق من اتصالك بالإنترنت ثم أعد المحاولة',
+                            actionLabel: 'إعادة المحاولة',
+                            onAction: _refresh,
+                          ),
+                        ],
+                      ),
                     );
                   }
                   final workers =
@@ -137,31 +170,54 @@ class _BrowseScreenState extends State<BrowseScreen> {
                     final hasFilter = _category != null ||
                         _wilaya != null ||
                         _query.isNotEmpty;
-                    return EmptyView(
-                      icon: Icons.search_off_rounded,
-                      title: 'لا نتائج مطابقة',
-                      message: _query.isEmpty
-                          ? 'جرّب تغيير التخصص أو الولاية'
-                          : 'لا يوجد مقاول يطابق «$_query».\nجرّب كلمة أقصر أو امسح البحث',
-                      actionLabel: hasFilter ? 'مسح البحث والفلاتر' : null,
-                      onAction: hasFilter ? _clearFilters : null,
+                    return RefreshIndicator(
+                      onRefresh: _refresh,
+                      color: AppTheme.navy,
+                      backgroundColor: AppTheme.surface,
+                      child: ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(
+                            AppTheme.s16, AppTheme.s16, AppTheme.s16, AppTheme.s28),
+                        children: [
+                          EmptyView(
+                            icon: Icons.search_off_rounded,
+                            title: 'لا نتائج مطابقة',
+                            message: _query.isEmpty
+                                ? 'جرّب تغيير التخصص أو الولاية'
+                                : 'لا يوجد مقاول يطابق «$_query».\nجرّب كلمة أقصر أو امسح البحث',
+                            actionLabel: hasFilter
+                                ? 'مسح البحث والفلاتر'
+                                : null,
+                            onAction: hasFilter ? _clearFilters : null,
+                          ),
+                        ],
+                      ),
                     );
                   }
-                  return ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
-                    itemCount: workers.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (context, i) {
-                      final w = workers[i];
-                      return WorkerCard(
-                        worker: w,
-                        variant: WorkerCardVariant.row,
-                        onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                                builder: (_) =>
-                                    WorkerProfileScreen(workerId: w.id))),
-                      );
-                    },
+                  return RefreshIndicator(
+                    onRefresh: _refresh,
+                    color: AppTheme.navy,
+                    backgroundColor: AppTheme.surface,
+                    child: ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
+                      // Without this a list that fits the viewport refuses
+                      // the pull, so a feed of four contractors would be the
+                      // one feed in the app that could not be refreshed.
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      itemCount: workers.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (context, i) {
+                        final w = workers[i];
+                        return WorkerCard(
+                          worker: w,
+                          variant: WorkerCardVariant.row,
+                          onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      WorkerProfileScreen(workerId: w.id))),
+                        );
+                      },
+                    ),
                   );
                 },
               ),
