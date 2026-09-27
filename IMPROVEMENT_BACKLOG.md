@@ -5378,3 +5378,61 @@ running app for defects like these rather than inventing a feature.
       «do not re-send this» flag can silently fail to reach the disk — the one
       half of this file whose failure would create a duplicate rather than a
       loss.
+
+- [x] **The «do not re-send this» mark was written blind, so a mark that never
+      reached the disk produced a duplicate message instead of a lost one.**
+      *The one half of the chat-outbox audit whose failure is not a loss.* The
+      previous two cycles fixed writers that swallowed a storage refusal and
+      reported success — first the queue write, then the session write. Both
+      fail by **losing** something. `ChatOutbox.markUncertain` swallowed the
+      same bool the same way and fails the other direction: a write the device
+      refused means the record on the disk still reads «safe to re-send», and
+      the next cold start's `_flushQueued` hands the words to the wire with no
+      tap from anyone. The server may already hold that row — the mark exists
+      *precisely because nobody knows* — so the user gets a second copy of his
+      own address, and no sentence in the app ever mentioned it.
+      *The other direction, easier to forget.* A re-read that came back empty
+      clears the mark so the message becomes retryable again. A refused clear
+      leaves a record marked `unconfirmed` for a message now known to be
+      absent: it returns after a restart with **no retry affordance**, and the
+      startup flush skips it. Stranded on the phone, on neither the server nor
+      the retry path, and the user retypes his own words.
+      *Shipped:* `markUncertain` returns `Future<bool>` — the mark's
+      durability — and the two no-op paths answer `true` on purpose: an id not
+      in the queue cannot be read back and re-sent by anything, and a record
+      already carrying the requested mark needs no write, so neither consults a
+      store and a device that declines everything costs nothing there. Still
+      never throws. The screen tracks it per bubble in `_markStored`, separate
+      from `_persisted`, because it is a *second* write to a record that is
+      already on the disk and a phone may have taken the first and refused the
+      second. `_markUnconfirmed` deliberately does **not** toast: the re-read
+      runs immediately after, so a mark that then read back «landed» would
+      produce two contradictory sentences about one message — it is reported
+      once, by `_settleUnconfirmed`, with the outcome in hand.
+      *The copy split is the design, not a wording preference.* A lost **mark**
+      says «انسخ الرسالة الآن قبل إغلاق التطبيق» — pressing the bubble is the
+      duplicate, and «check the list» would be false because the app has just
+      proved it cannot read the thread. A lost **clear** keeps «أعد المحاولة»
+      and adds the deadline, because the retry is real and *now* is the only
+      window. «انسخ» was added to the instruction list
+      `error_copy_test.dart` accepts, and both sentences are in the invariant
+      map, so neither can lose its action or grow a Latin letter.
+      *A dead helper, caught by the analyzer.* The in-flight widget test
+      carried `_DecliningOutboxStore`, 25 lines whose own doc said the harness
+      uses `_GatedOutboxStore` instead. It was unused, its refusal semantics
+      were wrong for the platform (it threw; the platform answers `false`), and
+      it was a third copy of a concept the contract file owns. Removed rather
+      than silenced. **The analyzer was the only thing that found it** — the
+      test count was unaffected, because an unreferenced class is not a
+      failing test.
+      *Evidence:* `flutter analyze` -> **No issues found!** (4.5 s) after the
+      removal; `flutter test` -> **1116 passed / 3 skipped / 0 failed** (was
+      1107/3/0; +9 across two new files). Not visual — storage and two toasts,
+      no pixels moved, so no screenshot applies.
+      *Commit:* local `b0dbce1`, remote `49a49f0`. All six blobs verified
+      `MATCH` against the remote tree, not the exit code.
+      *Next in this family:* the outbox audit is now closed in all three
+      directions (queue write, mark write, session write) — the next unwritten
+      writer is the **photo** side of the send path, where the same
+      `lastPersisted` discipline has never been applied to the image file the
+      user picked, as opposed to the record naming it.
