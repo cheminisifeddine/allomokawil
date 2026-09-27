@@ -4174,3 +4174,56 @@ Phase 1.
       *Files:* `lib/src/screens/worker/worker_home_screen.dart`,
       `test/portfolio_badge_failure_test.dart`.
       **DONE `fb1f308`** (remote `0b8a16`, 2/2 blobs verified against the tree).
+
+- [x] **A failed quote read told the owner that nobody bid on his job.**
+      DONE `2b93fd0` (remote `151548`, 3/3 blobs verified against the tree).
+      Third screen in the family the last two ticks have been working, and the
+      worst of the three — the other two hid a photo count, this one makes a
+      false claim about **demand**. `_QuotesSection` did
+      `final quotes = snap.data ?? const <Quote>[];` with no `hasError` check, so
+      one 500 (a dropped connection, a host that holds the quotes not
+      answering, a captive portal on hotel wifi) rendered **«لا عروض بعد»** plus
+      a button sending the owner to the contractor directory to fish for pros
+      himself. It is the only list in the app where a false "empty" costs money:
+      every other instance of this class hides a cosmetic count, this one tells
+      a customer who paid to advertise a project that the market ignored him,
+      and points him at the most expensive possible response to that belief —
+      distrust the platform, cut the price, or repost elsewhere.
+      *Shipped:* the `snap.hasError` branch in danger with «تعذّر تحميل العروض» +
+      `errorCopy` and «أعد المحاولة» wired to the screen's own `_reload` — the
+      same two halves the project read one widget up already used, which is all
+      this section was missing. Plus `EmptyView.titleColor`, because `danger`
+      tinted the icon and the disc but left the heading in the neutral text
+      colour, in the same voice as every ordinary heading on the page.
+      *The second defect the tests surfaced, found because the first fix kept
+      failing:* the quote read is issued in `initState` but the `FutureBuilder`
+      that displays it is not constructed until the **project** read resolves. A
+      500 on the quotes call landing first — the likelier of the two on a flaky
+      mobile connection — therefore completed with no listener attached and Dart
+      reported it as an uncaught async error. That is what the crash reporter
+      files, so a routine server blip on the quotes call was being recorded as a
+      **crash**, on the one screen the owner of a job is looking at while
+      deciding whether to trust the platform. `_observe()` attaches a no-op
+      error listener at issue time; the error is not swallowed, `FutureBuilder`
+      still sees `hasError`.
+      *Evidence:* 6 widget tests driving the real screen, the real `Repository`
+      and a fake client failing 500 + HTML. Written first, measured **+3 −4** on
+      the unfixed code. `flutter analyze` -> **No issues found!** (4.4 s);
+      `flutter test` -> **+1022 ~3 all passed** (was +1015: **+7 net, 0
+      regressions**, skips unchanged). Mutation-gated **three ways**, all
+      reverted and re-verified green: failure branch removed **−3**, retry
+      reduced to a no-op redraw **−1**, `_observe` reduced to a pass-through
+      **−4**. Visual `/tmp/shots/quotes_read_failed.png` (1176×5100):
+      `danger 0xc33f39` in **15 566 px**, `dangerWash 0xfcedec` in **59 000 px**,
+      the accent retry pill spanning **168 rows** of accent at dpr 2.75.
+      `contrast_audit` **28/28**. I could not view the PNG this session (no
+      browser), so the claim is backed by the ink measurement, not by my eye;
+      the shot is on disk.
+      *And the gate lied to me again, the same way it did last tick.* My first
+      mutation removed the **first** `if (snap.hasError)` in the file — which
+      belongs to the *project* read one widget up — leaving unbalanced parens, so
+      the test file failed to **load** and printed `+0 -1`. I read that as a
+      pass. It was a compile error. Re-run against the verified target
+      (`rindex` before the quotes line): **−3**.
+      *Files:* `lib/src/screens/project/project_detail_screen.dart`,
+      `lib/src/widgets/ui.dart`, `test/project_quotes_failure_test.dart`.
