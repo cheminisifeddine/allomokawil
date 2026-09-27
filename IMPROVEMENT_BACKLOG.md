@@ -3781,3 +3781,62 @@ Phase 1.
       one. The note now carries the measured table, and the reason `durations`
       stays parked is that filing those terms correctly needs Worker source that
       is not on this host.
+- [x] **One malformed row emptied the entire feed — the doc promised the
+      opposite of what the code did.** `Repository._rows` was commented
+      «parsed row by row so one malformed row cannot take the whole screen
+      down with an `Error`», and it was a list comprehension, which builds
+      every element eagerly: the first drifted column raised out of the whole
+      expression. The caller got the Arabic «حدث خطأ غير متوقع» sentence with
+      an **empty screen behind it**, and the rows that came back readable in
+      the same 200 were discarded with the broken one.
+      *Why it is worse than a crash.* A feed is not one row. One contractor's
+      profile losing a column cannot be the reason a visitor opening the app
+      sees an empty market, or a man waiting on a quote sees an empty list.
+      The blast radius was the whole page instead of one card, and the
+      failure is a **silently short list** dressed as a 200 — the one shape
+      the shape-guard suite was built to catch, which it did not, because
+      every repro it holds has exactly **one** row.
+      *Found by* sweeping every model field for the parsed-but-unread shape
+      this backlog has been mining all cycle, and landing on the layer under
+      it: the `durations` hole is real but blocked on Worker source that is
+      not on this host (verified again 27 Sep — only prebuilt
+      `main.dart.js` bundles on disk, no `.ts`), so the next honest vein was
+      here.
+      *Shipped:* a row that will not parse is dropped and the rest returned,
+      with two boundaries that hold the line —
+        * **an empty answer is still an empty list.** `[]` is what the Worker
+          sends for no projects, no workers, nothing pending. Throwing there
+          would turn every genuinely empty screen in the app into an error
+          card, so the deciding count is rows **arrived**, not rows parsed.
+        * **rows arrived but none readable still raises**, re-throwing the
+          **first row's own** exception so its status code and cause survive
+          unchanged. «لا توجد إشعارات بعد» says there is nothing here;
+          «we could not read what is here» is the truth, and the two must not
+          look the same to a user.
+      The drop is **not silent**: each is captured on the diagnostics channel
+      with `kind: 'row'`, so it lands in the log the next support message
+      reads. A partial feed is only safe to render if the app can still say
+      what it lost. An earlier draft added an `onDropped` callback that
+      nothing called — deleted rather than shipped, since the repo's own rule
+      is that unused surface is a defect.
+      *Files:* `lib/src/data/repository.dart`, `test/rows_partial_test.dart`
+      (new).
+      *Evidence:* written as a failing test first, per the regression rule —
+      it reproduced the defect exactly (+2 −2: both good rows discarded
+      alongside the bad one). `flutter analyze` -> **No issues found!**
+      (6.9 s). Full suite -> **+975 ~3, all passed** (was +969: **+6 net, 0
+      regressions**). Mutation-gated **both ways**: neutering the per-row
+      tolerance (back to the list comprehension) -> **−3**; making the
+      all-broken case return an empty list instead of raising -> **−3**,
+      including the two pre-existing shape-guard repros. Both restored and
+      re-verified green (`+19`, the two files together).
+      *Commit `4e583a1`*, pushed as remote **`15f87c1`**, both blobs
+      re-verified `MATCH` against the remote tree (not the exit code — the
+      helper printed a green line and both hashes matched).
+      *Left parked, honestly:* `GET /api/mobile/plans` publishes
+      `durations` (1/3/6/12 months with real per-month prices) and
+      `Plan.fromJson` reads **none** of it, so the 3- and 6-month terms are
+      invisible to the app. Filing those correctly needs the Worker to accept
+      a term it does not currently understand — it answers any unknown
+      `period` with `ok: true` and stores `month` — and that source is not on
+      this host. Not attempted.
