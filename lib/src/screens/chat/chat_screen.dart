@@ -253,21 +253,39 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendText() async {
     final text = _input.text.trim();
     if (text.isEmpty && _unsent.isEmpty) return;
-    // Anything the server refused goes first, so the thread keeps its order.
+    // Everything that reads `context` is read **before the first await**.
+    // `_localBubble` asks the session who the user is, and that is a `context`
+    // lookup — so building the bubble after any await means building it on a
+    // State he may have already left, which throws
+    // "This widget has been unmounted, so the State no longer has a context".
+    // Tapping back is the most ordinary way to end a conversation and the one
+    // gesture he makes right after sending, so the window is not theoretical.
+    final local = text.isEmpty ? null : _localBubble(text: text);
+
+    // Written down before the first attempt, and before the retries below: if
+    // the phone loses the network, the user taps back, or Android kills the app
+    // mid-request, the message is still on the device with a way to send it.
+    // It has to be first for a second reason. Anything below is a network round
+    // trip he can walk away from, and a throw on any of them unwound this whole
+    // method — so a message that was only *about to be* written was simply
+    // never written. The queue write cannot throw for the same reason it never
+    // throws anywhere else: it is the last thing that happens, on data already
+    // read, with no `context` involved.
+    if (local != null) await _enqueue(local, text: text);
+
+    // Anything the server refused goes next, so the thread keeps its order: the
+    // older words reach the server before his new ones, and the bubble for this
+    // one is only drawn once they are settled.
     if (_unsent.isNotEmpty) await _retryUnsent();
-    if (text.isEmpty) return;
-    _input.clear();
-    final local = _localBubble(text: text);
-    // Written down before the first attempt: if the phone loses the network,
-    // the user taps back, or Android kills the app mid-request, the message is
-    // still on the device with a way to send it.
-    await _enqueue(local, text: text);
-    // He can leave the thread while that write is still in flight — tapping
-    // back is the most ordinary way to end a conversation, and it is the one
-    // gesture he makes right after sending. The write has already landed, so
-    // there is nothing to draw and nothing to say; only the draw needs the
-    // guard. Without it this is a red screen over the message he just sent.
+    if (local == null) return;
+
+    // The write has landed, so his words are safe either way — on disk, or in
+    // the record the draw below was about to put on screen. There is nothing
+    // left to say to a State that is gone, and no composer to clear: it was
+    // disposed with the route. Only the draw needs the guard, and without it
+    // this is a red screen over the message he just sent.
     if (!mounted) return;
+    _input.clear();
     setState(() => _messages = [..._messages, local]);
     _jumpToBottom();
     await _deliver(local);
@@ -334,10 +352,15 @@ class _ChatScreenState extends State<ChatScreen> {
         // of telling the user to press a bubble that is not really unsent —
         // that is how one message becomes two.
         await _markUnconfirmed(local);
+        // Read before the closure runs, not inside it: `_me` is a `context`
+        // lookup, and this closure executes after two awaits by which time the
+        // user is free to have left the thread. Reading it there threw
+        // "This widget has been unmounted" from inside a *recovery* path — the
+        // one path that exists to turn a lost message into a saved one.
+        final me = _me;
         final outcome = await resolveWriteOutcome(
           recheck: () async {
             final fresh = await widget.repo.messages(convId);
-            final me = _me;
             return fresh.any((m) =>
                 m.content == local.content && (me <= 0 || m.senderId == me));
           },
@@ -458,11 +481,15 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _recheckUnconfirmed() async {
     final convId = _convId;
     if (convId == null) return;
+    // Read once, before any await: `_me` is a `context` lookup, and this
+    // closure runs after a network round trip during which he may have left the
+    // thread — which threw "This widget has been unmounted" from the button
+    // that exists to tell him whether his message arrived.
+    final me = _me;
     for (final m in _messages
         .where((m) => m.sendState == SendState.unconfirmed)) {
       final fresh = await resolveWriteOutcome(recheck: () async {
         final rows = await widget.repo.messages(convId);
-        final me = _me;
         return rows.any((r) =>
             r.content == m.content && (me <= 0 || r.senderId == me));
       });
@@ -508,6 +535,15 @@ class _ChatScreenState extends State<ChatScreen> {
   /// says it, and keeps saying it while the retry runs.
   Future<void> _retryUnsent() async {
     for (final m in _unsent) {
+      // Every attempt is a network round trip, and he can leave the thread in
+      // the middle of one. `_sendText` calls this loop *before* it does anything
+      // of its own, so the first thing "tap send, tap back" ever runs is this
+      // code — which made the one `setState` in the file with no `mounted`
+      // check the one most likely to land on a dead State. The throw it raised
+      // also aborted `_sendText` outright, so the message he was sending never
+      // reached the queue at all: a crash that ate a second unsent message on
+      // top of the red screen.
+      if (!mounted) return;
       setState(() => _replace(m.id, m.copyWith(sendState: SendState.sending)));
       await _deliver(m, announce: false);
     }
