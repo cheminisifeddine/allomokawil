@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart' show CachingAssetBundle, rootBundle;
 
 import '../core/text/arabic_search.dart';
 
@@ -49,7 +49,62 @@ class CommuneIndex {
       _byWilaya.values.fold(0, (sum, list) => sum + list.length);
 
   /// Parse the asset once; concurrent callers share a single load.
-  Future<void> load() => _loading ??= _parse();
+  ///
+  /// **The cache is the attempt, not the dataset — so a failed attempt must be
+  /// forgotten.** `load()` used to be `_loading ??= _parse()` and nothing ever
+  /// cleared the field on a throw, which made the cached future the *memory of
+  /// the try*: an unreadable asset (a corrupt build, a half-written file, a
+  /// decode failure) left the already-rejected future sitting in `_loading`, and
+  /// every later `await load()` re-awaited that same rejection instead of
+  /// reading the asset again. The app therefore never made a second attempt for
+  /// the rest of the process, and the one caller that can repair it —
+  /// [resetForTest] — is called by tests only. In production the failure was
+  /// permanent: the commune picker came up empty for the whole session and the
+  /// publish form asked for the commune of a wilaya the app holds all 1,541
+  /// communes for.
+  ///
+  /// Clearing on failure keeps the two guarantees apart. Concurrent callers
+  /// still share exactly one parse, because a load that is *in flight* stays
+  /// cached; only an attempt that has already **failed** is dropped, so the
+  /// next caller gets a real second try. The caller still sees the original
+  /// error — it is rethrown, never swallowed — so the sheet that asked for the
+  /// list still knows the dataset is unavailable.
+  Future<void> load() {
+    final pending = _loading;
+    if (pending != null) return pending;
+    // The write-back is guarded so that two *different* in-flight loads cannot
+    // leave the field holding a future this call did not start.
+    final attempt = _parse();
+    _loading = attempt;
+    return attempt.whenComplete(() {
+      if (!identical(_loading, attempt)) return;
+      _loading = null;
+      // **The failed read is cached by the framework too, and that half is
+      // outside this class.** `rootBundle` is a `PlatformAssetBundle`, whose
+      // `loadString` memoises with `putIfAbsent` — and `putIfAbsent` stores the
+      // future *before* it is awaited, so a rejected read is remembered exactly
+      // like a good one. (The framework says so itself on
+      // `loadStructuredData`: «Failures are not cached» — `loadString` is the
+      // one that keeps them.) Clearing only `_loading` therefore fixed nothing
+      // the user can see: the retry re-read straight out of that cache and
+      // failed with the identical error, forever. The retry is only real once
+      // the memo that holds the rejection is dropped as well.
+      _clearAssetCache();
+    });
+  }
+
+  /// Drops the framework's memo for the dataset asset, so the next [load]
+  /// performs a real read instead of replaying a remembered failure.
+  ///
+  /// [rootBundle] is typed as [AssetBundle] because the SDK exposes it that
+  /// way, and the clearing method is only on the caching subclass. Anything
+  /// that is not a [CachingAssetBundle] has no memo to drop, so the call is
+  /// simply absent — which also keeps a test that injects a plain bundle
+  /// working.
+  static void _clearAssetCache() {
+    final bundle = rootBundle;
+    if (bundle is CachingAssetBundle) bundle.clear();
+  }
 
   Future<void> _parse() async {
     final raw = await rootBundle.loadString(assetPath);
