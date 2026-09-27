@@ -48,6 +48,7 @@ const Map<String, String> _sentences = {
   'errPickFailed': S.errPickFailed,
   'errPhotoPermission': S.errPhotoPermission,
   'errCameraPermission': S.errCameraPermission,
+  'chatNotSaved': S.chatNotSaved,
 };
 
 /// The instruction half of every sentence. A message that only names the

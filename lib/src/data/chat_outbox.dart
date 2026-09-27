@@ -186,7 +186,16 @@ class PrefsOutboxStore implements OutboxStore {
   @override
   Future<void> write(String raw) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(chatOutboxKey, raw);
+    // `setString` answers whether the platform actually stored the value, and
+    // this method used to throw that answer away. The plugin's own docs call
+    // the result a bool for a reason: a full disk, a revoked storage grant or a
+    // rejected commit comes back as **false**, not as a throw — so a write that
+    // never reached the disk used to look exactly like one that did, and the
+    // caller had no way to tell the two apart.
+    final stored = await prefs.setString(chatOutboxKey, raw);
+    if (!stored) {
+      throw StateError('preferences refused to store the queue');
+    }
   }
 }
 
@@ -268,16 +277,35 @@ class ChatOutbox {
       while (items.length > chatOutboxMax) {
         dropped = items.removeAt(0);
       }
-      await _write(items);
-      // Reported *after* the write: if the store refuses, the dropped record is
-      // still on the device and a "your message was lost" toast would be a lie.
-      lastDropped = dropped;
+      final landed = await _write(items);
+      // Reported only when the write landed, and both fields together, because
+      // the same fact decides them. If the store refused, the queue on the disk
+      // is still the *old* one: the record that was evicted never left, and
+      // this one never arrived. Reporting the eviction anyway told the user a
+      // message was deleted when nothing was — and returning the record anyway
+      // let the screen promise the opposite, «محفوظة في الهاتف», for a record
+      // the phone does not have.
+      lastDropped = landed ? dropped : null;
+      lastPersisted = landed;
       return record;
     });
   }
 
   /// The record the bound pushed off the queue during the last [add], or null.
   PendingMessage? lastDropped;
+
+  /// Whether the queue the last [add] built actually reached the disk.
+  ///
+  /// True in every ordinary case, and false in exactly one: the device would
+  /// not take the write. The outbox is a *promise of durability* — the whole
+  /// file exists so a user who typed an address into a dead connection can
+  /// close the app and find it still there — so a caller that draws a
+  /// "your words are safe on this phone" line off an unconfirmed write is
+  /// stating the one thing the phone does not know. Read it immediately after
+  /// [add]; it is a field rather than a return value for the same reason
+  /// [lastDropped] is, and it is reset by every [add], so a stale `true` from
+  /// an earlier send cannot be mistaken for this one.
+  bool lastPersisted = true;
 
   /// Records *why* a message is still queued, so a cold start does not re-send
   /// a request the server may already have stored.
@@ -330,7 +358,7 @@ class ChatOutbox {
   /// Drops the whole queue. Signing out of a device must not leave someone
   /// else's unsent messages sitting on it.
   Future<void> clear() async =>
-      _serialised(() => _write(<PendingMessage>[]));
+      _serialised(() async => _write(<PendingMessage>[]));
 
   /// Runs [body] with exclusive access to the queue, and hands the previous
   /// one's slot straight to it.
@@ -378,14 +406,22 @@ class ChatOutbox {
     }();
   }
 
-  /// A store that refuses the write leaves a degraded queue — a message that is
-  /// only on the screen — but never a failed send: the bubble keeps its text and
-  /// its retry line.
-  Future<void> _write(List<PendingMessage> items) async {
+  /// Stores [items], and answers whether they are now on the disk.
+  ///
+  /// A refusal is still not a failed *send* — the bubble keeps its text and its
+  /// retry line, which is why this has always been swallowed here. What it used
+  /// to do as well is swallow the distinction between "written" and "not
+  /// written", and that distinction is the one the user needs. The write is the
+  /// last statement on the send path, so a store that refuses it cannot unwind
+  /// anything the user can see — but it can absolutely make a promise on their
+  /// behalf, and the screen is told which one to make.
+  Future<bool> _write(List<PendingMessage> items) async {
     try {
       await _store.write(encodeOutbox(items));
+      return true;
     } catch (error) {
       debugPrint('outbox: cannot persist the queue ($error)');
+      return false;
     }
   }
 }

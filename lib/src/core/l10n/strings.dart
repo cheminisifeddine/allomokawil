@@ -96,6 +96,15 @@ class S {
   static const writeUnconfirmedLanded = 'وجدناه في القائمة — الطلب وصل بنجاح';
   static const writeUnconfirmedMissing =
       'لم نجده في القائمة — الطلب لم يصل، أعد المحاولة';
+  /// The device refused to store a message the user just typed, so it is on
+  /// the screen and nowhere else. This is the one chat sentence that must never
+  /// claim the opposite: «الرسالة محفوظة في الهاتف» is what a failed send says,
+  /// and it is a lie here — closing the app, or letting Android kill it, takes
+  /// the words with it. Hence the instruction is «copy it down», not «retry»:
+  /// a retry is what the other sentence is for, and telling this user to press
+  /// it would bury the one thing he can still do.
+  static const chatNotSaved =
+      'تعذّر حفظ الرسالة على الهاتف. انسخها قبل إغلاق التطبيق، ثم أعد المحاولة.';
   /// The re-read failed too, so the app still does not know. Deliberately
   /// carries no action: any instruction here would be a guess about a write it
   /// cannot see. «حاول مجدداً» is the only safe one and it is in the next clause.

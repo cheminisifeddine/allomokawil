@@ -121,6 +121,22 @@ class _ChatScreenState extends State<ChatScreen> {
   /// exactly which record to forget.
   final Map<int, String> _queuedIds = <int, String>{};
 
+  /// Local bubble id -> whether that bubble's record is really on the disk.
+  ///
+  /// Almost always true, and false only when the device refused the queue
+  /// write. It is tracked per bubble rather than per screen because durability
+  /// is a property of *that message*: a phone that refused one write can still
+  /// have stored an earlier one, so a single screen-wide flag would either lie
+  /// about the first message or about the second. Every failure sentence for
+  /// this bubble is chosen from it, so no path can promise a copy the phone
+  /// does not have.
+  final Map<int, bool> _persisted = <int, bool>{};
+
+  /// Whether [bubble]'s words are on the disk. Unknown bubbles — ones restored
+  /// from the queue itself — are durable by construction: the record being read
+  /// is the proof.
+  bool _isPersisted(Message bubble) => _persisted[bubble.id] ?? true;
+
   @override
   void initState() {
     super.initState();
@@ -222,15 +238,34 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// Writes one bubble into the queue and remembers which record owns it.
   /// Called *before* the first network attempt, which is the whole point.
-  Future<void> _enqueue(Message bubble, {String? text, String? imagePath}) async {
+  ///
+  /// Answers whether the record is on the disk. False means the device refused
+  /// the write, and it is the one fact the send path needs to be honest about:
+  /// [ChatOutbox] deliberately never throws on a refused store so that a storage
+  /// failure cannot become a lost message or a red screen, which leaves the
+  /// screen as the only place that can still tell the user the truth.
+  Future<bool> _enqueue(Message bubble,
+      {String? text, String? imagePath}) async {
     final convId = _convId;
-    if (convId == null) return; // no thread yet: nowhere to attach it
+    if (convId == null) return false; // no thread yet: nowhere to attach it
     final record = await _outbox.add(
       conversationId: convId,
       text: text,
       imagePath: imagePath,
     );
     _queuedIds[bubble.id] = record.id;
+    final landed = _outbox.lastPersisted;
+    _persisted[bubble.id] = landed;
+
+    // The queue did not take the write. The record exists only in this State,
+    // so the line the failed bubble carries cannot claim the words are safe on
+    // the phone, and the retry affordance is the only thing that still works.
+    // The screen survives the app being closed; the record does not.
+    if (!landed) {
+      if (mounted) _toast(S.chatNotSaved);
+      return false;
+    }
+
     // The queue is bounded, so at some point it has to forget something. When it
     // does, the user is told *which* message is gone: a dropped line is his own
     // address and his own words, and the bubble he is looking at cannot be the
@@ -239,6 +274,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (dropped != null && mounted) {
       _toast(droppedMessageCopy(dropped));
     }
+    return true;
   }
 
   Future<void> _load() async {
@@ -353,7 +389,9 @@ class _ChatScreenState extends State<ChatScreen> {
         setState(() => _replace(
             local.id, local.copyWith(sendState: SendState.failed)));
       }
-      if (announce) _toast(_retryCopy);
+      if (announce) {
+        _toast(_failureCopy(persisted: _isPersisted(local)));
+      }
       return;
     }
     // A queued photo whose file the system cleaned up can never be sent: forget
@@ -408,15 +446,35 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       setState(
           () => _replace(local.id, local.copyWith(sendState: SendState.failed)));
-      if (announce) _toast(_retryCopy);
+      if (announce) {
+        _toast(_failureCopy(persisted: _isPersisted(local)));
+      }
     }
     _jumpToBottom();
   }
 
   /// «تعذّر الإرسال» alone used to hide the one fact that matters — the words
   /// are still on the phone.
+  ///
+  /// **Only say that when they are.** This sentence is the app's promise that
+  /// the queue will outlive the screen, and the outbox can decline to keep it:
+  /// a device that refused the write leaves the message in memory only. Printed
+  /// there, the user closes the app believing his address is safe, and the
+  /// words are gone — the exact loss the outbox was built to prevent, announced
+  /// by the very line that claims to prevent it. [S.chatNotSaved] is the true
+  /// sentence for that case, and it is told at enqueue time.
   static const String _retryCopy =
       'تعذّر الإرسال — الرسالة محفوظة في الهاتف، اضغط عليها لإعادة المحاولة';
+
+  /// What a failed send may say, given whether the record really landed.
+  ///
+  /// A queue that refused the write has already told the user it did, and
+  /// repeating that louder over the bubble would bury the one instruction that
+  /// still works. So this returns the honest sentence and the screen stops
+  /// guessing: durability is a fact carried by the write, not an assumption
+  /// every failure path is allowed to make.
+  String _failureCopy({required bool persisted}) =>
+      persisted ? _retryCopy : S.chatNotSaved;
 
   /// Forgets a queue record by id from inside a `setState` callback, where
   /// [forget] would re-enter the build. The write is fire-and-forget on
