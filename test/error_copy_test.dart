@@ -49,6 +49,8 @@ const Map<String, String> _sentences = {
   'errPhotoPermission': S.errPhotoPermission,
   'errCameraPermission': S.errCameraPermission,
   'chatNotSaved': S.chatNotSaved,
+  'markUnconfirmedNotSaved': S.markUnconfirmedNotSaved,
+  'markClearedNotSaved': S.markClearedNotSaved,
 };
 
 /// The instruction half of every sentence. A message that only names the
@@ -64,6 +66,10 @@ const List<String> _instructions = [
   'حدّث',
   'جرّب',
   'راجع',
+  // «انسخ» is the instruction on the one sentence that cannot offer a retry:
+  // pressing the bubble is precisely what must not happen, so «copy it
+  // down now» is the whole of the advice and the list has to know it.
+  'انسخ',
 ];
 
 final RegExp _latin = RegExp(r'[A-Za-z]');

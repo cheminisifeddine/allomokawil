@@ -105,6 +105,39 @@ class S {
   /// it would bury the one thing he can still do.
   static const chatNotSaved =
       'تعذّر حفظ الرسالة على الهاتف. انسخها قبل إغلاق التطبيق، ثم أعد المحاولة.';
+  /// The «do not send this again» note the app writes after a write's answer is
+  /// lost **did not reach the disk**, so the phone is still holding that message
+  /// as «safe to re-send».
+  ///
+  /// The two paths that write that note share this sentence, and the two are
+  /// not the same failure:
+  ///
+  ///  * a write that may already be stored, whose *mark* is missing, is one
+  ///    restart away from being sent again by the app with no user action. The
+  ///    server may already hold the words, so this is a duplicate, and the
+  ///    user has no idea how to prevent it — there is no button for it.
+  ///  * a re-read that could not be read at all cannot be retried from here
+  ///    either, which is why this sentence does **not** say «check the list».
+  ///    The list is exactly what the app could not read.
+  ///
+  /// So the one instruction is «copy the words down now», while they are still
+  /// on a screen that has them. «أعد المحاولة» would be a lie in both cases:
+  /// the send is precisely the thing that must not happen, and pressing the
+  /// bubble would do it anyway.
+  static const markUnconfirmedNotSaved =
+      'تعذّر حفظ علامة «لا تُرسل مجدداً» على الهاتف. انسخ الرسالة الآن قبل إغلاق التطبيق.';
+  /// The re-read came back and the message really is not on the server — so it
+  /// is an ordinary failure and re-sending is correct — but the note that would
+  /// have made the queue retryable after a restart did not reach the disk. The
+  /// record on the phone still reads «unconfirmed», and a record in that state
+  /// comes back with no retry affordance and is skipped by the startup flush.
+  ///
+  /// Both halves are in the sentence because the user acts on both: the retry
+  /// line is real and the words are on the screen, but the window is *now*, and
+  /// closing the app strands a message that is on neither the server nor the
+  /// server's re-send list.
+  static const markClearedNotSaved =
+      'لم نجده في القائمة — الطلب لم يصل. أعد المحاولة الآن قبل إغلاق التطبيق.';
   /// The re-read failed too, so the app still does not know. Deliberately
   /// carries no action: any instruction here would be a guess about a write it
   /// cannot see. «حاول مجدداً» is the only safe one and it is in the next clause.

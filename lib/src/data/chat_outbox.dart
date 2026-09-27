@@ -313,9 +313,40 @@ class ChatOutbox {
   /// Pass [uncertain] to mark the record as «the answer never came»; pass null
   /// to clear it, which is what a re-read that came back empty does — at that
   /// point the message is known to be absent and re-sending it is a normal
-  /// retry again. An unknown id is not an error: the record may already have
-  /// been forgotten, and the state that matters is then already correct.
-  Future<void> markUncertain(String id, {SendState? uncertain}) async {
+  /// retry again.
+  ///
+  /// **Answers whether the mark is now on the disk**, because this one field is
+  /// the only thing standing between a cold start and a duplicate. The whole
+  /// duplicate-protection design is a single persisted word: [add] writes a
+  /// record the server refused, and *this* method writes «do not send me
+  /// again» onto it the moment a write's answer is lost. Both directions were
+  /// decided by throwing [ChatOutbox._write]'s answer away, and both were
+  /// silent:
+  ///
+  ///  * **the mark is refused** — the record on the disk still reads «safe to
+  ///    re-send», the screen's own bubble says otherwise only until the app
+  ///    dies, and the next thread open hands the words to [_flushQueued]'s
+  ///    auto-send with no user action at all. The server may already hold that
+  ///    row: the mark exists *because* nobody knows. The user gets a second
+  ///    copy of his own address.
+  ///  * **the clear is refused** — the record still says «unconfirmed» for a
+  ///    message a re-read just proved is absent, so it comes back after a
+  ///    restart with no retry affordance and the startup flush skips it. The
+  ///    message is stranded: not on the server, not resendable, and the user
+  ///    has to retype his own words.
+  ///
+  /// So this answers, and the caller is expected to act on a false. The two
+  /// paths that find nothing to do are both true, and deliberately so, because
+  /// in each the disk already holds the state that protects the user: an id
+  /// that is not in the queue cannot be re-sent by anything (it is not on the
+  /// disk to be read back), and a record that already carries the requested
+  /// mark needs no write. A store is not consulted in either case, so a
+  /// declining device costs nothing here.
+  ///
+  /// Never throws, like every other write in this file: a refused mark is a
+  /// duplicate *or* a stranded message, and neither is worth a red screen over
+  /// a conversation the user can still read.
+  Future<bool> markUncertain(String id, {SendState? uncertain}) async {
     // The lookup is *inside* the lock, for the reason [remove] states: a mark
     // computed from a queue read before the lock is a decision about a queue
     // that may no longer be the one on the disk, and it writes that stale view
@@ -323,8 +354,13 @@ class ChatOutbox {
     return _serialised(() async {
       final items = await all();
       final at = items.indexWhere((m) => m.id == id);
-      if (at < 0) return;
-      if (items[at].uncertain == uncertain) return;
+      // Nothing in the queue carries this id, so nothing on the disk can be
+      // re-sent on the user's behalf: the invariant this method protects holds
+      // without a write, and there is nothing to tell the user about.
+      if (at < 0) return true;
+      // Already the state being asked for — the reason this record is still
+      // here has not changed, so the disk is correct and untouched.
+      if (items[at].uncertain == uncertain) return true;
       final next = List<PendingMessage>.of(items);
       next[at] = PendingMessage(
         id: items[at].id,
@@ -334,7 +370,7 @@ class ChatOutbox {
         createdAt: items[at].createdAt,
         uncertain: uncertain,
       );
-      await _write(next);
+      return _write(next);
     });
   }
 

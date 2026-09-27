@@ -137,6 +137,25 @@ class _ChatScreenState extends State<ChatScreen> {
   /// is the proof.
   bool _isPersisted(Message bubble) => _persisted[bubble.id] ?? true;
 
+  /// Local bubble id -> whether the «do not send me again» note reached the
+  /// disk for that bubble.
+  ///
+  /// A separate fact from [_persisted], and tracked separately because it is
+  /// about a *second* write to a record that is already there. [_persisted]
+  /// answers «are his words safe», which the first write settled; this answers
+  /// «does the phone know not to send them again», which is a later write and
+  /// can fail on a device that accepted the first.
+  ///
+  /// False is the dangerous one, and it is the whole reason this map exists. The
+  /// duplicate protection in this app is a single stored word: a record the
+  /// server refused is re-sent on the next thread open, and a record marked
+  /// `unconfirmed` is skipped. If the *mark* never reached the disk, the next
+  /// cold start reads «safe to send» and hands the words to the wire with no
+  /// user action — and the server may already hold that row, because the mark
+  /// exists precisely for the case where nobody knows. Absent means the mark
+  /// was stored, which is the ordinary case.
+  final Map<int, bool> _markStored = <int, bool>{};
+
   @override
   void initState() {
     super.initState();
@@ -505,12 +524,25 @@ class _ChatScreenState extends State<ChatScreen> {
   /// in precisely the window where it matters.
   Future<void> _markUnconfirmed(Message local) async {
     final recordId = _queuedIds[local.id];
+    // The answer is kept even though the screen has no way to act on it beyond
+    // saying so: this write is the app's only defence against sending the same
+    // words twice, and a refusal is not something to discover at the next cold
+    // start.
+    var marked = true;
     if (recordId != null) {
-      await _outbox.markUncertain(recordId, uncertain: SendState.unconfirmed);
+      marked = await _outbox.markUncertain(recordId,
+          uncertain: SendState.unconfirmed);
     }
     if (!mounted) return;
+    _markStored[local.id] = marked;
     setState(
         () => _replace(local.id, local.copyWith(sendState: SendState.sending)));
+    // Not toasted here. The bubble is deliberately held at `sending` because
+    // the app is still asking the only question that can settle it, and the
+    // re-read runs next: a mark that reads back «landed» afterwards would
+    // otherwise have been announced as lost and then found, which is two
+    // contradictory sentences about the same message. The answer is waited for
+    // and reported once, by [_settleUnconfirmed], with the outcome in hand.
   }
 
   /// Puts the thread back to the truth, whichever way the re-read went.
@@ -550,20 +582,44 @@ class _ChatScreenState extends State<ChatScreen> {
       // The list came back and the words are not in it, so re-sending is safe
       // and useful: this is a real failure again, with its real retry line.
       final recordId = _queuedIds[local.id];
-      if (recordId != null) await _outbox.markUncertain(recordId, uncertain: null);
+      var cleared = true;
+      if (recordId != null) {
+        cleared = await _outbox.markUncertain(recordId, uncertain: null);
+      }
       if (!mounted) return;
+      _markStored[local.id] = cleared;
       setState(
           () => _replace(local.id, local.copyWith(sendState: SendState.failed)));
-      _toast(S.writeUnconfirmedMissing);
+      // The re-read did its job, but a refused clear leaves the record on the
+      // disk still reading «unconfirmed» for a message now known to be absent.
+      // That record comes back after a restart with no retry affordance and the
+      // startup flush skips it: not on the server, not resendable, and the
+      // user has to retype his own words. So the sentence says both facts —
+      // it is not there, *and* «retry now, before you close the app» is the
+      // only window — rather than the plain «أعد المحاولة», which the next
+      // launch would quietly take away.
+      _toast(cleared ? S.writeUnconfirmedMissing : S.markClearedNotSaved);
       return;
     }
     // Unknown: the app still does not know. The record keeps its «do not send
     // again» mark and the bubble is drawn without a retry affordance, so the
     // only ways forward are the ones that are true — the next read, or the user
     // deciding the message is not worth resending.
+    //
+    // Unless the mark never reached the disk, which is the one case where the
+    // "keep the mark" is not a fact but a hope. This is the branch that must
+    // say so: the thread cannot be read, so no re-read on this launch can
+    // resolve it, and the next launch has nothing to stop the auto-send. The
+    // instruction is therefore not «check the list» — the app has just proved
+    // it cannot read it — but *copy the words down now*, while they are still
+    // on the screen that has them.
     if (!mounted) return;
     setState(
         () => _replace(local.id, local.copyWith(sendState: SendState.unconfirmed)));
+    if (_markStored[local.id] == false) {
+      _toast(S.markUnconfirmedNotSaved);
+      return;
+    }
     _toast(S.writeUnconfirmedUnknown);
   }
 
