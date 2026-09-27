@@ -4008,3 +4008,35 @@ Phase 1.
       *Not visual* — data layer only, so no screenshot claim.
       *Files:* `lib/src/data/repository.dart`, `test/rows_partial_test.dart`.
       **DONE `49ca4c9`**.
+
+- [x] **A commune asset that failed to load stayed failed for the whole
+      process — the retry was cached, and the framework cached it too.**
+      `CommuneIndex.load()` was `_loading ??= _parse()`, so the field held the
+      *attempt*, never the *dataset*, and nothing cleared it on a throw. One
+      unreadable asset (a corrupt build, a half-written file, a decode failure)
+      left the rejected future cached, and every later `load()` re-awaited that
+      same rejection instead of trying again — permanently, because the only
+      method that clears it is `resetForTest`, which only tests call. The
+      commune picker came up empty for the rest of the session and the publish
+      form asked for the commune of a wilaya the app holds all 1,541 communes
+      for.
+      The second half is outside the class: `rootBundle` is a
+      `PlatformAssetBundle` and `loadString` memoises with `putIfAbsent`, which
+      stores the future *before* awaiting it, so a failed read is remembered
+      exactly like a good one. Clearing only `_loading` changed nothing the
+      user could see — the retry replayed the cached rejection forever. A failed
+      attempt now drops both memos. The in-flight guard is kept, so concurrent
+      callers still share one parse; only an attempt that has already *failed*
+      is dropped, and the error is still rethrown, never swallowed.
+      Tests written first, measured failing: **−3**. Mutation-gated **three
+      ways** — the fix reverted **−3**, the framework-memo clear removed **−3**
+      (proving the `loadString` half is load-bearing, not decoration), the
+      in-flight sharing removed **−1**. The third test had to be rewritten to
+      compare the *error instance*: `rootBundle` dedupes concurrent reads by
+      itself, so a read-count assertion passed even with the sharing guard
+      deleted — a test that could not fail was not a test.
+      `flutter analyze` → **No issues found!** (4.7 s) · `flutter test` →
+      **+995 ~3, all passed** (was +992; **+3 net, 0 regressions**).
+      *Not visual* — data layer only, so no screenshot claim.
+      *Files:* `lib/src/data/communes.dart`, `test/commune_reload_test.dart`.
+      **DONE `648718b`** (remote `eb54a8e`, 2 blobs verified against the tree).
