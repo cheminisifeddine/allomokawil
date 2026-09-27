@@ -308,8 +308,119 @@ class _MarketplaceViewState extends State<MarketplaceView> {
       // let the next keystroke widen again.
       _wideRows = null;
       _widened = false;
+      // **A reload has to stand the widen down, and this is the line that does
+      // it.** `_searchToken` is bumped above, so the in-flight `_widenForSearch`
+      // will throw its answer away when it lands — but only *after* it has
+      // already returned early on both of its guards, and neither guard clears
+      // this flag. So the flag was left `true` with nothing in the air to clear
+      // it, permanently: the hairline `_widening` progress bar at the top of the
+      // feed never went away, and worse, the empty branch below reads
+      // `if (_widening) return skeleton`, so a market with no matching project
+      // showed an **eternal shimmer** instead of «لا مشاريع مفتوحة حالياً» and
+      // the retry button under it. The user had no way out of a screen that
+      // looked like it was still loading, with no results actually coming.
+      //
+      // Reachable from five controls that all call `_reload`: a filter change, a
+      // clear, the retry button, the profile-save path, and — from 27 Sep — the
+      // pull-to-refresh, which is the fastest of them. Type a word into the
+      // search box, then change the trade before the widened read answers, and
+      // the screen is stuck loading for good.
+      _widening = false;
       _searchToken++;
     });
+  }
+
+  /// Pull-to-refresh on the market tab.
+  ///
+  /// The contractor's home is the busiest surface in the product and the last
+  /// `CustomScrollView` in the app with no way to answer the gesture every user
+  /// tries first on a screen that has gone stale. It was not a low-value
+  /// screen: a project posted across town, a quote that landed, a competitor
+  /// who registered an hour ago, his own completed-jobs count and his remaining
+  /// monthly quotes — all of it changes while the tab is open, and none of it
+  /// moved when he pulled. The only recovery was leaving the tab and coming
+  /// back, which nothing on screen offered him.
+  ///
+  /// Two reads sit behind this gesture, they fail independently, and the
+  /// contract is written down here rather than left to chance:
+  ///
+  ///  * **What the indicator waits on** — both, through [Future.wait]. A pull
+  ///    that fired and returned would take the spinner down while the market was
+  ///    still loading, which is the one thing the spinner is for.
+  ///  * **A failed market read says nothing here.** The feed's own
+  ///    `FutureBuilder` has its own `EmptyView` with its own retry button, and
+  ///    letting the gesture fail would throw that away in favour of a generic
+  ///    message that names nothing.
+  ///  * **A failed profile read must not cost him the header.** This is the one
+  ///    place the pull differs from its siblings, and the reason is in
+  ///    [_readProfileForRefresh]: re-reading `myProfile` replaces the branded
+  ///    header, and on a *failed* read that replacement is the «تعذّر جلب ملفك»
+  ///    state, which removes his name, his stats, his three tool tiles and his
+  ///    plan row. A flaky network on a pull would take away a header that was
+  ///    working, in exchange for a sentence that is not what he asked for. So a
+  ///    failed profile read puts the previous one back and the pull still
+  ///    refreshes the market.
+  ///  * **A search that is still typed is re-widened**, not silently demoted
+  ///    back to the newest 20 rows. `_reload` drops `_wideRows` because the
+  ///    filter may have changed; when a query is live that would leave the
+  ///    results looking complete while quietly covering a smaller slice of the
+  ///    market, and the user has no way to see that it happened.
+  ///  * **A visitor is never asked to read what he has no account for.** The
+  ///    feed is public, the header is not, so his pull is the market alone.
+  Future<void> _refresh() async {
+    final hadQuery = _query.trim().isNotEmpty;
+    _reload();
+    // The setters above already installed the new futures, so this waits on the
+    // requests *this* pull issued and not on the ones it replaced.
+    final reads = <Future<void>>[
+      _projects!.then((_) {}, onError: (_, __) {}),
+      _readProfileForRefresh(),
+    ];
+    await Future.wait(reads);
+    if (hadQuery) await _widenForSearch();
+  }
+
+  /// Re-reads the contractor's own profile for [\_refresh] and keeps the
+  /// header on screen if the read fails.
+  ///
+  /// Returns a future that **never throws**: a failure here is reported by the
+  /// header's own `FutureBuilder` state, and the gesture has nothing to add.
+  Future<void> _readProfileForRefresh() async {
+    if (widget.guest) return;
+    // Kept so a failed read can be undone. The block body is load-bearing for
+    // the same reason `_retryProfile`'s is: an arrow here would make the
+    // `setState` callback *return* the assigned `Future`, which Flutter asserts
+    // against in debug (framework.dart:1202-1214) — the read would run and the
+    // rebuild would never happen.
+    final previous = _me;
+    final next = widget.repo.myProfile();
+    // The block body is load-bearing, and the test above proves it: an arrow
+    // here makes the `setState` callback *return* the assigned `Future`, and
+    // Flutter asserts against exactly that (framework.dart:1204). It is an
+    // assert, so debug-only — meaning in a release build the read would run and
+    // the header would simply never rebuild, which is the same silent half-fix
+    // `_retryProfile` was written to avoid. This is the third time this file
+    // has been bitten by it.
+    setState(() {
+      _me = next;
+    });
+    try {
+      await next;
+    } catch (_) {
+      // Not a generic «تعذّر التحميل» banner: the contractor's header is working
+      // and his market is changing. The one thing that went wrong is a refresh
+      // he did not ask for by name, so it is the one thing that must not cost
+      // him the screen.
+      if (mounted) {
+        // Block body again: the arrow form returns the assigned `Future` and
+        // throws the same assert, *on the failure path*, which is the worst
+        // place for it to surface — the header would stay broken and the
+        // restore would be the thing that throws.
+        setState(() {
+          _me = previous;
+        });
+      }
+    }
   }
 
   /// Live feed search. Filtering is in memory; the first typed character also
@@ -397,128 +508,143 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: CustomScrollView(
-        slivers: [
-          if (_me != null || widget.guest)
+      // `AlwaysScrollableScrollPhysics` is what keeps the gesture reachable on
+      // the states where the page is short enough not to overflow — the empty
+      // market and the failed market both render a single `EmptyView` inside a
+      // `Center`, which is exactly the "nothing to scroll" case where a pull
+      // would otherwise be swallowed. `ScrollView` already defaults a vertical,
+      // controllerless scroll view to exactly this physics
+      // (scroll_view.dart:141-148), so the line is belt-and-braces here too; it
+      // is written out because the test asserts the contract on the widget, and
+      // a contract nobody wrote down is one nobody can check.
+      child: RefreshIndicator(
+        onRefresh: _refresh,
+        color: AppTheme.navy,
+        backgroundColor: AppTheme.surface,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            if (_me != null || widget.guest)
+              SliverToBoxAdapter(
+                  child: _HeaderSection(
+                profile: _me,
+                guest: widget.guest,
+                onEdit: _editProfile,
+                galleryRuns: _galleryRuns,
+                onGalleryClosed: _onGalleryClosed,
+                onRetryProfile: _retryProfile,
+              )),
             SliverToBoxAdapter(
-                child: _HeaderSection(
-              profile: _me,
-              guest: widget.guest,
-              onEdit: _editProfile,
-              galleryRuns: _galleryRuns,
-              onGalleryClosed: _onGalleryClosed,
-              onRetryProfile: _retryProfile,
-            )),
-          SliverToBoxAdapter(
-            child: _FilterBar(
-              category: _category,
-              wilaya: _wilaya,
-              onCategory: _selectCategory,
-              onWilaya: () => _pickWilaya(context),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: FeedSearchField(
-              controller: _search,
-              hint: 'ابحث في المشاريع: العنوان، الحي، التخصص...',
-              onChanged: _onSearchChanged,
-            ),
-          ),
-          if (_widening)
-            const SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(18, 2, 18, 2),
-                child:
-                    LinearProgressIndicator(minHeight: 3, color: AppTheme.navy),
+              child: _FilterBar(
+                category: _category,
+                wilaya: _wilaya,
+                onCategory: _selectCategory,
+                onWilaya: () => _pickWilaya(context),
               ),
             ),
-          const SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: SectionTitle('مشاريع مفتوحة للعروض',
-                  icon: Icons.storefront_rounded),
+            SliverToBoxAdapter(
+              child: FeedSearchField(
+                controller: _search,
+                hint: 'ابحث في المشاريع: العنوان، الحي، التخصص...',
+                onChanged: _onSearchChanged,
+              ),
             ),
-          ),
-          FutureBuilder<List<Project>>(
-            future: _feed,
-            builder: (context, snap) {
-              if (snap.connectionState != ConnectionState.done) {
-                return const SliverToBoxAdapter(
-                    child: Shimmer(child: _ProjectsSkeleton()));
-              }
-              if (snap.hasError) {
-                return SliverToBoxAdapter(
-                  child: EmptyView(
-                    icon: Icons.wifi_off_rounded,
-                    title: 'تعذّر جلب المشاريع',
-                    message: errorCopy(snap.error),
-                    actionLabel: 'إعادة المحاولة',
-                    onAction: _reload,
-                    danger: true,
-                  ),
-                );
-              }
-              // Prefer the widened rows when a search has already pulled them.
-              final loaded = _wideRows ?? snap.data ?? const <Project>[];
-              final projects = narrowProjects(loaded, _query);
-              if (projects.isEmpty) {
-                // The multi-page fetch is still in flight — that is not yet a
-                // verdict, so show the loading shape rather than "no results".
-                if (_widening) {
+            if (_widening)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(18, 2, 18, 2),
+                  child:
+                      LinearProgressIndicator(minHeight: 3, color: AppTheme.navy),
+                ),
+              ),
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: SectionTitle('مشاريع مفتوحة للعروض',
+                    icon: Icons.storefront_rounded),
+              ),
+            ),
+            FutureBuilder<List<Project>>(
+              future: _feed,
+              builder: (context, snap) {
+                if (snap.connectionState != ConnectionState.done) {
                   return const SliverToBoxAdapter(
                       child: Shimmer(child: _ProjectsSkeleton()));
                 }
-                if (_query.trim().isNotEmpty) {
+                if (snap.hasError) {
                   return SliverToBoxAdapter(
                     child: EmptyView(
-                      icon: Icons.search_off_rounded,
-                      title: 'لا نتائج مطابقة',
-                      message:
-                          'لا يوجد مشروع مفتوح يطابق «$_query».\nجرّب كلمة أقصر، أو امسح البحث',
-                      actionLabel: 'مسح البحث',
-                      actionIcon: Icons.close_rounded,
-                      onAction: _clearSearch,
+                      icon: Icons.wifi_off_rounded,
+                      title: 'تعذّر جلب المشاريع',
+                      message: errorCopy(snap.error),
+                      actionLabel: 'إعادة المحاولة',
+                      onAction: _reload,
+                      danger: true,
                     ),
                   );
                 }
-                // "جرّب تغيير الفلتر" was advice with no button under it. A
-                // filtered-out market is cleared in one tap; a genuinely empty
-                // one is re-fetched, because that is the only honest action a
-                // contractor has when the platform has nothing published.
-                final filtered = _category != null || _wilaya != null;
-                return SliverToBoxAdapter(
-                  child: EmptyView(
-                    icon: Icons.inbox_rounded,
-                    title: 'لا مشاريع مفتوحة حالياً',
-                    message: filtered
-                        ? 'لا يوجد مشروع منشور يطابق الفلتر.\n'
-                            'اعرض كل التخصصات لترى باقي المشاريع.'
-                        : 'لم يُنشر أي مشروع في تخصصك بعد.\n'
-                            'حدّث الصفحة أو عد لاحقاً.',
-                    actionLabel: filtered ? 'اعرض كل المشاريع' : 'تحديث',
-                    actionIcon:
-                        filtered ? Icons.apps_rounded : Icons.refresh_rounded,
-                    onAction: filtered ? _clearFilters : _reload,
+                // Prefer the widened rows when a search has already pulled them.
+                final loaded = _wideRows ?? snap.data ?? const <Project>[];
+                final projects = narrowProjects(loaded, _query);
+                if (projects.isEmpty) {
+                  // The multi-page fetch is still in flight — that is not yet a
+                  // verdict, so show the loading shape rather than "no results".
+                  if (_widening) {
+                    return const SliverToBoxAdapter(
+                        child: Shimmer(child: _ProjectsSkeleton()));
+                  }
+                  if (_query.trim().isNotEmpty) {
+                    return SliverToBoxAdapter(
+                      child: EmptyView(
+                        icon: Icons.search_off_rounded,
+                        title: 'لا نتائج مطابقة',
+                        message:
+                            'لا يوجد مشروع مفتوح يطابق «$_query».\nجرّب كلمة أقصر، أو امسح البحث',
+                        actionLabel: 'مسح البحث',
+                        actionIcon: Icons.close_rounded,
+                        onAction: _clearSearch,
+                      ),
+                    );
+                  }
+                  // "جرّب تغيير الفلتر" was advice with no button under it. A
+                  // filtered-out market is cleared in one tap; a genuinely empty
+                  // one is re-fetched, because that is the only honest action a
+                  // contractor has when the platform has nothing published.
+                  final filtered = _category != null || _wilaya != null;
+                  return SliverToBoxAdapter(
+                    child: EmptyView(
+                      icon: Icons.inbox_rounded,
+                      title: 'لا مشاريع مفتوحة حالياً',
+                      message: filtered
+                          ? 'لا يوجد مشروع منشور يطابق الفلتر.\n'
+                              'اعرض كل التخصصات لترى باقي المشاريع.'
+                          : 'لم يُنشر أي مشروع في تخصصك بعد.\n'
+                              'حدّث الصفحة أو عد لاحقاً.',
+                      actionLabel: filtered ? 'اعرض كل المشاريع' : 'تحديث',
+                      actionIcon:
+                          filtered ? Icons.apps_rounded : Icons.refresh_rounded,
+                      onAction: filtered ? _clearFilters : _reload,
+                    ),
+                  );
+                }
+                return SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 4),
+                  sliver: SliverList.separated(
+                    itemCount: projects.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (context, i) => ProjectCard(
+                      project: projects[i],
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => ProjectDetailScreen(
+                              projectId: projects[i].id, repo: widget.repo))),
+                    ),
                   ),
                 );
-              }
-              return SliverPadding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 4),
-                sliver: SliverList.separated(
-                  itemCount: projects.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (context, i) => ProjectCard(
-                    project: projects[i],
-                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => ProjectDetailScreen(
-                            projectId: projects[i].id, repo: widget.repo))),
-                  ),
-                ),
-              );
-            },
-          ),
-          const SliverToBoxAdapter(child: SizedBox(height: 24)),
-        ],
+              },
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          ],
+        ),
       ),
     );
   }
