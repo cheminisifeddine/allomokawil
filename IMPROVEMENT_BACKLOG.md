@@ -3524,3 +3524,55 @@ Phase 1.
       10_browse}.png`.
       *Commit `989041e`*, pushed as remote **`4ff5791`**; all **8/8** blobs
       re-verified `MATCH` against the remote tree, not the exit code.
+
+- [x] **`wilaya_span` was parsed and printed nowhere — and a test was green
+      only between 00:30 and midnight.**
+      Two findings, one shipped and one repaired.
+      **Shipped:** eighth instance of "the server sends it, the parser keeps
+      it, no screen reads it" (`quote_limit`, `portfolio_limit`, the renewal
+      fields, `categories`, `worker_avatar_url`, `worker_verification_status`,
+      `amount_paid`). `GET /api/mobile/plans` returns `wilaya_span` on every
+      tier — **1 / 1 / 2 / 3** on the live catalogue read 27 Sep 2026 — and
+      `Plan.fromJson` parsed it while grep found **zero** readers in `lib/`.
+      Every other limit on that payload had a line: `quote_limit` a usage bar
+      and a 402, `portfolio_limit` a left-count. The one a contractor is
+      *comparing* when choosing between «محترف» at 3000 دج and «مؤسسة» at
+      6000 دج was invisible, so the two tiers differed only by price and a
+      paragraph of prose. And it was not merely redundant with `features`:
+      `gold`'s own feature promises «صدارة النتائج في **ولايتك**» — one wilaya,
+      singular — while the server prices the plan at **three**. The app was
+      showing a promise about one wilaya next to a price for three and had no
+      way to say which was true.
+      New `lib/src/data/plan_reach_copy.dart` prints «وصول في ولاية واحدة» /
+      «وصول في ولايتان» / «وصول في 3 ولايات», counted through
+      `arabicCounted` rather than a fourth hand-written copy of the agreement.
+      `0` is silence, not «0 ولايات» — a span of 1 is already the floor.
+      **`search_boost` (0/1/3/5) was left unread on purpose** and the file
+      says why: it is a ranking weight for a sort the client cannot see, and
+      every Arabic phrase available for it is a claim about *how* results are
+      ranked, which the payload does not say. The free tier's own `features`
+      already carries the one true sentence. That belongs in server prose
+      (`features`), reaching every install with no release.
+      **Repaired:** `notification_center_test.dart` had a test that read
+      «a row two days old is rendered as two days» which used
+      `DateTime.now()` and asserted against an **elapsed** duration while the
+      app counts **calendar** days. Between 00:00 and 00:30 those disagree: at
+      00:20, two days and thirty minutes earlier is the 24th, three midnights
+      back, and the app correctly printed «قبل 3 أيام». The app was right and
+      the test was wrong; it had been green only because the loop never runs
+      in the first half hour of a day, and it failed for real at 00:05 on the
+      27th. Proved pre-existing by stashing this tick's work and re-running on
+      clean `HEAD` — it fails there too. Pinned to noon, and the midnight case
+      is now its own test asserting the three-day reading.
+      **Files:** `lib/src/data/plan_reach_copy.dart` (new),
+      `lib/src/screens/worker/subscription_screen.dart` (import + one row),
+      `test/plan_reach_copy_test.dart` (new),
+      `test/plan_reach_widget_test.dart` (new, drives the real screen),
+      `test/plan_reach_shot_test.dart` (new, 3 shots),
+      `test/notification_center_test.dart` (pin + 1 regression test).
+      **Evidence:** `flutter analyze` → **No issues found!**. Tests bite:
+      hardcoding `planReachLineAr(1)` turns the widget file red in **3 of 4**.
+      Shots `/tmp/shots/plan_reach_{basic,pro,gold}.png`; the reach row at
+      y=186–229 hashes **differently** for spans 1/2/3
+      (`4743980aeb` / `958bb38d16` / `d569c18bea`), so all three sentences are
+      really on the card.

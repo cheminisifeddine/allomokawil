@@ -11,6 +11,7 @@ import '../../data/pending_request_copy.dart';
 import '../../data/subscription_write_outcome.dart';
 import '../../data/subscription_ack.dart';
 import '../../data/plan_renewal_copy.dart';
+import '../../data/plan_reach_copy.dart';
 import '../../data/quote_count_copy.dart';
 import '../../data/repository.dart';
 import '../../models/plan.dart';
@@ -579,6 +580,12 @@ class _PlanCard extends StatelessWidget {
     // `yearlyTermHintAr` for why it is not a constant.
     final yearlyHint =
         period == BillingPeriod.year ? yearlyTermHintAr(plan) : null;
+    // «وصول في 3 ولايات» — `wilaya_span`, a limit the app parsed and printed
+    // nowhere until now. It is the one number that separates two paid tiers
+    // apart on the screen that quotes both their prices, and `features` alone
+    // promised `gold` «صدارة النتاجات في ولايتك»
+    // while the server priced it at three. See `planReachLineAr`.
+    final reachLine = planReachLineAr(plan.wilayaSpan);
     return AppCard(
       borderColor: current ? AppTheme.accent : AppTheme.cardLine,
       child: Column(
@@ -645,6 +652,24 @@ class _PlanCard extends StatelessWidget {
               yearlyHint,
               key: Key('plan-yearly-hint-${plan.id}'),
               style: AppTheme.caption.copyWith(color: AppTheme.textSecondary),
+            ),
+          ],
+          if (reachLine != null) ...[
+            const SizedBox(height: AppTheme.s4),
+            Row(
+              children: [
+                const Icon(Icons.travel_explore_rounded,
+                    size: 14, color: AppTheme.textSecondary),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    reachLine,
+                    key: Key('plan-reach-${plan.id}'),
+                    style: AppTheme.caption
+                        .copyWith(color: AppTheme.textSecondary),
+                  ),
+                ),
+              ],
             ),
           ],
           const SizedBox(height: AppTheme.s16),

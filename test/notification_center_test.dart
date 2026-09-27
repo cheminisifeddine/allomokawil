@@ -310,7 +310,29 @@ void main() {
     // On the **screen**, not on the helper. Last cycle's lesson: a correct model
     // wired to an unfixed screen passes a first unit pass clean, so the cases
     // that matter have to be driven through the real widget tree.
-    final now = DateTime.now();
+    // **Pinned to noon, and that is the fix — found on 27 Sep 2026.** This
+    // test used `DateTime.now()`, and a calendar-day assertion driven by the
+    // wall clock is only true during part of every day.
+    //
+    // `now.subtract(Duration(days: 2, minutes: 30))` is an *elapsed* duration,
+    // and the screen counts *calendar* days — the whole point of the code
+    // under test. Between 00:00 and 00:30 the two disagree: at 00:20 on the
+    // 27th, two days and thirty minutes earlier is the **24th** at 23:50, which
+    // is three calendar days back, and the app quite correctly printed
+    // «قبل 3 أيام».
+    //
+    // So the app was right and this test was wrong, and it had been passing only
+    // because the loop has never run in the first half hour of a day: it failed
+    // for real on the 27th, 00:05, and passed again minutes later. A test that
+    // is green at 06:00 and red at 00:05 is not a test of the app, it is a test
+    // of the hour, and it would have taken a user's real behaviour down with
+    // it the day a release ran overnight.
+    //
+    // Noon is the one instant at which «N days and 30 minutes ago» is
+    // unambiguously N calendar days back, so the assertion means what it says
+    // at every hour of every day.
+    final now = DateTime(DateTime.now().year, DateTime.now().month,
+        DateTime.now().day, 12, 0);
     final twoDaysAgo = now.subtract(const Duration(days: 2, minutes: 30));
     String stamp(DateTime t) {
       final u = t.toUtc();
@@ -331,10 +353,49 @@ void main() {
         backend.client);
 
     final shown = _shown(tester);
-    // 2 days and 30 minutes elapsed. A 24-hour period count reads that as
-    // «أمس» and a user is told a message from Tuesday is from yesterday.
+    // 2 days and 30 minutes elapsed, and two calendar midnights crossed. A
+    // 24-hour *period* count reads that as «أمس» and a user
+    // is told a message from the 25th is from yesterday.
     expect(shown, isNot(contains('أمس')), reason: shown.join(' | '));
     expect(shown, contains('قبل يومين'), reason: shown.join(' | '));
+  });
+
+  testWidgets('the same elapsed span across a midnight is three calendar days',
+      (tester) async {
+    // The hour the test above used to break in, pinned as its own case so the
+    // regression cannot come back through the wall clock.
+    //
+    // At 00:20 on the 27th, a notification stamped 2 days and 30 minutes
+    // earlier is the **24th** at 23:50 — three midnights back, and «قبل 3
+    // أيام» is the honest reading. The bug was never in the app: it was a
+    // test asserting «دومين» from an *elapsed* duration while the app
+    // counts *calendar* days, which only coincide outside the first half hour of
+    // the day. This asserts the two agree where the previous version said they
+    // must not, because here they are simply different questions.
+    final now = DateTime(2026, 9, 27, 0, 20);
+    final stamped = now.subtract(const Duration(days: 2, minutes: 30));
+    expect(stamped, DateTime(2026, 9, 24, 23, 50));
+    expect(calendarDaysBetween(stamped, now), 3);
+
+    String stamp(DateTime t) {
+      final u = t.toUtc();
+      String two(int v) => v.toString().padLeft(2, '0');
+      return '${u.year}-${two(u.month)}-${two(u.day)} '
+          '${two(u.hour)}:${two(u.minute)}:${two(u.second)}';
+    }
+
+    final backend = _FakeBackend(
+      [_row(id: 1, type: 'new_quote', createdAt: stamp(stamped))],
+      unread: 1,
+    );
+    await _pump(
+        tester,
+        NotificationsScreen(
+            repo: Repository(backend.client), clock: () => now),
+        backend.client);
+
+    final shown = _shown(tester);
+    expect(shown, contains('قبل 3 أيام'), reason: shown.join(' | '));
   });
 
   // ── The centre ──────────────────────────────────────────────────────────
