@@ -4595,3 +4595,105 @@ Phase 1.
       contractor's own stats line («4 من 4» completed jobs, the monthly quote
       count) on the header this loop just touched: a value that is an hour old
       must be visibly an hour old, or the contractor acts on it.
+
+### Phase 5 — engineering hardening: a settled header that never said when it was settled
+
+- [x] **The contractor's stats line printed his rating, his completed-job
+      count, his review count and his years of experience with no indication
+      of when they were read — and the pull-to-refresh shipped last cycle
+      made that unavoidable rather than merely unfortunate.**
+      The `RefreshIndicator` closed the transport half of a staleness problem:
+      a stale screen could be re-read. In doing so it exposed the half it
+      could not close. The header now offers the contractor a way to make
+      those numbers current, and nothing on screen says whether he has done
+      it — so «4.6 · 4 مشاريع منجزة · 5 سنوات خبرة» reads as the state of his
+      business and is in fact the state of his business as of whenever the
+      tab happened to be built. A contractor judges how hard to push to win a
+      job off that line, and the app's own gesture is the only evidence on
+      the screen that the number could be wrong.
+      *Shipped:* the line dates itself. Under a minute renders **nothing at
+      all**, a minute and older renders «قبل 3 دقائق» / «قبل ساعة» / «أمس» via
+      the existing `relativeTimeAr`, and an hour or older switches to
+      `AppTheme.accent` at `w800` — a quarter-old job count is a different
+      kind of statement from a fresh one, and the colour says so before the
+      words are read. The age re-renders from a one-minute tick with no
+      re-read, so it does not need a request to become honest.
+      *The same class as the five unmeasured numbers, and the reason a null
+      check never found it:* those were numbers that were **absent and
+      printed as facts**. These are numbers that are **present and dated
+      wrong by silence**. No `?? ` guard, no `hasHistory` gate and no
+      `FutureBuilder` branch can see the difference, because nothing is null
+      and nothing is in an error state — the screen is completely settled
+      and completely honest about everything except its own age.
+      *Three cases the tests pin, each of which is a lie in the other
+      direction:*
+        - **A read that never happened, and a read from the future** (clock
+          skew), both render silence rather than «الآن». «الآن» over a number
+          the app has never seen is the strongest claim this screen can make
+          and the least deserved one.
+        - **A failed pull restores the previous profile's *age* too.** The
+          restore path already exists and puts the old profile back so the
+          contractor keeps his name, stats and plan. Restoring the profile
+          without its stamp would date numbers he has been looking at for an
+          hour as though they had just arrived — the repair that exists to
+          protect him would be the thing that lies.
+        - **The tick is cancelled in `dispose`.** The shell is an
+          `IndexedStack` that builds all three tabs at boot, so an
+          uncancelled timer keeps firing — and calling `setState` after
+          dispose — for as long as the app is open.
+      *Copy is not re-derived:* it routes through `relativeTimeAr` rather than
+      a fourth hand-rolled count grammar, and the clock is injected
+      (`MarketplaceView.clock`) so a stale header is reproducible instead of
+      green only on the run where it happened to pass.
+      *DONE `6e72f37`.* *Files:* `lib/src/data/stats_freshness_copy.dart`
+      (new), `lib/src/screens/worker/worker_home_screen.dart`,
+      `test/stats_freshness_test.dart` (new, 6 tests).
+      `flutter analyze` -> **No issues found!**; `flutter test` -> **+1079 ~3
+      all passed** (was +1073: **+6 net, 0 regressions**).
+      *Four mutants injected, all four die:* dropping the restored age,
+      dropping the cancel on re-arm (caught by the pending-timer check, not
+      by an assertion), removing the stale tone, removing the sub-minute
+      silence.
+      *Two harness traps, both kept in the test.* `MarketplaceView` is a tab
+      **body**, not a page — mounted as `home:` without a `Scaffold` the
+      feed's `TextField` throws *No Material widget found*, and the first
+      failure is a missing widget rather than a missing assertion. And the
+      freshness line is computed in `build` from a stamp, so the only thing
+      that can change what it says is a `setState` from the periodic tick:
+      the test pumps **a minute** of fake-async, and a `pump(1s)` fails for a
+      reason that has nothing to do with the fix.
+      *Pixels:* `/tmp/shots/18_worker_header_fresh.png` and
+      `/tmp/shots/18_worker_header_stale.png` (1176×2550), captured from the
+      same tree one minute and one hour apart. A full-image diff touches
+      **only rows 433–474** — the stats line — with 195 new accent-coloured
+      pixels. **No committed golden changed and no overflow**, and that is
+      correct rather than lucky: `design_shots_test.dart` pins the wall clock
+      (unpinned, every shot would diff on every run), so every header in
+      `goldens/` is a header read seconds ago and correctly renders no
+      clause. The aged state is the one that ships copy, and it is the one no
+      golden would ever have had a picture of — hence the second capture.
+
+      *Two things this loop got wrong before getting it right.* The first
+      version of the copy returned «الآن» for a sub-minute read while its own
+      doc comment promised it would be suppressed — a contract written down
+      and not implemented, caught because the test asserted the comment. And
+      the *reason* silence is better than «الآن» is not brevity: a clause that
+      is **always** there teaches the eye to skip it, so the one read where it
+      is the only thing that matters is the read it gets skipped on.
+      It is suppressed for freshness, not for freshness's sake.
+
+      *Next, unasked:* the class of a **settled state that is not honest
+      about being settled** is wider than one line, and the header is only its
+      first instance. Two more sit on surfaces the same loop has now touched,
+      and both are worse than this one because neither is a header: the
+      contractor's **plan row** prints remaining monthly quotes from a second
+      read (`_PlanEntry` builds its own `FutureBuilder` over
+      `my/subscription`), so the number a paying contractor is budgeting with
+      can be a different age from the job count printed eight lines above it —
+      two numbers, one screen, two ages, neither dated. And the **guest**
+      header is the mirror case: it renders a market card with no numbers at
+      all, so there is nothing to date and nothing wrong — worth confirming
+      rather than assuming, because the audit that finds silence is also the
+      one that invents defects. Start with the plan row: two ages on one
+      screen is the sharper statement, and it is the one a paying contractor
+      is reading when he decides whether to renew.
