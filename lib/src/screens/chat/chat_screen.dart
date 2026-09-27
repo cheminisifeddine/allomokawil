@@ -262,6 +262,12 @@ class _ChatScreenState extends State<ChatScreen> {
     // the user taps back, or Android kills the app mid-request, the message is
     // still on the device with a way to send it.
     await _enqueue(local, text: text);
+    // He can leave the thread while that write is still in flight — tapping
+    // back is the most ordinary way to end a conversation, and it is the one
+    // gesture he makes right after sending. The write has already landed, so
+    // there is nothing to draw and nothing to say; only the draw needs the
+    // guard. Without it this is a red screen over the message he just sent.
+    if (!mounted) return;
     setState(() => _messages = [..._messages, local]);
     _jumpToBottom();
     await _deliver(local);
@@ -513,6 +519,9 @@ class _ChatScreenState extends State<ChatScreen> {
     if (file == null) return;
     final local = _localBubble(imagePath: file.path);
     await _enqueue(local, imagePath: file.path);
+    // Same window as [_sendText]: the gallery takes long enough for the user to
+    // back out of the thread while the record is still being written.
+    if (!mounted) return;
     setState(() => _messages = [..._messages, local]);
     _jumpToBottom();
     await _deliver(local);

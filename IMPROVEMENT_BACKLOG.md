@@ -148,6 +148,52 @@ with the reason and move to the next item.
 
 ---
 
+- [x] **Sending a message and then tapping back threw
+      `setState() called after dispose()` — a red screen over the message the
+      user had just sent.** `_sendText` writes the message to the device queue
+      *first* (`await _enqueue`, a real `SharedPreferences` write) and only then
+      draws the bubble with `setState`. Tapping back in that window is the most
+      ordinary way to end a conversation and the one gesture a user makes right
+      after sending, so the single most common exit from this screen was the one
+      that crashed. `test/chat_unmount_test.dart` reproduces it exactly: an
+      `OutboxStore` that never answers holds the write open, the route is popped
+      under it, and the queue is released onto a dead `State`.
+      *Why it survived:* the file guards **sixteen** other post-`await`
+      `setState` calls with `mounted` — the pattern was established here and
+      applied diligently everywhere else. These two send paths were the
+      exceptions, and they are the two a user reaches in a single tap. The
+      blast radius is exactly "a message the user believes he sent".
+      *Shipped:* `if (!mounted) return;` before the draw in both `_sendText`
+      and `_pickImage` (`lib/src/screens/chat/chat_screen.dart:270`, `:531`).
+      The write is deliberately **not** abandoned — the record has already
+      landed, so the message still goes out from the queue on the next open,
+      which is the whole point of writing it down first. Only the draw needed
+      the guard, and only the draw gets it.
+      *Red before green, which is the part worth trusting:* the new test first
+      failed in `_boot` on a malformed login fixture — a **wrong** failure, and
+      it was fixed rather than investigated away. With the fixture corrected it
+      failed for the real reason, with Flutter naming the line itself:
+      `#1 State.setState ... #2 _ChatScreenState._sendText
+      (package:allomokawil/src/screens/chat/chat_screen.dart:265:5)`. After the
+      fix: **1 passed**. The test asserts both halves of the contract — no
+      exception *and* `store.writes == 1` — so a future "fix" that simply
+      skipped the write would fail it.
+      *Evidence:* `flutter analyze` -> **No issues found!** (5.2 s);
+      `flutter test` -> **1091 passed / 3 skipped / 0 failed** (was 1090/3/0;
+      the new file is the +1). Baseline was measured on this host *before* the
+      fix, in the same checkout, because the previous run had no trustworthy
+      count to beat.
+      *Worth knowing, since it cost four ticks:* the build gate was blocked for
+      four cycles by an orphaned `flutter_tester` holding
+      `build/unit_test_assets` — ~3 s of CPU across its whole life, and
+      **reap permission was asked for on 13 Sep and never answered**. It
+      exited on its own this cycle. The box also reports local/remote as 13/13
+      diverged, which is **not** lost work: both trees hash to
+      `426e61711e38cecb7074aa39bdffbc36f75b0a3b`. That divergence is the
+      known side effect of pushing through the git-data API, which never
+      refreshes the local `origin/main` ref. `git rev-parse HEAD^{tree}` vs
+      `origin/main^{tree}` is the check that tells the two apart.
+
 ## Phase 0 — First-run experience (founder review, 12 Sep)
 
 The founder opened the app, sent two screenshots and said: the first page must be
