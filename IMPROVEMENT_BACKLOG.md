@@ -193,6 +193,10 @@ with the reason and move to the next item.
       known side effect of pushing through the git-data API, which never
       refreshes the local `origin/main` ref. `git rev-parse HEAD^{tree}` vs
       `origin/main^{tree}` is the check that tells the two apart.
+      *Commit:* local `8c9434a`, remote `4366b68` (the git-data API mints its own
+      SHA; `git cat-file -e origin/main:test/chat_unmount_test.dart` confirms
+      the file is really on the remote, and the guard count in the remote blob
+      is 16).
 
 ## Phase 0 — First-run experience (founder review, 12 Sep)
 
