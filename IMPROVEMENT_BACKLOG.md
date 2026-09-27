@@ -5299,3 +5299,82 @@ running app for defects like these rather than inventing a feature.
       *Left unaudited in this family:* `ChatOutbox` is the third writer to the
       preferences file and has only been read, never audited, since the
       substrate audit named it.
+
+- [x] **The audit of that third writer: a queue write the phone refused was
+      reported to the user as a saved message.** `ChatOutbox` is the
+      preferences file's remaining writer and it was the only one whose store
+      call threw its result away. `PrefsOutboxStore.write` did
+      `await prefs.setString(key, raw)` and discarded the **bool** the plugin
+      returns. That bool is not decorative: `shared_preferences` answers
+      **false** — not an exception — when the platform declines to store the
+      value, which is what a full disk, a revoked storage grant or a rejected
+      commit looks like. So a write that never reached the disk completed
+      normally, `add()` saw a clean future, and the send path went on to print
+      «تعذّر الإرسال — الرسالة محفوظة في الهاتف».
+      *The founder-visible failure, and it is the one the whole file exists to
+      prevent.* The outbox is a **promise of durability**: it exists so a user
+      who typed «العنوان: حسين داي» into a dead 3G connection can close the app
+      and find his words still there. Every failure sentence leaned on that
+      promise, and none of them checked it. The user reads the line, closes the
+      app or lets Android reclaim it, and the words are gone — announced by the
+      very sentence that claims to prevent exactly that, with nothing on screen
+      that was ever true.
+      *The second harm is the more embarrassing one, and it is the same
+      swallowed bool.* `add()` reports the record the bound pushed off the
+      queue through `lastDropped`, and the screen toasts «امتلأت قائمة
+      الانتظار — حُذفت أقدم رسالة». On a refused write the disk still holds the
+      **old** queue: nothing was evicted and nothing arrived. So the app
+      announced a deletion of the user's own words that never happened, and
+      said nothing at all about the message that never landed. The degradation
+      was built, documented and tested — and was reporting a fiction.
+      *Shipped:* `write` now throws when the platform reports it stored
+      nothing; `_write` answers whether the queue landed and `add` records it in
+      `lastPersisted`, reporting `lastDropped` only when the write actually
+      happened. The screen tracks durability **per bubble** — a phone that
+      refused one write can still have stored an earlier one, so a single
+      screen-wide flag would lie about one of them either way — toasts the new
+      `S.chatNotSaved` («تعذّر حفظ الرسالة على الهاتف. انسخها قبل إغلاق
+      التطبيق، ثم أعد المحاولة.») when the phone would not take the message,
+      and the failed-send toast is now **chosen from that fact** rather than
+      asserting a copy the phone does not have. The instruction in the new
+      sentence is «انسخها» and not «أعد المحاولة» on purpose: retrying is what
+      the *other* sentence is for, and the only thing a user whose phone
+      refused the write can still do is copy the words down.
+      *The degraded path is deliberately untouched.* A refused write still
+      never throws and still sends, because `_write` is the last statement on
+      the send path and a storage failure must not become a lost message. That
+      is now tested in its own right rather than assumed.
+      *Red before green, and every wrong failure was fixed rather than waived.*
+      Three of them, all in the test and all instructive:
+      (1) The first run **did not compile** against the reverted source — it
+      named the new constant and the new field, so it proved nothing. It was
+      rewritten in literal copy and old API only, because a test that cannot
+      compile against the code it is written for has not tested it. (2) The
+      widget test **hung outright**, because it seeded the phone with the app's
+      own key names while the platform layer stores everything under a
+      `flutter.` prefix — the session was filtered out, the thread never
+      signed in, the send was never reached. Seeded through a live instance,
+      the same class of harness bug the session fix hit. (3) The bound test
+      used `chatOutboxMax` adds, and a bound that fires at 61 never evicts
+      anything at 60 — it was failing on my own off-by-one before it ever
+      reached the defect.
+      *A gap in the harness, not in the code.* Every store in the suite threw:
+      `_RefusingStore`, the `_GatedStore`s, the rest. A throwing writer and a
+      declining one are indistinguishable from the outside, so the difference
+      the user actually sees could not be observed by any test — which is why
+      the defect survived a file that tests this store hard. `_DecliningStore`
+      answers **false** the way the platform does, and the widget test now runs
+      against a real refusal rather than a simulated one.
+      *Evidence:* `flutter analyze` -> **No issues found!** (2.5 s);
+      `flutter test` -> **1107 passed / 3 skipped / 0 failed** (was 1103/3/0;
+      the new file is the +4). The new sentence is inside the
+      `error_copy_test.dart` invariant list, so it cannot lose its instruction,
+      grow a Latin letter or end mid-sentence. Not visual — this is the storage
+      layer and one toast, so no pixels moved and no screenshot applies.
+      *Commit:* local `7a15de6`, remote `01fcb30`. All five blobs verified
+      `MATCH` against the remote tree, not the exit code.
+      *Next in this family:* the `unconfirmed` path writes a record's reason
+      through `markUncertain` and swallows its refusal the same way, so a
+      «do not re-send this» flag can silently fail to reach the disk — the one
+      half of this file whose failure would create a duplicate rather than a
+      loss.
