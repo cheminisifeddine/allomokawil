@@ -4395,3 +4395,86 @@ Phase 1.
       one pump, so the test was asserting on a moment that no longer existed and
       **would have kept passing if the control had never latched at all**. It now
       holds the retry in flight for the whole assertion.
+
+- [x] **The contractor search could not be pulled to refresh — and the one
+      gesture an Algerian user tries first on a stale feed was silently
+      ignored.** `BrowseScreen` is the screen a client opens to find a pro,
+      and it was the only read in the app with no `RefreshIndicator`:
+      `chat_list_screen`, `notifications_screen`, `projects_screen` and
+      `subscription_screen` all wrap theirs. This one had all three settled
+      states — shimmer, error, and a populated `ListView.separated` — and
+      every one of them was static.
+      The error state carried a retry button, so a man whose first load
+      failed could press his way back. A man whose first load *succeeded*
+      and whose feed then went stale had nothing at all: a contractor who
+      registered an hour ago, an hour spent in the fields, a job posted
+      across town. Not a slow path, not a hidden one — the list simply did
+      not move when pulled.
+      *Shipped:* all three settled states wrapped, not just the populated
+      one. That half is the one that is easy to get wrong: `EmptyView` is a
+      `Center` around a `Column(mainAxisSize: min)`, so it is not scrollable
+      and a `RefreshIndicator` over it accepts the gesture and drops it.
+      Each state gets a list that can always be scrolled. `_refresh` awaits
+      its read rather than firing it — `RefreshIndicator` holds the spinner
+      until the future resolves, so a pull that returned early would snap
+      the indicator away and leave a list that looks refreshed while still
+      holding the rows the user was trying to replace.
+      **DONE `aac98bb`** (pushed `1fe2214`).
+      *Two of my own mistakes, both caught by the suite and fixed in the
+      code rather than by loosening a test.* The error and empty states
+      were first wrapped in a `SizedBox(height: 320)`, which overflowed by
+      design — icon disc, title, message and button do not fit in 320dp.
+      `projects_screen` passes `EmptyView` straight in as a list child so
+      it sizes itself; this does the same now. And
+      `EdgeInsets.fromLTRB(18, 18, 18, 28)` put two off-grid literals on
+      the page, taking the 8pt ratchet **197 → 203**; fixed with
+      `AppTheme.s16`.
+      *One regression in an unrelated file, and the more interesting one.*
+      `offline_taxonomy_test.dart` addressed the trade row as
+      `find.byType(Scrollable).last` — true *by accident*, while the page
+      had exactly two scrollables. Adding the indicator put a vertical
+      result list under it and the row stopped being last, so a gesture
+      improvement quietly broke an offline test. It is now identified by
+      being the horizontal `ListView`. A positional finder is a bug waiting
+      for the next widget to be added.
+      *Evidence:* 9 widget tests over the real screen, real `Repository`,
+      fake client. On the unfixed screen they measured **+1 −6**; all six
+      core tests red there. `flutter analyze` -> **No issues found!**;
+      `flutter test` -> **+1059 ~3 all passed** (was +1051: **+8 net, 0
+      regressions**, skips unchanged).
+      *One mutation survives, and it is not a hole in the test.* Deleting
+      the explicit `AlwaysScrollableScrollPhysics` from the result list
+      changes nothing, because `ScrollView` **already defaults** a vertical,
+      controllerless list to exactly that physics —
+      `flutter/lib/src/widgets/scroll_view.dart:141-148`. It is an
+      equivalent mutant. Three weaker assertions (`byType(ListView)`,
+      "any scrollable has it", "exactly one has it") all stayed green with
+      the line deleted, because `ListView.separated` is not found by runtime
+      type and the horizontal filter bar keeps a physics of its own. The
+      assertion that finally holds is anchored on
+      `find.descendant(of: find.byType(RefreshIndicator))`, and the reason is
+      written into the test so the next person does not spend an hour
+      rediscovering it the way this tick did.
+      *Files:* `lib/src/screens/browse/browse_screen.dart`,
+      `test/browse_pull_to_refresh_test.dart` (new),
+      `test/offline_taxonomy_test.dart`. 3/3 blobs verified `MATCH` against
+      remote tip `1fe2214`.
+      *A harness trap worth recording.* The first version of the screenshot
+      test called `toImage()` mid-pulse inside a widget test and **hung the
+      whole suite** — 8 minutes of zero CPU after `+1058`, no failure, no
+      output. The unit count looked fine the entire time, so the stall was
+      only visible as silence. The shot was taken; the hang was removed and
+      the visual evidence comes from `design_shots_test.dart` instead, which
+      already owns that job and does not stall.
+      *Visual, measured:* `/tmp/shots/10_browse.png` (1176×2550)
+      re-rendered after the change. Navy bands land where they should — app
+      bar y 67..122, search field 477..518, filter bar 682..728 — and no
+      indicator colour bleeds into the resting screen, because a feed at
+      rest must look exactly as it did before.
+      *Next, unasked:* `customer_home_screen.dart` is the last big read with
+      no `RefreshIndicator`, and it is the harder one: a `CustomScrollView`
+      carrying **three** independent futures (workers, projects, and a
+      header that reads user state) behind one gesture. One pull firing
+      three reads that can each fail independently needs a contract for
+      "what does the indicator wait on, and what does it say when one of
+      the three is dead" — otherwise the same class of bug moves there.
