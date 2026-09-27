@@ -73,14 +73,41 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
   void initState() {
     super.initState();
     _project = widget.repo.getProject(widget.projectId);
-    _quotes = widget.repo.projectQuotes(widget.projectId);
+    _quotes = _observe(widget.repo.projectQuotes(widget.projectId));
   }
 
   void _reload() {
     setState(() {
       _project = widget.repo.getProject(widget.projectId);
-      _quotes = widget.repo.projectQuotes(widget.projectId);
+      _quotes = _observe(widget.repo.projectQuotes(widget.projectId));
     });
+  }
+
+  /// Marks a read as observed from the moment it is issued, not from the moment
+  /// it is watched.
+  ///
+  /// Dart reports a future as an *unhandled* error when it completes with one
+  /// and no listener was attached in time. The quote read is started in
+  /// [initState], but the `FutureBuilder` that displays it does not exist yet:
+  /// it lives inside the body of the *project's* `FutureBuilder`, so it is not
+  /// even constructed until the project read resolves. A 500 on the quotes call
+  /// that lands first — the likelier of the two on a flaky mobile connection,
+  /// and the one that happens when both are racing the same dead network —
+  /// therefore completed with nobody listening and was reported as an uncaught
+  /// async error.
+  ///
+  /// That is not a cosmetic warning. An unhandled async error in the root zone
+  /// is exactly what the crash reporter records, so a routine server blip on
+  /// the quotes call was being filed as a *crash* — and on the one screen the
+  /// owner of a job is looking at while deciding whether to trust the platform.
+  ///
+  /// This attaches a no-op error listener immediately, which is what makes the
+  /// future handled. The error is not swallowed: [FutureBuilder] still sees
+  /// `hasError` and still renders the state below, because this listener runs
+  /// alongside the builder's rather than instead of it.
+  static Future<List<Quote>> _observe(Future<List<Quote>> f) {
+    f.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    return f;
   }
 
   /// Owner accepts a quote — the backend rejects every other one.
@@ -274,6 +301,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                           isOwner: _isOwner,
                           onAccept: _accept,
                           onBid: () => _showBidSheet(project),
+                          onRetry: _reload,
                         ),
                         if (_isOwner) ...[
                           const SizedBox(height: 16),
@@ -711,12 +739,22 @@ class _QuotesSection extends StatelessWidget {
   final ValueChanged<Quote> onAccept;
   final VoidCallback onBid;
 
+  /// Re-issues the quote read. The screen's own `_reload`, so the retry is a
+  /// real request and not a redraw of the same failure.
+  ///
+  /// `snap.hasError` and this callback are the two halves of the fix, and they
+  /// were both already here: the FutureBuilder could tell the states apart
+  /// since it was written, and `_reload` has always re-issued the read. What
+  /// was missing was the branch between them.
+  final VoidCallback onRetry;
+
   const _QuotesSection({
     required this.quotesFuture,
     required this.project,
     required this.isOwner,
     required this.onAccept,
     required this.onBid,
+    required this.onRetry,
   });
 
   @override
@@ -726,6 +764,38 @@ class _QuotesSection extends StatelessWidget {
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
           return const _QuotesSkeleton();
+        }
+        // **A failed read is not an empty quote list.**
+        //
+        // The line below used to be `final quotes = snap.data ?? const
+        // <Quote>[];`. `snap.data` is null on an error exactly as it is on a
+        // genuinely empty list, and this builder never asked which one it was,
+        // so the two were indistinguishable from here: one 500 — one dropped
+        // connection, one host not answering, one captive portal on hotel wifi
+        // — and the owner of a posted project was shown «لا عروض بعد» with a
+        // button that sends him to the contractor directory to fish for pros
+        // himself.
+        //
+        // This is the third screen in that family, and it is the worst of the
+        // three. The other two hid a photo count («لم يضف صوراً بعد», «أضف
+        // صوراً»). This one makes a false claim about *demand*: that nobody
+        // bid on the job he paid to advertise. The owner's rational response
+        // is to distrust the platform, lower the price, or repost elsewhere —
+        // all more expensive than one retry button.
+        //
+        // The screen's own project read one widget up already does this, with
+        // `snap.hasError` and the same `_reload`; the quote list was the one
+        // section that never did.
+        if (snap.hasError) {
+          return EmptyView(
+            icon: Icons.error_outline_rounded,
+            title: 'تعذّر تحميل العروض',
+            message: errorCopy(snap.error),
+            actionLabel: 'أعد المحاولة',
+            onAction: onRetry,
+            danger: true,
+            titleColor: AppTheme.danger,
+          );
         }
         final quotes = snap.data ?? const <Quote>[];
         if (quotes.isEmpty) {

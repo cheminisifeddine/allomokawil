@@ -552,6 +552,16 @@ class EmptyView extends StatelessWidget {
   /// retry (e.g. "clear the search") passes its own so the button does not lie.
   final IconData actionIcon;
 
+  /// Colour of the title line, for a state whose heading itself is the message.
+  ///
+  /// [danger] already tints the icon and the disc behind it, which is enough
+  /// when there is a body under the title to explain the situation. When the
+  /// title *is* the whole message — «تعذّر تحميل العروض» — it is the only text
+  /// that changed on the screen, so it is the only text that can carry the
+  /// meaning: read in [AppTheme.textPrimary] it sits in the same voice as every
+  /// ordinary heading on the page. Null keeps the previous behaviour.
+  final Color? titleColor;
+
   const EmptyView({
     super.key,
     required this.icon,
@@ -561,6 +571,7 @@ class EmptyView extends StatelessWidget {
     this.onAction,
     this.danger = false,
     this.actionIcon = Icons.refresh_rounded,
+    this.titleColor,
   });
 
   @override
@@ -586,7 +597,8 @@ class EmptyView extends StatelessWidget {
             Text(
               title,
               textAlign: TextAlign.center,
-              style: AppTheme.h2.copyWith(color: AppTheme.textPrimary),
+              style: AppTheme.h2
+                  .copyWith(color: titleColor ?? AppTheme.textPrimary),
             ),
             if (message != null) ...[
               const SizedBox(height: 8),
