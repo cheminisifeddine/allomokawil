@@ -13,6 +13,17 @@ import '../screens/notifications/notifications_screen.dart';
 /// already trusts. A failed call keeps the last known count instead of
 /// painting an error on the header, and the count is refreshed on the way back
 /// from the centre, so opening a notification clears the pip.
+///
+/// **The count is also refreshed when the app comes back to the foreground**,
+/// which is the moment it actually goes stale. Before this, `_refresh` ran
+/// once from `didChangeDependencies` and the bell was then correct only until
+/// the phone was locked — and nothing in the app observed the lifecycle at all
+/// (`WidgetsBindingObserver` appears nowhere in `lib/`), so a quote that landed
+/// while the contractor was in another app left a header that said «nothing
+/// new» until he happened to open the centre. The pip is the one line on the
+/// home screen that claims something arrived, so a pip that cannot go up is the
+/// worst possible failure for it: it does not look broken, it looks like a
+/// quiet day.
 class NotificationsBell extends StatefulWidget {
   const NotificationsBell({super.key, this.repo, this.onNavy = false});
 
@@ -26,10 +37,34 @@ class NotificationsBell extends StatefulWidget {
   State<NotificationsBell> createState() => _NotificationsBellState();
 }
 
-class _NotificationsBellState extends State<NotificationsBell> {
+class _NotificationsBellState extends State<NotificationsBell>
+    with WidgetsBindingObserver {
   late final Repository _repo;
   bool _wired = false;
   int _unread = 0;
+
+  /// One read in flight at a time.
+  ///
+  /// A phone can resume, background and resume again in the time one request
+  /// takes on a 3G bar, and each of those starts another. Without this the
+  /// slower answer wins the `setState`, so the pip can end up showing the
+  /// count from *before* the newer read — a badge that goes backwards on
+  /// resume, which is worse than a stale one.
+  bool _refreshing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Registered here rather than in `didChangeDependencies` because the
+    // observer is about the engine, not about this screen's dependencies.
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
   @override
   void didChangeDependencies() {
@@ -42,7 +77,31 @@ class _NotificationsBellState extends State<NotificationsBell> {
     _refresh();
   }
 
+  /// Android delivers this on every return to the foreground, and iOS too.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Only `resumed`. `inactive` fires when a dialog, the app switcher or a
+    // permission sheet comes over the top, and the app is still not usable —
+    // asking the network there spends the user's data to draw the same number
+    // they will see a moment later anyway.
+    if (state != AppLifecycleState.resumed) {
+      return;
+    }
+    // `_repo` is assigned in `didChangeDependencies`, which the engine can
+    // reach before it delivers the first lifecycle message. Reading a `late
+    // final` then throws inside a framework callback, where it is swallowed
+    // as a red-screen report about a bug the user never caused.
+    if (!_wired) {
+      return;
+    }
+    _refresh();
+  }
+
   Future<void> _refresh() async {
+    if (_refreshing) {
+      return;
+    }
+    _refreshing = true;
     try {
       final n = await _repo.unreadCount();
       if (!mounted) {
@@ -51,6 +110,8 @@ class _NotificationsBellState extends State<NotificationsBell> {
       setState(() => _unread = n);
     } catch (_) {
       // Keep the last known count: a dropped request is not a broken header.
+    } finally {
+      _refreshing = false;
     }
   }
 

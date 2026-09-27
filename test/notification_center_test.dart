@@ -519,6 +519,88 @@ void main() {
     expect(find.byKey(const Key('notifications-badge')), findsNothing);
   });
 
+  // A quote that lands while the phone is locked is the normal case, not the
+  // edge case: the founder's own report on the centre is that what arrives
+  // while the app is closed is what he opens the app for. The pip is the only
+  // line on the home screen that claims something arrived, and it is read at a
+  // glance, so a pip frozen at launch is a header that says «nothing new» over
+  // a quote worth 40 000 DZD.
+  testWidgets('the pip comes up when the app returns to the foreground',
+      (tester) async {
+    final backend = _FakeBackend(const [], unread: 0);
+
+    await _pump(
+        tester, NotificationsBell(repo: Repository(backend.client)),
+        backend.client);
+    expect(find.byKey(const Key('notifications-badge')), findsNothing);
+
+    // The phone was locked, a quote arrived, the phone is unlocked.
+    backend.unread = 1;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('notifications-badge')), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+    // Exactly one extra read, not one per lifecycle message: `_refreshing`
+    // is what stops a fast resume/lock/resume from racing two answers.
+    expect(backend.log.where((l) => l == 'GET /api/unread').length, 2);
+  });
+
+  testWidgets('resuming does not spend a request while the app is not usable',
+      (tester) async {
+    final backend = _FakeBackend(const [], unread: 3);
+
+    await _pump(
+        tester, NotificationsBell(repo: Repository(backend.client)),
+        backend.client);
+    final after = backend.log.where((l) => l == 'GET /api/unread').length;
+
+    // `inactive` is the app switcher, a permission sheet and an incoming
+    // dialog. The screen behind it is not readable yet, so a read there is
+    // data the user pays for to draw a number they have not looked at.
+    for (final state in <AppLifecycleState>[
+      AppLifecycleState.inactive,
+      AppLifecycleState.paused,
+      AppLifecycleState.hidden,
+      AppLifecycleState.detached,
+    ]) {
+      tester.binding.handleAppLifecycleStateChanged(state);
+      await tester.pumpAndSettle();
+    }
+    expect(backend.log.where((l) => l == 'GET /api/unread').length, after);
+
+    backend.unread = 4;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.text('4'), findsOneWidget);
+  });
+
+  testWidgets('a double resume spends one request, not two', (tester) async {
+    final backend = _FakeBackend(const [], unread: 1);
+
+    await _pump(
+        tester, NotificationsBell(repo: Repository(backend.client)),
+        backend.client);
+    final after = backend.log.where((l) => l == 'GET /api/unread').length;
+
+    // Android sends `resumed` on every return to the foreground, and a phone
+    // that is unlocked twice in a row while a 3G request is open would
+    // otherwise queue a second read behind the first. Two answers then race to
+    // `setState`, and the slower one wins — so the pip shows a count from
+    // before the newer read. A badge that goes backwards on resume is worse
+    // than one that is briefly stale, so the second resume is dropped instead.
+    backend.unread = 2;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    // No pump between the two: both land inside the same frame, with the
+    // first request still open.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(backend.log.where((l) => l == 'GET /api/unread').length,
+        after + 1);
+    expect(find.text('2'), findsOneWidget);
+  });
+
   testWidgets('opening the centre and clearing it drops the pip', (tester) async {
     final backend = _FakeBackend([
       _row(id: 3, type: 'new_message'),
