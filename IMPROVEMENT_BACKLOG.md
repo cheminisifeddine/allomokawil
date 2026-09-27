@@ -4227,3 +4227,60 @@ Phase 1.
       (`rindex` before the quotes line): **−3**.
       *Files:* `lib/src/screens/project/project_detail_screen.dart`,
       `lib/src/widgets/ui.dart`, `test/project_quotes_failure_test.dart`.
+
+- [x] **A failed profile read deleted the contractor's whole dashboard.**
+      `_HeaderSection` keyed its branches on `worker = snap.data`, which is null
+      on an error exactly as it is on a read that has not answered, and never
+      asked `snap.hasError`. Its failure branch was a bare
+      `Text('تعذّر جلب ملفك')` — no button, no retry, inside a navy card, on a
+      `CustomScrollView` with no `RefreshIndicator`.
+      *But the sentence was the smaller half.* Every row below is gated on
+      `worker != null` (the identity row, `_StatsLine`, `_ToolStrip`,
+      `_PlanEntry`), so one 500 on `GET /api/mobile/my/profile` removed all of
+      them at once: a signed-in contractor could not see his name, his stats,
+      **«معرض أعمالي»**, **«المستندات»**, **«ملفي المهني»** or his plan. He
+      could not upload the work he had done, nor see where his verification
+      papers stood, nor edit his commercial profile — the whole contractor half
+      of the product, gone on a single read, with no way back except leaving
+      the tab and hoping.
+      This is the fourth screen in the family and the first that *removes
+      navigation* rather than publishing a false absence. The market feed in
+      the same widget tree, read one sliver below, already had `snap.hasError`
+      → `EmptyView` + `onAction: _reload`; this header was the only read on the
+      screen that had not learned it, and it is the one that gates the most.
+      **DONE `c80150c`** (pushed `5f379fa`).
+      *Evidence:* 6 widget tests driving the real screen, real `Repository` and
+      a fake client 500 + HTML. Written first, measured **+4 −2** on the
+      unfixed code — the two reds are the defect (no retry control exists; the
+      read is never re-issued). `flutter analyze` -> **No issues found!**
+      (5.3 s); `flutter test` -> **+1028 ~3 all passed** (was +1022: **+6 net, 0
+      regressions**, skips unchanged). Mutation-gated **four ways**, each
+      reverted and re-verified: failure branch back to the bare sentence
+      **−2**; retry as a no-op redraw **−1**; arrow-form `setState` **−1**; and
+      the guest branch deliberately left alone (a visitor has no profile to
+      read, so "empty" is *true* there — a test pins it).
+      *Visual* `/tmp/shots/worker_header_read_failed.png` (1176×3300): the
+      retry is a real control, not a label — accent `e8a33d` spans y 828..995,
+      **168 px tall × 960 px wide** at dpr 2.75 (full card width, ~48 dp,
+      matching `AppTheme.tapMin`); `navySoft 243457` bubble 126 px.
+      `contrast_audit` **28/28**; the four pairs this state draws measure
+      15.89 / 8.89 / 7.37 / 6.90:1. I could not view the PNG (no browser this
+      session), so the claim is backed by the pixel measurement, not my eye.
+      *A fifth mutation I planned to ship and did not.* By analogy with last
+      tick's `_observe()`, I wrote an error listener onto this read. A probe
+      test showed **no leaked async error with or without it**, because this
+      `FutureBuilder` is constructed in the same frame the read is issued —
+      unlike the quote read, whose builder waits on the project read. Removed
+      rather than committed on an unbacked claim; the protocol now says to
+      probe before adding the listener.
+      *And a real bug the tests caught, where the code looked right.* Written as
+      `=> setState(() => _me = ...)`, the callback's value **is** the assigned
+      `Future`, and Flutter asserts on a `setState` callback returning one. The
+      read was issued, the tap appeared to work, and the failure state stayed
+      on screen — a retry that did nothing. The probe log showed the second
+      `GET /api/mobile/my/profile` and the failure state on screen at the same
+      time. The block body is load-bearing; the reason now sits at the call
+      site so the next tick does not "simplify" it back.
+      *Files:* `lib/src/screens/worker/worker_home_screen.dart`,
+      `test/worker_header_failure_test.dart`. 2/2 blobs verified `MATCH`
+      against remote tip `5f379fa`.
