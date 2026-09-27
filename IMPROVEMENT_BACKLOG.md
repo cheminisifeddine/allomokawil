@@ -4471,10 +4471,78 @@ Phase 1.
       bar y 67..122, search field 477..518, filter bar 682..728 — and no
       indicator colour bleeds into the resting screen, because a feed at
       rest must look exactly as it did before.
-      *Next, unasked:* `customer_home_screen.dart` is the last big read with
-      no `RefreshIndicator`, and it is the harder one: a `CustomScrollView`
-      carrying **three** independent futures (workers, projects, and a
-      header that reads user state) behind one gesture. One pull firing
-      three reads that can each fail independently needs a contract for
-      "what does the indicator wait on, and what does it say when one of
-      the three is dead" — otherwise the same class of bug moves there.
+- [x] **The client home could not be pulled to refresh — `fcde50b`** (local
+      `85f9f55`, 27 Sep 2026). Shipped the item the note below named.
+
+      *The defect.* `customer_home_screen.dart` was the last big read in the
+      app with no `RefreshIndicator` — the five siblings (`browse_screen`,
+      `chat_list_screen`, `notifications_screen`, `projects_screen`,
+      `subscription_screen`) all had one. A client coming back after an hour
+      got the same screen; the only way to move it was killing the app. It is
+      the worst screen to have this on, because it is where the most can
+      change while it is open: a contractor signs up across town, a quote
+      lands, his own job moves to «قيد التنفيذ».
+
+      *The contract, which is the hard part.* This is the only one of the six
+      where **three** reads sit behind the single gesture — top contractors,
+      his own projects, and the conversations that decide the first-run
+      guide — and each can fail alone. Decided and written into the source:
+      the indicator waits on all three via `Future.wait`, and a single dead
+      read is announced in place by its own `FutureBuilder`
+      («تعذّر جلب المقاولين») rather than failing the gesture and discarding
+      the two reads that answered. A visitor's pull never re-requests the two
+      session-only strips — the exact «تعذّر جلب المشاريع» the founder
+      reported on a man who had never signed in.
+
+      *A second, older bug found by doing it.* Both reload handlers read
+      `setState(() => _f = _repo.something())`, whose arrow closure **returns**
+      the future it assigns. `State.setState` throws on a Future-returning
+      callback (`framework.dart:1202-1214`) inside an assert, so only in debug
+      — the read still ran and «إعادة المحاولة» still worked while throwing
+      underneath itself on every tap. `_onPlaceChanged` had the same shape on
+      the main path, so a GPS answer arriving after boot hit it too. Both are
+      block bodies now. This defect predates the tick that shipped it; the
+      pull gesture found it because it drives the same handler.
+
+      *Evidence.* 8 widget tests over the real screen, real `Repository`,
+      fake client, counting **requests** rather than frames. On the unfixed
+      screen they measure **+0 —8** — every one red, none vacuous. The
+      restored `setState` bug measures **+2 —6**. `await Future.wait(reads)`
+      shortened to `await reads.first` measures **+7 —1**. `flutter analyze`
+      -> **No issues found!**; `flutter test` -> **+1067 ~3 all passed** (was
+      +1059: **+8 net, 0 regressions**, skips unchanged).
+      *Visual, measured:* `/tmp/shots/04_customer_home.png` (1176x2550)
+      re-rendered by the suite after the change. Header gradient reads
+      `0x101932` -> `0x17233f` -> `0x1d2b4a` top to bottom, and the top 140 px
+      is entirely gradient — no indicator colour bleeds into the resting
+      screen.
+      *Files:* `lib/src/screens/customer/customer_home_screen.dart`,
+      `test/customer_home_pull_to_refresh_test.dart` (new). 2/2 blobs verified
+      `MATCH` against remote tip `fcde50b`.
+
+      *One mutant survives, and it is not a test hole.* Deleting the explicit
+      `AlwaysScrollableScrollPhysics` leaves all eight green, because
+      `ScrollView` already defaults a vertical, controllerless scroll view to
+      exactly that physics (`scroll_view.dart:141-148`) — an equivalent
+      mutant, and the **second** time this repo has hit it. Kept as a contract
+      pin; the reason is written into the test so the next person does not
+      spend an hour rediscovering it.
+
+      *Two harness traps, both found by instrumenting the boot log rather
+      than by reasoning.* The projects strip is a lazy sliver ~1100 logical px
+      below the fold, so an assertion on a project title passes or fails on
+      whether the *viewport* happened to reach it — the strip's
+      `FutureBuilder` has not even run at rest. And the projects tab inside
+      the `IndexedStack` issues its own `my/projects` at boot for signed-in
+      **and signed-out** users alike, so an absolute count there measures the
+      shell, not the strip. Both are documented in the test where the next one
+      hits them. A third: the pull's callback fires at ~300 ms on this page,
+      so a single `pump(400ms)` races the *fling*, not the contract.
+
+      *Next, unasked:* `worker_home_screen.dart` is the one remaining shell
+      with a `CustomScrollView` and no indicator of its own — and it is the
+      contractor's home, the busiest surface in the product. It is also a
+      `CustomScrollView`, so it inherits every trap written down above. Worth
+      an audit of the worker tab's reads before writing the handler: the strip
+      that is probably wrong is the one nobody can refresh, not the one the
+      gesture reaches.
