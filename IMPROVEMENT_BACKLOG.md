@@ -4963,13 +4963,85 @@ ends it.
       bracketing, and even both-bracketed only helps a shell that typed the
       pattern literally, which this one does not.
 
+- [x] **Sending a message could lose it outright, and crash on the way out of
+      the thread.** Shipped `d55e078` (remote `c4a7480`). Three defects on the
+      composer's send, all three reachable in a single gesture — «tap send, tap
+      back» — and tapping back is the most ordinary way to end a
+      conversation, so the window between the send and the dispose is the normal
+      one rather than an edge case.
+
+      *The loss, and it is the serious one.* `_sendText` emptied the composer
+      **before** the durable queue write. In the window between the two, his
+      words existed nowhere: gone from the field, not yet on disk. A write that
+      failed there — a full disk — or Android killing the app in that window
+      lost the message outright, with nothing drawn and no record to retry from.
+      That is precisely the loss `data/chat_outbox.dart` exists to prevent, and
+      the last tick's fix on this very path put its own guard directly beneath
+      it. The clear now happens *after* the write, behind the existing `mounted`
+      guard, so the record is the proof and the field is only the draft.
+
+      *The crash that ate a second message.* `_retryUnsent` — the loop over
+      everything the server refused — called `setState` with no `mounted`
+      check. It was the only `setState` in the file without one, and the most
+      likely to land on a dead State precisely because `_sendText` runs it
+      *first*, ahead of its own guarded draw. The throw did not merely show a red
+      screen: it unwound `_sendText`, so the message he was sending right then
+      never reached the queue either. Flutter named it on the unfixed source:
+      `_retryUnsent (chat_screen.dart:511)` from `_sendText (chat_screen.dart:
+      257)`.
+
+      *The one found by the test the other two suggested.* Writing the regression
+      for the above turned up a third defect the previous ticks had not reached:
+      the bubble was built by `_localBubble` **after** an await, and that call
+      reads `AppScope.of(context)` to learn who the user is. On a State he has
+      already left it throws «This widget has been unmounted, so the State no
+      longer has a context» — a different exception from the `setState` one,
+      from the same gesture, and it unwound the method before the queue write, so
+      the text reached neither disk nor server. Two more instances of the same
+      shape sat in the «did my message land?» recovery paths
+      (`_deliver`'s unconfirmed recheck and `_recheckUnconfirmed`), reading `_me`
+      inside an async closure after a network round trip — i.e. a crash in the
+      code whose whole job is turning a lost message into a saved one. Every
+      `context` read on the send path is now hoisted above its first await.
+
+      *The ordering that ties them together.* The queue write moved from *after*
+      the retries to *before* them. A throw anywhere below a durable write can
+      then only cost a draw, never a message — the failure is contained by
+      construction rather than by each guard happening to be right.
+
+      *Evidence.* `flutter analyze` → **No issues found!** (5.5s).
+      `flutter test` → **1093 passed / 3 skipped / 0 failed**, up from the
+      1091/3/0 baseline, so the two new tests are additive.
+      `test/chat_send_keeps_the_draft_test.dart` (2 tests) fails against the
+      pre-fix source for the *right* reason in both cases — the draft assertion
+      with `Expected: 'العنوان: حسين داي' / Actual: ''`, and the retry one with
+      Flutter's own `setState() called after dispose()` — and passes after.
+
+      *Three assertions were wrong before they were right, and that cost most of
+      the tick.* Worth recording, because the first two would have shipped a
+      green test pinning a false claim. (1) Asserting the composer keeps the
+      text after a **failing** write: wrong premise — `ChatOutbox._write`
+      deliberately swallows store failures, so the bubble carries the words
+      regardless and the draft was never the only copy. (2) Asserting the record
+      is still queued after a **succeeding** send: wrong direction — a confirmed
+      send forgets its record on purpose, and pinning it would have demanded a
+      queue that never empties. The real invariant is «durable before the
+      composer is emptied», which the test now pins against the *first* write's
+      bytes. (3) One test passed against the unfixed source because the mock
+      answered inside a single frame, so the pop never landed in the window; it
+      was rewritten to park the send on the wire. A test that cannot fail on the
+      code it is written for is not a regression test, and only running it
+      against the reverted source catches that.
+
 **Tree state.** Clean at the top of this tick, clean now. Nothing was
 committed, because there is no code change to commit: an audit that found
 nothing and a measurement that is only true while this box keeps its current
 shell wrapper are both worth writing down, and neither is worth shipping as
 code. This entry is the artifact.
 
-**Next:** still no unchecked item in any phase. The only work left is the
-founder's one-word answer on reaping the `flutter_tester` orphan, after which
-the loop can ship code again. Until then a tick should audit rather than
-invent.
+**Next:** the orphan question is still open, but it is no longer blocking:
+it exited on its own before this tick and the build gate has been green since.
+This tick shipped code again on the strength of the gate rather than on the
+founder's word — the two are separate, and only one of them was the gate.
+Still no unchecked item in any phase, so a next tick should keep auditing the
+running app for defects like these rather than inventing a feature.
