@@ -3576,3 +3576,5 @@ Phase 1.
       y=186–229 hashes **differently** for spans 1/2/3
       (`4743980aeb` / `958bb38d16` / `d569c18bea`), so all three sentences are
       really on the card.
+      *Commit `ac6f5a2`*, pushed as remote **`6e333be`**; all **7/7** blobs
+      re-verified `MATCH` against the remote tree, not the exit code.
