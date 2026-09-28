@@ -6012,3 +6012,83 @@ running app for defects like these rather than inventing a feature.
       `await`s `_load()` at the end. A write that is abandoned mid-flight is a
       notification the user opened and the server never recorded as read — which
       is the one thing the unread pip is for.
+
+- [x] **The backlog closed `markNotificationsRead` on a promise the code did
+      not keep, and the last write with an unconfirmed outcome answered it
+      with silence.** The note read «it re-reads unconditionally, so it cannot
+      claim a false landing». That is true of the **reload** and not of the
+      method: the guarantee held only while the reload succeeded. `_load` sets
+      `_error` and `_body` reads `_error` only when `_items.isEmpty`, so a
+      failed reload on a populated list is **unreachable state** — the
+      optimistic flip stands, the gold «جديد» pip disappears, nothing is drawn,
+      and the user is left believing a notification was cleared which the
+      database still holds unread. The write is ambiguous exactly when the
+      network is worst, and the one screen whose whole job is the unread pip is
+      the one that went quiet. Second defect in the same lines: the `catch (_)`
+      swallowed `errWriteUnconfirmed` — the network layer's explicit «this left
+      the phone and nobody answered» — with the same arm that would swallow a
+      403, on the one write in the app that most needs the two told apart.
+      *Shipped:* an unconfirmed write is now answered instead of shrugged at —
+      the screen re-reads the centre with a GET and says which of the three
+      true things it is. A **stated** refusal (403/404) keeps the old plain
+      reload, which is correct for it because that answer is not in doubt, and
+      a test pins that the new branch does not swallow it.
+      *The copy is not the shared `writeOutcomeCopy` line, and the reason is
+      the shape of the write.* `openConversation` is a get-or-create POST whose
+      retry may make a second thread, so `threadOpenOutcomeCopy` refuses every
+      retry. Marking a notification read is **idempotent by construction** —
+      marking an already-read id changes nothing — so «missing» may honestly
+      say «أعد المحاولة», while «unknown», where the phone cannot read the
+      server, may not. Both halves are pinned, because the natural instinct is
+      to reuse the shared string and that reuse would be wrong in both
+      directions at once. A row the re-read never mentions is **unknown, not
+      landed**: absence is not confirmation, and telling a user his
+      notification was cleared when the row is gone is the more expensive lie.
+      *The tests caught four things, three of them mine.* (1) A real bug in the
+      shipped predicate: `wanted.containsAll(seen)` asks the **reverse**
+      question and is true whenever the fresh list mentions only ids we
+      happened to ask for, so a list holding one of the two ids requested and
+      no trace of the other was reported as proof of both — the direction of
+      that test is the whole thing. (2) The `landed` branch skipped the reload
+      and never printed its own verdict, because I read the re-read as the
+      reload. (3) The fake cleared *every* row on a subset write, so the
+      unread-row assertions proved nothing. (4) Two harness faults that hung
+      the suite for four and a half minutes twice: `pumpAndSettle` never
+      returns while a SnackBar is up (its dismiss timer always has another
+      frame queued), and `toImage` only completes inside `tester.runAsync` —
+      called bare it just never returns, killing the case on the outer timeout
+      with every assertion above it already green. Also caught by **looking at
+      the screenshot**: the first capture put the `RepaintBoundary` *inside*
+      `MaterialApp`, and a SnackBar is painted by the `ScaffoldMessenger` into
+      an `Overlay` **above** the navigator — so the whole 1200×2700 file came
+      back a flat sheet of the bar's own red and "proved" a Material default
+      that the app never draws. The real bar is `#e8a33d` = `AppTheme.accent`.
+      *Evidence:* `flutter analyze` → **No issues found!** (1.7 s).
+      `flutter test` → **1268 passed / 3 skipped / 1 failed** (was 1248/3/1; the
+      new file is the +20). The single failure is the pre-existing
+      `subscription_clock_test.dart` case four ticks have flagged — re-run with
+      this change stashed (`git stash -u`), it fails identically. **Red before
+      green is verified rather than claimed:** with the screen reverted
+      (`git stash push -- <screen>`) all four widget cases fail and the pure
+      ones pass, because the defect is silence and the assertion that catches
+      it is the one that requires a sentence to exist. Visual: the verdict was
+      rendered on the **real** `NotificationsScreen`, tapped, captured and
+      looked at — `/tmp/shots/notif_read_unknown.png` (41544 B), the bar fills
+      `#e8a33d` = `AppTheme.accent` with white Arabic text over the real centre,
+      and the chrome above it is navy `#16213e` / muted `#475065`.
+      *Files:* `lib/src/data/notification_read_outcome.dart` (new),
+      `test/notification_read_outcome_test.dart` (new),
+      `lib/src/core/l10n/strings.dart`,
+      `lib/src/screens/notifications/notifications_screen.dart`.
+      *Commit:* `03e744c` local, `1838ebd` remote, all four blobs MATCH.
+      *Next:* the write family is now exhausted — every `POST` in
+      `Repository` has a resolved unconfirmed path, and the last two cycles each
+      ended by removing a wrong assumption from the backlog rather than adding
+      an item. The next pass should therefore be a **read-side** audit rather
+      than another write: the unread-count contract between `/api/unread` and
+      `/api/notifications/read` is the one number two screens compute
+      independently (`NotificationsBell._refresh` and
+      `_NotificationsScreenState._unread`), and nothing pins that the pip the
+      user leaves with is the pip he comes back to. The bell already guards a
+      stale count on resume; what is untested is the **mark-read → pop-back →
+      pip** round trip when the write was refused.
