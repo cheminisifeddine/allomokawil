@@ -251,7 +251,30 @@ void main() {
       // accusative singular, so the old line printed «بعد 2 يوماً» here.
       expect(out, contains('بعد يومين'), reason: out);
       expect(out, isNot(contains('يوماً')), reason: out);
-      expect(out, isNot(contains('-3')), reason: out);
+      // **The stale count is checked inside the sentence, not as a bare `-3`
+      // anywhere in the output.** The old line was `isNot(contains('-3'))` over
+      // the whole probe stdout, and stdout carries the end date too: the plan
+      // ends two days out, so on any day the end falls on the 30th the probe
+      // prints «— 2026-09-30», and `-30` *contains* `-3`. The assertion then
+      // failed on a **correct** output while its failure message pointed at the
+      // very number it was trying to prove absent.
+      //
+      // It hid by luck of the calendar. Only the 30th trips it: an end date
+      // ending in 3 is zero-padded to `-03`, and 13/23 give `-13`/`-23`, none
+      // of which contain `-3`. So a green suite was sitting on a date bomb, and
+      // the recorded diagnosis — «hardcodes `2026-09-30`, reads `DAYS=2`» — was
+      // wrong on both counts: the date is built *relative* to now precisely so
+      // it cannot expire, and the count comes out `DAYS=2` exactly as intended.
+      //
+      // Scoping to the Arabic line is what makes it exact. The probe prints
+      // `AR=<sentence>` and `DAYS=<n>`; a negative count can only be written
+      // into the sentence, because the end date is zero-padded `YYYY-MM-DD`
+      // and `daysUntilExpiry` is clamped nonnegative. `بعد\s+-` is the exact
+      // shape of the regression and matches nothing else the probe emits.
+      final ar =
+          out.contains('AR=') ? out.substring(out.indexOf('AR=')) : out;
+      expect(ar, isNot(contains(RegExp('بعد\\s+-\\d'))), reason: out);
+      expect(ar, isNot(contains('-3 يوم')), reason: out);
     });
 
     test('a plan with no day left says when it ends, not that it is over', () async {
