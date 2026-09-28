@@ -5914,3 +5914,101 @@ running app for defects like these rather than inventing a feature.
       resolved unconfirmed path are `openConversation` and `markAllRead` — the
       latter deliberately re-reads unconditionally, so it is a different shape
       of problem, not a gap.
+
+- [x] **A thread that would not open was announced as a failed message read,
+      and the only button on that page re-ran the write.** `be0d6a3` / remote
+      `35fa13e`
+      The backlog closed the write-outcome contract with two names left. This is
+      the first of them, and the framing understated it: `openConversation` was
+      recorded as "a write with no resolved unconfirmed path", which is true and
+      is the least interesting thing about it.
+      *The defect, in the file's own shape.* `_bootstrap` did
+      `convId ??= await openConversation(...)`, set `_convId`, called `_load()`,
+      and wrapped **all three** in one `catch (_) { refused = true; }`. And
+      `refused` is the thread's **read** error. So when the network layer raised
+      `errWriteUnconfirmed` — a request it had explicitly refused to re-send
+      because it *may already be stored* — the screen answered with
+      «تعذّر جلب الرسائل». That is a claim about a GET that never ran, printed
+      over a POST that had already left the device, and it tells the user to go
+      and fix his Wi-Fi for a request that is not coming back for any reason he
+      controls.
+      *The second half, which is the one that costs something.* The only control
+      on that page is «إعادة المحاولة», wired to `_bootstrap` — which re-runs the
+      POST. So the button whose entire job is to explain a failed open was the
+      button that re-issued the write. `README.md` calls the route
+      "list / open conversation" and the repository comment says "Get or
+      create", so a second POST is *probably* harmless for a
+      (customer, worker, project) triple — and that "probably" was carrying the
+      entire duplicate-thread defence on this path. A phone cannot verify a
+      server-side uniqueness guarantee, so the app no longer leans on one.
+      *The fix.* The unconfirmed case is caught **by name** (every other write in
+      this family does it the same way), settled with a **GET**, and given its
+      own page. A thread re-read is impossible by construction — it needs the id
+      the write never returned — so the inbox is the only list that can answer,
+      and it is a read, so it cannot create a second conversation. The predicate
+      matches both sides symmetrically, and that is load-bearing rather than
+      tidy: this account is in `customer_id` for a client and `worker_user_id`
+      for a contractor, so a peer-only comparison would report a contractor's
+      own thread as missing.
+      *A second defect on the same page, found while in the file.* The
+      read-error page's retry was also `_bootstrap`. It is now `_load` — a GET —
+      which is safe there **precisely because** a thread reached from the inbox
+      or a notification already has an id and never made an open call at all.
+      Before the fix, that page's retry was a write wearing a read's label.
+      *A third defect, in my own copy, caught by the test.* `threadUnconfirmedUnknown`
+      was first written as an alias of the shared `writeUnconfirmedUnknown`,
+      reasoned as "the re-read that failed *was* the inbox, so the shared line
+      names the right list". That is right about the list and wrong about
+      everything else: the shared line ends in «قبل إعادة المحاولة», and on this
+      page a retry **is** the POST. So the one sentence that fires when the
+      phone cannot read the server was also the one instructing the user to
+      re-issue the write — in exactly the case where the app has just proved the
+      server is unreachable. It now has its own string, and
+      `thread_open_outcome_test.dart` pins the invariant that **no** outcome on
+      this page carries `S.retry` at all.
+      *Red before green, and one more thing the tests caught.* With the new
+      strings and the pure rule in place and the screen still unfixed:
+      **11 passed / 6 failed** — the six failing on the literal
+      «تعذّر جلب الرسائل» the old screen printed. Two of those first-draft
+      failures were **my harness measuring nothing**, and both are worth writing
+      down because each reported a result:
+        1. the POST-once case looped one `tester` over two fixtures. The second
+           `pumpWidget` reuses the Element, `initState` does not re-run, and the
+           assertion measured the *first* server's counter. It needed a fresh
+           `Key`, not a fresh call.
+        2. the read-error case set its "now fail the read" flag **after** a
+           successful load, then asserted on a page that was never built —
+           nothing re-reads on its own. The precondition has to be arranged
+           before the pump.
+      Then a third, found by looking at the screenshots: both settled states
+      drew the **same grey icon**, because `EmptyView` tints from `danger` alone
+      and both states passed `false`. Two pages that differ only in a line of
+      text are one page. Landed is now `AppTheme.success` and only the
+      genuinely unclear one is `danger` — a write that did not land is not an
+      error, the inbox resolves it. The test asserts on the **rendered PNGs**
+      (`thread_open_px_false.png` / `_true.png`, md5 `8a202e59…` / `87b40b3d…`),
+      because the widget fields were correct and the paint was not.
+      *Evidence:* `flutter analyze` → **No issues found!** (4.8 s).
+      `flutter test` → **1248 passed / 3 skipped / 1 failed** (was 1229/3/1; the
+      new file is the +19). The single failure is the pre-existing
+      `subscription_clock_test.dart` case four ticks have now flagged — re-run
+      with this change stashed (`git stash -u`), it fails identically. Visual:
+      both settled states rendered and **looked at**; the button samples
+      `#e8a33d` = `AppTheme.accent`, the landed title `#1b7e50` =
+      `AppTheme.success`, the unknown wash `#fcedec` = `AppTheme.dangerWash`.
+      Shots: `/tmp/shots/thread_open_px_false.png`, `_true.png`.
+      *Files:* `lib/src/data/thread_open_outcome.dart` (new),
+      `test/thread_open_outcome_test.dart` (new),
+      `lib/src/core/l10n/strings.dart`,
+      `lib/src/screens/chat/chat_screen.dart`.
+      *Commit:* `be0d6a3` local, `35fa13e` remote, all five blobs MATCH.
+      *Next:* `markAllRead` / `markNotificationsRead` is the last write on the
+      list, and the backlog is right that it is **not the same shape**: it
+      re-reads unconditionally after the write, which is correct — the reload
+      puts the row back if the server refused, so it cannot claim a false
+      landing. The question to ask of it is the *other* one this cycle turned up
+      on `openConversation`: `_markRead` is called **without `await`** from
+      `_open`, on a row that is about to be pushed off the screen, and it
+      `await`s `_load()` at the end. A write that is abandoned mid-flight is a
+      notification the user opened and the server never recorded as read — which
+      is the one thing the unread pip is for.
