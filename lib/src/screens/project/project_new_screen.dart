@@ -238,6 +238,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
     // can still hand back the whole gallery. A project that accepted whatever
     // arrived would be the one place in the app with no bound on its size.
     final files = await picker.pickMultiImage(limit: room);
+    if (!mounted) return;
     if (files.isEmpty) return;
     setState(() => _images.addAll(files.take(room)));
   }
@@ -444,6 +445,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
           isScrollControlled: true,
           builder: (_) => const _WilayaSheet(),
         ));
+    if (!mounted) return;
     if (picked == null) return;
     // A commune only means something inside its wilaya: keeping حسين داي
     // selected after switching to وهران would post a project that cannot exist.
@@ -471,6 +473,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
             wilayaName: Taxonomy.wilayaName(wilaya),
           ),
         ));
+    if (!mounted) return;
     if (picked != null) setState(() => _commune.text = picked);
   }
 

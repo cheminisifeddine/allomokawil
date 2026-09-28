@@ -92,6 +92,11 @@ class _VerificationScreenState extends State<VerificationScreen> {
   Future<void> _pickCert(int index) async {
     final picker = ImagePicker();
     final file = await picker.pickImage(source: ImageSource.gallery);
+    // The gallery is another app, and it can be answered minutes later or
+    // never. The guard goes **before** the null check rather than inside the
+    // `if`, because a `setState` on a disposed `State` is the crash and the
+    // null check is only the reason it usually does not happen.
+    if (!mounted) return;
     if (file != null) {
       setState(() => _certs[index] = file);
     }
@@ -100,6 +105,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
   Future<void> _pickFor(int index) async {
     final picker = ImagePicker();
     final file = await picker.pickImage(source: ImageSource.gallery);
+    if (!mounted) return;
     if (file != null) {
       setState(() {
         _docs[index] = (_docs[index].$1, file);

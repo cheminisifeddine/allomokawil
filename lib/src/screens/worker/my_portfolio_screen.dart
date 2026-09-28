@@ -190,6 +190,7 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
       imageQuality: 78,
       maxWidth: 1600,
     );
+    if (!mounted) return;
     if (picked == null) return;
 
     final worker = _worker;
