@@ -94,6 +94,82 @@ correctness gap — never a refactor for its own sake. One item per loop.
       `substring(0, 1)` and for stored strings that were never passed through
       a cleaning step.
 
+- [x] **A contractor's third trade was silently deleted from his card — the
+      one line on the card that exists to say what he does.**
+      `1e45c2f` -> remote `6f84358`.
+
+      The browse card built its trade line as
+      `specialties.take(2).join(' · ')` — no ellipsis, no count. A contractor
+      registered for three trades had the third **removed** from the only line
+      on the card that names his trades, and nothing on screen said there had
+      ever been three. Not an error and not a crash: a *silently shortened*
+      claim, which is the failure the wilaya-sheet item and the monogram item
+      both recorded in a different shape.
+
+      **Found on the live API, not on a reading of the code.** A real
+      contractor account was registered against `allomokawil.com` and
+      `/api/mobile/workers/search?wilaya=16` was read: contractor
+      **خالد رحماني** (id 2, verified, 4.6 over 18 reviews, 32 completed
+      jobs) carries `["painting","wallpaper","tiling_marble"]`. The card
+      printed two of those three, and `بلاط وسيراميك ورخام` did not exist
+      anywhere on screen. One of three rows in a single wilaya response — a
+      third, not a rarity.
+
+      **Why that is a defect and not a design choice.** Browse filters *by
+      trade* (`browse_screen.dart` holds `_category` and the server filters on
+      it), so the number of trades a contractor carries decides **whether a
+      customer searching for that trade finds him at all**. He comes back as
+      the top result for a tiling-marble search, and the one line that would
+      have said he does tiling is the line that dropped it. The search says
+      yes, the card says no, and the customer concludes the app is broken. A
+      customer wanting one man for tiler-and-painter needs a man who is
+      *both*; a customer wanting only a tiler needs a man whose card **says**
+      so.
+
+      *Shipped:* `data/specialty_label.dart` owns the rule. **Two trades
+      still print two** — that line is the design, not the bug — and the
+      remainder is now counted (`+1`) instead of deleted. The count is of
+      what was *resolved*, not of what arrived: slugs fold through
+      `Taxonomy.categoryName` and de-duplicate first, so `painting` +
+      `general_painting` prints one trade and claims no extra, and a blank
+      entry is not counted as a trade. A profile with no trades still answers
+      «حرفي» and never «+0», the same rule every other count in this app
+      follows.
+
+      *Two of the eight new tests failed against the first implementation, and
+      both failures were the code's, not the test's.* A `break` that stopped
+      walking once the line was full pinned the count to `+1` for a
+      five-trade contractor, and a blank slug folded to the «خدمات عامة»
+      unknown-slug fallback and was counted as a real trade. Both are fixed
+      in the rule.
+
+      *Proof by pixel, with a detector that had to be caught first.* The
+      `10_browse` golden is a real gate and it failed, correctly: its fixture
+      worker carries three trades. Flutter's own comparator put the move at
+      **0.01%, 40 px**. A hand-rolled channel diff then claimed **153 738**
+      differing pixels across the whole screen — for a golden that had
+      **passed** the same run it read 94 728. The detector was wrong, not the
+      render; comparing a 3x shot raster against a 1x golden by nearest
+      neighbour is not a diff. A true same-size channel diff puts **every one
+      of the 40 pixels in x 54-67, y 255-264** — the `+1` badge — and the
+      named-trades region is **byte-identical**. The badge renders in the
+      app's caption grey `(78, 87, 107)`, not as a black blob.
+
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1356 passed / 3 skipped / 0 failed**, up from
+      1348/3/0 (+8). Golden regenerated, then all 20 design tests re-run green
+      before the commit. All 4 blobs verified `MATCH` against the real remote
+      tree at tip `6f84358`.
+
+      **A test account is still on the live API and I could not remove it.**
+      Deleting a user is founder-gated, so the throwaway registration —
+      worker id 121, user id 385, «كريم بن سالم», phone `0540437522`,
+      password `Test12345!` — is still live on `allomokawil.com` and will
+      appear in the top-workers strip until it is taken down. Flagging it
+      rather than leaving it to be found.
+
+---
+
 ---
 
 ## Phase 6 — the loop's own instruments
