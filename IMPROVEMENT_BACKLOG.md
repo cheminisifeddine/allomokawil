@@ -6328,3 +6328,112 @@ running app for defects like these rather than inventing a feature.
       tab's* own unread affordance (named as the other unread surface in the
       previous handoff, and still uncovered) does when that flag is withdrawn
       while it is on screen.
+
+### Phase 5 — engineering hardening: an affordance that was never built,
+#### named as covered for two cycles
+
+- [x] **The message tab had no unread affordance at all, and the handoff
+      asking about it had been asking for two cycles.** The previous pass
+      ended on a question about «the *message tab's* own unread affordance —
+      named as the other unread surface, and still uncovered». Answering that
+      honestly meant finding the affordance first, and there is none:
+      ```
+      grep -nE 'badge|unread|count' lib/src/widgets/app_tab_bar.dart
+        -> nothing but AppTheme.fsBadge, a font size
+      ```
+      `AppTabItem` was `icon / activeIcon / label`. No count, no dot, no pip.
+      **The two previous cycles were auditing a withdrawal flag on a surface
+      that does not exist**, and the handoff that sent them there described it
+      in the past tense as if it did. The honest reading of "still uncovered"
+      was "still absent", and it took until now for anyone to run the grep.
+      *The defect the user has:*
+      ```
+      1. contractor has 2 unread messages;
+      2. he opens «الرسائل»  -> appBar: _tab == 0 is false, the bell unmounts;
+      3. the only unread number in the app left with the header;
+      4. he is now standing IN THE INBOX, scrolling rows, with nothing on
+         screen saying anything is unread.
+      ```
+      The per-row pips in the list are then the only signal left — and reading
+      them requires already being in the tab, which is the one thing a badge
+      exists to avoid. **A user who has not opened a tab cannot know it holds
+      anything.** The client's bell is drawn inside `_ExploreView` rather than
+      an `AppBar`, so both shells had the same hole for a different reason.
+      *The obvious fix would have shipped a second contradiction.* The bell's
+      doc claims «The count comes from the same `/api/unread` endpoint the
+      message tab already trusts» — **and the message tab never called
+      `/api/unread`.** Two endpoints, two tables, two clear-actions:
+        * `/api/unread` -> the **notifications** count, cleared by
+          `/api/notifications/read`; carries `new_quote`, `project_update`,
+          `review_received`, `new_message`.
+        * `/api/mobile/conversations` -> per-thread `unread_count`, cleared by
+          reading the thread.
+      Painting the notification count on a tab called «الرسائل», directly
+      above the list that draws its own per-row counts, would put **two
+      different numbers for the same thing on one screen** — a tab claiming
+      «3» over a list with no unread row. So the badge is the **sum of the same
+      `unread_count` the list beneath it draws**, which makes them agree by
+      construction instead of by coincidence. The fixture answers `/api/unread`
+      with **9** on purpose, so a future tick that reaches for the wrong
+      endpoint fails loudly instead of passing on a lucky draw.
+      *Shipped:* `AppTabItem.badge` (`lib/src/widgets/app_tab_bar.dart`) and
+      `unreadMessageTotal` / `unreadMessagesLabel`
+      (`lib/src/data/unread_message_count.dart`, new). Both shells pass the
+      count — `worker_home_screen.dart` reads the list it already needs,
+      `customer_home_screen.dart` sums the one it holds for the first-run
+      guide. `_reloadStrips` re-sums on the way back from a thread, which is
+      what clears it.
+      *Plain int, never a `Future` read inside `build`.* A future cannot be
+      resolved in a build method, so the first draft of this wired the future
+      and read it during `build` — which returns 0 every time and would have
+      shipped the badge as **another complete, green, unreachable feature**,
+      the exact failure of the two cycles before. The count is a plain int
+      written by a token-guarded `.then`; a **failed read leaves it alone**,
+      because 0 is «you are caught up», which is a claim, and a dropped
+      request supports no claim at all.
+      *Red before green, on the real screen.* Reverting only
+      `app_tab_bar.dart` + `worker_home_screen.dart` — the shipped state —
+      fails **3** of the widget tests, and passes only after the wiring is
+      restored. The harness is the production path by construction: the real
+      `WorkerHomeScreen` under a real `AppScope`, no `AppTabBar` or
+      `AppTabItem` constructed by hand. If a future tick has to reach into a
+      constructor to make an assertion pass, the badge is off the screen
+      again.
+      *The one that makes the feature exist.* `survives the switch to the tab
+      that unmounts the bell` asserts the badge is present on tab 0, taps
+      `tab-2`, and asserts it is **still** there while
+      `find.byType(NotificationsBell)` is now empty. A test that only read the
+      badge on tab 0 would pass against a badge that vanished the moment the
+      user did the tab's one job.
+      *Pixel-verified, and the first render caught a harness lie.* The badge
+      is a 57x39 device px pill (19x13 logical) at x1588..1644, y1647..1685 of
+      `/tmp/shots/tab_badge.png`: **1091 px of `#E8A33D`** and **114 px of
+      `#16213E`**. Navy-on-gold measures **7.37:1**; white-on-gold — the
+      obvious choice — measures **2.16:1**, which is why the digits are navy,
+      the same two tokens the inbox row's own unread pill already uses.
+      **The first render showed a solid navy rectangle where the «7» should
+      be.** That was not the badge: `flutter test` substitutes a test font that
+      draws every glyph as a filled box, so the count was indistinguishable
+      from digits that failed to draw entirely. The file now loads the real
+      Cairo faces, and the re-read pixel map is a legible «7» — top bar plus
+      diagonal stroke. A screenshot taken with the test font would have
+      "verified" a badge whose digits were invisible.
+      *Evidence.* `flutter analyze` -> **No issues found!** (8.0 s).
+      `flutter test` -> **1287 passed / 3 skipped / 1 failed** (was 1276/3/1,
+      **+11**). The one failure is `subscription_clock_test.dart`, pre-existing
+      and unchanged across the last six runs — a UTC/Algiers assumption, not a
+      regression. `tool/contrast_audit.py token` -> 28/28 pairs pass.
+      *Files:* `lib/src/widgets/app_tab_bar.dart`,
+      `lib/src/data/unread_message_count.dart` (new),
+      `lib/src/screens/worker/worker_home_screen.dart`,
+      `lib/src/screens/customer/customer_home_screen.dart`,
+      `test/message_tab_unread_badge_test.dart` (new).
+      *Commit:* `PENDING`.
+      *Next:* the badge is drawn from the list the inbox itself draws, so the
+      two agree — but **nothing re-reads that list when a message arrives while
+      the app is open.** A message that lands on tab 0 leaves the badge stale
+      until a pull-to-refresh or a pop, so the number the user trusts is a
+      number from whenever he last happened to navigate. The next pass should
+      pin what the badge does on a **new message arriving with no navigation
+      to trigger it**, and whether an honest «لا يمكن التأكّد» state is owed
+      there the way the header pip got one.

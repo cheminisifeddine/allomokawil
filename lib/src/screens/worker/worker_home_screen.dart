@@ -14,9 +14,11 @@ import '../../data/project_search.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
 import '../../data/quote_count_copy.dart';
+import '../../data/unread_message_count.dart';
 import '../../data/stats_freshness_copy.dart';
 import '../../data/worker_stats_copy.dart';
 import '../../models/enums.dart';
+import '../../models/chat.dart';
 import '../../models/plan.dart';
 import '../../models/project.dart';
 import '../../models/worker.dart';
@@ -53,6 +55,52 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen> {
 
   bool _scopeReady = false;
 
+  /// The conversations the messages tab reads, held so the unread count can
+  /// be drawn on the tab itself.
+  ///
+  /// The contractor's header bell is mounted **only on tab 0**
+  /// (`appBar: _tab == 0 ? … : null`), so before this the unread number left
+  /// the app the moment he opened «الرسائل» — the one tab whose whole purpose
+  /// is unread messages. He was standing in the inbox with nothing on screen
+  /// saying anything was waiting.
+  Future<List<Conversation>>? _conversations;
+
+  /// Bumped per read so a slow answer from an abandoned read cannot land
+  /// after a newer one and paint a count the user has already dismissed.
+  int _conversationToken = 0;
+
+  /// Unread messages across the threads, or 0 while nothing is known.
+  ///
+  /// **A plain int, not a `Future` read during `build`** — a future cannot be
+  /// awaited in a build method, so resolving it inline would hand every tab a
+  /// permanent 0 and ship the badge as another dead feature. The value is
+  /// written by the `.then` below and read here as a plain field.
+  int _unreadMessages = 0;
+
+  /// Re-reads the conversations and repaints the tab count.
+  ///
+  /// A **failed read is a no badge**, not a zero: zero is «you are caught up»,
+  /// which is a claim, and a dropped request supports no claim at all. The
+  /// count only ever comes from a read that landed.
+  void _readConversations() {
+    if (AuthGate.isGuest(context)) {
+      _conversations = null;
+      _unreadMessages = 0;
+      return;
+    }
+    final token = ++_conversationToken;
+    final future = _repo.conversations();
+    _conversations = future;
+    future.then((list) {
+      if (!mounted || token != _conversationToken) return;
+      setState(() => _unreadMessages = unreadMessageTotal(list));
+    }).catchError((Object _) {
+      // Leave the count alone: the last number we actually read is better
+      // than a zero that claims he has nothing, and better than a stale
+      // number presented as fresh.
+    });
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -60,6 +108,7 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen> {
     if (_scopeReady) return;
     _scopeReady = true;
     _repo = Repository(AppScope.of(context).api);
+    _readConversations();
   }
 
   @override
@@ -104,26 +153,34 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen> {
         // only thing that creates either one is the market on tab 0, so each
         // empty state can send the contractor back there.
         ProjectsScreen(repo: _repo, onDiscover: () => setState(() => _tab = 0)),
-        ChatListScreen(repo: _repo, onDiscover: () => setState(() => _tab = 0)),
+        ChatListScreen(
+          repo: _repo,
+          initial: _conversations,
+          onDiscover: () => setState(() => _tab = 0),
+        ),
         const ProfileScreen(),
       ]),
       bottomNavigationBar: AppTabBar(
         index: _tab,
         onSelect: (i) => setState(() => _tab = i),
-        items: const [
-          AppTabItem(
+        // Not `const`: the messages tab carries a count read from the server,
+        // so this list is built on every repaint. The other three entries are
+        // still `AppTabItem(...)` with no badge and cost nothing extra.
+        items: [
+          const AppTabItem(
               icon: Icons.storefront_outlined,
               activeIcon: Icons.storefront_rounded,
               label: 'المنصة'),
-          AppTabItem(
+          const AppTabItem(
               icon: Icons.folder_outlined,
               activeIcon: Icons.folder_rounded,
               label: 'مشاريعي'),
           AppTabItem(
               icon: Icons.chat_bubble_outline_rounded,
               activeIcon: Icons.chat_bubble_rounded,
-              label: 'الرسائل'),
-          AppTabItem(
+              label: 'الرسائل',
+              badge: _unreadMessages),
+          const AppTabItem(
               icon: Icons.person_outline_rounded,
               activeIcon: Icons.person_rounded,
               label: 'حسابي'),
