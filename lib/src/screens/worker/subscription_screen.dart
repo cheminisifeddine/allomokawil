@@ -8,6 +8,7 @@ import '../../core/l10n/strings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
 import '../../data/pending_request_copy.dart';
+import '../../data/redeem_outcome.dart';
 import '../../data/subscription_write_outcome.dart';
 import '../../data/subscription_ack.dart';
 import '../../data/plan_renewal_copy.dart';
@@ -170,13 +171,43 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       _say(S.planCodeHint);
       return;
     }
+    // The plan on screen before the tap: the re-read is only meaningful
+    // against what the app already believed, and the payment path above
+    // already keeps exactly this snapshot.
+    final before = _catalogue?.current;
     setState(() => _busy = true);
     try {
       final plan = await _repo.redeemActivationCode(code);
+      // The only sentence on this screen that claims money changed hands, and
+      // it is now gated on the answer actually naming a plan. A null is not a
+      // redemption: it is the absence of one, and it used to be printed as
+      // «تم تفعيل اشتراكك» on the strength of a missing field.
       _codeController.clear();
-      _say(plan == null ? S.planCodeOk : '${S.planCodeOk} — ${plan.toUpperCase()}');
+      if (plan == null) {
+        // Cannot claim it worked, and must not claim it did not: ask instead.
+        _say(S.planCodeNoPlan);
+      } else {
+        _say('${S.planCodeOk} — ${plan.toUpperCase()}');
+      }
       await _load();
     } catch (e) {
+      if (isWriteUnconfirmed(e)) {
+        // An activation code is **single-use**. The request left the phone and
+        // the answer never arrived, so the code may or may not have been
+        // burned — and the only safe next step is for the app to find out
+        // rather than for the man to type it again into a box that will
+        // refuse it.
+        _say(S.writeUnconfirmedRecheck);
+        final outcome = await resolveRedeemWriteOutcome(
+          codePlan: null,
+          before: before,
+          fetch: () async => (await _repo.subscription()).current,
+        );
+        if (!mounted) return;
+        _say(writeOutcomeCopy(outcome));
+        await _load();
+        return;
+      }
       _say(errorCopy(e));
     } finally {
       if (mounted) setState(() => _busy = false);

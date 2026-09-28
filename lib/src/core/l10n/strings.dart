@@ -317,7 +317,20 @@ class S {
   static const planCodeTitle = 'عندك رمز تفعيل؟';
   static const planCodeHint = 'أدخل الرمز هنا';
   static const planActivate = 'تفعيل';
+  /// Claimed **only** when the server's answer actually carried the plan that
+  /// is now live. It used to be printed whenever the answer carried nothing, so
+  /// an empty or half-shaped response read as «تم تفعيل اشتراكك» — a money
+  /// claim with no evidence behind it, on the one screen where a contractor has
+  /// just handed over 30000 دج. See `redeem_outcome.dart`.
   static const planCodeOk = 'تم تفعيل اشتراكك';
+  /// The redemption's answer named no plan, so the app cannot claim it worked
+  /// and cannot claim it failed either. Deliberately its own sentence rather
+  /// than [planCodeOk] and rather than a bare [S.writeUnconfirmedUnknown]:
+  /// «الرمز لم يُفعِّل شيئاً» would read as a verdict on the code, and a
+  /// single-use code the server already burned is exactly what a man is told to
+  /// buy again on the strength of one missing field.
+  static const planCodeNoPlan =
+      'لم يُرجع الخادم تفاصيل التفعيل — تحقّق من اشتراكك قبل إعادة إدخال الرمز';
   static const planRequestOk = 'أرسلنا طلبك، ويُفعَّل بعد تأكيد الدفع';
   static const planSupportFallback =
       'لا توجد تفاصيل دفع منشورة بعد. تواصل معنا لتفعيل اشتراكك يدوياً.';
