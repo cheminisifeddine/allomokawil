@@ -4,6 +4,7 @@ import '../core/format/money.dart';
 import '../core/theme/app_theme.dart';
 import '../data/taxonomy.dart';
 import '../data/review_count.dart';
+import '../data/specialty_label.dart';
 import '../core/text/monogram.dart';
 import '../data/worker_stats_copy.dart';
 import '../models/enums.dart';
@@ -214,13 +215,12 @@ class WorkerCard extends StatelessWidget {
     );
   }
 
-  static String _specialtyLabel(WorkerProfile w) {
-    if (w.specialties.isEmpty) return 'حرفي';
-    return w.specialties
-        .map((s) => Taxonomy.categoryName(s))
-        .take(2)
-        .join(' · ');
-  }
+  // The rule lives in [SpecialtyLabel] so both variants and any future
+  // surface print the same line. It used to be `take(2)` with no ellipsis,
+  // which silently deleted a contractor's third trade from the one line on
+  // the card that exists to name his trades.
+  static String _specialtyLabel(WorkerProfile w) =>
+      SpecialtyLabel.of(w.specialties);
 }
 
 class _Avatar extends StatelessWidget {
