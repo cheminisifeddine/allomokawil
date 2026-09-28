@@ -6430,11 +6430,109 @@ running app for defects like these rather than inventing a feature.
       `test/message_tab_unread_badge_test.dart` (new).
       *Commit:* `71bc23a` local / `94c072f` remote, **6/6 blobs MATCH**
       against the remote tree.
-      *Next:* the badge is drawn from the list the inbox itself draws, so the
-      two agree — but **nothing re-reads that list when a message arrives while
-      the app is open.** A message that lands on tab 0 leaves the badge stale
-      until a pull-to-refresh or a pop, so the number the user trusts is a
-      number from whenever he last happened to navigate. The next pass should
-      pin what the badge does on a **new message arriving with no navigation
-      to trigger it**, and whether an honest «لا يمكن التأكّد» state is owed
-      there the way the header pip got one.
+      *Next:* DONE — see **the badge never re-read, and the wiring the
+      comment described did not exist** below.
+
+- [x] **The badge never re-read, so a message landing on an open app went
+      unseen — and the comment claiming it re-summed on the way back described
+      code that was never in the worker shell.** The previous entry ended on
+      the honest question: what the badge does when a message arrives with no
+      navigation to trigger it. Answering it meant reading the wiring, and the
+      wiring was thinner than the backlog claimed in three separate ways.
+      *What the grep found:*
+      ```sh
+      grep -c "_reloadStrips" lib/src/screens/worker/worker_home_screen.dart  # 0
+      grep -c "_reloadStrips" lib/src/screens/customer/customer_home_screen.dart  # 4
+      ```
+      The shipped comment says «`_reloadStrips` re-sums on the way back from a
+      thread, which is what clears it». **The worker shell has no such method
+      and never had one** — it is a customer-shell method. So the sentence
+      documenting the badge's only clearing path pointed at a function in
+      another file, and the contractor shell's badge had no clearing path at
+      all beyond the first read.
+      *The second hole.* `ChatListScreen` takes `initial` and keeps it in
+      `initState`:
+      ```dart
+      _future = widget.initial ?? widget.repo.conversations();   // initState
+      ```
+      It lives inside an `IndexedStack`, so that state is built once and lives
+      for the whole app session. **Tapping «الرسائل» does not re-read anything**
+      — the tab the user opens to resolve the count shows him the list from
+      whenever the shell was built.
+      *The third, and the one with the user in it.* `_readConversations()` is
+      called from exactly one place (`didChangeDependencies`, once), and
+      `WidgetsBindingObserver` appeared nowhere in the two shells. So: a
+      contractor is in the app, a client writes, and the number under
+      «الرسائل» **does not move** — not on a pull, not on a tab switch, not on
+      a pop. It is frozen at the last deliberate navigation. The app has **no
+      push channel at all** (`pubspec.yaml`: no firebase, no socket, no
+      workmanager), so a poll is the only way to see a message land while the
+      app stays open — and a poll is the user's data, every interval, to
+      redraw a number that rarely moves.
+      *The trap the obvious fix walks into.* Wiring the badge to
+      `/api/unread` and refreshing it on a timer would have shipped a number
+      the inbox beneath it cannot agree with, and would spend data doing it.
+      The honest channel is `AppLifecycleState.resumed`: free, the moment the
+      number is actually looked at, and **the same trigger `NotificationsBell`
+      already uses for its own count** — so the two unread numbers on this
+      home now go stale and fresh together instead of independently.
+      *Shipped:* `UnreadCountOnResume` (`lib/src/data/unread_message_count.dart`,
+      new) — a mixin whose `didChangeAppLifecycleState` reads on `resumed`
+      and ignores `inactive` / `hidden` / `paused` / `detached`, because the
+      app is not usable in any of them and asking the network there spends
+      data to draw the number the user is about to see anyway. Both shells mix
+      it in, register in `initState` and **unregister in `dispose`**: the
+      `IndexedStack` keeps a shell alive for the whole session, so a
+      registered observer that outlives its state keeps calling `setState` on a
+      disposed widget.
+      *The observer is passed in, not taken as `this`.* Inside a mixin `this`
+      is the mixin, not the state, so `addObserver(this)` would register an
+      object the engine can call but that has no `State` behind it — and the
+      disposal half could not be paired with the registration half. The shell
+      passes its own `this` to both ends, so the two provably name one object.
+      *`ChatListScreen` now reports what it read, and keeps its rows.* A new
+      `onRead` callback hands the shell the list every read returned, which is
+      what stops the tab claiming one number over rows that say another. And a
+      re-read **no longer falls through to the skeleton**: the last list that
+      landed is kept, so an unlock does not blank the inbox at a user who did
+      nothing at all. Only a first read, which has no cache, shows the shimmer.
+      *Red before green, on the shipped state.* Reverting all four files fails
+      **3 of the 5** new tests — both resume tests and the
+      badge/list-agreement test. The harness is the production path: the real
+      `WorkerHomeScreen` / `CustomerHomeScreen` under a real `AppScope`, no
+      `AppTabBar` built by hand.
+      *Two harness lies caught, both of which read as app bugs.* The first
+      lifecycle walk jumped straight to `paused` and to `detached`, and the
+      engine asserts its own state machine (`AppLifecycleListener`:
+      `paused` is reachable only from `hidden`, `resumed` only from
+      `inactive`) — the framework threw before any observer was reached, so
+      the test failed in exactly the shape of «the app refuses to re-read»
+      while the app was doing nothing wrong. The walks follow the machine now.
+      And the pixel probe lived inline as an escaped `python3 -c` string,
+      which failed first into a `FormatException` and then into a filter
+      matching nothing and reporting `0` for a screen full of text: **a probe
+      that reads zero is indistinguishable from a screen that is blank**, so
+      the assertion would have passed on the regression it was written to
+      catch. It is `tool/px_count.py` now, and a zero there is an error, not
+      a number.
+      *Evidence.* `flutter analyze` -> **No issues found!** (5.2 s).
+      `flutter test` -> **1292 passed / 3 skipped / 1 failed**, up from
+      1287/3/1, **+5**. The one failure is `subscription_clock_test.dart`,
+      pre-existing, unchanged. `tool/contrast_audit.py token` -> 28/28.
+      Inbox re-read on a real render: **2 requests** (a second read actually
+      fired) and **15782 -> 15760 navy px**, so the second frame still draws
+      the list — app bar, avatar, conversation rows — rather than skeleton
+      bars.
+      *Files:* `lib/src/data/unread_message_count.dart`,
+      `lib/src/screens/chat/chat_list_screen.dart`,
+      `lib/src/screens/worker/worker_home_screen.dart`,
+      `lib/src/screens/customer/customer_home_screen.dart`,
+      `test/message_tab_unread_badge_test.dart`, `tool/px_count.py` (new).
+      *Commit:* `b0d5dd4` local / `1b3ebed` remote, **6/6 blobs MATCH**.
+      *Next:* the badge is now correct on resume and cannot disagree with the
+      inbox, but **it still owes an honest «لا يمكن التأكّد» state**, which the
+      header pip got three cycles ago: a failed read currently leaves the last
+      number painted in confirmed gold, so the app shows a count it cannot
+      check with no signal that it is old. The next pass should decide whether
+      the tab owes a dated or a muted state, and pin what the user is told
+      when the last read was twenty minutes ago and the badge is still gold.
