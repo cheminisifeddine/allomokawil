@@ -6159,3 +6159,102 @@ running app for defects like these rather than inventing a feature.
       next pass should pin what the pip does when the write was refused and the
       re-read could not run — does it agree with the sentence the user just read,
       or does it quietly repaint a number the app has disclaimed?
+
+### Phase 5 — engineering hardening: the pip re-asserted, in red, the answer
+#### the app had withdrawn one gesture earlier
+
+- [x] **The centre says «تعذّر التأكّد» and the header says 3.** The previous
+      cycle closed the mark-read → pop-back → pip round trip for the
+      **successful** write and named the gap it left: *the refused write is
+      untested on this path*. Reading the code found the round trip is not the
+      worst of it — the sentence the user reads is two sentences, and the copy
+      splits them on purpose.
+      *Three verdicts, and only one of them is a guess.*
+      `NotificationReadOutcome.landed` — «تم تعليم الإشعار كمقروء.» the server
+      proved it. `.missing` — «لم نتمكن… أعد المحاولة.» the server **answered
+      and refused**, so the count below it is a fact, it just is not zero.
+      `.unknown` — «تعذّر التأكّد. تحقّق من قائمة الإشعارات عند عودة الاتصال.»
+      the phone cannot read the server at all, so the rows still on screen are
+      the optimistic flip **and the header pip is that same number**.
+      So: resume with a read open holding 3 → mark a row read, the write times
+      out and the re-read cannot run → the centre prints the unknown sentence →
+      **the user does exactly what he was told and taps back** → `_open` spends
+      its forced `_refresh`, that read fails on the same bar, `_refresh`'s
+      catch keeps the last known count, and the pip repaints **3 in
+      `AppTheme.danger`** — the colour this app reserves for «this is wrong,
+      act now». A sentence withdrawn in the centre is re-issued one gesture
+      later by the loudest thing on the screen, and **doing what the app said
+      is what causes it**. Nothing on screen explains the contradiction: the
+      user is the only one who can see it.
+      *Fixed with a flag that only travels one way.* `NotificationCountTrust`
+      (`lib/src/data/notification_count_trust.dart`) can be **withdrawn** by the
+      centre and **restored only by a read of `/api/unread`**. Two exclusions
+      are the design, not omissions:
+        * **`_refresh`'s catch restores nothing.** A failed read proves nothing
+          either way, so the count stays what it was — and a `restore()` there
+          would be a claim the transport never made, undoing a sentence the
+          user has already read.
+        * **A successful `GET /api/notifications` does not restore it.**
+          Proving one row is read says nothing about how many are unread in
+          total. Restoring on a list read would re-introduce the exact claim
+          this cycle removes, on evidence that does not support it.
+      `.missing` deliberately does **not** withdraw: that verdict is the
+      server's own answer, so the pip below it is a fact.
+      *The colour, and why it is a colour and not a hidden pip.* The pip is
+      drawn in `AppTheme.textMuted` while unconfirmed and a screen reader
+      announces «غير مؤكّد» in place of the bare digits — same size, same
+      weight, same position, so the number does not vanish and become easy to
+      miss; it stops **claiming**. Red is not softened to grey: grey states that
+      nothing here is urgent. Colour is the one difference a screen reader
+      cannot see, which is why the semantic label is not optional.
+      *Red before green, twice and independently.* Removing the withdrawal
+      fails the case on `trust.unconfirmed` — the defect, not the harness.
+      Keeping the withdrawal and reverting **only the colour** fails it on the
+      fill being `AppTheme.danger`, with the reason string naming the
+      contradiction. Both halves are pinned separately so neither can be
+      undone alone.
+      *Three fake-harness traps this file walked into, recorded because the
+      next tick will write another probe:*
+        1. A **row tap navigates** — `new_quote` resolves to the projects
+           list — so the back button pops *that* and every assertion runs
+           against the centre still on top. It surfaces as `Found 0 widgets with
+           key notifications-badge`, which reads like a missing pip and is
+           actually a test that tapped the wrong thing. «تعليم الكل كمقروء»
+           reaches the same `_settleRead` branch and moves nowhere.
+        2. `toImage` **must** run inside `tester.runAsync`. Called bare it does
+           not return at all — the first run of this file hung to the outer
+           timeout with every assertion above it already green.
+        3. A **pixel probe of the pip is not honest here**, and three were
+           written before it was dropped: the geometric centre is the white
+           digit, the first dark pixel along a row is a blend with the white
+           rim at alpha 0.9, and the modal colour of the interior comes back
+           white because the pip is laid out with `clipBehavior: Clip.none` and
+           sits outside its parent's bounds. The fill is asserted from the
+           `BoxDecoration` and the **colour claim is made with a real
+           screenshot** instead.
+      *Evidence.* `flutter analyze` → **No issues found!** (6.1 s).
+      `flutter test` → **1272 passed / 3 skipped / 1 failed** (was 1270/3/1,
+      **+2**). The one failure is `subscription_clock_test.dart`, pre-existing
+      and unchanged across the last four runs — a UTC/Algiers assumption, not a
+      regression. `tool/contrast_audit.py token` → 28/28 pairs pass.
+      *Pip colours read back out of the real renders* with the in-repo
+      `tool/png_read.py`: **843 px of `#C33F39`** in `/tmp/shots/pip_confirmed.png`
+      and **843 px of `#6C707A`** in `/tmp/shots/pip_withdrawn.png`. White on
+      muted is 4.96:1 and the badge clears 3:1 against both the white header
+      (4.96) and the navy one (3.21), so the pip is perceivable in either
+      state — muting it did not make it unreadable.
+      *Files:* `lib/src/data/notification_count_trust.dart` (new),
+      `lib/src/widgets/notifications_bell.dart`,
+      `lib/src/screens/notifications/notifications_screen.dart`,
+      `lib/src/core/l10n/strings.dart`, `test/unconfirmed_pip_test.dart` (new).
+      *Commit:* `7f52190` local / `eb47306` remote, **5/5 blobs MATCH** against
+      the remote tree.
+      *Next:* the trust flag is wired through the bell and the centre it opens,
+      and that is the only pair of screens that share the number. Two paths it
+      does **not** yet cover, both on the read side: the **message tab** draws
+      its own unread affordance, and the home headers open the centre through
+      the bell only — so a caller that pushes `NotificationsScreen` itself (the
+      in-app route, and any future deep link) gets `trust: null` and every
+      count back to being a fact. The next pass should pin whether a
+      `NotificationsScreen` reached by any route *other* than the bell can
+      still leave a withdrawn number standing in the header behind it.
