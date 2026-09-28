@@ -5835,3 +5835,82 @@ running app for defects like these rather than inventing a feature.
       keeping is that an audit which greps for a *missing* feature finds the
       one that is absent; an audit that reads what is **present** finds the one
       that is broken.
+
+- [x] **The one write that already "had" the contract was the one lying with
+      it — a contractor who sent no documents was told they arrived.** The
+      write-outcome audit has now been through thirteen writes, and this one
+      survived every pass because it *looked* complete. `verification_screen`
+      caught `errWriteUnconfirmed`, re-read the profile and printed a verdict,
+      so every read of the file stopped at "it re-reads the server" and nobody
+      asked **what it compared**.
+      *It compared the wrong thing:* `verificationStatus == pending ||
+      verified`. A brand-new profile is stored as `pending` — the model says so
+      in so many words (`verificationPendingDocs`: "a brand-new profile is
+      stored as 'pending', exactly like a submitted dossier… the UI has to
+      guess, and it guesses wrong in both directions"), and **the same screen,
+      40 lines below**, correctly renders off `dossierUnderReview`, which is
+      `pending && pendingDocs > 0` for exactly that reason. So the re-read
+      answered `true` for a man with an empty form, and he was shown
+      «وجدناه في القائمة — الطلب وصل بنجاح» while his ID card never left his
+      gallery. He waits 48 hours for a review nobody is doing; every retry hits
+      the same predicate, so the app can say "arrived" as often as he presses
+      and be wrong every time. This is the trust gate of the whole
+      marketplace, and the decoy the model file was written to prevent was
+      reintroduced by the very screen that cites it.
+      *The rule is a change in the server's copy of the row, never an
+      equality* — the same landing `redeem_outcome.dart` reached a tick earlier.
+      Four things on that row can move and all four are read: the **queue grew**
+      (`verificationPendingDocs`), the **status left `pending`**, or one of the
+      two **per-part acceptances** flipped (the API approves a dossier one
+      document at a time, so a half-accepted dossier is a real state, not a
+      theoretical one). An unchanged profile is `missing` — the retry is real,
+      nothing was stored, so re-sending cannot duplicate a row — and a failed
+      re-read is `unknown`, never `missing`, because «did not arrive» is how a
+      man deletes the only copy of his ID card.
+      *A second defect, on the line this tick was already editing.*
+      `setState(() => _profile = _repo.myProfile())` hands the **Future** back
+      to `setState` as the result of the state change, which trips Flutter's
+      "setState() callback argument returned a Future" assert. It was on the
+      retry button *and* on the unconfirmed path, so the two ways this screen
+      re-reads itself were the two that threw on the way — the path that
+      repairs a failed read was itself broken. Both now go through `_refresh`,
+      an expression statement in a block body. This was found by the red run,
+      not by reading.
+      *Copy:* a dossier pair, not `writeOutcomeCopy`. The shared landed line
+      claims «وجدناه في القائمة» — a claim about *finding a row*, when the
+      profile was on screen for the entire send. What changed is the document
+      queue. `unknown` deliberately keeps the shared sentence: the re-read that
+      could not run is a dead connection, and «تحقّق من القائمة» names the one
+      action still true.
+      *Red before green:* all three screen cases fail against the pre-fix
+      screen, and the false-landing case fails on the **literal string the old
+      screen printed** — «وجدناه في القائمة — الطلب وصل بنجاح» — captured from
+      a live `SnackBar`. The harness took two corrections to get that honestly,
+      and both are worth writing down because each one produced a *green test
+      that measured nothing*:
+        1. the verdict **queues 4 s behind** the «نتحقّق الآن من القائمة…» line,
+           so a single 3 s pump reads the placeholder and never the answer;
+        2. a `SnackBar` **leaves the tree when it times out**, so collecting
+           the tree after the queue drains returns an empty list. The harness
+           now samples the tree on every pump and accumulates.
+      *Evidence:* `flutter analyze` → **No issues found!** (4.9 s).
+      `flutter test` → **1229 passed / 3 skipped / 1 failed** (was 1198/3/1; the
+      new file is the +15 of the +31). The single failure is the pre-existing
+      `subscription_clock_test.dart` case three ticks have now flagged — re-run
+      with this change stashed, it fails identically. Not visual: one toast path
+      and one re-read, no pixels moved, so no screenshot applies.
+      *Files:* `lib/src/data/verification_write_outcome.dart` (new),
+      `test/verification_write_outcome_test.dart` (new),
+      `lib/src/core/l10n/strings.dart`,
+      `lib/src/screens/verify/verification_screen.dart` (also gained the
+      `VerificationScreen.repo` seam, same multipart reason as
+      `MyPortfolioScreen.repo`; production call site is still
+      `const VerificationScreen()`).
+      *Commit:* `0e27ce2` local, `bfc1bcd` remote, all four blobs MATCH.
+      *Next:* the honest next item is still another read of the code, and the
+      lesson is sharper after two ticks in a row: **a path that already looks
+      finished is the one most likely to be wrong**, because every read of it
+      stops at the first thing that is present. The remaining writes with no
+      resolved unconfirmed path are `openConversation` and `markAllRead` — the
+      latter deliberately re-reads unconditionally, so it is a different shape
+      of problem, not a gap.
