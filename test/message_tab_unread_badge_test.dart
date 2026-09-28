@@ -319,4 +319,278 @@ void main() {
       expect(find.text('99+'), findsOneWidget);
     });
   });
+
+  _unreadBadgeOnResume();
+}
+
+// The read that was missing, and the three ways the badge used to be frozen.
+//
+// `didChangeDependencies` writes `_unreadMessages` **once**. After that the only
+// things that move the number need a gesture the user makes deliberately:
+// pull-to-refresh, open a thread and come back, push a screen and pop it.
+// A message that arrived while he was reading a quote in another app triggers
+// **none** of them, so the number on the tab was whatever the server said
+// whenever the shell happened to be built \u2014 printed with nothing saying how old
+// it was.
+//
+// That is the worst failure available to a badge: it does not look broken, it
+// looks like a quiet day, which is the one reading a user acts on when a
+// client is waiting.
+//
+// The app carries no push channel (no firebase, no socket, no workmanager in
+// `pubspec.yaml`), so a read on `AppLifecycleState.resumed` is the honest
+// channel \u2014 and it is the one `NotificationsBell` already uses for its own
+// count, so the two numbers on this home now go stale and fresh together.
+extension _Resume on WidgetTester {
+  /// The phone going to the back pocket, and the foreground it comes back to.
+  ///
+  /// **Both walks follow the engine's legal state machine**, which asserts its
+  /// own transitions (`AppLifecycleListener.didChangeAppLifecycleState`:
+  /// `paused` is only reachable from `hidden`, `resumed` only from `inactive`,
+  /// `detached` only from `paused`). Jumping straight to a state is not a
+  /// shortcut — the framework throws before any observer is reached, so the
+  /// first version of this file failed in a way that read exactly like the app
+  /// refusing to re-read, and was the app doing nothing wrong at all.
+  ///
+  /// The return leg is also where the assertion is allowed to settle: the read
+  /// the observer issues is asynchronous, and a bare
+  /// `handleAppLifecycleStateChanged` would leave every expectation racing the
+  /// request it is meant to be checking.
+  Future<void> background() async {
+    for (final state in <AppLifecycleState>[
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+    ]) {
+      await sendState(state);
+    }
+  }
+
+  /// The unlock. `paused -> hidden -> inactive -> resumed` is what Android
+  /// actually delivers on a swipe-up, and `resumed` is the one state the read
+  /// hangs off.
+  Future<void> resume() async {
+    for (final state in <AppLifecycleState>[
+      AppLifecycleState.hidden,
+      AppLifecycleState.inactive,
+      AppLifecycleState.resumed,
+    ]) {
+      await sendState(state);
+    }
+    for (var i = 0; i < 6; i++) {
+      await pump(const Duration(milliseconds: 40));
+    }
+  }
+
+  /// Sends [state] and lets the frame turn, asserting nothing.
+  ///
+  /// **The engine asserts the transition is a legal one**
+  /// (`AppLifecycleListener.didChangeAppLifecycleState`: `paused` is only
+  /// legal from `hidden`, `detached` only from `paused`), so a walk has to
+  /// follow the real machine. The first version of this file jumped straight
+  /// to `paused` and to `detached` from a resumed app, and the framework threw
+  /// before the observer was ever reached — a harness fault that read exactly
+  /// like the app refusing to re-read.
+  Future<void> sendState(AppLifecycleState state) async {
+    binding.handleAppLifecycleStateChanged(state);
+    for (var i = 0; i < 4; i++) {
+      await pump(const Duration(milliseconds: 30));
+    }
+  }
+}
+
+void _unreadBadgeOnResume() {
+  group('a message that arrives with nothing to trigger a read', () {
+    testWidgets('the contractor badge moves on resume, with no navigation',
+        (t) async {
+      // The phone is locked, a client writes, the contractor unlocks. He never
+      // pulls, never opens a thread and never pops anything \u2014 and before this
+      // the number under «الرسائل» was the one from before he locked it.
+      var live = <Map<String, dynamic>>[_conv(1, unread: 2)];
+      final api = ApiClient(
+        baseUrls: const ['https://x.test'],
+        httpClient: MockClient((req) async {
+          final p = req.url.path;
+          if (p.endsWith('/api/login') || p.endsWith('/api/register')) {
+            return _json({'token': 'tok', 'user': _user});
+          }
+          if (p.endsWith('/api/unread')) return _json(9);
+          if (p.endsWith('/api/mobile/conversations')) return _json(live);
+          return _json(<Object>[]);
+        }),
+      );
+      SharedPreferences.setMockInitialValues({});
+      final auth = AuthState(api);
+      await auth.restore();
+      await auth.login(
+          phone: '0773000000', password: 'secret123', rememberMe: true);
+      await t.pumpWidget(MaterialApp(
+        home: AppScope(
+          api: api,
+          auth: auth,
+          child: const WorkerHomeScreen(),
+        ),
+      ));
+      await t.pumpAndSettle();
+
+      expect(_badgeWith(2), findsOneWidget);
+
+      // Two messages land while the app is in the background.
+      live = <Map<String, dynamic>>[
+        _conv(1, unread: 3),
+        _conv(2, unread: 4),
+      ];
+      await t.background();
+
+      // **Still 2.** The number is stale, and the point of the test is that it
+      // is stale in the shipped state \u2014 this assertion is what the revert
+      // below fails.
+      expect(_badgeWith(2), findsOneWidget);
+      expect(_badgeWith(7), findsNothing);
+
+      await t.resume();
+
+      // 3 + 4, the new sum, without a single navigation.
+      expect(_badgeWith(7), findsOneWidget);
+      expect(_badgeWith(2), findsNothing);
+    });
+
+    testWidgets('the client badge moves on resume too', (t) async {
+      // The client is the role this matters most for: the app tells him all day
+      // to message contractors, so a first message from one is the event most
+      // likely to land while he is looking at something else.
+      var live = <Map<String, dynamic>>[_conv(1, unread: 1)];
+      final api = ApiClient(
+        baseUrls: const ['https://x.test'],
+        httpClient: MockClient((req) async {
+          final p = req.url.path;
+          if (p.endsWith('/api/login') || p.endsWith('/api/register')) {
+            return _json({'token': 'tok', 'user': _user});
+          }
+          if (p.endsWith('/api/unread')) return _json(9);
+          if (p.endsWith('/api/mobile/conversations')) return _json(live);
+          return _json(<Object>[]);
+        }),
+      );
+      SharedPreferences.setMockInitialValues({});
+      final auth = AuthState(api);
+      await auth.restore();
+      await auth.login(
+          phone: '0773000000', password: 'secret123', rememberMe: true);
+      await t.pumpWidget(MaterialApp(
+        home: AppScope(
+          api: api,
+          auth: auth,
+          child: const CustomerHomeScreen(),
+        ),
+      ));
+      await t.pumpAndSettle();
+      expect(_badgeWith(1), findsOneWidget);
+
+      live = <Map<String, dynamic>>[_conv(1, unread: 6)];
+      await t.background();
+      await t.resume();
+      expect(_badgeWith(6), findsOneWidget);
+    });
+
+    testWidgets('paused alone changes nothing \u2014 a locked phone spends no data',
+        (t) async {
+      // `inactive` and `paused` fire for a dialog, a permission sheet, the app
+      // switcher and the lock screen. The app is not usable in any of them, and
+      // asking the network there spends the user's data to redraw a number he
+      // is about to see anyway. Only `resumed` earns a read.
+      await _pumpHome(t, [_conv(1, unread: 2)]);
+      final before = _log.length;
+
+      // Every state on the way into the back pocket is free of a read.
+      await t.background();
+      expect(_log.length, before,
+          reason: 'a state that is not the foreground must not spend a read');
+    });
+
+    testWidgets('a read that fails leaves the number the user last saw',
+        (t) async {
+      // 0 is «you are caught up», which is a claim, and a dropped request
+      // supports no claim at all. Blanking the badge on a bad bar would tell a
+      // contractor with four unread messages that he has none \u2014 and he would
+      // act on it.
+      var fail = false;
+      final api = ApiClient(
+        baseUrls: const ['https://x.test'],
+        httpClient: MockClient((req) async {
+          final p = req.url.path;
+          if (p.endsWith('/api/login') || p.endsWith('/api/register')) {
+            return _json({'token': 'tok', 'user': _user});
+          }
+          if (p.endsWith('/api/unread')) return _json(9);
+          if (p.endsWith('/api/mobile/conversations')) {
+            if (fail) throw Exception('offline');
+            return _json([_conv(1, unread: 4)]);
+          }
+          return _json(<Object>[]);
+        }),
+      );
+      SharedPreferences.setMockInitialValues({});
+      final auth = AuthState(api);
+      await auth.restore();
+      await auth.login(
+          phone: '0773000000', password: 'secret123', rememberMe: true);
+      await t.pumpWidget(MaterialApp(
+        home: AppScope(api: api, auth: auth, child: const WorkerHomeScreen()),
+      ));
+      await t.pumpAndSettle();
+      expect(_badgeWith(4), findsOneWidget);
+
+      fail = true;
+      await t.background();
+      await t.resume();
+      expect(_badgeWith(4), findsOneWidget,
+          reason: 'a failed read must not repaint a caught-up 0 over 4');
+    });
+
+    testWidgets('the badge and the inbox list cannot disagree after a refresh',
+        (t) async {
+      // The badge is the sum of the list the inbox draws. So a pull-to-refresh
+      // that changes the list has to change the badge with it \u2014 otherwise the
+      // tab claims one number over rows that say another, which is the exact
+      // disagreement the badge was written to make impossible.
+      var live = <Map<String, dynamic>>[_conv(1, unread: 5)];
+      final api = ApiClient(
+        baseUrls: const ['https://x.test'],
+        httpClient: MockClient((req) async {
+          final p = req.url.path;
+          if (p.endsWith('/api/login') || p.endsWith('/api/register')) {
+            return _json({'token': 'tok', 'user': _user});
+          }
+          if (p.endsWith('/api/unread')) return _json(9);
+          if (p.endsWith('/api/mobile/conversations')) return _json(live);
+          return _json(<Object>[]);
+        }),
+      );
+      SharedPreferences.setMockInitialValues({});
+      final auth = AuthState(api);
+      await auth.restore();
+      await auth.login(
+          phone: '0773000000', password: 'secret123', rememberMe: true);
+      await t.pumpWidget(MaterialApp(
+        home: AppScope(api: api, auth: auth, child: const WorkerHomeScreen()),
+      ));
+      await t.pumpAndSettle();
+      expect(_badgeWith(5), findsOneWidget);
+
+      // Stand in the inbox and clear the thread \u2014 the row's own unread pip
+      // goes to 0, so the tab must follow it down.
+      await _openTab(t, _messagesTab);
+      expect(_badgeWith(5), findsOneWidget);
+      live = <Map<String, dynamic>>[_conv(1, unread: 0)];
+      await t.drag(find.byType(ListView), const Offset(0, 320));
+      for (var i = 0; i < 8; i++) {
+        await t.pump(const Duration(milliseconds: 40));
+      }
+      await t.pumpAndSettle();
+
+      expect(_badgeWith(5), findsNothing,
+          reason: 'the tab still claims 5 over a list the user just emptied');
+    });
+  });
 }

@@ -31,6 +31,8 @@
 // again would be a third copy of the same read on every app-open.
 library;
 
+import 'package:flutter/widgets.dart';
+
 import '../core/l10n/arabic_agreement.dart';
 import '../models/chat.dart';
 
@@ -66,4 +68,71 @@ String unreadMessagesLabel(int count) {
   return n == 1
       ? 'رسالة غير مقروءة'
       : '${arabicCounted(n, 'رسالة غير مقروءة', two: 'رسالتان غير مقروءتان', few: 'رسائل غير مقروءة')}';
+}
+
+/// Re-reads a list when the phone comes back to the foreground, and only then.
+///
+/// **The badge is drawn from whatever the shell read last, and before this
+/// nothing re-read it.** Every write that can change the count needs a gesture
+/// the user has to make deliberately: pulling to refresh, opening a thread and
+/// coming back, or pushing a screen and popping it. A message that arrived
+/// while he was reading a quote in another app triggered **none** of them, so
+/// the number he trusted was whatever the server said whenever he last
+/// happened to navigate — drawn with no hint that it was old.
+///
+/// A badge that cannot go up is the worst failure available to it. It does not
+/// look broken; it looks like a quiet day, which is the one reading the user
+/// will act on when a client is waiting.
+///
+/// The app has **no push channel at all** (`pubspec.yaml` carries no firebase,
+/// no socket, no workmanager), so polling would be the only way to see a
+/// message land while he keeps the app open — and a poll is a request the
+/// user's data pays for, every interval, to redraw a number that rarely
+/// moves. Resume is the honest channel: it is free, it is the moment the
+/// number is actually looked at, and it is the same trigger
+/// [NotificationsBell] already uses for its own count, so the two numbers on
+/// this home screen now go stale and fresh together.
+///
+/// `inactive` and `paused` are deliberately ignored. They fire for a dialog, a
+/// permission sheet, the app switcher and the lock screen — the app is not
+/// usable in any of them, and asking the network there spends data to draw
+/// the number the user is about to see anyway.
+mixin UnreadCountOnResume {
+  /// Registers [observer] — the state — against the engine.
+  ///
+  /// The observer is passed in rather than taken as `this` because **inside a
+  /// mixin `this` is the mixin, not the state**: `addObserver(this)` would
+  /// register an object the engine can call the callback on but that has no
+  /// `State` behind it, and the disposal half could not be paired with the
+  /// registration half. The shell passes `this` from its own `initState` and
+  /// the same `this` from `dispose`, so the two provably name one object.
+  ///
+  /// Both ends are the shell's job on purpose: a mixin that hid its own
+  /// registration could not be seen to be undone, and an observer left
+  /// attached outlives the state and keeps re-reading — and calling `setState`
+  /// on — a widget the framework has already thrown away.
+  void registerUnreadOnResume(WidgetsBindingObserver observer) {
+    WidgetsBinding.instance.addObserver(observer);
+  }
+
+  /// The other half of [registerUnreadOnResume].
+  void unregisterUnreadOnResume(WidgetsBindingObserver observer) {
+    WidgetsBinding.instance.removeObserver(observer);
+  }
+
+  /// Issues the read. Implemented by the shell, which owns the repository.
+  void readUnreadOnResume();
+
+  /// The framework's lifecycle callback, mixed in by the state's own
+  /// `with WidgetsBindingObserver` — a mixin cannot declare a superclass, so
+  /// the observer is applied where the state already lives rather than hidden
+  /// here.
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    // The repository is assigned in `didChangeDependencies`, which the engine
+    // can reach before it delivers the first lifecycle message. Reading a
+    // `late final` here throws inside a framework callback, where it is
+    // swallowed into a red-screen report about a bug the user never caused.
+    readUnreadOnResume();
+  }
 }

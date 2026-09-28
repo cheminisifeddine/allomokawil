@@ -36,12 +36,27 @@ class ChatListScreen extends StatefulWidget {
   /// can drive both screens from one store.
   final ChatOutbox? outbox;
 
+  /// Called with every list this screen lands, including the one it is handed.
+  ///
+  /// **The badge on the tab this inbox sits in is drawn from the shell's own
+  /// copy of this list**, so without this callback a pull-to-refresh here would
+  /// re-read the inbox while the number on the tab kept the value the shell
+  /// last read — two different numbers for the same thing on one screen,
+  /// which is the exact failure the badge was written to make impossible. See
+  /// `unread_message_count.dart`.
+  ///
+  /// The shell is told what it is already showing rather than asked to read
+  /// again: this screen has just answered the question, so a second request
+  /// would be a second chance for the two to disagree.
+  final void Function(List<Conversation> conversations)? onRead;
+
   const ChatListScreen({
     super.key,
     required this.repo,
     this.initial,
     this.onDiscover,
     this.outbox,
+    this.onRead,
   });
 
   @override
@@ -58,12 +73,50 @@ class _ChatListScreenState extends State<ChatListScreen> {
   /// written in.
   Map<int, int> _queued = const <int, int>{};
 
+  /// The last list that landed, kept so a re-read does not blank the screen.
+  ///
+  /// The tab the inbox sits in re-reads this list on the way back from the
+  /// background (`didChangeAppLifecycleState` in the two home shells), and
+  /// without a cache each of those reads would flash the skeleton at a user
+  /// who did nothing at all — a heimlich-looking lurch on every unlock. The
+  /// rows stay; only a first read, which has nothing to keep, shows the
+  /// shimmer.
+  List<Conversation>? _cache;
+
   @override
   void initState() {
     super.initState();
     _outbox = widget.outbox ?? ChatOutbox();
-    _future = widget.initial ?? widget.repo.conversations();
+    _arm(widget.initial ?? widget.repo.conversations());
     _loadQueued();
+  }
+
+  /// Points the list at a read, and tells the shell what that read came back
+  /// with.
+  ///
+  /// The callback fires **off the future**, so it is guarded on [mounted]: the
+  /// shell that owns this tab lives in an `IndexedStack` and can be disposed
+  /// while a request is still open.
+  void _arm(Future<List<Conversation>> read) {
+    _future = read;
+    final onRead = widget.onRead;
+    if (onRead == null) return;
+    read.then((list) {
+      if (!mounted) return;
+      setState(() => _cache = list);
+      onRead(list);
+    }, onError: (_, __) {});
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatListScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final next = widget.initial;
+    // Identity, not equality: the shell hands over a **new future** each time
+    // it re-reads, and only a genuinely new read is worth re-arming for. A
+    // rebuild for any other reason — the tab index moving, the guide
+    // re-evaluating — must not throw away rows the user is reading.
+    if (next != null && !identical(next, oldWidget.initial)) _arm(next);
   }
 
   /// Reads the outbox; a store that will not open leaves the badges empty.
@@ -74,7 +127,11 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   void _reload() {
-    setState(() => _future = widget.repo.conversations());
+    // One read, not two. `_arm` installs the future, so asking the repository
+    // here as well would leave the screen listening to the first answer while
+    // the shell was told about the second — the two can differ, and the badge
+    // would be drawn from whichever landed, not from the list on screen.
+    setState(() => _arm(widget.repo.conversations()));
     _loadQueued();
   }
 
@@ -114,10 +171,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
         body: FutureBuilder<List<Conversation>>(
           future: _future,
           builder: (context, snap) {
-            if (snap.connectionState != ConnectionState.done) {
-              return const Shimmer(child: LoadingList(count: 4));
-            }
-            if (snap.hasError) {
+            // One branch decides what the user is looking at, so a re-read
+            // cannot take a different path from a first read: waiting falls
+            // back to the last list that landed, and only a first read —
+            // which has no cache to fall back on — shows the skeleton.
+            final waiting = snap.connectionState != ConnectionState.done;
+            final convs = waiting
+                ? _cache
+                : (snap.hasError ? null : (snap.data ?? const <Conversation>[]));
+            if (convs == null) {
+              if (waiting) {
+                return const Shimmer(child: LoadingList(count: 4));
+              }
               return EmptyView(
                 icon: Icons.wifi_off_rounded,
                 title: 'تعذّر جلب الرسائل',
@@ -126,7 +191,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 onAction: _reload,
               );
             }
-            final convs = snap.data ?? const [];
             if (convs.isEmpty) {
               return _emptyInbox(context);
             }

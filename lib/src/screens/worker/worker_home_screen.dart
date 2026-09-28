@@ -49,11 +49,41 @@ class WorkerHomeScreen extends StatefulWidget {
   State<WorkerHomeScreen> createState() => _WorkerHomeScreenState();
 }
 
-class _WorkerHomeScreenState extends State<WorkerHomeScreen> {
+class _WorkerHomeScreenState extends State<WorkerHomeScreen>
+    with WidgetsBindingObserver, UnreadCountOnResume {
   int _tab = 0;
   late final Repository _repo;
 
   bool _scopeReady = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Registered here and not in `didChangeDependencies` because the observer
+    // is about the engine, not about this screen's dependencies. Paired with
+    // the removal in `dispose` — see [UnreadCountOnResume].
+    registerUnreadOnResume(this);
+  }
+
+  /// Android delivers this on every return to the foreground, and iOS too.
+  ///
+  /// **This is the read that was missing**, and it is the whole reason a
+  /// message could land on a contractor's phone and the number on his tab
+  /// never move. Before it, the badge was written exactly once — by
+  /// `didChangeDependencies` — so the count the user trusted was the count
+  /// from whenever the shell was built. Lock the phone, read a quote in
+  /// another app, come back: the badge still said what it said at unlock, with
+  /// nothing to tell him that was minutes or hours ago.
+  ///
+  /// The `_scopeReady` guard is the same one the bell keeps for the same
+  /// reason: the engine can deliver a lifecycle message before
+  /// `didChangeDependencies` has assigned `_repo`, and reading the `late final`
+  /// then throws inside a framework callback.
+  @override
+  void readUnreadOnResume() {
+    if (!_scopeReady || !mounted) return;
+    _readConversations();
+  }
 
   /// The conversations the messages tab reads, held so the unread count can
   /// be drawn on the tab itself.
@@ -112,6 +142,16 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen> {
   }
 
   @override
+  void dispose() {
+    // The `IndexedStack` in `build` keeps this shell alive for as long as it
+    // is on the stack, so an observer left registered outlives the state and
+    // keeps re-reading — and calling `setState` on — a widget the framework
+    // has already thrown away.
+    unregisterUnreadOnResume(this);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: _tab == 0
@@ -157,6 +197,15 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen> {
           repo: _repo,
           initial: _conversations,
           onDiscover: () => setState(() => _tab = 0),
+          // The badge is drawn from the shell's copy of this list, so a
+          // pull-to-refresh or a pop out of a thread that re-reads the inbox
+          // has to re-sum here too — otherwise the tab keeps the old number
+          // over a list the user just emptied, which is the disagreement this
+          // badge exists to make impossible.
+          onRead: (list) {
+            if (!mounted) return;
+            setState(() => _unreadMessages = unreadMessageTotal(list));
+          },
         ),
         const ProfileScreen(),
       ]),

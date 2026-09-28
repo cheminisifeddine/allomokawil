@@ -37,10 +37,43 @@ class CustomerHomeScreen extends StatefulWidget {
   State<CustomerHomeScreen> createState() => _CustomerHomeScreenState();
 }
 
-class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
+class _CustomerHomeScreenState extends State<CustomerHomeScreen>
+    with WidgetsBindingObserver, UnreadCountOnResume {
   int _tab = 0;
   late final Repository _repo;
   late Future<List<WorkerProfile>> _topWorkers;
+
+  @override
+  void initState() {
+    super.initState();
+    // About the engine, not about this screen's dependencies — see
+    // [UnreadCountOnResume].
+    registerUnreadOnResume(this);
+  }
+
+  /// Android delivers this on every return to the foreground, and iOS too.
+  ///
+  /// The client is the role this matters most for: he is told all through the
+  /// app to message contractors, so the people writing to him are strangers he
+  /// chose, and a first message from one is the single event most likely to
+  /// arrive while he is looking at something else. Before this read, the badge
+  /// was written once by `didChangeDependencies` and then only by the
+  /// deliberate gestures — pull, thread, pop — so a message that landed with
+  /// the app open left the number frozen at its last navigation.
+  ///
+  /// Only the conversations are re-read: the guide and the strips are decided
+  /// by the same list, so they come along for free, and a resume is not a
+  /// reason to re-ask for the top contractors and spend the user's data to
+  /// redraw a directory that has not moved.
+  @override
+  void readUnreadOnResume() {
+    if (!_scopeReady || !mounted) return;
+    if (_guest) return;
+    final future = _repo.conversations();
+    _conversations = future;
+    _unreadToken++;
+    _resolveUnread();
+  }
 
   /// Null for a signed-out visitor: there is no «مشاريعي» without an account,
   /// so the strip is not requested and cannot fail. The founder saw exactly
@@ -149,6 +182,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   @override
   void dispose() {
     _place?.removeListener(_onPlaceChanged);
+    unregisterUnreadOnResume(this);
     super.dispose();
   }
 
@@ -289,6 +323,14 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           repo: _repo,
           initial: _conversations,
           onDiscover: () => _push(const BrowseScreen(customerSide: true)),
+          // The tab's number is the sum of this list, so a list that changed
+          // under the shell's back has to change the sum with it. Without this
+          // the badge is the shell's last read and the rows are whatever the
+          // inbox last drew — two numbers for one thing on one screen.
+          onRead: (list) {
+            if (!mounted) return;
+            setState(() => _unreadMessages = unreadMessageTotal(list));
+          },
         ),
         const ProfileScreen(),
       ]),
