@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/l10n/arabic_agreement.dart';
 import 'chat_time.dart';
 import '../core/theme/app_theme.dart';
+import '../models/plan.dart';
 
 /// Presentation for one API notification type.
 ///
@@ -110,6 +111,31 @@ String relativeTimeAr(DateTime? at, {DateTime? now}) {
   if (days < 60) {
     return 'قبل شهر';
   }
+  // Past a year the month count stops being information and becomes an
+  // artefact of the division. This arm had no upper bound, so it went on
+  // dividing forever: a conversation from 2015 printed **«قبل 133 شهر»** in the
+  // chat list, and the same string appeared on any old notification. Beside it
+  // the chat divider on the very same thread already read «16/10/2015» — one
+  // thread, two answers, which is the defect this whole file exists to stop.
+  //
+  // So a year and beyond is **dated**, not counted, and the date is the one
+  // [chatDayLabel] already prints, reused rather than written a second time.
+  // The threshold is [SubscriptionStatus.maxCountedDays], read from there
+  // rather than re-declared, so the two surfaces cannot drift apart: the
+  // subscription card adopted this rule on 26 Sep for the same stated reason —
+  // «a count like «بعد 26560 يوماً» is a number no contractor can read as
+  // time».
+  //
+  // The bound is `>=` here and `>` in [SubscriptionStatus.expiryCountdownAr], so
+  // the two differ by one day — 365 days of age is dated here, a 365-day
+  // remaining term is still counted there. That is deliberate rather than an
+  // oversight, and the two directions are not mirrors: a message exactly a year
+  // old is «قبل 12 شهر», a count accurate enough to be worth printing, whereas
+  // a year of prepaid cover is the longest thing the founder sells and is
+  // exactly the value a contractor reads a day count for. The shared constant
+  // keeps the *rule* identical — nothing is described in months or days past a
+  // year — without forcing one row's arithmetic onto another.
+  if (days >= SubscriptionStatus.maxCountedDays) return chatDayLabel(at, now: today);
   return _ago(days ~/ 30, 'شهر', 'شهرين', 'أشهر');
 }
 
