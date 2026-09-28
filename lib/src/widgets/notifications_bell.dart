@@ -39,10 +39,20 @@ class NotificationsBell extends StatefulWidget {
   /// Shared with the notification centre, so a write the app could not confirm
   /// stops the header from reasserting the count as fact.
   ///
-  /// Null means every count is trusted — the right default for the headers that
-  /// open the centre themselves, and for any caller with no centre to disagree
-  /// with. See `notification_count_trust.dart` for why a *list* read is not
-  /// enough to restore it.
+  /// Null means **fall back to the flag [AppScope] owns**, so a header in the
+  /// real app and the centre it opens share one object without either having
+  /// to pass it along.
+  ///
+  /// **Before this, null meant "trust everything" and that is how a finished
+  /// feature shipped switched off.** Both home headers left it null, so the
+  /// withdrawal was a no-op on a null receiver and the pip was permanently
+  /// red — a gate that was green because the tests handed the flag in
+  /// themselves. Null now means "there is no scope", which is only true of a
+  /// screen pumped on its own: a widget test, a design shot. There is nothing
+  /// for a pip to contradict in that case, so trusting the number is right.
+  ///
+  /// See `notification_count_trust.dart` for why a *list* read is not enough
+  /// to restore it.
   final NotificationCountTrust? trust;
 
   /// Draw for a navy header instead of a white app bar.
@@ -64,7 +74,7 @@ class _NotificationsBellState extends State<NotificationsBell>
   /// header is already on screen: a SnackBar verdict from a screen below is
   /// delivered before the pop, and the count has to react to both. `mounted`
   /// is checked on every callback — the pop disposes this state right after.
-  NotificationCountTrust? _trust;
+  late final NotificationCountTrust _trust;
 
   /// One read in flight at a time.
   ///
@@ -109,7 +119,7 @@ class _NotificationsBellState extends State<NotificationsBell>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _trust?.removeListener(_onTrustChanged);
+    _trust.removeListener(_onTrustChanged);
     super.dispose();
   }
 
@@ -127,8 +137,12 @@ class _NotificationsBellState extends State<NotificationsBell>
     }
     _wired = true;
     _repo = widget.repo ?? Repository(AppScope.of(context).api);
-    _trust = widget.trust;
-    _trust?.addListener(_onTrustChanged);
+    // The scope's flag when the caller passed none, which is what both home
+    // headers do. `widget.trust` is kept as the override so a test that wants
+    // to drive a specific flag still can — but the default is now the app's
+    // own, and that default is the whole fix.
+    _trust = widget.trust ?? AppScope.of(context).trust;
+    _trust.addListener(_onTrustChanged);
     _refresh();
   }
 
@@ -184,7 +198,7 @@ class _NotificationsBellState extends State<NotificationsBell>
         _unread = n;
         // The server answered, so the count is its number again — even if the
         // centre withdrew confidence a moment ago.
-        _trust?.restore();
+        _trust.restore();
       });
     } catch (_) {
       // Keep the last known count: a dropped request is not a broken header.
@@ -217,7 +231,12 @@ class _NotificationsBellState extends State<NotificationsBell>
     // instead of leaving the header to redraw the number it disclaimed.
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => NotificationsScreen(repo: _repo, trust: widget.trust),
+        // The flag the header itself is listening to, not `widget.trust`: the
+        // two must be the same object or the centre withdraws a flag nobody is
+        // watching. This is the line the missing wiring left dead — the header
+        // fell back to the scope's flag, and the centre was handed the
+        // caller's null, so they were never the same object.
+        builder: (_) => NotificationsScreen(repo: _repo, trust: _trust),
       ),
     );
     if (mounted) {
@@ -265,7 +284,7 @@ class _NotificationsBellState extends State<NotificationsBell>
   /// 4.96:1, the same 11 px weight the confirmed pip uses, so nothing but the
   /// colour distinguishes the two states.
   Widget _pip() {
-    final unconfirmed = _trust?.unconfirmed ?? false;
+    final unconfirmed = _trust.unconfirmed;
     return PositionedDirectional(
       top: 4,
       end: 2,

@@ -6258,3 +6258,73 @@ running app for defects like these rather than inventing a feature.
       count back to being a fact. The next pass should pin whether a
       `NotificationsScreen` reached by any route *other* than the bell can
       still leave a withdrawn number standing in the header behind it.
+
+### Phase 5 — engineering hardening: a finished feature that was never connected
+#### to the phone, and a green gate that could not tell
+
+- [x] **A pip that mutes itself was shipped, and it never muted.** The previous
+      cycle's handoff asked whether a `NotificationsScreen` reached by a route
+      *other* than the bell can leave a withdrawn number standing in the header
+      behind it. Checking that meant looking for every caller, and the answer
+      was worse than the question assumed.
+      *`grep -rn "NotificationCountTrust(" lib/` → no matches.*
+      The flag from last cycle **was never constructed in the app at all.** It
+      was a `final NotificationCountTrust? trust` constructor parameter that
+      **no caller passed** — both home headers build `const
+      NotificationsBell(onNavy: true)` and `const NotificationsBell()`. So in
+      the shipped build:
+      ```
+      _trust                    == null
+      withdraw()                == a no-op on a null receiver
+      _pip()'s `_trust?.unconfirmed ?? false`  == permanently AppTheme.danger
+      ```
+      Every word of the last cycle was true and none of it reachable. The user
+      still gets the contradiction that cycle was written to remove: the centre
+      says «تعذّر التأكّد. تحقّق من قائمة الإشعارات…» — the app admitting in
+      words it cannot check the server — and one gesture later the header
+      repaints the same number in alarm red, because **following the
+      instruction is what triggers the repaint**.
+      *Why the gate was green, and this is the part worth keeping.* The two
+      tests added last cycle **construct the flag themselves** and pass it to
+      the bell. They prove the flag works. They cannot prove the app is
+      *connected* to it, and the gap is precisely between those two claims. A
+      widget test that supplies the very object under test is the standard way
+      a feature ships inert, and it is invisible to any assertion written
+      beside it.
+      *The fix is one object, owned by the scope.* `AppScope` now carries a
+      non-null `trust`, defaulting to a fresh `NotificationCountTrust`, and
+      **both** the bell and the centre fall back to it (`widget.trust ??
+      AppScope.of(context).trust`). The scope, not the header, because the two
+      screens sharing the number sit on **opposite sides of a navigation
+      push** — a flag owned by the header is destroyed by the pop, so the
+      centre could never withdraw anything the header would still see. That
+      also answers last cycle's question directly: the in-app route and any
+      future deep link now withdraw the same flag the bell watches, so no way
+      in leaves a red pip behind a sentence that says the app does not know.
+      *Null keeps one meaning.* It now means **"there is no scope"** — a
+      screen pumped alone in a widget test or a design shot, where no pip
+      exists to contradict. It no longer means "trust everything", which is
+      what silently disabled the feature.
+      *Red before green, with each half pinned on its own.* Reverting only the
+      bell's fallback → 1 failure. Reverting only the centre's → 1 failure
+      (the bypass-route case). Reverting **both** — the exact shipped state →
+      2 failures. The two halves cover each other on the bell route, so testing
+      only that route would have left the centre's fallback as unverifiable
+      dead code; the bypass case is what makes it load-bearing.
+      *Files:* `lib/src/core/app_scope.dart`,
+      `lib/src/widgets/notifications_bell.dart`,
+      `lib/src/screens/notifications/notifications_screen.dart`,
+      `test/header_trust_wiring_test.dart` (new). The new file's harness is
+      the production path by construction — the real bell with **no injected
+      `trust:`** — and the restore case reads the flag back **out of the scope**
+      instead of passing its own, so no future tick can re-open this by handing
+      the object in again.
+      *Commit:* `4abd142`.
+      *Next:* the flag is now shared and reachable, but nothing ever **clears**
+      it except a successful `/api/unread`. A contractor who reads his
+      notifications on the centre screen itself, with the **bell never
+      mounted** — the in-app route, a deep link — mutates a flag no pip is
+      watching, and it survives the pop. The pass should pin what the *message
+      tab's* own unread affordance (named as the other unread surface in the
+      previous handoff, and still uncovered) does when that flag is withdrawn
+      while it is on screen.

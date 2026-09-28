@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 
+import '../data/notification_count_trust.dart';
 import 'location/place_state.dart';
 import 'network/api_client.dart';
 import 'security/auth_state.dart';
@@ -16,14 +17,43 @@ class AppScope extends InheritedWidget {
     required this.api,
     required this.auth,
     PlaceState? place,
+    NotificationCountTrust? trust,
     required super.child,
-  }) : place = place ?? PlaceState.detached();
+  })  : place = place ?? PlaceState.detached(),
+        trust = trust ?? NotificationCountTrust();
 
   final ApiClient api;
   final AuthState auth;
 
   /// Where the phone is, or a store that answers "unknown" forever.
   final PlaceState place;
+
+  /// Whether the unread count the header pip paints is still a server answer.
+  ///
+  /// **This is the piece that was missing, and its absence is why a finished
+  /// feature was invisible on the phone.** The flag existed, the pip read it,
+  /// the centre withdrew it — and nothing ever *constructed* it, because it
+  /// was a constructor parameter that no caller passed. `trust: null` made
+  /// every withdrawal a no-op on a null receiver and left `_pip()`'s
+  /// `?? false` painting the alarm red for ever, on the exact path the flag
+  /// was written for.
+  ///
+  /// It lives here and not in the bell, because the two screens that share
+  /// the number sit on **opposite sides of a navigation push**. A flag owned
+  /// by the header is destroyed by the pop, so the centre could never
+  /// withdraw anything the header would still be able to see. It has to
+  /// outlive the route, and the scope already sits above the navigator for
+  /// exactly this kind of reason.
+  ///
+  /// **Never null, and that is the point.** The bell and the centre keep
+  /// taking a nullable flag so a screen pumped on its own — a widget test, a
+  /// design shot — still builds, but in the app both sides now read one object
+  /// without either having to pass it along. A test that wants to watch the
+  /// withdrawal reads it back out of this scope instead of constructing its
+  /// own, which is precisely the mistake that let the gap through: a test
+  /// holding its own flag proves that flag works, and says nothing about
+  /// whether the app is connected to it.
+  final NotificationCountTrust trust;
 
   static AppScope of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<AppScope>();
@@ -41,5 +71,8 @@ class AppScope extends InheritedWidget {
 
   @override
   bool updateShouldNotify(AppScope old) =>
-      api != old.api || auth != old.auth || place != old.place;
+      api != old.api ||
+      auth != old.auth ||
+      place != old.place ||
+      trust != old.trust;
 }

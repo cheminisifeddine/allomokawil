@@ -42,8 +42,17 @@ class NotificationsScreen extends StatefulWidget {
   /// are therefore a guess. The header's pip is the same number for the same
   /// unread set — so if it comes back painting that count in red, the app has
   /// withdrawn a sentence and re-issued the answer in the loudest colour it
-  /// owns, one tap later. Null in tests and in any standalone use, where there
-  /// is no pip to contradict.
+  /// owns, one tap later.
+  ///
+  /// Null means **fall back to the flag [AppScope] owns.** That is the answer
+  /// to the gap the bell left open: this screen is also reachable by routes
+  /// that do not go through the header — the in-app route, a future deep link
+  /// — and a caller that pushed it with no flag withdrew nothing, so the pip
+  /// behind it went on red. Reading the scope means *every* way in withdraws
+  /// the same object the header is watching, and no caller has to remember to
+  /// pass anything. Left null only where there is no scope at all: a widget
+  /// test or design shot pumping the screen on its own, with no header behind
+  /// it to contradict.
   final NotificationCountTrust? trust;
 
   /// The wall clock the relative timestamps are measured against.
@@ -65,6 +74,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   late final Repository _repo;
   bool _wired = false;
 
+  /// The flag this screen withdraws.
+  ///
+  /// Never null in the app, for the reason on [trust] — and holding it as a
+  /// field rather than re-reading `widget.trust` at the call site is what
+  /// makes `withdraw()` unconditional below.
+  late final NotificationCountTrust _trust;
+
   List<AppNotification> _items = const [];
   String? _error;
 
@@ -76,6 +92,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
     _wired = true;
     _repo = widget.repo ?? Repository(AppScope.of(context).api);
+    _trust = widget.trust ?? AppScope.of(context).trust;
     _load();
   }
 
@@ -193,7 +210,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       // verdict *is* the server's answer — it read the list and found the row
       // still unread — so the pip below is a fact and has no business being
       // muted. Only «I could not read the server at all» withdraws anything.
-      widget.trust?.withdraw();
+      _trust.withdraw();
     }
     if (mounted) {
       messenger.showSnackBar(
