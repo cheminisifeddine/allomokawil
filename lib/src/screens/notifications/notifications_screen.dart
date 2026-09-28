@@ -5,6 +5,7 @@ import '../../core/l10n/strings.dart';
 import '../../core/l10n/write_outcome.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/notification_copy.dart';
+import '../../data/notification_body_copy.dart';
 import '../../data/notification_count_trust.dart';
 import '../../data/notification_read_outcome.dart';
 import '../../data/repository.dart';
@@ -411,7 +412,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Widget _tile(AppNotification n) {
     final look = NotificationLook.of(n.type);
     final unread = n.isRead == 0;
-    final body = n.body ?? '';
+    // A bare `5/5` is the Worker's own encoding of a review, and it is the
+    // only Latin-numeral string in this screen. A body a person typed is
+    // left exactly as typed. See [notificationBodyCopy].
+    final body = notificationBodyCopy(n.body, type: n.type);
     final when = relativeTimeAr(n.createdAt, now: widget.clock?.call());
     return Material(
       color: AppTheme.surface,
@@ -461,17 +465,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         if (unread) const _NewTag(),
                       ],
                     ),
-                    if (body.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        body,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTheme.body.copyWith(
-                            fontSize: AppTheme.fsMeta,
-                            color: AppTheme.textSecondary),
-                      ),
-                    ],
+                    // Unconditional: [notificationBodyCopy] never returns an
+                    // empty string, so this line is as optional as the headline
+                    // above it. Gating it left the card a line short beside its
+                    // neighbours — the inbox row had the same hole until this
+                    // same day.
+                    const SizedBox(height: 4),
+                    Text(
+                      body,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.body.copyWith(
+                          fontSize: AppTheme.fsMeta,
+                          color: AppTheme.textSecondary),
+                    ),
                     if (when.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       Text(

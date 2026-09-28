@@ -220,6 +220,66 @@ void main() {
         NotificationLook.knownTypes.length);
   });
 
+  // ── Body ────────────────────────────────────────────────────────────────
+  //
+  // The `5/5` a review notification carries. Read live from
+  // `/api/notifications` on 28 Sep 2026: the Worker sends the score as a bare
+  // fraction and the card printed it. This is the widget-level proof, because
+  // the rule alone cannot prove the screen called the rule.
+  group('the line under the headline', () {
+    Future<void> show(WidgetTester tester, String type,
+        {String? body}) async {
+      final api = _FakeBackend([
+        {
+          'id': 5,
+          'type': type,
+          'title': 'عنوان',
+          'body': body,
+          'link': null,
+          'is_read': 0,
+          'created_at': _stamp(const Duration(hours: 1)),
+        }
+      ]).client;
+      await _pump(
+          tester, NotificationsScreen(clock: () => DateTime.now()), api);
+    }
+
+    testWidgets('a review row never shows the raw 5/5', (tester) async {
+      await show(tester, 'review_received', body: '5/5');
+      expect(_shown(tester), contains('حصلت على تقييم 5 نجوم'));
+      expect(_shown(tester), isNot(contains('5/5')));
+    });
+
+    testWidgets('words a person typed are shown exactly as typed',
+        (tester) async {
+      await show(tester, 'new_quote', body: 'جاهز للبدء');
+      expect(_shown(tester), contains('جاهز للبدء'));
+    });
+
+    testWidgets('a row with no body still has its line', (tester) async {
+      await show(tester, 'review_received');
+      expect(_shown(tester), contains('لا تفاصيل'));
+    });
+
+    testWidgets('a message with no body points at the inbox', (tester) async {
+      await show(tester, 'new_message');
+      final shown = _shown(tester);
+      expect(shown, isNot(contains('لا تفاصيل')));
+      expect(shown.any((s) => s.contains('الرسائل')), isTrue);
+    });
+
+    testWidgets('no Latin fraction reaches any row', (tester) async {
+      for (final b in <String?>[null, '', '  ', '5/5', '3/5', 'الجاهز غداً']) {
+        await show(tester, 'review_received', body: b);
+        expect(_shown(tester), isNot(contains('5/5')), reason: '"$b"');
+        expect(
+            _shown(tester).any((s) => RegExp(r'\d\s*/\s*\d').hasMatch(s)),
+            isFalse,
+            reason: 'a bare fraction was drawn for "$b"');
+      }
+    });
+  });
+
   // ── Time ────────────────────────────────────────────────────────────────
 
   test('relative times read naturally in Arabic', () {
