@@ -141,6 +141,38 @@ class S {
   static const fieldUrgency = 'الأولوية';
   static const fieldDescription = 'الوصف';
   static const fieldImages = 'الصور';
+
+  // ---- Saving the contractor's own profile ------------------------------
+  //
+  // Three sentences for one write, and the reason they are not the write-
+  // outcome trio is the point: those answer a write whose outcome was
+  // *unknown*, and this one answered 200. The row on screen says otherwise.
+  //
+  // `profileSavedFieldHeld` is the honest shape — the server took the request
+  // and kept a different value. It must not read as failure either: the
+  // contractor is told exactly which field is not the one he saved, which is
+  // the only thing that sends him back to the right box, and it ends on an
+  // action («افتح ملفك») rather than on an apology.
+  /// Every field the profile save touches came back as the server holds it.
+  static const profileSavedOk = 'حُفظت ملفك بنجاح';
+  /// The server took the request and did not keep what the form sent.
+  /// Deliberately names the field and not «لم يُحفظ» — an unnamed failure on a
+  /// form this long sends the user hunting through nine boxes.
+  static const profileSavedFieldHeld =
+      'لم يحفظ الحقل: %s. افتح ملفك للتأكد وراجعه ثم ذهب';
+  /// The verification read itself failed. NOT a claim that the save failed: the
+  /// PATCH answered 200, so this only says the app could not check.
+  static const profileSavedUnverified =
+      'حُفظ ملفك، لكننا لم نتكّن التأكد تمامًا — افتح ملفك للتأكد وراجعه';
+  /// The field names [profileSavedFieldHeld] can interpolate, in the app's own
+  /// Arabic and never as a raw key.
+  static const fieldName = 'الاسم الظاهر';
+  static const fieldSpecialties = 'التخصصات';
+  static const fieldBio = 'النبذة';
+  static const fieldExperience = 'سنوات الخبرة';
+  static const fieldPriceRange = 'أسعارك';
+  static const fieldRadius = 'نطاق الخدمة';
+  static const fieldAvailability = 'توافر العمل';
   /// The device refused to store a message the user just typed, so it is on
   /// the screen and nowhere else. This is the one chat sentence that must never
   /// claim the opposite: «الرسالة محفوظة في الهاتف» is what a failed send says,

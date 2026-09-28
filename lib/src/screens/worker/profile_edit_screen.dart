@@ -10,6 +10,8 @@ import '../../widgets/number_field.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
 import '../../core/l10n/error_copy.dart';
+import '../../core/l10n/write_outcome.dart';
+import '../../data/profile_write_outcome.dart';
 
 /// Edit the contractor's own profile.
 ///
@@ -134,6 +136,22 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       return;
     }
 
+    // The values this form is about to send, captured **before** the PATCH
+    // leaves. It is the only handle on a row whose answer is in flight, and it
+    // is the other half of the defect: the PATCH answers 200 with whatever the
+    // server decided to keep, so the answer cannot tell us whether *our* value
+    // is the one in it.
+    final sent = ProfileSnapshot.form(
+      fullName: name,
+      bio: _bio.text.trim(),
+      specialties: _specialties,
+      experienceYears: years ?? 0,
+      priceRangeMin: min,
+      priceRangeMax: max,
+      serviceRadiusKm: _radius.round(),
+      isAvailable: _available,
+    );
+
     setState(() {
       _saving = true;
       _error = null;
@@ -150,10 +168,37 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         isAvailable: _available,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم حفظ ملفك بنجاح')),
+      // A 200 is not a confirmation that the form's own values were kept, so
+      // the answer is checked against the server before the screen claims
+      // anything. This used to be `showSnackBar(«تم حفظ
+      // ملفك بنجاح»); pop(updated)`, which
+      // asserted a save the client had never verified — and the one case that
+      // mattered was a **cleared** field, which the old body builder dropped
+      // entirely. See `profile_write_outcome.dart`.
+      final result = await resolveProfileWriteOutcome(
+        sent: sent,
+        fetch: _repo.myProfile,
       );
-      Navigator.of(context).pop(updated);
+      if (!mounted) return;
+      // The fresh row when there is one, the echoed one otherwise: popping with
+      // the server's own copy is what stops the caller from drawing a profile
+      // that the database does not hold. `unknown` still pops — the PATCH did
+      // answer, so this screen is done — it just refuses to claim it verified.
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(profileWriteOutcomeCopy(result))));
+      // Only a **verified** save closes the form. The other two keep the
+      // contractor on the page with his own values still in the boxes, which is
+      // the only way either sentence can be read: a toast on a route that has
+      // already been popped takes its message with it, so the user would be
+      // told something he never got to see. Popping on `unknown` in particular
+      // would claim more than the app knows — the PATCH answered, but nothing
+      // has confirmed the server kept *these* values.
+      if (result.outcome != WriteOutcome.landed) {
+        setState(() => _saving = false);
+        return;
+      }
+      Navigator.of(context).pop(result.fresh ?? updated);
     } catch (e) {
       if (!mounted) return;
       setState(() {

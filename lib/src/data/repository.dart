@@ -105,29 +105,48 @@ class Repository {
         await _api.get('/api/mobile/my/profile'), WorkerProfile.fromJson);
   }
 
-  /// Save the contractor's own profile. Only the fields that are supplied are
-  /// sent, so a partially filled form can never blank out the rest.
+  /// Save the contractor's own profile.
+  ///
+  /// Every field the profile form owns is sent **unconditionally**, which is the
+  /// whole point of this method and was quietly its opposite. It used to add a
+  /// key only when the value was non-null, so an emptied field produced a body
+  /// with no key in it — the PATCH returned 200, the screen said «تم حفظ ملفك
+  /// بنجاح», and the server kept the old value. A contractor who cleared the
+  /// price range to quote per project kept printing 20000-60000 دج to every
+  /// customer, and nothing anywhere reported a failure, because nothing had
+  /// failed. See `profile_write_outcome.dart`.
+  ///
+  /// The nullable parameters stay nullable because *these* fields are genuinely
+  /// partial — `wilaya` and `commune` are only ever sent by callers that
+  /// actually have a place to put them, and a caller with nothing to say about
+  /// the wilaya must not blank the one the server holds.
   Future<WorkerProfile> updateMyProfile({
-    String? fullName,
-    String? bio,
-    List<String>? specialties,
-    int? experienceYears,
-    int? priceRangeMin,
-    int? priceRangeMax,
-    int? serviceRadiusKm,
-    bool? isAvailable,
+    required String fullName,
+    required String bio,
+    required List<String> specialties,
+    required int experienceYears,
+    required int? priceRangeMin,
+    required int? priceRangeMax,
+    required int serviceRadiusKm,
+    required bool isAvailable,
     String? wilaya,
     String? commune,
   }) async {
-    final body = <String, dynamic>{};
-    if (fullName != null) body['full_name'] = fullName;
-    if (bio != null) body['bio'] = bio;
-    if (specialties != null) body['specialties'] = specialties;
-    if (experienceYears != null) body['experience_years'] = experienceYears;
-    if (priceRangeMin != null) body['price_range_min'] = priceRangeMin;
-    if (priceRangeMax != null) body['price_range_max'] = priceRangeMax;
-    if (serviceRadiusKm != null) body['service_radius_km'] = serviceRadiusKm;
-    if (isAvailable != null) body['is_available'] = isAvailable;
+    final body = <String, dynamic>{
+      // The five form fields are sent whatever they hold, null included, because
+      // an empty box is a *decision* by the user and not an absent answer. The
+      // server's own clear-the-column rule is the one thing this cannot verify
+      // from the phone, so the screen re-reads and compares rather than
+      // asserting; see `ProfileSnapshot`.
+      'full_name': fullName,
+      'bio': bio,
+      'specialties': specialties,
+      'experience_years': experienceYears,
+      'price_range_min': priceRangeMin,
+      'price_range_max': priceRangeMax,
+      'service_radius_km': serviceRadiusKm,
+      'is_available': isAvailable,
+    };
     if (wilaya != null) body['wilaya'] = wilaya;
     if (commune != null) body['commune'] = commune;
     return _row(await _api.patch('/api/mobile/my/profile', body: body),
