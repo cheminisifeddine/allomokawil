@@ -7188,10 +7188,15 @@ running app for defects like these rather than inventing a feature.
       the fix the same run reported the real defect: **`live == 3`** — three
       controllers created, **zero** disposed. Fixed, the same test is green.
       *Gate.* `flutter analyze` -> **No issues found!**
-      `flutter test` -> full suite, count in the commit below. The one known
-      failure is the pre-existing `subscription_clock_test` date flake
-      (hardcodes `2026-09-30`, reads `DAYS=2`); it fails identically with
-      `lib/` stashed, so it is not this change's doing.
+      `flutter test` -> **1303 passed / 3 skipped / 1 failed**, up from the
+      1302 floor (+1, the new case). The one failure is the pre-existing
+      `subscription_clock_test` date flake «a plan ending tomorrow counts 1,
+      never 0 and never -3» — it hardcodes `2026-09-30` and reads `DAYS=2`.
+      Re-ran that file with `lib/` stashed: fails identically on a pristine
+      tree, so it is not this change's doing.
+      *Commit* `ea96271`; pushed to remote `a33363e`, all three blobs verified
+      `MATCH` against the real remote tree (including the new test file, which
+      `git add`ed before the push so it was not left behind).
       *Not visual.* The diff adds two classes and moves the same widgets
       between them — identical layout, identical strings. No screenshot, and
       none is claimed.
