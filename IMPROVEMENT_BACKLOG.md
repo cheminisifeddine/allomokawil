@@ -7123,3 +7123,84 @@ running app for defects like these rather than inventing a feature.
       Killed that PID only. **A red test run leaks its engine**; a green one does
       not. A later tick that runs red tests should expect the gate to go LEAKED
       on the next run and should prove the process orphaned before killing it.
+
+- [x] **The bid sheet's three fields were the only controllers in the app that
+      nothing ever disposed — 19 of 19 others are cleaned up, these 3 were
+      built as locals and left to the collector, on the screen a contractor
+      opens most.**
+      Found by auditing a defect class the loop had not swept yet. The
+      `setState`-after-`await` family has been swept three times now (see the
+      mounted-guard items above), and this tick's brace-aware pass over every
+      `await`→`setState`/`context.of` in `lib/` found **9 candidates, all 9
+      false positives** — already guarded, or a `context.of` on the `await`
+      line itself, or a static method. So the class is clean, and the sweep is
+      recorded here rather than re-run next tick. The detector itself is
+      written down too, because a line-window scan is what made the first two
+      sweeps look clean when they were not: it crosses function boundaries and
+      invents sites. Brace-aware, "any `mounted` in the tail", not a 14-line
+      window.
+      Then the **resource-lifetime** class, which is a different failure: not a
+      red frame, a silent one. `TextEditingController` holds a native input
+      connection and a listener list. A controller built as a `State` field is
+      disposed by the framework; one built inside a method has **no owner**, so
+      nothing disposes it and no linter can see it. Sweeping every
+      construction site in `lib/` returned exactly three that are local:
+      `amount`, `message` and `days` in
+      `project_detail_screen.dart`'s `_showBidSheet`. Every one of the other 19
+      is a field with a matching `dispose()`.
+      *Why it is worse than a leak of 3 small objects.* `_showBidSheet` has
+      **five** exits — the auth wall, the barrier tap, a below-minimum amount,
+      a bad duration, and the 402 upgrade branch — so there was no single
+      correct place to bolt a `dispose` on. And the screen is the app's
+      highest-traffic write surface: a contractor pricing a job taps «قدّم عرضك»,
+      reads the number, backs out, and does it again for the next estimate.
+      Each pass stranded three input connections. The same three controllers
+      are read *after* the sheet closes (`amount.text`), so the old code also
+      held live controllers across a route teardown — the ownership bug and the
+      leak are the same bug.
+      *Shipped:* the form moved into `_BidSheet`, a `StatefulWidget` that owns
+      the three controllers and disposes them in one place the framework runs
+      on **every** route exit — barrier, back gesture, send, validation failure,
+      even a throw. Ownership, not a cleanup call. The screen now receives a
+      `_BidDraft` of **three plain strings** popped from the sheet, so it never
+      holds an object whose lifetime it does not own, and it reads no
+      controller after teardown. Validation is untouched: the same
+      `DzNumber.tryParse` folded parse, the same `>= 1000` floor, the same
+      `estimatedDays` optional, the same Arabic copy. Only the *owner* of the
+      controllers changed — no user-visible behaviour.
+      *The measurement is the framework's, not a hand-rolled counter.*
+      `ChangeNotifier.dispose()` dispatches an `ObjectDisposed` event through
+      `FlutterMemoryAllocations`, and an undisposed controller dispatches only
+      `ObjectCreated` — so created-minus-disposed **is** the number of live
+      controllers. Verified empirically first, with a throwaway probe printing
+      the live event stream: `events=[ObjectCreated, ObjectDisposed,
+      ObjectCreated]` for one disposed and one leaked controller. The test
+      then listens to those events, so a controller disposed by *anything* —
+      including a fix this test has never heard of — counts as disposed. It
+      measures the leak, not the location of a `dispose` call.
+      *Red before green, and the red run caught a harness bug of mine first.*
+      First run: `Expected: >= 3, Actual: 0` — zero controllers seen. Not the
+      app: my `measure` helper unregistered its listener in a `finally` that ran
+      as soon as the body returned its `Future`, so the sheet was built and
+      closed with nothing listening. The `created >= 3` assertion is what caught
+      it; without it the test would have passed by measuring **nothing**, which
+      is the exact vacuous-test failure this loop hit on 26 and 27 Sep. After
+      the fix the same run reported the real defect: **`live == 3`** — three
+      controllers created, **zero** disposed. Fixed, the same test is green.
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> full suite, count in the commit below. The one known
+      failure is the pre-existing `subscription_clock_test` date flake
+      (hardcodes `2026-09-30`, reads `DAYS=2`); it fails identically with
+      `lib/` stashed, so it is not this change's doing.
+      *Not visual.* The diff adds two classes and moves the same widgets
+      between them — identical layout, identical strings. No screenshot, and
+      none is claimed.
+      *A second harness fault, recorded so it is not repeated.* My first patch
+      inserted `_BidDraft`/`_BidSheet` **inside** `_ProjectDetailScreenState`,
+      because the anchor comment I matched was still inside the class body;
+      `flutter analyze` returned 26 `class_in_class` errors. `git checkout --
+      lib/` reverted it, and the classes were re-anchored on the first
+      top-level declaration after the state class. The lesson for the loop
+      generally: in this file the useful anchor is the *next top-level class*,
+      not a doc comment, because a doc comment does not tell you whether the
+      brace above it has closed.

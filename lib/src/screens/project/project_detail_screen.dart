@@ -550,60 +550,34 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
   }
 
   /// Quote form. Same fields, same validation (>= 1000 DZD), same call.
+  ///
+  /// The three fields are built and owned by [_BidSheet], which disposes their
+  /// controllers when the route goes away. They used to be built *here*, as
+  /// locals of this method, and nothing disposed them: a local is not cleaned up
+  /// by the framework, so every tap of «قدّم عرضك» stranded three
+  /// `TextEditingController`s — each holding a native input connection and a
+  /// listener list — for the life of the process. This function has **five**
+  /// exits (cancel, the auth wall, a below-minimum amount, a bad duration, and
+  /// the 402 upgrade branch), so a single `dispose` bolted on at the end would
+  /// have missed every one of them but the last. Ownership is the fix, not a
+  /// cleanup call: a `StatefulWidget` holding the controllers disposes them in
+  /// one place the framework runs on *every* route exit, however the sheet
+  /// closed.
   Future<void> _showBidSheet(Project project) async {
     // A guest can read the project; the form that cannot be submitted is
     // replaced by the form that turns him into a contractor.
     if (_requireAccount(UserRole.worker)) return;
-    final amount = TextEditingController();
-    final message = TextEditingController();
-    final days = TextEditingController();
-    final submitted = await showModalBottomSheet<bool>(
+    final submitted = await showModalBottomSheet<_BidDraft>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => Padding(
-        padding: EdgeInsets.only(
-            left: 20,
-            right: 20,
-            top: 16,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('قدّم عرضك', style: AppTheme.h1),
-            const SizedBox(height: 14),
-            NumberField(
-              controller: amount,
-              labelText: 'المبلغ (دج)',
-              suffixText: 'دج',
-            ),
-            const SizedBox(height: 12),
-            NumberField(
-              controller: days,
-              labelText: 'مدة الإنجاز (أيام)',
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: message,
-              maxLines: 3,
-              decoration: const InputDecoration(labelText: 'رسالتك (اختياري)'),
-            ),
-            const SizedBox(height: 18),
-            PrimaryButton(
-              label: 'إرسال العرض',
-              icon: Icons.send_rounded,
-              onPressed: () => Navigator.pop(context, true),
-            ),
-          ],
-        ),
-      ),
+      builder: (_) => const _BidSheet(),
     );
-    if (submitted == true) {
+    if (submitted != null) {
       if (!mounted) return;
       // Folded parse: a contractor who typed `٢٥٠٠٠` on an Arabic keypad, or
       // pasted `25.000 دج` out of a note, means 25000 — not "no amount".
-      final amt = DzNumber.tryParse(amount.text, min: 1000);
-      final rawDays = days.text.trim();
+      final amt = DzNumber.tryParse(submitted.amount, min: 1000);
+      final rawDays = submitted.days.trim();
       final dayCount = DzNumber.tryParse(rawDays, min: 1);
       if (amt == null) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -616,7 +590,9 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
           await widget.repo.submitQuote(
             projectId: project.id,
             amount: amt,
-            message: message.text.trim().isEmpty ? null : message.text.trim(),
+            message: submitted.message.trim().isEmpty
+                ? null
+                : submitted.message.trim(),
             estimatedDays: dayCount,
           );
           if (mounted) {
@@ -697,6 +673,107 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
       MaterialPageRoute(builder: (_) => const SubscriptionScreen()),
     );
     _reload();
+  }
+}
+
+/// What the contractor typed in the bid sheet, handed back to the screen.
+///
+/// Plain strings, read at the moment «إرسال العرض» is pressed. They are
+/// deliberately *not* the controllers: returning the live objects would put
+/// the screen back in the very position this class exists to end — holding a
+/// reference to something whose lifetime it does not own, and reading it after
+/// the route that built it has already been torn down.
+class _BidDraft {
+  const _BidDraft({
+    required this.amount,
+    required this.days,
+    required this.message,
+  });
+
+  final String amount;
+  final String days;
+  final String message;
+}
+
+/// The bid form itself, and the owner of its three controllers.
+///
+/// A `StatefulWidget` rather than the locals the screen used to build, because
+/// ownership *is* the fix. A controller created inside a method has no owner:
+/// nothing disposes it, no linter can see it, and the sheet closes five
+/// different ways. Held as fields here, they are disposed in one place the
+/// framework runs on every exit from the route — the barrier tap, the back
+/// gesture, the send button, a validation failure, even a throw — so there is
+/// no path that leaks and no second exit to remember to add a `dispose` to.
+class _BidSheet extends StatefulWidget {
+  const _BidSheet();
+
+  @override
+  State<_BidSheet> createState() => _BidSheetState();
+}
+
+class _BidSheetState extends State<_BidSheet> {
+  final _amount = TextEditingController();
+  final _days = TextEditingController();
+  final _message = TextEditingController();
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    _days.dispose();
+    _message.dispose();
+    super.dispose();
+  }
+
+  /// Hands back the three strings, not the controllers — see [_BidDraft].
+  void _send() {
+    Navigator.of(context).pop(
+      _BidDraft(
+        amount: _amount.text,
+        days: _days.text,
+        message: _message.text,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('قدّم عرضك', style: AppTheme.h1),
+          const SizedBox(height: 14),
+          NumberField(
+            controller: _amount,
+            labelText: 'المبلغ (دج)',
+            suffixText: 'دج',
+          ),
+          const SizedBox(height: 12),
+          NumberField(
+            controller: _days,
+            labelText: 'مدة الإنجاز (أيام)',
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _message,
+            maxLines: 3,
+            decoration: const InputDecoration(labelText: 'رسالتك (اختياري)'),
+          ),
+          const SizedBox(height: 18),
+          PrimaryButton(
+            label: 'إرسال العرض',
+            icon: Icons.send_rounded,
+            onPressed: _send,
+          ),
+        ],
+      ),
+    );
   }
 }
 
