@@ -96,6 +96,51 @@ class S {
   static const writeUnconfirmedLanded = 'وجدناه في القائمة — الطلب وصل بنجاح';
   static const writeUnconfirmedMissing =
       'لم نجده في القائمة — الطلب لم يصل، أعد المحاولة';
+
+  /// The answer for an **edit** that could not be confirmed, when the re-read
+  /// found every value the form was sending. Deliberately a different sentence
+  /// from [writeUnconfirmedLanded] and not just a reuse of it: that one says
+  /// «وجدناه في القائمة», which is a claim about *finding a row* — true on the
+  /// create path, meaningless here, where the row was in the list the whole
+  /// time and the question is whether it now carries these values.
+  static const editUnconfirmedLanded = 'التعديلات محفوظة — التأكيد وصل بنجاح';
+  /// The edit did not land, and [field] is what the project still carries.
+  ///
+  /// Naming the field is the whole point. «لم يُحفظ التعديل» sends a client who
+  /// fixed a budget back into the form to compare every field by eye; «الميزانية
+  /// لم تتغيّر» puts his finger on the box he has to look at. The noun is a
+  /// field, the instruction is the same «أعد المحاولة» every other missing
+  /// outcome carries, because the retry is real: nothing was stored, so a second
+  /// save cannot duplicate anything.
+  static const editUnconfirmedMissing = 'ما زال المشروع يحمل: %s — أعد المحاولة';
+  /// The re-read failed too. Same refusal as [writeUnconfirmedUnknown] and for
+  /// the same reason: nothing true can be said about a write the app cannot
+  /// read back, and «لم يُحفظ» would be a guess in the one direction that
+  /// costs the user his edit.
+  /// An edit whose **fields** all reached the server while a photo did not
+  /// answer, and %s is the counted photo word.
+  ///
+  /// Its own sentence rather than a qualifier on [editUnconfirmedLanded],
+  /// because «التعديلات محفوظة» is a claim about *everything* the form sent.
+  /// Attaching a caveat to a success sentence is how the caveat gets read as
+  /// part of it, and the photo is the one thing here that genuinely may not
+  /// exist on the server. The re-read can prove the row carries the new values
+  /// and can say nothing at all about the blob, so the sentence says the second
+  /// thing and stays quiet about the first.
+  static const editUnconfirmedPhotoUnchecked =
+      'حُفظت التعديلات، أما %s فلم يصلنا جوابها — تحقّق من صور المشروع';
+  static const editUnconfirmedUnknown =
+      'تعذّر الاتصال للتحقّق من التعديل — تحقّق من مشروعك قبل إعادة المحاولة';
+  /// The field names [editUnconfirmedMissing] can interpolate, in the app's own
+  /// Arabic and never as a raw enum value.
+  static const fieldTitle = 'العنوان';
+  static const fieldCategory = 'التخصص';
+  static const fieldWilaya = 'الولاية';
+  static const fieldCommune = 'البلدية';
+  static const fieldBudget = 'الميزانية';
+  static const fieldUrgency = 'الأولوية';
+  static const fieldDescription = 'الوصف';
+  static const fieldImages = 'الصور';
   /// The device refused to store a message the user just typed, so it is on
   /// the screen and nowhere else. This is the one chat sentence that must never
   /// claim the opposite: «الرسالة محفوظة في الهاتف» is what a failed send says,

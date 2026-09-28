@@ -13,6 +13,7 @@ import '../../data/communes.dart';
 import '../../data/commune_count_copy.dart';
 import '../../data/project_photo_count_copy.dart';
 import '../../data/project_photo_limit.dart';
+import '../../data/project_edit_outcome.dart';
 import '../../core/location/locator.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
@@ -46,7 +47,19 @@ class ProjectNewScreen extends StatefulWidget {
   /// only offers the button when it holds.
   final Project? initial;
 
-  const ProjectNewScreen({super.key, this.initial});
+  /// The repository to write through, or null for the one built from
+  /// [AppScope].
+  ///
+  /// Only the photo **upload** needs a seam, and for the same reason
+  /// `MyPortfolioScreen.repo` exists: `uploadPhoto` is a `MultipartRequest`,
+  /// which builds its own `HttpClient` instead of the one handed to [ApiClient],
+  /// so a `MockClient` can never see an upload. The PATCH and the re-read both
+  /// travel the real transport, so what the tests exercise is the real network
+  /// layer. Null in the app, so the production call site stays a bare
+  /// `const ProjectNewScreen()`.
+  final Repository? repo;
+
+  const ProjectNewScreen({super.key, this.initial, this.repo});
 
   @override
   State<ProjectNewScreen> createState() => _ProjectNewScreenState();
@@ -97,7 +110,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
     // AppScope is an InheritedWidget, so it cannot be read in initState.
     if (_scopeReady) return;
     _scopeReady = true;
-    _repo = Repository(AppScope.of(context).api);
+    _repo = widget.repo ?? Repository(AppScope.of(context).api);
     final existing = widget.initial;
     if (existing != null) {
       _title.text = existing.title;
@@ -243,6 +256,54 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
     // The one handle we will have on a row the server may already have created
     // while its answer was in flight, so it is read before the write, not after.
     final publishedTitle = _title.text.trim();
+    // The same handle for the *edit* half, and the reason it is built here and
+    // not after the PATCH: this is the only description of what the form was
+    // sending while the answer is in flight, and the user can still be editing
+    // it. See [ProjectEditSnapshot] for why the create path's title recheck
+    // cannot answer for an edit.
+    final editing = widget.initial;
+    // Declared out here and filled in below, so the `catch` can read it:
+    // a write that never answered is only answerable with the values it
+    // was sending, and those are decided inside the `try`.
+    ProjectEditSnapshot? sent;
+    // The one write on this screen that can be **unconfirmed** is the photo
+    // upload, and it runs *first* — before the PATCH is even built.
+    // `ApiClient.patch` is declared `idempotent: true` (a PATCH writes a fixed
+    // set of fields to one row, so a re-send lands the same values and cannot
+    // create a second one), so `_withFailover` only ever throws
+    // `S.errOffline` for it. A bare `POST /api/upload` is not idempotent, and
+    // an upload that left the phone and was never answered is exactly the
+    // ambiguous case.
+    //
+    // Which means the snapshot has to exist *before* that loop. A `catch` that
+    // reads a variable assigned inside the loop's happy path learns nothing
+    // when the loop throws — and the form's own values are all still live
+    // there, so they can be read for the ask.
+    //
+    // Deliberately the project's **existing** photos, not the pending ones. The
+    // picture that never answered is precisely the one the server may or may
+    // not hold, so it is left out of the comparison and reported by
+    // [ProjectEditResult.pendingPhotos] instead of being asserted either way.
+    if (editing != null) {
+      sent = ProjectEditSnapshot.form(
+        title: _title.text.trim(),
+        categories: _categories.toSet(),
+        wilaya: _wilaya,
+        commune: _commune.text.trim().isEmpty ? null : _commune.text.trim(),
+        budgetMin: _budgetMinValue,
+        budgetMax: _budgetMaxValue,
+        urgency: _urgency,
+        description: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
+        images: List<String>.of(_keptImages),
+        // How many of the form's photos are still *unanswered* uploads. Read
+        // from `_images` — the picked-but-not-yet-uploaded files — and not from
+        // the kept ones, which are already on the server and answer for
+        // themselves. Without this the write reports every part of the edit as
+        // saved while the one picture it cannot vouch for is the reason the
+        // user is being told anything at all.
+        pendingPhotos: _images.length,
+      );
+    }
     try {
       final urls = <String>[];
       for (final f in _images) {
@@ -250,8 +311,24 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
         urls.add(url);
       }
       final allImages = <String>[..._keptImages, ...urls];
-      final editing = widget.initial;
-      if (editing != null) {
+      // Re-taken now that the photos have URLs. The one built before the upload
+      // loop carried the rows that were *already* on the project, and those are
+      // a subset of these; the PATCH sends the whole list, so the comparison
+      // that decides whether this write landed is against the whole list.
+      sent = sent == null
+          ? null
+          : ProjectEditSnapshot.form(
+              title: sent.title,
+              categories: sent.categories.toSet(),
+              wilaya: _wilaya,
+              commune: sent.commune,
+              budgetMin: _budgetMinValue,
+              budgetMax: _budgetMaxValue,
+              urgency: _urgency,
+              description: sent.description,
+              images: allImages,
+            );
+      if (editing != null && sent != null) {
         await _repo.updateProject(
           editing.id,
           title: _title.text.trim(),
@@ -291,10 +368,33 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
       }
     } catch (e) {
       if (isWriteUnconfirmed(e)) {
-        // The app refused to guess whether «انشر مشروعك» landed, and told the
-        // user to check the list. So check it — right now, from this screen —
-        // and answer the question with what the server actually holds.
+        // The app refused to guess, and told the user to check the list. So
+        // check it — right now, from this screen — and answer with what the
+        // server actually holds.
         _toast(S.writeUnconfirmedRecheck);
+        if (editing != null && sent != null) {
+          // The edit half, and it must not reuse the create path's question.
+          // `myProjects().any(title)` is *true before the PATCH is sent* — the
+          // row is already in the user's own list, under its old title — so
+          // asking it here would report «arrived» for every stalled edit. The
+          // edit asks the only question that has an answer: does the server's
+          // copy of this row now carry the values this form was sending?
+          final result = await resolveProjectEditOutcome(
+            sent: sent,
+            fetch: () => _repo.getProject(editing.id),
+          );
+          if (!mounted) return;
+          // `hideCurrentSnackBar` first, and load-bearing rather than
+          // cosmetic: two `showSnackBar` calls in a row **queue**, so the answer
+          // to «did my edit save?» would sit behind «نتحقّق الآن من القائمة…» for
+          // that sentence's full duration, by which time the user has looked
+          // away. The recheck banner is a progress note; this is the result.
+          // The portfolio screen does the same thing for the same reason.
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(SnackBar(content: Text(editOutcomeCopy(result))));
+          return;
+        }
         final outcome = await resolveWriteOutcome(
           recheck: () async {
             final rows = await _repo.myProjects();
