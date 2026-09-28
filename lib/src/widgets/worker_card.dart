@@ -4,6 +4,7 @@ import '../core/format/money.dart';
 import '../core/theme/app_theme.dart';
 import '../data/taxonomy.dart';
 import '../data/review_count.dart';
+import '../core/text/monogram.dart';
 import '../data/worker_stats_copy.dart';
 import '../models/enums.dart';
 import '../models/worker.dart';
@@ -247,9 +248,7 @@ class _Avatar extends StatelessWidget {
   }
 
   Widget _initials() {
-    final name = worker.fullName.trim();
-    final initial =
-        name.isEmpty ? '؟' : String.fromCharCode(name.runes.first);
+    final initial = Monogram.of(worker.fullName);
     return Container(
       width: size,
       height: size,

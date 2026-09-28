@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/text/monogram.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/motion.dart';
 import '../data/review_count.dart';
@@ -533,10 +534,7 @@ class InitialAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final trimmed = name.trim();
-    final initial = trimmed.isEmpty
-        ? '؟'
-        : String.fromCharCode(trimmed.runes.first);
+    final initial = Monogram.of(name);
     return Container(
       width: size,
       height: size,
