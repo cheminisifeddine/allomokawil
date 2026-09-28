@@ -4,6 +4,7 @@ import '../../core/app_scope.dart';
 import '../../core/auth_gate.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/chat_outbox.dart';
+import '../../data/chat_preview_copy.dart';
 import '../../data/notification_copy.dart';
 import '../../data/repository.dart';
 import '../../data/unread_message_trust.dart';
@@ -279,6 +280,12 @@ class _ConversationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasUnread = conv.unreadCount > 0;
+    // The preview is never optional. A photo is stored with no `content` at
+    // all — `sendImage` sends no such field — so the newest thread on the
+    // platform is the one whose preview line used to vanish entirely. See
+    // [chatPreviewCopy].
+    final preview = chatPreviewCopy(conv.lastMessageContent) ??
+        chatFallbackPreview(hasMessage: conv.lastMessageAt != null);
     return AppCard(
       onTap: onTap,
       padding: AppTheme.cardPad,
@@ -297,10 +304,10 @@ class _ConversationTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: AppTheme.h2.copyWith(fontSize: AppTheme.fsBody),
                 ),
-                if (conv.lastMessageContent != null) ...[
+                if (preview != null) ...[
                   const SizedBox(height: 3),
                   Text(
-                    conv.lastMessageContent!,
+                    preview,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTheme.bodySoft.copyWith(fontSize: AppTheme.fsMeta),
