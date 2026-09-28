@@ -6428,7 +6428,8 @@ running app for defects like these rather than inventing a feature.
       `lib/src/screens/worker/worker_home_screen.dart`,
       `lib/src/screens/customer/customer_home_screen.dart`,
       `test/message_tab_unread_badge_test.dart` (new).
-      *Commit:* `PENDING`.
+      *Commit:* `71bc23a` local / `94c072f` remote, **6/6 blobs MATCH**
+      against the remote tree.
       *Next:* the badge is drawn from the list the inbox itself draws, so the
       two agree — but **nothing re-reads that list when a message arrives while
       the app is open.** A message that lands on tab 0 leaves the badge stale
