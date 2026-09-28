@@ -295,6 +295,63 @@ class S {
   static const dossierUnconfirmedMissing =
       'لم تصل مستنداتك — ما زالت كما هي، أعد الإرسال';
   static const chatUnconfirmed = 'لم يتأكّد وصولها — النتيجة غير معروفة';
+
+  // ---- Opening a thread ---------------------------------------------------
+  //
+  // Its own three sentences, and the reason is the same one that gave the
+  // dossier and the three owner commits their own: the user never asks «did my
+  // request arrive», he asks «can I talk to this person».
+  //
+  // **None of the three says «أعد المحاولة»**, and that is the part that is
+  // load-bearing. The screen that prints them has one button, and it re-runs
+  // the `POST /api/mobile/conversations` that produced the failure. The route
+  // is a get-or-create for a (customer, worker, project) triple, so a second
+  // POST is *probably* harmless — but «probably» is doing real work in that
+  // sentence, and it is a sentence this app would be printing to a user. The
+  // inbox is a GET, it is always reachable, and it is where a thread that
+  // really exists is listed. So every answer here points at the inbox instead,
+  // and the app never tells anyone to press the button that may open a second
+  // conversation.
+  static const threadUnconfirmedLanded =
+      'المحادثة مفتوحة — تجدها في قائمة الرسائل';
+  /// The inbox answered and holds no such conversation, so the write did not
+  /// land. Carries the inbox as the place to look *and* the fact that the
+  /// thread is not there, so a user who opens the inbox and sees nothing
+  /// knows the answer rather than suspecting a second bug.
+  static const threadUnconfirmedMissing =
+      'تعذّر فتح المحادثة — تحقّق من قائمة الرسائل';
+  /// The re-read could not run, so the app still does not know whether a
+  /// conversation exists.
+  ///
+  /// **Its own sentence, and this is the one the test caught.** It was first
+  /// written as an alias of [writeUnconfirmedUnknown], on the reasoning that
+  /// the re-read that failed *was* the inbox, so the shared line names the
+  /// right list. That reasoning is right about the list and wrong about
+  /// everything else: the shared line ends in «قبل إعادة المحاولة», and on
+  /// this page «re-try» is the `POST`. So the one sentence that fires when the
+  /// phone cannot read the server was also the one sentence instructing the
+  /// user to re-issue the write — and it fired in precisely the case where the
+  /// app has just proved the server is unreachable. The same screen, the same
+  /// outcome, three different words for the list the user has to open.
+  static const threadUnconfirmedUnknown =
+      'تعذّر الاتصال للتحقّق — تحقّق من قائمة الرسائل';
+
+  /// The two headings above [threadUnconfirmedLanded] / [threadUnconfirmedMissing].
+  ///
+  /// Split because the two states are not the same kind of thing to a user: one
+  /// says the app sorted it out and the thread is waiting for him, the other
+  /// says the app cannot tell and the inbox is the only place that can. One
+  /// heading with two bodies would make a *failure* and a *success* sound the
+  /// same at the top of the page, where the eye lands first.
+  static const threadUnconfirmedTitleLanded = 'المحادثة جاهزة';
+  /// Not a scare word. The app is not certain the thread failed — it is certain
+  /// it cannot tell, and «غير واضح» is the accurate state. «تعذّر» would be a
+  /// verdict on a write that may have landed, which is the claim this whole
+  /// family of files exists not to make.
+  static const threadUnconfirmedTitleUnclear = 'لم تتأكّد نتيجة الفتح';
+
+  /// The action on that page, and the list the copy points at.
+  static const openInbox = 'قائمة الرسائل';
   /// The banner's action when the only outstanding message is the unconfirmed
   /// one. «تحقّق» is honest because the thread re-reads on tap and either finds
   /// the row or says it is not there; «إرسال» would promise a re-send.

@@ -10,6 +10,7 @@ import '../../core/theme/app_theme.dart';
 import '../../data/chat_outbox.dart';
 import '../../data/chat_time.dart';
 import '../../data/thread_match.dart';
+import '../../data/thread_open_outcome.dart';
 import '../../data/repository.dart';
 import '../../models/chat.dart';
 import '../../widgets/a11y.dart';
@@ -81,6 +82,19 @@ class _ChatScreenState extends State<ChatScreen> {
   List<Message> _messages = [];
   bool _loading = true;
   bool _error = false;
+
+  /// A write whose answer never came, kept apart from [_error] on purpose.
+  ///
+  /// [_error] means «the thread could not be *read*». The open call is a
+  /// `POST`, and when the network layer flags it as unconfirmed the app does
+  /// not know whether a conversation now exists — which is a different
+  /// sentence, a different button, and a different consequence. Folding it
+  /// into [_error] is what made a write look like a read failure and gave the
+  /// page a retry that re-runs the POST.
+  ///
+  /// Null when the thread is open or the open simply failed outright (a 4xx,
+  /// a dead network), both of which [_error] already describes honestly.
+  ThreadOpenOutcome? _openUnconfirmed;
 
   /// Local bubble ids count *down* from -1: a bubble this device drew before the
   /// server answered can never be mistaken for a stored row (real ids are
@@ -171,6 +185,12 @@ class _ChatScreenState extends State<ChatScreen> {
   /// instead of being replaced by an error page that hides it.
   Future<void> _bootstrap() async {
     var refused = false;
+    // A write the app cannot vouch for is not the same failure as a read that
+    // failed, and it is not a failure to swallow: `catch (_)` put every one of
+    // them into `refused`, which is the thread's *read* error. So the unconfirmed
+    // case is caught by name and re-read, and only the failures that really are
+    // about the request itself fall through to `refused`.
+    ThreadOpenOutcome? openUnconfirmed;
     try {
       var convId = widget.conversationId;
       convId ??= await widget.repo.openConversation(
@@ -179,17 +199,56 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       _convId = convId;
       await _load();
-    } catch (_) {
-      refused = true;
+    } catch (e) {
+      if (isWriteUnconfirmed(e)) {
+        openUnconfirmed = await _settleUnconfirmedOpen();
+      } else {
+        refused = true;
+      }
     }
     await _restoreQueued();
     if (!mounted) return;
     setState(() {
       if (refused) _error = true;
+      _openUnconfirmed = openUnconfirmed;
       _loading = false;
     });
     _jumpToBottom();
     await _flushQueued();
+  }
+
+  /// Re-reads the inbox to find out whether the thread that would not open
+  /// exists after all.
+  ///
+  /// A **GET**, never a re-POST, and that is the whole contract. The write this
+  /// answers may already have created the conversation, and the one control this
+  /// screen has ever shown on the failure state re-issues the write — so
+  /// re-reading must never be re-issuing. The inbox is also the only list that
+  /// can answer: the thread read needs the id this write did not return, so a
+  /// thread re-read is impossible by construction and the inbox is what is left.
+  ///
+  /// `_me` is read before the first await, for the reason [_recheckUnconfirmed]
+  /// gives: it is a `context` lookup, and this closure runs after a network
+  /// round trip during which the user is free to have left the thread — which
+  /// threw «This widget has been unmounted» out of a recovery path before.
+  Future<ThreadOpenOutcome> _settleUnconfirmedOpen() async {
+    final me = _me;
+    return resolveThreadOpenOutcome(
+      inbox: widget.repo.conversations,
+      me: me,
+      otherUserId: widget.otherUserId,
+      projectId: widget.projectId,
+    );
+  }
+
+  /// The page shown when the thread exists but its messages could not be read.
+  ///
+  /// Its action is a **read**. That is only true because [ChatScreen.conversationId]
+  /// is already set, which is the case for every thread the inbox or a
+  /// notification links to. It is the reason this screen is not where
+  /// `openConversation` is allowed to fail twice.
+  void _retryLoad() {
+    _load();
   }
 
   /// Puts the stored queue back in the thread, oldest first, each one drawn as a
@@ -832,9 +891,25 @@ class _ChatScreenState extends State<ChatScreen> {
                   title: 'تعذّر جلب الرسائل',
                   message: 'تحقّق من اتصالك بالإنترنت ثم أعد المحاولة',
                   actionLabel: 'إعادة المحاولة',
-                  onAction: _bootstrap,
+                  // A read, not a re-open. The `POST` that may have created
+                  // this conversation already ran and its answer never came;
+                  // re-running it is the one action this page must not offer.
+                  // `_load` only GETs `/api/messages/<id>`, so the retry is
+                  // safe on the one path where the conversation is known to
+                  // exist, and it stays safe when the app is reopened.
+                  onAction: _retryLoad,
                 )
-              : Column(
+              : (_openUnconfirmed != null && _unresolved.isEmpty)
+                  // The thread may or may not exist, and the app is not going
+                  // to guess. No «أعد المحاولة» here on purpose: the button on
+                  // this screen that opens a thread is the one wired to the
+                  // POST, and the copy names the inbox instead — a GET that
+                  // answers, and cannot create a second conversation.
+                  ? _UnconfirmedThreadView(
+                      outcome: _openUnconfirmed!,
+                      onOpenInbox: () => Navigator.of(context).maybePop(),
+                    )
+                  : Column(
                   children: [
                     if (_error) _offlineStrip(),
                     Expanded(child: _thread()),
@@ -1059,6 +1134,61 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 }
+
+/// The page shown when the `POST` that opens a thread never got an answer.
+///
+/// Its own widget, and not a branch of the read-error [EmptyView], for the
+/// reason the sentence differs: the read error says «تعذّر جلب الرسائل» and
+/// offers a retry that is a *read*, which is safe because the conversation
+/// already exists. Here the conversation may not exist, and the honest thing
+/// the app can do about that is send the user somewhere that can answer — the
+/// inbox — rather than re-issue the write.
+///
+/// Aimed at the same hands as the rest of this app (tap target, tonal colours,
+/// Arabic strings from [S]) so the page does not look like a different product
+/// from the nine beside it.
+class _UnconfirmedThreadView extends StatelessWidget {
+  const _UnconfirmedThreadView({required this.outcome, required this.onOpenInbox});
+
+  /// What re-reading the inbox proved about the thread that would not open.
+  final ThreadOpenOutcome outcome;
+
+  /// Goes back to the inbox, which is the list the copy points at.
+  final VoidCallback onOpenInbox;
+
+  @override
+  Widget build(BuildContext context) {
+    // Landed is not a failure and must not be painted as one. [EmptyView] tints
+    // the icon from `danger` alone, so both states drew the same grey glyph and
+    // the only thing separating «the app sorted it out» from «the app cannot
+    // tell» was a line of text — which is exactly the kind of difference a
+    // screen should carry in its own shape, not only in its words. The landed
+    // state therefore takes `titleColor: success` and the other two take the
+    // app's ordinary heading ink, and only the *unknown* one is `danger`: a
+    // genuinely unclear write is the one state a user should feel.
+    final settled = outcome == ThreadOpenOutcome.landed;
+    return EmptyView(
+      icon: settled
+          ? Icons.check_circle_outline_rounded
+          : Icons.help_outline_rounded,
+      // `danger` would paint the whole disc red, and «missing» is not an error
+      // either — it is a write that did not land, which the inbox resolves.
+      // Only `unknown` is a real «the app does not know».
+      danger: outcome == ThreadOpenOutcome.unknown,
+      title: settled
+          ? S.threadUnconfirmedTitleLanded
+          : S.threadUnconfirmedTitleUnclear,
+      titleColor: settled ? AppTheme.success : null,
+      message: threadOpenOutcomeCopy(outcome),
+      // Deliberately «قائمة الرسائل» and not «أعد المحاولة»: this is the one
+      // control on the screen, and a retry here re-runs the write.
+      actionLabel: S.openInbox,
+      actionIcon: Icons.forum_outlined,
+      onAction: onOpenInbox,
+    );
+  }
+}
+
 
 /// 56x56 round action — the app's minimum tap target.
 class _CircleAction extends StatelessWidget {
