@@ -86,6 +86,16 @@ class S {
   /// Shown above the verdict, while the app re-reads the centre.
   static const notifReadUnconfirmedRecheck = 'نتحقّق من الإشعارات…';
 
+  /// Read aloud by a screen reader on the header pip when the count is the
+  /// phone's guess rather than the server's answer.
+  ///
+  /// **It is a label and not a sentence on purpose.** The user has already
+  /// been told «تعذّر التأكّد» by the centre; repeating that here would put the
+  /// same doubt in two places and teach people to ignore it. What the pip owes
+  /// them is the *absence of a claim*, so it announces that the number is
+  /// unconfirmed and stops — same words for the same state, no second verdict.
+  static const notifCountUnconfirmed = 'غير مؤكّد';
+
   // Errors.
   //
   // One sentence per failure class, each naming the problem AND the next action,

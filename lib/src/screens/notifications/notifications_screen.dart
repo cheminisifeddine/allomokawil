@@ -5,6 +5,7 @@ import '../../core/l10n/strings.dart';
 import '../../core/l10n/write_outcome.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/notification_copy.dart';
+import '../../data/notification_count_trust.dart';
 import '../../data/notification_read_outcome.dart';
 import '../../data/repository.dart';
 import '../../models/chat.dart';
@@ -23,10 +24,27 @@ import '../../widgets/motion.dart';
 /// happened while it was away: each row says what happened, when, and opens
 /// the thing it is about.
 class NotificationsScreen extends StatefulWidget {
-  const NotificationsScreen({super.key, this.repo, this.clock});
+  const NotificationsScreen({
+    super.key,
+    this.repo,
+    this.clock,
+    this.trust,
+  });
 
   /// Injected by tests and by callers that already hold a repository.
   final Repository? repo;
+
+  /// Shared with the header behind this screen.
+  ///
+  /// **This is what stops the app contradicting itself one gesture after it
+  /// admits it cannot know.** [S.notifReadUnconfirmedUnknown] tells the user the
+  /// phone could not check the server, and the optimistic rows on this screen
+  /// are therefore a guess. The header's pip is the same number for the same
+  /// unread set — so if it comes back painting that count in red, the app has
+  /// withdrawn a sentence and re-issued the answer in the loudest colour it
+  /// owns, one tap later. Null in tests and in any standalone use, where there
+  /// is no pip to contradict.
+  final NotificationCountTrust? trust;
 
   /// The wall clock the relative timestamps are measured against.
   ///
@@ -164,6 +182,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     // the rows on screen are a guess, so the sentence has to say so.
     if (outcome != NotificationReadOutcome.unknown) {
       await _load();
+    } else {
+      // The one outcome that leaves a guess on screen. Both halves of it are
+      // the phone's memory rather than the server's: the rows below are still
+      // the optimistic flip (only a real re-read replaces them), and the header
+      // pip is about to re-read a count it cannot check either. So the header
+      // is told, and stops drawing the number as a fact.
+      //
+      // **Not called for [NotificationReadOutcome.missing] on purpose.** That
+      // verdict *is* the server's answer — it read the list and found the row
+      // still unread — so the pip below is a fact and has no business being
+      // muted. Only «I could not read the server at all» withdraws anything.
+      widget.trust?.withdraw();
     }
     if (mounted) {
       messenger.showSnackBar(
