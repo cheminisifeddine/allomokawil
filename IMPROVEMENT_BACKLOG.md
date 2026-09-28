@@ -7209,3 +7209,68 @@ running app for defects like these rather than inventing a feature.
       generally: in this file the useful anchor is the *next top-level class*,
       not a doc comment, because a doc comment does not tell you whether the
       brace above it has closed.
+
+- [x] **The one test red in the last three gates was failing on a correct
+      output, and the recorded diagnosis of it was wrong on both counts.**
+      The loop has reported «the pre-existing `subscription_clock_test` date
+      flake — it hardcodes `2026-09-30` and reads `DAYS=2`» as a pre-existing,
+      out-of-scope failure in three consecutive reports. That is not what the
+      test is doing.
+      *Not a hardcoded date.* The end date is built **relative** to now —
+      `DateTime(now.year, now.month, now.day + 2, 23, 0)` — and its own
+      comment says why: «so the test is about the rule and not about a date
+      frozen in a fixture that the clock eventually walks past». It is the one
+      test in the file that took that advice. And the count is derived, not
+      sent: the probe printed **`DAYS=2`**, exactly what the test asserted.
+      *The real fault is the guard.* The line was
+
+          expect(out, isNot(contains('-3')), reason: out);
+
+      `out` is the **whole probe stdout**, which carries the end date as well
+      as the sentence. The plan ends two days out, so on any day the end falls
+      on the 30th the probe prints `— 2026-09-30`, and **`-30` contains `-3`**.
+      The assertion failed on output that was entirely correct, and its
+      failure message quoted the very number it was trying to prove absent —
+      which is why it sent three ticks of reading to the wrong line.
+      *It hid by luck of the calendar.* Only the 30th trips it. An end date
+      ending in 3 is zero-padded to `-03`; 13 and 23 give `-13`/`-23`; none
+      contain `-3`. A green suite was sitting on a date bomb that fired on the
+      28th of the month and would have fired on the 30th of every month after.
+      *Shipped:* the guard is scoped to the Arabic sentence and matches the
+      shape of the regression rather than a substring of the whole output.
+
+          final ar = out.contains('AR=') ? out.substring(out.indexOf('AR=')) : out;
+          expect(ar, isNot(contains(RegExp(r'بعد\s+-\d'))), reason: out);
+          expect(ar, isNot(contains('-3 يوم')), reason: out);
+
+      Scoping is what makes it exact: a negative count can only be written
+      into the sentence, because the end date is zero-padded `YYYY-MM-DD` and
+      `daysUntilExpiry` is clamped nonnegative, so nothing else the probe emits
+      has that shape.
+      *Proven by mutation, not by reading.* The historical regression was
+      injected back into `expiryCountdownAr` (`'بعد -3 يوماً'`) **and** the two
+      pre-existing guards deleted, so that nothing but the new regex could fire:
+
+          Expected: not contains <RegExp: pattern=بعد\s+-\d flags=>
+            Actual: 'AR=ينتهي الاشتراك بعد -3 يوماً — 2026-09-30\n'
+
+      The new guard is the one that fails, alone. Restored `lib/` from a
+      backup afterwards and confirmed the diff is the test only — a check that
+      cannot be shown to still catch the bug is a check that tests nothing.
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1304 passed / 3 skipped / 0 failed**, up from
+      1303/3/1. **The first fully green suite in three ticks.**
+      *Commit* `73aa68e`; pushed to remote `e4e333f`, blob verified `MATCH`
+      against the real remote tree.
+      *No product code changed, and none needed to.* A contractor's
+      subscription card was never wrong — the countdown it prints is the
+      derived one, and the test above it was the thing that was broken. What
+      was actually wrong was a suite that punished correct output and would
+      have kept every future tick reporting a non-existent product bug.
+      **The lesson for the loop, recorded so it is not repeated:** a failure
+      re-reported as "pre-existing" for three ticks stopped being a fact and
+      became a story. It was never re-derived from the output, and the story
+      was specific enough to be persuasive and wrong enough to cost 30
+      minutes a tick. Re-run the failing file and read its actual bytes before
+      writing "pre-existing" in a report — the report is what the next tick
+      inherits as if it were evidence.
