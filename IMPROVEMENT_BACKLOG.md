@@ -6700,3 +6700,18 @@ running app for defects like these rather than inventing a feature.
       `tool/px_count.py`, where a zero is an error and not a number.
       Floor to beat: **1292 passed / 3 skipped / 1 failed** (the one failure is
       `subscription_clock_test`, pre-existing and unrelated).
+
+      *Status 28 Sep, `f725cf0` — still UNCHECKED, not implemented.* The
+      audit above was completed and two of its premises were corrected first
+      (see CORRECTION at the top of this entry). The build gate is still
+      blocked by the orphan, so the implementation itself has **not** started.
+      What is now certain for whoever writes it: the badge is fed by
+      `unreadMessageTotal` over `/api/mobile/conversations` at
+      `worker_home_screen.dart:231` and `customer_home_screen.dart:356`; the
+      withdrawal flag must be **new and separate** from
+      `NotificationCountTrust`, which stays on `/api/unread`; the muted
+      rendering already exists at `notifications_bell.dart:_pip` to copy; and
+      the three silent paths are `worker_home_screen.dart:127`,
+      `customer_home_screen.dart:120` and `chat_list_screen.dart:108`. The
+      code comments that previously argued the opposite merge have been
+      corrected, so nothing in the tree will mislead the implementation.
