@@ -13,11 +13,24 @@ import '../../widgets/skeletons.dart';
 import '../../core/l10n/error_copy.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/l10n/write_outcome.dart';
+import '../../data/verification_write_outcome.dart';
 
 /// Contractor verification: upload auto-entrepreneur/artisan card + ID +
 /// selfie. This is the trust gate that powers "verified contractor" badges.
 class VerificationScreen extends StatefulWidget {
-  const VerificationScreen({super.key});
+  /// The data layer, taken by the caller when one is supplied.
+  ///
+  /// Null in the app, where the screen builds its own from [AppScope] — the
+  /// normal path and the one every user takes. The seam exists for the same
+  /// reason `MyPortfolioScreen.repo` does: this screen's write path can only be
+  /// tested against a **multipart upload**, and `http.MultipartRequest` builds
+  /// its own client instead of the one handed to [ApiClient]. A `MockClient`
+  /// never sees it, and under `TestWidgetsFlutterBinding` a real socket to
+  /// loopback deadlocks in the fake-async zone. Injecting the repository keeps
+  /// the production call site a single `const VerificationScreen()`.
+  final Repository? repo;
+
+  const VerificationScreen({super.key, this.repo});
 
   @override
   State<VerificationScreen> createState() => _VerificationScreenState();
@@ -48,13 +61,32 @@ class _VerificationScreenState extends State<VerificationScreen> {
     // AppScope is an InheritedWidget, so it cannot be read in initState.
     if (_scopeReady) return;
     _scopeReady = true;
-    _repo = Repository(AppScope.of(context).api);
+    // See [VerificationScreen.repo]. Production always takes the AppScope path.
+    _repo = widget.repo ?? Repository(AppScope.of(context).api);
     _profile = _repo.myProfile();
   }
 
   /// Re-issues the profile request behind the error state.
   void _retry() {
-    setState(() => _profile = _repo.myProfile());
+    _refresh();
+  }
+
+  /// Re-reads the profile, replacing whatever the screen is drawing.
+  ///
+  /// Not `setState(() => _profile = _repo.myProfile())`, which is how both
+  /// this screen and its error state were written: `myProfile()` returns a
+  /// `Future`, and an arrow function returning that future hands the `Future`
+  /// to `setState` as the result of the state change. In debug that trips
+  /// "setState() callback argument returned a Future" and aborts the frame; in
+  /// release the future is discarded and the state change still applies, so the
+  /// one path that repairs a failed read is the one that throws on the way.
+  ///
+  /// The assignment is an expression statement inside a block body, so the
+  /// closure returns void and the read is never dropped.
+  void _refresh() {
+    setState(() {
+      _profile = _repo.myProfile();
+    });
   }
 
   Future<void> _pickCert(int index) async {
@@ -81,6 +113,16 @@ class _VerificationScreenState extends State<VerificationScreen> {
       return;
     }
     setState(() => _busy = true);
+    // The profile as the screen is drawing it **right now**, captured before
+    // the upload starts.
+    //
+    // This is the whole fix. The re-read below used to ask «is the status
+    // pending or verified?», and a brand-new contractor is stored as
+    // `pending` — so the answer was yes for a man who had sent nothing, and
+    // he was told his ID card had reached the reviewer. The question the
+    // predicate may ask is what *changed*, which needs the row as it was
+    // before the tap. See `data/verification_write_outcome.dart`.
+    final before = worker;
     try {
       final documents = <Map<String, dynamic>>[];
       for (final d in _docs) {
@@ -108,22 +150,20 @@ class _VerificationScreenState extends State<VerificationScreen> {
       return;
     } catch (e) {
       if (isWriteUnconfirmed(e)) {
-        // The dossier is the row. Re-read the profile: «under review» on screen
-        // is the answer, and it is the same thing the user is told to check.
+        // The dossier is the row, and the profile on screen is the pre-tap copy
+        // of it. Re-read and compare the two, so the verdict is about *what
+        // moved* rather than about a value every contractor in the product
+        // already carries.
         _$toast(S.writeUnconfirmedRecheck);
-        final outcome = await resolveWriteOutcome(
-          recheck: () async {
-            final p = await _repo.myProfile();
-            // `pending` is the state a submitted dossier puts the profile in,
-            // and `verified` means a reviewer already reached it — either one
-            // proves the documents arrived. `rejected` is the only value that
-            // means the write itself never landed.
-            return p.verificationStatus == VerificationStatus.pending ||
-                p.verificationStatus == VerificationStatus.verified;
-          },
+        final outcome = await resolveVerificationWriteOutcome(
+          before: before,
+          fetch: _repo.myProfile,
         );
-        if (mounted) setState(() => _profile = _repo.myProfile());
-        _$toast(writeOutcomeCopy(outcome));
+        if (mounted) _refresh();
+        // A dossier sentence, not `writeOutcomeCopy`: the shared line claims
+        // «وجدناه في القائمة», which is meaningless here — the profile was on
+        // screen the whole time. What changed is the document queue.
+        _$toast(dossierOutcomeCopy(outcome));
         return;
       }
       _$toast(errorCopy(e));

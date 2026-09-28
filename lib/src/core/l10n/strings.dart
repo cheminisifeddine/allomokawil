@@ -274,6 +274,26 @@ class S {
   /// the same reason: there is no true action while the phone cannot read the
   /// thread, so this line names the state and stops. Drawing the red retry line
   /// here is what would let one message become two.
+  // ---- The verification dossier -----------------------------------------
+  //
+  // Its own pair, and the same reason the three owner commits above have
+  // theirs: the question is never «did my request arrive» but «did *that
+  // button* work», and here the thing that moved is a document queue. The
+  // shared [writeUnconfirmedLanded] would claim «وجدناه في القائمة» — a claim
+  // about finding a row, when the profile was on screen the entire time and
+  // the only question is whether its queue grew.
+  static const dossierUnconfirmedLanded =
+      'وصلت مستنداتك — حسابك الآن قيد المراجعة';
+  /// The re-read came back with the profile **unchanged**, which is the one
+  /// answer that proves nothing arrived: the server did not move.
+  ///
+  /// Carries «أعد المحاولة» because the retry is real — nothing was stored, so
+  /// re-sending the same three documents cannot duplicate a row. The sentence
+  /// names what happened to the *dossier* rather than the request, because a
+  /// contractor who is told only «did not arrive» re-picks his ID card from
+  /// the gallery twice, wondering which of the two went missing.
+  static const dossierUnconfirmedMissing =
+      'لم تصل مستنداتك — ما زالت كما هي، أعد الإرسال';
   static const chatUnconfirmed = 'لم يتأكّد وصولها — النتيجة غير معروفة';
   /// The banner's action when the only outstanding message is the unconfirmed
   /// one. «تحقّق» is honest because the thread re-reads on tap and either finds
