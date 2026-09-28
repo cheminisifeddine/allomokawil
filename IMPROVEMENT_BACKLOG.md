@@ -125,10 +125,18 @@ in this file that dies on arrival is how two ticks were lost.
    so the next loop never re-does finished work.
 8. **Release step is founder-gated — do NOT do it in this loop.** Bumping the
    version in `pubspec.yaml`, building the APKs and publishing happen only on
-   the founder's explicit request. This box also has **no JDK**
-   (`/usr/lib/jvm` does not exist), so the old `/home/renia/tools/build_arm64.sh`
-   and `build_web.sh` cannot be reconstructed as they were: they needed
-   Gradle. `flutter build apk` cannot run here at all.
+   the founder's explicit request.
+
+   **CORRECTION 28 Sep — the "no JDK" claim in this paragraph was wrong and
+   cost ten ticks.** `/usr/lib/jvm` still does not exist, but a JDK was
+   restored outside it: `/home/hatch/tools/jdk17/bin/javac` is **17.0.20.1**,
+   and `/home/hatch/tools/android-sdk` carries **android-36** and
+   **build-tools 36.0.0**. So `flutter analyze` and `flutter test` both run,
+   and an APK *can* be built here with `JAVA_HOME=/home/hatch/tools/jdk17`
+   and the Android SDK on the path. The gate is still founder-gated and no APK
+   was built on the tick that made this correction — the point is only that
+   the loop must stop treating a build as impossible and treating a read-only
+   audit as the only option available.
 
 **Never touch:** release signing config, any API token or secret, the Cloudflare
 deploy credentials, or `.github/workflows` secrets. No force-push, ever.
@@ -140,7 +148,23 @@ non-build item instead. Note that a *hung* `flutter_tester` whose parent is
 `systemd` is an orphan from an earlier tick, not a live build: it sits at 0 %
 CPU and holds `build/unit_test_assets`, so **report it, do not kill it**, and
 do not start a test run over the top of it — on 13 Sep it blocked a tick this
-way for 37 minutes.
+way for 37 minutes. **(28 Sep: pid 13912 is gone. The box was clear, the gate
+was open, and a full implementation shipped. Do not assume it is still
+there — check.)**
+
+   **The `[f]lutter` pattern matches the agent's own shell, and this gate has
+   been lying for at least eleven ticks.** The `bash -c` running the command
+   has the word `flutter` in its own command line, so `pgrep -fc "[f]lutter"`
+   returns **1** whether or not a single Flutter process exists. A tick that
+   reads that 1 as "a build is running" takes a non-build item for ever and
+   files a defect instead of shipping. The reliable form reads `comm`, which
+   is the executable name and cannot be spoofed by the caller's arguments:
+   ```bash
+   ps -eo pid,ppid,comm | awk '$3 ~ /^(flutter|dart|java|gradle|kotlin|aapt2)$/'
+   ```
+   Empty output = nothing is building = the gate is open. Verified empty on
+   28 Sep with the gate then held open for a full `flutter test` (1294
+   tests, ~9 min).
 
 **Identifying the orphan vs. a live build, written out** (re-verified 28 Sep,
 because the rule above has no command in it and a rule with no command gets
@@ -6561,7 +6585,7 @@ running app for defects like these rather than inventing a feature.
 #### ago does not exist on the tab, and only the gesture the badge replaces
 #### tells the truth
 
-- [ ] **The message tab's badge paints a last-known count in confirmed gold
+- [x] **The message tab's badge paints a last-known count in confirmed gold
       after a read it never completed.** The previous entry ended on the honest
       question: does the tab owe a *dated* or a *muted* state, and what is the
       user told when the last read was twenty minutes ago and the badge is
@@ -6715,6 +6739,71 @@ running app for defects like these rather than inventing a feature.
       `customer_home_screen.dart:120` and `chat_list_screen.dart:108`. The
       code comments that previously argued the opposite merge have been
       corrected, so nothing in the tree will mislead the implementation.
+
+      *SHIPPED 28 Sep — local `e056d3b`, remote `d8bf839`, blob MATCH on all
+      seven files.* The build gate opened on this tick, so this is the first
+      implementation in eleven ticks. `flutter analyze` -> **No issues
+      found!**; `flutter test` -> **1294 passed / 3 skipped / 1 failed**, up
+      from the 1292 floor, and the one failure is the pre-existing
+      `subscription_clock_test` timezone flake.
+
+      *What shipped.* A new `lib/src/data/unread_message_trust.dart`, a
+      `UnreadMessageTrust` flag held on `AppScope` as `messages`. The pip
+      draws `AppTheme.textMuted` instead of `AppTheme.accent` when it is
+      withdrawn, and keeps the digits. Withdrawal is one-directional: only a
+      **landed** conversations read restores it. The three silent paths all
+      withdraw now — `worker_home_screen.dart` `_readConversations`,
+      `customer_home_screen.dart` `_resolveUnread`, and the inbox's own
+      `_arm`, which is the most direct of the three because it *is* the read
+      the badge is summed from. `S.notifCountUnconfirmed` sits on the
+      `Semantics` node so the state is heard and not only painted.
+
+      *Two things the implementation found that the audit had not.* (1) A
+      **fourth** restore site: both shells' `ChatListScreen.onRead` callback,
+      which is where a pull-to-refresh and a pop out of a thread actually
+      land. Without it the first dropped request mutes the pip **for the rest
+      of the session**, because the withdrawal would have had no matching
+      restore. Found by a failing test, not by reading. (2) `AppTabBar` is a
+      `StatelessWidget`, so reading a `ChangeNotifier` during build paints
+      once and never repaints — the pip would have stayed gold for ever,
+      which is the same lie arriving through the new code. It is a
+      `ListenableBuilder` for that reason. `countsMessages` is an explicit
+      flag on `AppTabItem`, **never** `label == 'الرسائل'`: matching the
+      Arabic string puts the state of a data flag in a user-facing label, and
+      a copy edit would silently re-gold the pip.
+
+      *Red before green.* Reverting `lib/` (and removing the new file) fails
+      the new tests at compile time. Three harness faults were caught and
+      fixed rather than shipped around, and each would have let the test pass
+      against a broken feature: `Color.r` is a **double** in this SDK, so
+      interpolating it into the pixel probe made `int()` throw and the helper
+      return its `-1` sentinel; the semantics helper took the first non-empty
+      ancestor label and got the tab's own «الرسائل» instead of the pip's
+      qualifier; and an `orElse` that always matched made the confirmed-state
+      assertion vacuous. Evidence is on pixels: **gold 10190 -> 0, muted
+      0 -> 11257**, digits intact, screenshot at
+      `/tmp/shots/tab_badge_unconfirmed.png`.
+
+      *GATE CORRECTION — the blocker this entry blamed for three ticks is
+      gone.* The protocol's "**this box also has no JDK** (`/usr/lib/jvm` does
+      not exist)" and "`flutter build apk` cannot run here at all" are **both
+      wrong as of 28 Sep**: `/home/hatch/tools/jdk17/bin/javac` is
+      **17.0.20.1** and `/home/hatch/tools/android-sdk` carries **android-36**
+      and **build-tools 36.0.0**. The orphan `flutter_tester` (pid 13912) that
+      held the gate for ten ticks **is gone**, `pgrep -c java` = 0, and there
+      are zero real `flutter`/`dart` processes. Step 4 of the loop protocol is
+      therefore runnable as written. An APK was **not** built: that stays
+      founder-gated.
+
+      *One caution worth carrying, because it nearly cost the tick.* The
+      protocol's gate `pgrep -fc "[f]lutter"` **matches the running agent's own
+      shell**: the command line of the `bash -c` executing it contains the word
+      `flutter`, so the count reads **1 even when nothing is running**.
+      Confirm with a pattern the invoking shell cannot match, e.g.
+      `ps -eo pid,ppid,comm | awk '$3 ~ /^(flutter|dart|java|gradle)$/'`,
+      which reads `comm` (the executable name) rather than the full command
+      line. A tick that trusted the raw count would have called the gate
+      blocked for ever.
 
 ### Phase 5 — engineering hardening: the mounted guard was added to the thread
 #### and never to the three screens a picker can outlive
