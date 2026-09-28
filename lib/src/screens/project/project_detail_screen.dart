@@ -4,6 +4,7 @@ import '../../core/app_scope.dart';
 import '../../core/format/money.dart';
 import '../../core/text/dz_number.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/project_commit_outcome.dart';
 import '../../data/quote_duration_copy.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
@@ -152,7 +153,25 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     try {
       await widget.repo.acceptQuote(widget.projectId, q.id);
     } catch (e) {
-      if (mounted) {
+      if (isWriteUnconfirmed(e)) {
+        // «تحقّق من القائمة» with no re-read is an instruction the owner cannot
+        // follow: the project on screen is the one from before the tap. The
+        // accept is the only write in the product that signs a contract, so
+        // this is the one place where a stalled request must be resolved
+        // rather than reported. See `project_commit_outcome.dart`.
+        //
+        // The raw sentence is **not** shown first. `errorCopy(e)` returns
+        // `errWriteUnconfirmed` verbatim here, and queueing it ahead of the
+        // answer would make the client read «لم يصل... أعد المحاولة» — a
+        // retry that may hire a second contractor — four seconds before the
+        // toast that says the first one won. One failure, one line: the
+        // recheck line goes up, and the answer replaces it.
+        if (mounted) _showRechecking();
+        final r = await _resolveCommit(ProjectCommit.accept, workerId: q.workerId);
+        if (!mounted) return;
+        _reload();
+        _showCommitResult(projectCommitCopy(r, ProjectCommit.accept));
+      } else if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(errorCopy(e))));
       }
@@ -182,7 +201,17 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     try {
       await widget.repo.completeProject(project.id);
     } catch (e) {
-      if (mounted) {
+      if (isWriteUnconfirmed(e)) {
+        // This is the only door into the review form, so a stall that is not
+        // resolved leaves the owner unable to rate the job he paid for. Same
+        // one-line rule as `_accept`: the raw sentence is replaced, not queued
+        // behind the answer.
+        if (mounted) _showRechecking();
+        final r = await _resolveCommit(ProjectCommit.complete);
+        if (!mounted) return;
+        _reload();
+        _showCommitResult(projectCommitCopy(r, ProjectCommit.complete));
+      } else if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(errorCopy(e))));
       }
@@ -191,6 +220,54 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     if (!mounted) return;
     _openReview(project);
     _reload();
+  }
+
+  /// «نتحقّق الآن من القائمة…» — the line that replaces the one sentence it is
+  /// about to contradict.
+  ///
+  /// It is a recheck line, not an error line, because the failure has not been
+  /// classified yet and the user is owed an answer rather than an apology.
+  void _showRechecking() {
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(S.writeUnconfirmedRecheck)));
+  }
+
+  /// The classified answer, drawn in place of the recheck line.
+  ///
+  /// `ScaffoldMessenger` **queues** by default: a second `showSnackBar` while
+  /// one is visible waits for the first to time out, so the client would read
+  /// the stale line for its full four seconds before the true one arrived. On
+  /// this screen the stale line is not a harmless placeholder — it is a
+  /// contract he may have already signed — so the queue is removed first and
+  /// only the answer is left on screen.
+  void _showCommitResult(String copy) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(copy)));
+  }
+
+  /// Re-reads the project after a commit whose answer never arrived, and
+  /// classifies what the server now holds.
+  ///
+  /// The re-read is a bare `getProject`. It must never throw, so a second
+  /// network failure while we are already reporting one is caught here and read
+  /// as [WriteOutcome.unknown] — never as «not saved», which is the one answer
+  /// that would send an owner pressing a button the server may already have
+  /// honoured.
+  ///
+  /// Deliberately does **not** call `_reload()`: the caller does that once it
+  /// knows it is still mounted, so a screen torn down mid-probe does not call
+  /// `setState` on a dead [State].
+  Future<ProjectCommitResult> _resolveCommit(
+    ProjectCommit what, {
+    int? workerId,
+  }) async {
+    try {
+      final fresh = await widget.repo.getProject(widget.projectId);
+      return classifyProjectCommit(fresh, what, workerId: workerId);
+    } catch (_) {
+      return (outcome: WriteOutcome.unknown, stall: null);
+    }
   }
 
   /// Owner edits his own project. The form is the publish form in edit mode,
@@ -231,7 +308,13 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     try {
       await widget.repo.cancelProject(project.id);
     } catch (e) {
-      if (mounted) {
+      if (isWriteUnconfirmed(e)) {
+        if (mounted) _showRechecking();
+        final r = await _resolveCommit(ProjectCommit.cancel);
+        if (!mounted) return;
+        _reload();
+        _showCommitResult(projectCommitCopy(r, ProjectCommit.cancel));
+      } else if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(errorCopy(e))));
       }

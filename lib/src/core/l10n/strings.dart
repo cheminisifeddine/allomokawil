@@ -188,6 +188,55 @@ class S {
   /// cannot see. «حاول مجدداً» is the only safe one and it is in the next clause.
   static const writeUnconfirmedUnknown =
       'تعذّر الاتصال للتحقّق — تحقّق من القائمة قبل إعادة المحاولة';
+
+  // ---- The three owner commits on the project detail screen -------------
+  //
+  // Six sentences for three writes, and they are six on purpose. The owner's
+  // question is never «did my request arrive» but «did *that button* work»,
+  // and he has three buttons whose consequences are not interchangeable: a
+  // signed contract, a closed job, a withdrawn one. A single shared sentence
+  // («وجدناه في القائمة») answers a question about a row that was on screen
+  // the whole time, and leaves him to work out which of the three things
+  // actually happened.
+  //
+  // Each pair is a *state*, not a request. «تم قبول العرض» is the app
+  // asserting the contract exists; the unconfirmed variant says the same thing
+  // on weaker evidence, and the difference between them is the whole reason
+  // this file exists.
+  static const acceptUnconfirmedLanded =
+      'تم قبول العرض — المقاول مُعيَّن في المشروع';
+  static const acceptUnconfirmedMissing =
+      'لم يُعتمد القبول — المشروع ما زال مفتوحاً، أعد المحاولة';
+  static const completeUnconfirmedLanded =
+      'تم إغلاق المشروع — يمكنك تقييم المقاول الآن';
+  static const completeUnconfirmedMissing =
+      'لم يُغلق المشروع — ما زال قيد التنفيذ، أعد المحاولة';
+  static const cancelUnconfirmedLanded = 'تم إلغاء المشروع — سُحبت عروضه';
+  static const cancelUnconfirmedMissing =
+      'لم يُلغَ المشروع — ما زال معروضاً، أعد المحاولة';
+  /// The re-read came back and the row is committed to somebody **else**.
+  ///
+  /// Its own sentence, and deliberately not a degraded [writeUnconfirmedUnknown]
+  /// and certainly not the «أعد المحاولة» that [WriteOutcome.missing] ends
+  /// with: the accept did not land, but retrying is now impossible — the
+  /// server has this project assigned, and every other quote on the screen now
+  /// answers 409. A client who is told to retry will retry until he believes
+  /// the app is broken. This one says what is true and sends him to the state
+  /// he is in.
+  static const commitUnconfirmedReassigned =
+      'هذا المشروع معيَّن لمقاول آخر — القبول لم يُنفَّذ، راجع حالة المشروع';
+  /// The project is cancelled, so the close the user tapped can no longer
+  /// happen. Same reason as [commitUnconfirmedReassigned]: «أعد المحاولة» would
+  /// promise a control that is no longer on the screen.
+  static const commitUnconfirmedUncancellable =
+      'المشروع مُلغى — لم يعد بالإمكان إغلاقه';
+  /// The re-read itself failed on one of these three writes. Distinct from
+  /// [writeUnconfirmedUnknown] only in that it drops «تحقّق من القائمة»: the
+  /// project is already on screen, so there is no list to go and check — the
+  /// useful instruction is to reopen this page, which is the only thing that
+  /// re-reads it.
+  static const commitUnconfirmedUnknown =
+      'تعذّر الاتصال للتحقّق — افتح المشروع من جديد قبل إعادة المحاولة';
   /// The permanent line under a bubble the app could not confirm, as opposed to
   /// [writeUnconfirmedUnknown] which is the one-shot toast. Same rule, and for
   /// the same reason: there is no true action while the phone cannot read the
