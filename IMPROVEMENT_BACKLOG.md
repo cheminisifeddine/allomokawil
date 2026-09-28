@@ -5773,3 +5773,65 @@ running app for defects like these rather than inventing a feature.
       surface left is project photo **deletion** — a photo shown with a delete
       affordance on the public profile would be a ninth write, and the profile
       screen has none of this either.
+
+- [x] **An activation code was reported as redeemed on a server reply that
+      named no plan, and the write it is had no re-read at all.** — `af530d5`
+      The 26 Sep audit reported six write paths and told the next tick the
+      contract was finished. It was not: `_redeem` sat **forty lines below the
+      `_request` that same audit had just fixed, in the same file**, and the
+      previous tick's grep (`\.delete(` outside `ApiClient`) was looking for
+      photo deletion, not for the write that was actually there.
+      *The defect, and it is the worse of the two halves.* `_redeem` printed
+      `S.planCodeOk` — «تم تفعيل اشتراكك» — whenever `redeemActivationCode`
+      returned null, and the repository returns null whenever the response
+      carries no `plan` object. So a **200 with a body this app cannot read a
+      plan out of** printed the strongest sentence the money screen owns. A
+      contractor who just handed over 30000 دج was told his plan was active by
+      a missing field.
+      *The second half.* No `isWriteUnconfirmed` branch, so an unconfirmed
+      code was left undecided — and an activation code is **single-use**, which
+      makes the missing re-read cost real money: a burned code and an untouched
+      one look identical, and retrying lands him on a refusal.
+      *The rule is a change in the server's copy of the row*, exactly as
+      `pendingRequestIsMine` does for the payment path. Two things on the live
+      plan move and both are read, because either alone is wrong:
+        - the **plan id** — an upgrade, and `free_trial` → `pro` is the
+          commonest redemption in the app. My first draft carried a "a free
+          plan is never a redemption" rule; it read as correct, passed its own
+          test, and would have rejected **every first purchase on the app**.
+          Caught before the gate, not after.
+        - the **expiry** — a renewal, where the id stays put. The half an
+          id-only rule gets wrong in the direction that burns a second code:
+          every `pro` → `pro` renewal would be reported as a failure.
+      Compared on the **instant**, not the printed day, so a same-day renewal
+      is not burned. When the answer named the plan, the movement must land on
+      that plan; a downgrade is still success (the code is what he bought, the
+      plan is the server's answer). A failed re-read is `unknown`, never a
+      miss — «the code did not work» is how a man buys a second code.
+      `planCodeNoPlan` is a new sentence and not `writeUnconfirmedUnknown`:
+      the write is confirmed here, only the answer was unreadable, and a
+      sentence that says «did not land» would be a verdict on a code the
+      server may already have spent.
+      *Red before green:* against the pre-fix screen all **three** screen
+      cases fail (re-read counter, and the money claim on a plan-less 200);
+      the 14 pure-rule cases pass either way, which is why the screen half
+      was not optional. One of the three failed my first green run too — on
+      an exact-element `contains` against a toast that legitimately prints
+      «تم تفعيل اشتراكك — PRO»; the code was right and the assertion was
+      wrong.
+      *Evidence:* `flutter analyze` → **No issues found!** (5.6 s).
+      `flutter test` → **1198 passed / 3 skipped / 1 failed** (was 1181/3/1;
+      the new file is the +17). The single failure is the pre-existing
+      `subscription_clock_test.dart` case two ticks have now flagged — re-run
+      with this change stashed, it fails identically. Not visual: one toast
+      path and one re-read, no pixels moved, so no screenshot applies.
+      *Files:* `lib/src/data/redeem_outcome.dart` (new),
+      `test/redeem_outcome_test.dart` (new), `lib/src/core/l10n/strings.dart`,
+      `lib/src/screens/worker/subscription_screen.dart`.
+      *Next:* the write-outcome contract is now on the **twelve** real writes,
+      and the previous tick's "next" was wrong twice over — photo deletion
+      does not exist, and the eighth write was on screen the whole time. The
+      honest next item is another read of the code, and the lesson worth
+      keeping is that an audit which greps for a *missing* feature finds the
+      one that is absent; an audit that reads what is **present** finds the one
+      that is broken.
