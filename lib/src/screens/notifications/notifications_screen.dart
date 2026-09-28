@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/l10n/strings.dart';
+import '../../core/l10n/write_outcome.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/notification_copy.dart';
+import '../../data/notification_read_outcome.dart';
 import '../../data/repository.dart';
 import '../../models/chat.dart';
 import '../../models/notification.dart';
@@ -82,6 +84,22 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   /// Marks [ids] read. The rows flip immediately so the tap feels answered,
   /// then the list is reloaded from the server — so a write that fails cannot
   /// leave the screen claiming something the database does not agree with.
+  ///
+  /// **That guarantee had a hole, and it was the one case that mattered.** The
+  /// comment above was true of the code until the reload *also* failed: `_load`
+  /// sets `_error`, and `_body` only reads `_error` when `_items.isEmpty`, so a
+  /// failed reload on a populated list is unreachable state. The optimistic
+  /// flip stood, nothing was drawn, and the user was told — by the absence of a
+  /// gold pip — that a notification was cleared which the database still held
+  /// as unread. The write is ambiguous exactly when the network is worst, and
+  /// the one screen whose entire job is the unread pip was the one that went
+  /// quiet.
+  ///
+  /// So an **unconfirmed** write is now answered instead of shrugged at: the
+  /// app re-reads the centre with a GET and says which of the three true things
+  /// it is. Every other failure still falls through to the plain reload, which
+  /// is correct for them — a 403 or a 404 is not in doubt, the list comes back
+  /// and the row comes back with it.
   Future<void> _markRead(List<int> ids) async {
     if (ids.isEmpty) {
       return;
@@ -93,8 +111,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     });
     try {
       await _repo.markNotificationsRead(ids: ids);
-    } catch (_) {
-      // The reload below puts the row back if the server refused.
+    } catch (e) {
+      if (isWriteUnconfirmed(e)) {
+        await _settleRead(ids);
+        return;
+      }
+      // A refusal the server stated. The reload below puts the row back.
     }
     await _load();
   }
@@ -108,10 +130,46 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     });
     try {
       await _repo.markNotificationsRead();
-    } catch (_) {
+    } catch (e) {
+      if (isWriteUnconfirmed(e)) {
+        // The no-ids form clears everything, so the proof is that nothing is
+        // unread in the fresh list.
+        await _settleRead(const []);
+        return;
+      }
       // As above: the reload is the source of truth.
     }
     await _load();
+  }
+
+  /// Answers a mark-read the server never confirmed, by re-reading the centre.
+  ///
+  /// The re-read is a **GET**, so it is safe to run and cannot itself change a
+  /// row. Whatever it returns, the list on screen is replaced by the server's
+  /// answer before the verdict is shown — including when the re-read failed,
+  /// where the previous rows are left in place and the user is told that
+  /// proves nothing rather than left staring at an optimistic flip.
+  Future<void> _settleRead(List<int> ids) async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(content: Text(S.notifReadUnconfirmedRecheck)),
+    );
+    final outcome = await resolveNotificationReadOutcome(
+      recheck: () => _repo.notifications(),
+      ids: ids,
+    );
+    // Whenever the re-read ran, the list is refreshed from it rather than left
+    // on the optimistic flip — that is the whole point of asking. Only
+    // [NotificationReadOutcome.unknown] has no fresh list to draw, and there
+    // the rows on screen are a guess, so the sentence has to say so.
+    if (outcome != NotificationReadOutcome.unknown) {
+      await _load();
+    }
+    if (mounted) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(notificationReadOutcomeCopy(outcome))),
+      );
+    }
   }
 
   /// Opens whatever the row is about, and never lets a tap die in silence.

@@ -62,6 +62,30 @@ class S {
   /// Shown when a notification row carries nothing openable.
   static const notificationNoAction = 'لا يوجد إجراء لهذا الإشعار.';
 
+  // Marking a notification read, when the server never answered.
+  //
+  // `POST /api/notifications/read` is **idempotent**, so unlike the thread-open
+  // write these sentences may offer a retry — and the split between the two
+  // unconfirmed cases is the contract: «missing» means the server answered and
+  // refused, «unknown» means the phone cannot read the server at all. The
+  // second must not say «re-try», because re-sending a write of unknown
+  // outcome is the habit this app removed from the chat screen last cycle.
+  /// The re-read proved the row is read: the write landed, nothing to do.
+  static const notifReadUnconfirmedLanded = 'تم تعليم الإشعار كمقروء.';
+
+  /// The server answered and the row is still unread. Safe to press again —
+  /// the write changes nothing that is already true.
+  static const notifReadUnconfirmedMissing =
+      'لم نتمكن من تعليم الإشعار كمقروء. أعد المحاولة.';
+
+  /// The re-read itself failed. Says plainly that this proves nothing, and
+  /// sends the user to the list instead of a button that re-issues a write.
+  static const notifReadUnconfirmedUnknown =
+      'تعذّر التأكّد. تحقّق من قائمة الإشعارات عند عودة الاتصال.';
+
+  /// Shown above the verdict, while the app re-reads the centre.
+  static const notifReadUnconfirmedRecheck = 'نتحقّق من الإشعارات…';
+
   // Errors.
   //
   // One sentence per failure class, each naming the problem AND the next action,
