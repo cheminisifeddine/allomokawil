@@ -7,6 +7,93 @@ the **top unchecked item in phase order**, ships it, and ticks it.
 Rules for what belongs here: a real user-visible improvement or a real
 correctness gap — never a refactor for its own sake. One item per loop.
 
+- [x] **A name pasted out of Facebook painted a blank navy circle instead of
+      the user's own letter — in every place the app shows who a person is.**
+      `9ce35fe` -> remote `4e19dd1`.
+
+      Algerian users paste their own name out of Facebook and WhatsApp, and
+      those apps bracket Arabic text with invisible direction marks: `U+200F`
+      (RLM), `U+200E` (LRM), `U+200B` (ZWSP), `U+200D` (ZWJ). `auth_screen.dart:164`
+      is `fullName: _name.text.trim()` — a plain `TextField` with **no input
+      formatter** and no server-side cleaning — so those marks reach the
+      display layer untouched.
+
+      Dart's `String.trim()` strips whitespace, and these are `Cf` (format)
+      characters, **not** whitespace. So `trim('\u200fمحمد')` still has
+      `U+200F` as `runes.first`, both copies of the monogram rule took that
+      rune, and the avatar painted a **zero-width glyph inside a 48 dp navy
+      circle**: a blank blue dot where the initial belongs, on the chat list,
+      the worker card, the profile and the quote row. Not a crash and not an
+      error — a *silently blank* avatar, which on a marketplace is the picture
+      a customer uses to tell two tradesmen apart.
+
+      **The copy is why this is a defect, not a style.** `ui.dart`'s
+      `InitialAvatar` and `worker_card.dart`'s private `_initials` held the same
+      three lines, and both were wrong in the same way — which is exactly the
+      failure the wilaya-sheet item recorded: the guard was already in the app
+      and nobody looked for the second copy of the thing that lacked it.
+
+      *Shipped:* `core/text/monogram.dart` owns the rule — **the first rune
+      that actually paints something** — and both copies call it. The marks are
+      skipped *for the avatar only*: they are never deleted from the stored
+      name, because they carry the writing direction and stripping them at
+      input would edit a name behind the user's back. A name that is *only*
+      marks now answers as an empty one, «؟», so a blank circle is never
+      shown. `U+00AD` is deliberately excluded from the skip set: it is real
+      formatting, but a word processor inserts it *mid*-name («Moham-») and the
+      letter after it is a perfectly good initial.
+
+      *Red before green, the framework quoting the bug back.* With `lib/`
+      stashed the two widget cases fail with
+
+          Expected: 'م'   Actual: '‏'
+          Expected: '؟'   Actual: '‏'
+
+      — the invisible glyph, verbatim. 2 red / 0 green -> 30 green. The other
+      28 cases are the rule itself, including all eight marks in turn, the
+      "nothing visible" fallback, and a supplementary-plane character (which
+      `name[0]` would have split in half).
+
+      *Proven by pixels, not by assertion.* Rasterised the avatar with the real
+      Cairo face, old rule on one side and the real `InitialAvatar` on the
+      other, and counted visible glyph pixels inside each circle:
+
+      | name | old rule | fixed |
+      | --- | --- | --- |
+      | `\u200Fمحمد بن علي` (pasted) | **0** — blank circle | 1590 |
+      | `\u200F\u200E\u200B ` (marks only) | **0** — blank circle | 855 |
+      | `كريم حداد` (clean) | 1597 | 1683 |
+
+      The third row is the one that matters for honesty: a name that already
+      worked is essentially unchanged, so the fix is not a different circle
+      everywhere. The throwaway shot harness was deleted after the capture and
+      is **not** in the commit.
+
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1348 passed / 3 skipped / 0 failed**, up from
+      1318/3/0 (+30, the new file). All 4 blobs verified `MATCH` against the
+      real remote tree at tip `4e19dd1`.
+
+      *A harness note, recorded because it cost this tick two false
+      readings.* The first shot put the row in RTL, where the child order
+      **flips**, so the circle I called "left" was in fact the fixed widget and
+      the measurement contradicted the hypothesis. Two further passes then read
+      the navy *centre line* only: a circle whose glyph is off-centre splits
+      into two runs and the run widths lie about the radius. The working
+      method ORs the navy mask across the whole band, closes gaps <= 40 px, and
+      counts light pixels within 0.70 r. A detector that reports "0 glyph
+      pixels" for the circle the clean name visibly fills is a broken
+      detector, not a blank avatar — check which circle you are looking at
+      before believing it.
+
+      *The class is worth a later sweep, and is not claimed as clean.* The same
+      "invisible character reaches the display layer" shape exists wherever a
+      stored string is measured by its first character, indexed, or used to
+      derive an initial. `Monogram` is the fix for the avatar, not for the
+      class; a follow-up should grep for `.runes.first` / `name[0]` /
+      `substring(0, 1)` and for stored strings that were never passed through
+      a cleaning step.
+
 ---
 
 ## Phase 6 — the loop's own instruments
