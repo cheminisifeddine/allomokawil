@@ -113,7 +113,11 @@ void main() {
       expect(A11y.rating(5, count: 7), 'التقييم 5.0 من 5، 7 مراجعات');
       expect(A11y.rating(5, count: 12), 'التقييم 5.0 من 5، 12 مراجعة');
       expect(A11y.rating(5, count: 27), 'التقييم 5.0 من 5، 27 مراجعة');
-      expect(A11y.rating(5, count: 103), 'التقييم 5.0 من 5، 103 مراجعة');
+      // 103 ends in 3, so it is in the repeating 3-10 plural range and takes
+      // «مراجعات» exactly as 3 does. This line pinned the singular, which is
+      // what the shared rule produced before the mod-100 fix — the literal was
+      // a copy of the old output, not a statement of the rule.
+      expect(A11y.rating(5, count: 103), 'التقييم 5.0 من 5، 103 مراجعات');
     });
 
     test('the review thresholds are the shared rule, not a fourth copy', () {

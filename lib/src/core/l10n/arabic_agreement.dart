@@ -28,6 +28,11 @@
 //   * 11 and up take [one] again, because they are *counted singular*: the
 //     number is what makes the noun singular, and the noun is what the number
 //     is counted in. «بعد 100 يوماً», never «بعد 100 أيام».
+//     **The range is 11–110, not 11–∞, and the boundary is 110, not 11.**
+//     The plural range of a counted noun is decided by the *last two digits* of
+//     the number, so it repeats: 103 takes «أيام» exactly as 3 does, and 110
+//     takes the singular exactly as 10 does. The helper read `n <= 10` and so
+//     got every three-digit number wrong. See [arabicCount].
 //
 // Nouns are passed in, never derived, so a caller can never accidentally print
 // the singular form of a feminine noun in the dual slot: the compiler sees the
@@ -50,9 +55,25 @@ library;
 String arabicCount(int n, String one, {String? two, String? few}) {
   assert(n >= 1, 'a count of $n has no Arabic form; branch to copy without '
       'a count instead of printing a number that is not one');
+  // The dual is only ever exactly two, however large the number is: 102 is
+  // counted singular, not dual, so the `n == 2` test stays absolute.
   if (n == 1) return one;
   if (n == 2) return two ?? one;
-  if (n <= 10) return few ?? one;
+  // **The plural range repeats every hundred, and this line is the whole bug.**
+  // A counted noun is decided by the last two digits of the number, so 103
+  // takes the broken plural exactly as 3 does, and 110 takes the singular
+  // exactly as 10 does. The old test was `n <= 10`, which is the same thing
+  // said only for the first hundred — correct for every number this app
+  // printed until a count passed two digits by one, and wrong for every
+  // three-digit count whose last two digits fall in 3-10.
+  //
+  // It was not a theoretical range. The service-radius row on the profile a
+  // customer picks a tradesman from is set by a slider running `max: 200`
+  // (`Slider(min: 1, max: 200, divisions: 199)` in profile_edit_screen.dart),
+  // saved verbatim to the profile, and printed through this helper. A
+  // contractor who covers a whole wilaya sets 105 and publishes
+  // «105 كيلومتر», where Arabic requires «105 كيلومترات».
+  if (n % 100 >= 3 && n % 100 <= 10) return few ?? one;
   return one;
 }
 

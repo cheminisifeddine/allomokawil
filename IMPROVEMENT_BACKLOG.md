@@ -7305,3 +7305,66 @@ running app for defects like these rather than inventing a feature.
       minutes a tick. Re-run the failing file and read its actual bytes before
       writing "pre-existing" in a report — the report is what the next tick
       inherits as if it were evidence.
+
+- [x] **The Arabic plural rule stopped at 100, so every three-digit count on
+      the profile a customer picks a tradesman from was printed in the
+      singular.** `arabicCount` tested `n <= 10` for the broken-plural range.
+      A counted Arabic noun is decided by the **last two digits** of the
+      number, so the range repeats every hundred: 103 takes «أيام» exactly as
+      3 does, and 110 takes the singular exactly as 10 does. The old test was
+      that rule said only for the first hundred — correct for every count the
+      app printed until one passed two digits, and wrong for every
+      three-digit count whose last two digits fall in 3-10.
+      *Not a theoretical range.* The service-radius slider on profile-edit runs
+      `Slider(min: 1, max: 200, divisions: 199)`
+      (`profile_edit_screen.dart:306`), the value is saved verbatim to the
+      profile, and `worker_profile_screen.dart:396` prints it through this
+      helper. A contractor covering a whole wilaya sets 105 and published
+      **«105 كيلومتر»**, where Arabic requires «105 كيلومترات». Verified
+      end-to-end this tick: slider max, the save path, and the print site all
+      read before the line was changed.
+      *Now* `n % 100 >= 3 && n % 100 <= 10`. The dual stays an absolute
+      `n == 2` on purpose — 102 is counted singular, never dual, so a
+      three-digit count cannot borrow the dual shape on its last digit. 17
+      files call `arabicCount`/`arabicCounted`; a grep for the old `n <= 10`
+      range finds no second copy, so the rule is fixed once.
+      *A test was pinning the bug, not the rule.* `a11y_semantics_test.dart`
+      asserted `103 مراجعة` — a literal copied from the old output, which is
+      the same mistake as the date-bomb test three ticks ago. Corrected to
+      «103 مراجعات».
+      *Proven by mutation, not by reading.* Reverting the one line to `n <= 10`
+      fails **5** tests: the two helpers-agree pair, the far-side-of-the-
+      century case (203/305/1003), the 105 km radius, the 103 h reply time,
+      and the a11y review count. Then restored from backup and confirmed
+      `diff` empty, so the injected bug cannot leak into the commit.
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1318 passed / 3 skipped / 0 failed**, up from
+      1309/3/0 (+9 new).
+      *Commit* `1f28667`.
+      *Toolchain, first proven this tick on the rebuilt box:* JDK 17.0.20.1
+      (Temurin) at `/home/hatch/tools/jdk17` and Flutter 3.47.2 at
+      `/home/hatch/tools/sdk/flutter` both run, so the `flutter analyze` /
+      `flutter test` gate is usable again after the 26 Sep host rebuild. The
+      full suite takes **~16 min** wall clock and blows the 600 s foreground
+      limit — it must be launched with `background=true` and polled, or the
+      gate is skipped. Noted here so the next tick does not lose 7 minutes
+      discovering it.
+      **Also this tick: the build-safety `pgrep` rule is broken and needs
+      fixing at the source.** The prompt says to check `pgrep -fc "[f]lutter]"`
+      and stand down if non-zero. That pattern matches the cron job's **own
+      shell wrapper**, because the eval string contains the literal word
+      `flutter`. It therefore reports 1 on every single tick — which is a
+      permanent false positive that would, if obeyed literally, block all
+      building forever. The Java check (`pgrep -c java`) is sound. Fix is to
+      exclude the current shell's own pid, e.g.
+      `pgrep -fc "[f]lutter" | grep -v "^$$\$"` or to match the binary path
+      (`[f]lutter_tools`) rather than the bare word. I did not edit the cron
+      prompt from inside a run.
+      *Two dead paths still in the prompt:* the repo is
+      **`/home/hatch/allomokawil`**, not `/home/renia/allomokawil`, and the
+      SDK is `/home/hatch/tools/sdk/flutter`, not
+      `/home/renia/tools/flutter/bin/flutter`. The Flutter SDK and JDK are
+      present again, so **APK and web builds are unblocked** — which means
+      the next tick can finally take a *visual* item and back a layout claim
+      with a real screenshot. This is the fourth consecutive tick to burn
+      calls on the dead path.

@@ -15,6 +15,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:allomokawil/src/core/l10n/arabic_agreement.dart';
 import 'package:allomokawil/src/data/chat_outbox.dart' show queuedCountLabel;
+import 'package:allomokawil/src/data/worker_stats_copy.dart'
+    show responseTimeAr, serviceRadiusAr;
 import 'package:allomokawil/src/data/notification_copy.dart'
     show relativeTimeAr;
 import 'package:allomokawil/src/models/plan.dart' show SubscriptionStatus;
@@ -54,6 +56,9 @@ void main() {
     test('eleven and up are counted singular again', () {
       // The rule people get wrong: 11+ is NOT the plural. «قبل 15 دقيقة»,
       // «بعد 100 يوماً» — never «بعد 100 أيام».
+      //
+      // "11 and up" means up to 110, not up to infinity — see the mod-100
+      // group below, which is why 110 is not in this list.
       for (final n in [11, 15, 40, 100, 365]) {
         expect(arabicCounted(n, one, two: two, few: few), '$n $one',
             reason: 'n=$n is counted singular');
@@ -63,6 +68,102 @@ void main() {
     test('the boundary is 10/11, not 10/20 or 1/3', () {
       expect(arabicCounted(10, one, two: two, few: few), '10 $few');
       expect(arabicCounted(11, one, two: two, few: few), '11 $one');
+    });
+  });
+
+  // The rule that was wrong in the helper itself, not in a copy of it.
+  //
+  // A counted noun is decided by the LAST TWO DIGITS of the number, so the
+  // plural range repeats every hundred: 103 takes «أيام» exactly as 3 does,
+  // and 110 takes the singular exactly as 10 does. The helper tested
+  // `n <= 10`, which is that rule said only for the first hundred, and so
+  // gave the singular to every three-digit count ending in 3-10.
+  //
+  // The range is reachable: the service-radius slider on the profile-edit
+  // screen runs `max: 200`, and its value is saved verbatim to the profile
+  // and printed through this helper on the profile a customer picks a
+  // tradesman from.
+  group('the plural range repeats every hundred', () {
+    const one = 'يوم';
+    const two = 'يومين';
+    const few = 'أيام';
+
+    test('103-110 take the broken plural, exactly as 3-10 do', () {
+      for (final n in [103, 104, 105, 107, 110]) {
+        expect(arabicCounted(n, one, two: two, few: few), '$n $few',
+            reason: 'n=$n ends in ${n % 100}, which is in the 3-10 plural '
+                'range');
+      }
+    });
+
+    test('111 and up are singular again, and so are 101 and 102', () {
+      // The other side of the boundary: 101 and 102 are NOT dual and NOT
+      // plural, and 111 has left the repeating range behind again.
+      for (final n in [101, 102, 111, 150, 201, 302]) {
+        expect(arabicCounted(n, one, two: two, few: few), '$n $one',
+            reason: 'n=$n ends in ${n % 100}, which is not in 3-10');
+      }
+    });
+
+    test('and the far side of the century is not the near side', () {
+      // 203 and 305 end in 3 and 5, so they take the plural too. A fix that
+      // only handled the first hundred would pass the test above and fail
+      // here.
+      for (final n in [203, 305, 1003]) {
+        expect(arabicCounted(n, one, two: two, few: few), '$n $few',
+            reason: 'n=$n ends in ${n % 100}, which is in the 3-10 range');
+      }
+    });
+
+    test('a number that merely ends in 2 is not the dual', () {
+      // 102 is not a dual. The dual form takes no number with it, so a
+      // three-digit count must never borrow that shape on its last digit
+      // alone. (2 itself IS the dual — that is the case one line above.)
+      for (final n in [102, 202, 302, 1002]) {
+        final out = arabicCounted(n, one, two: two, few: few);
+        expect(out, isNot(contains(two)), reason: 'n=$n gave $out');
+        expect(out, '$n $one', reason: 'n=$n gave $out');
+      }
+    });
+
+    test('the two helpers pick the same noun for the same number', () {
+      // [arabicCount] and [arabicCounted] differ only in printing: the
+      // counted form drops the digit for 1 and 2. A fix to one that missed
+      // the other would show up here and nowhere else. The suffix is compared
+      // rather than the whole string, so 1 and 2 are real cases here too.
+      for (final n in [1, 2, 3, 10, 11, 103, 110, 365]) {
+        final plain = arabicCount(n, one, two: two, few: few);
+        final counted = arabicCounted(n, one, two: two, few: few);
+        expect(counted.endsWith(plain), isTrue,
+            reason: 'n=$n: counted is "$counted", which does not end in the '
+                'noun arabicCount chose, "$plain"');
+      }
+    });
+  });
+
+  group('the screen-level consequence of the mod-100 rule', () {
+    // The primitive is only worth fixing if the number that reaches it can
+    // actually be three digits. The service radius is the one in this app
+    // that is: `Slider(min: 1, max: 200, divisions: 199)` in
+    // profile_edit_screen.dart, written straight to the profile, and printed
+    // on the worker profile a customer picks a tradesman from.
+    test('a radius of 105 km takes the plural', () {
+      expect(serviceRadiusAr(105), '105 كيلومترات');
+    });
+
+    test('a radius of 100 km stays singular', () {
+      // The case the old helper got right by accident, and the one that
+      // would catch a fix that over-corrected into plural for everything
+      // above ten.
+      expect(serviceRadiusAr(100), '100 كيلومتر');
+    });
+
+    test('a radius of 3 km is unchanged', () {
+      expect(serviceRadiusAr(3), '3 كيلومترات');
+    });
+
+    test('a reply time of 103 hours takes the plural', () {
+      expect(responseTimeAr(103), '103 ساعات');
     });
   });
 
