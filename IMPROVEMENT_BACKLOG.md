@@ -62,6 +62,37 @@ future tick can *see*.
       *Not visual.* A gate that reports text draws nothing; no screenshot is
       claimed.
 
+- [x] **A message older than a year was counted in months instead of dated, and
+      the chat list contradicted the chat divider on the same thread.**  `45c1799`
+      -> remote `6a6dded`.
+      `relativeTimeAr`'s month arm had no upper bound, so it kept dividing: 365
+      days -> «قبل 12 شهر», 1000 -> «قبل 33 شهر», 4000 -> «قبل 133 شهر». A
+      conversation from 2015 showed «قبل 133 شهر» in the list while the divider
+      inside that thread already said «16/10/2015» — one thread, two answers to
+      one question, which is the exact defect `chat_time.dart` exists to stop.
+      *Shipped:* past `SubscriptionStatus.maxCountedDays` the sentence is a date,
+      routed through `chatDayLabel` so the format is not written a second time
+      and cannot drift from the divider. The constant is read from `plan.dart`
+      rather than re-declared, so the rule has one home.
+      *The off-by-one, kept on purpose and now written down.* The bound is `>=`
+      here and `>` in `expiryCountdownAr`, so the two differ by one day: 365
+      days of **age** is dated, a 365-day remaining **term** is still counted.
+      The directions are not mirrors — a message exactly a year old is a count
+      accurate enough to be worth reading, whereas a year of prepaid cover is
+      the longest thing the founder sells and is exactly what a contractor reads
+      a day count for. The inherited comment claimed both surfaces "stop at the
+      same year", which the code contradicted; corrected rather than shipped.
+      *Proven by mutation.* Deleting the guard fails 3 of the 5 new tests, the
+      boundary case quoting the exact regression:
+      `Expected: '28/09/2025'  Actual: 'قبل 12 شهر'`. Restored afterwards;
+      `plan.dart` is byte-identical, and its blob is verified against the remote
+      tree precisely so the injected bug cannot have leaked.
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1309 passed / 3 skipped / 0 failed**, up from
+      1304/3/0. Not visual: a timestamp string in a list row was changed, not a
+      layout, so no screenshot is claimed and none should be.
+
+
 ## Loop protocol (read this before every cycle)
 
 **The host was rebuilt on 26 Sep 2026.** `/home/renia/*` no longer exists. Every
