@@ -342,6 +342,13 @@ class _BrowseScreenState extends State<BrowseScreen> {
         ],
       ),
     );
+    // The sheet is the app's own surface, so this is a real window: the phone
+    // is rotated mid-selection, or the activity is reclaimed and the sheet's
+    // route is gone while the answer is still delivered. Without this the draw
+    // lands on a dead `State` — and `_reload` would also have issued a search
+    // read that nobody is waiting for. The third `_pickWilaya` in the app
+    // (`project_new_screen.dart`) already guards this; these two copies did not.
+    if (!mounted) return;
     if (picked != null) {
       _wilaya = picked;
       _reload();

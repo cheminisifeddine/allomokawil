@@ -896,6 +896,18 @@ class _MarketplaceViewState extends State<MarketplaceView> {
         ],
       ),
     );
+    // The sheet is the app's own surface, so this is a real window: the phone
+    // is rotated mid-selection, or the activity is reclaimed and the sheet's
+    // route is gone while the answer is still delivered.
+    //
+    // The guard is here and **before** the two assignments, not just before
+    // `_reload()`, because they are not the same defect. A lost guard on the
+    // `setState` is a red frame; a lost guard on `_wilayaChosen` is a
+    // *silently wrong screen* — that flag is what stops `_seedFromPlace` from
+    // re-detecting the GPS wilaya over the man's own choice, so he picks
+    // وهران and gets his location back instead. The sibling `_editProfile` in
+    // this same file already reads `updated == null || !mounted`.
+    if (!mounted) return;
     if (picked != null) {
       _wilayaChosen = true;
       _wilaya = picked;
