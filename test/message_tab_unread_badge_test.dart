@@ -48,12 +48,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:allomokawil/src/core/app_scope.dart';
 import 'package:allomokawil/src/core/network/api_client.dart';
 import 'package:allomokawil/src/core/security/auth_state.dart';
+import 'package:allomokawil/src/core/l10n/strings.dart';
 import 'package:allomokawil/src/core/theme/app_theme.dart';
 import 'package:allomokawil/src/models/chat.dart';
 import 'package:allomokawil/src/screens/customer/customer_home_screen.dart';
 import 'package:allomokawil/src/screens/worker/worker_home_screen.dart';
 import 'package:allomokawil/src/widgets/notifications_bell.dart';
 import 'package:allomokawil/src/data/unread_message_count.dart';
+import 'package:allomokawil/src/data/unread_message_trust.dart';
 
 const _user = {
   'id': 7,
@@ -136,12 +138,17 @@ Future<void> _pumpHome(
   // `clipBehavior: Clip.none` — a boundary chosen from inside the bar is not
   // the bar's own box, and the pip hangs outside it.
   shotKey = GlobalKey();
+  liveMessages = null;
   await tester.pumpWidget(
     MaterialApp(
       home: AppScope(
         api: api,
         auth: auth,
-        child: RepaintBoundary(key: shotKey, child: screen),
+        child: Builder(builder: (context) {
+          // Read out of the scope the app is really running under.
+          liveMessages = AppScope.of(context).messages;
+          return RepaintBoundary(key: shotKey, child: screen);
+        }),
       ),
     ),
   );
@@ -151,6 +158,79 @@ Future<void> _pumpHome(
 /// Set by [_pumpHome] so the capture reads the boundary that was built there,
 /// rather than searching the tree for a box that may not be the one painted.
 GlobalKey? shotKey;
+
+/// Counts the pixels of one exact colour in a real capture of the bar.
+///
+/// The second half of the withdrawal test is settled here and not in a widget
+/// assertion, because the failure this guards is **invisible to a widget
+/// test**: a `StatelessWidget` that reads a `ChangeNotifier` during build
+/// produces a perfectly well-formed `Container` asking for the wrong colour,
+/// and `find.byKey` still finds it. Only the image shows what the user sees.
+///
+/// Returns **-1** when there are no pixels of that colour at all, which is
+/// distinct from zero pixels *of the pip* — `tool/px_count.py`'s header
+/// records that a broken probe reports `0` for a screen full of text, and a
+/// test cannot tell that from an honest zero.
+Future<int> _countPipColour(WidgetTester t, Color colour) async {
+  final boundary =
+      shotKey!.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+  await t.runAsync(() async {
+    final image = await boundary.toImage(pixelRatio: 3.0);
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    Directory('/tmp/shots').createSync(recursive: true);
+    File('/tmp/shots/tab_badge_unconfirmed.png')
+        .writeAsBytesSync(bytes!.buffer.asUint8List());
+  });
+  // `Color.r`/`.g`/`.b` are **doubles in 0..1** in this SDK, not the 0..255
+  // ints of the deprecated `.red`/`.green`/`.blue`. Interpolating them straight
+  // into the argument produced `0.9647,0.639,0.239`, `int()` threw inside the
+  // probe, and the helper returned -1. That is the sentinel doing its job — a
+  // broken probe reporting an honest `0` is how a pixel assertion silently
+  // passes against a blank screen.
+  final hex = <int>[
+    (colour.r * 255).round(),
+    (colour.g * 255).round(),
+    (colour.b * 255).round(),
+  ].join(',');
+  final r = Process.runSync(
+      'python3', ['tool/px_count.py', '/tmp/shots/tab_badge_unconfirmed.png', hex]);
+  final out = (r.stdout as String).trim();
+  final n = int.tryParse(out.split('\n').last.trim());
+  return n ?? -1;
+}
+
+/// The flag the live app is using, captured out of the tree it was built in.
+///
+/// **Never a locally constructed one.** A test that builds its own flag proves
+/// the flag works and says nothing about whether the app is connected to it —
+/// and that is precisely how the first version of this feature shipped dead:
+/// the object existed, the pip read it, and nothing ever constructed it.
+UnreadMessageTrust? liveMessages;
+
+/// Reads the `Semantics` label the pip carries, or null when it carries none.
+///
+/// Walks the widget tree rather than the semantics tree on purpose. The pip
+/// sets `excludeSemantics: true` and puts the words on the wrapping
+/// `Semantics`, so the node keyed `tab-badge-N` is the thing that has been
+/// stripped of its own label; the qualifier lives one level up. Reading the
+/// wrong node returns the bare digits, and an assertion built on that would
+/// pass against a pip that never learned to speak.
+String? _badgeSemantics(int count) {
+  final pip = find.byKey(Key('tab-badge-$count'));
+  if (pip.evaluate().isEmpty) return null;
+  // **The NEAREST wrapping `Semantics`, not the first non-empty one.** The
+  // pip sits inside the tab's own `Semantics`, which carries the destination
+  // name «الرسائل»; taking the first non-empty label returned that and the
+  // assertion below passed for the wrong reason on a confirmed pip. The
+  // qualifier is the one directly on the pip.
+  final widget = find
+      .ancestor(of: pip, matching: find.byType(Semantics))
+      .evaluate()
+      .map((e) => (e.widget as Semantics).properties.label)
+      .whereType<String>()
+      .firstWhere((l) => l == S.notifCountUnconfirmed, orElse: () => '');
+  return widget.isEmpty ? null : widget;
+}
 
 /// The messages tab is index 2 in both shells.
 const _messagesTab = 2;
@@ -311,6 +391,102 @@ void main() {
 
       await _openTab(t, _messagesTab);
       expect(_badgeWith(5), findsOneWidget);
+    });
+
+    testWidgets('a read that fails mutes the pip and the digits survive',
+        (t) async {
+      await _loadCairo();
+
+      // **This is the case the badge was missing.** The count is the last
+      // number the phone read, painted in `AppTheme.accent` — the app's one
+      // "do this" colour — for ever after the read that produced it failed. A
+      // contractor on a dead connection read a confident gold «4»; twenty
+      // minutes later, the same gold 4. Nothing on screen separated *4 right
+      // now* from *4 as of 10:42*.
+      //
+      // The inbox one tap below already has an honest failed state
+      // («تعذّر جلب الرسائل» + retry), so the one gesture that would reveal the
+      // truth is the gesture the badge exists to replace.
+      var fail = false;
+      final api = ApiClient(
+        baseUrls: const ['https://x.test'],
+        httpClient: MockClient((req) async {
+          final p = req.url.path;
+          if (p.endsWith('/api/login') || p.endsWith('/api/register')) {
+            return _json({'token': 'tok', 'user': _user});
+          }
+          if (p.endsWith('/api/unread')) return _json(9);
+          if (p.endsWith('/api/mobile/conversations')) {
+            if (fail) throw Exception('offline');
+            return _json([_conv(1, unread: 4)]);
+          }
+          return _json(<Object>[]);
+        }),
+      );
+      SharedPreferences.setMockInitialValues({});
+      final auth = AuthState(api);
+      await auth.restore();
+      await auth.login(
+          phone: '0773000000', password: 'secret123', rememberMe: true);
+      shotKey = GlobalKey();
+      await t.pumpWidget(MaterialApp(
+        home: AppScope(
+          api: api,
+          auth: auth,
+          child: RepaintBoundary(key: shotKey, child: const WorkerHomeScreen()),
+        ),
+      ));
+      await t.pumpAndSettle();
+      expect(_badgeWith(4), findsOneWidget);
+
+      // The confirmed state, counted in real pixels: gold present, muted absent.
+      final goldBefore = await _countPipColour(t, AppTheme.accent);
+      final mutedBefore = await _countPipColour(t, AppTheme.textMuted);
+      expect(goldBefore, greaterThan(0),
+          reason: 'a landed read paints the action colour');
+
+      fail = true;
+      await t.background();
+      await t.resume();
+
+      // **The digits are still there.** Zeroing the badge is the obvious move
+      // and is WORSE than the bug: 0 is «أنت على اطّلاع» — a claim — and a 0
+      // that appears because a request dropped is a message the user was told
+      // he does not have. What the pip owes is the qualifier, not the number.
+      expect(_badgeWith(4), findsOneWidget,
+          reason: 'the count is the phone\'s best estimate, not a claim');
+      expect(_badgeWith(0), findsNothing);
+
+      // **And the pixels moved.** Asserting the flag flipped would prove
+      // nothing: the whole failure mode this guards is a state that is
+      // withdrawn and never painted, which is exactly what a `StatelessWidget`
+      // reading a `ChangeNotifier` during build does.
+      final goldAfter = await _countPipColour(t, AppTheme.accent);
+      final mutedAfter = await _countPipColour(t, AppTheme.textMuted);
+      expect(mutedAfter, greaterThan(mutedBefore),
+          reason: 'the pip goes muted, so the muted fill appears');
+      expect(goldAfter, lessThan(goldBefore),
+          reason: 'the action colour stops claiming a count the phone cannot check');
+    });
+
+    testWidgets('the muted state is announced, not only painted', (t) async {
+      // Colour is the one difference a screen reader cannot see, and the only
+      // thing that differs between the two states is the colour. If the words
+      // are not on the node, a blind user is told exactly the same thing either
+      // way — which makes the whole feature unreachable for him.
+      await _pumpHome(t, [_conv(1, unread: 4)]);
+
+      // The confirmed pip carries no qualifier at all.
+      expect(_badgeSemantics(4), isNull,
+          reason: 'a fresh count needs no qualifier');
+
+      // A withdrawal puts the words on the node that carries the digits, and
+      // the same flag the shells withdraw.
+      liveMessages!.withdraw();
+      await t.pumpAndSettle();
+
+      expect(_badgeSemantics(4), S.notifCountUnconfirmed,
+          reason: 'the state is heard, not only painted');
     });
 
     testWidgets('caps the digits at 99+', (t) async {

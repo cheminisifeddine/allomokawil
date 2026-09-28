@@ -12,6 +12,7 @@ import '../../core/theme/motion.dart';
 import '../../data/photo_count_copy.dart';
 import '../../data/project_search.dart';
 import '../../data/repository.dart';
+import '../../data/unread_message_trust.dart';
 import '../../data/taxonomy.dart';
 import '../../data/quote_count_copy.dart';
 import '../../data/unread_message_count.dart';
@@ -54,7 +55,16 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen>
   int _tab = 0;
   late final Repository _repo;
 
+  /// The tab badge's confirmation flag, read from the scope in
+  /// [didChangeDependencies] — see `app_scope.dart` on why a flag has to
+  /// outlive the route that withdrew it.
+  late final UnreadMessageTrust _messages;
+
   bool _scopeReady = false;
+
+  /// Captured with the repository, so the flag and the client that feeds it
+  /// come from the same read of the scope.
+  late final AppScope _scope;
 
   @override
   void initState() {
@@ -123,11 +133,15 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen>
     _conversations = future;
     future.then((list) {
       if (!mounted || token != _conversationToken) return;
+      _messages.restore();
       setState(() => _unreadMessages = unreadMessageTotal(list));
     }).catchError((Object _) {
       // Leave the count alone: the last number we actually read is better
       // than a zero that claims he has nothing, and better than a stale
-      // number presented as fresh.
+      // number presented as fresh — but say out loud that it is the latter.
+      // Muting the pip is what stops "better than a stale number presented as
+      // fresh" from quietly meaning "presented as fresh".
+      _messages.withdraw();
     });
   }
 
@@ -137,7 +151,9 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen>
     // AppScope is an InheritedWidget, so it cannot be read in initState.
     if (_scopeReady) return;
     _scopeReady = true;
-    _repo = Repository(AppScope.of(context).api);
+    _scope = AppScope.of(context);
+    _repo = Repository(_scope.api);
+    _messages = _scope.messages;
     _readConversations();
   }
 
@@ -204,6 +220,12 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen>
           // badge exists to make impossible.
           onRead: (list) {
             if (!mounted) return;
+            // A **landed** conversations read, so the count is the server's
+            // again. Without this the pip would stay muted for ever after the
+            // first dropped request: the withdrawal would have no matching
+            // restore, because the resume path and this callback are the two
+            // places a read actually lands.
+            _messages.restore();
             setState(() => _unreadMessages = unreadMessageTotal(list));
           },
         ),
@@ -228,7 +250,11 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen>
               icon: Icons.chat_bubble_outline_rounded,
               activeIcon: Icons.chat_bubble_rounded,
               label: 'الرسائل',
-              badge: _unreadMessages),
+              badge: _unreadMessages,
+              // The one destination whose count comes from the conversations
+              // table, and so the one that can be unconfirmed. Stated as a
+              // flag on the item rather than matched on the label.
+              countsMessages: true),
           const AppTabItem(
               icon: Icons.person_outline_rounded,
               activeIcon: Icons.person_rounded,

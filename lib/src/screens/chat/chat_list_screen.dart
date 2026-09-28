@@ -6,6 +6,7 @@ import '../../core/theme/app_theme.dart';
 import '../../data/chat_outbox.dart';
 import '../../data/notification_copy.dart';
 import '../../data/repository.dart';
+import '../../data/unread_message_trust.dart';
 import '../../models/chat.dart';
 import '../../models/enums.dart';
 import '../../widgets/empty_state.dart';
@@ -67,6 +68,16 @@ class _ChatListScreenState extends State<ChatListScreen> {
   late Future<List<Conversation>> _future;
   late final ChatOutbox _outbox;
 
+  /// The «الرسائل» tab's confirmation flag, or null when this list is pumped
+  /// with no scope above it.
+  ///
+  /// **Nullable and resolved in [didChangeDependencies], not [initState]**,
+  /// because [_arm] runs in `initState` and an `InheritedWidget` cannot be
+  /// read there. The handlers use `?.`, so a read that fails before the first
+  /// dependency pass simply has nowhere to withdraw — which is honest: a list
+  /// with no shell above it has no tab badge to mute.
+  UnreadMessageTrust? _messages;
+
   /// Conversation id -> messages that are still only on this phone. The inbox is
   /// the last place a user can notice that a message never left: without this,
   /// an unsent message is invisible from every screen except the thread it was
@@ -91,6 +102,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
     _loadQueued();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _messages = AppScope.maybeOf(context)?.messages;
+  }
+
   /// Points the list at a read, and tells the shell what that read came back
   /// with.
   ///
@@ -103,9 +120,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
     if (onRead == null) return;
     read.then((list) {
       if (!mounted) return;
+      _messages?.restore();
       setState(() => _cache = list);
       onRead(list);
-    }, onError: (_, __) {});
+    }, onError: (_, __) {
+      // **This is the most direct of the three failure paths**, and the
+      // backlog filed it as the one that was easiest to forget: the inbox's own
+      // read *is* the read the tab badge is summed from, so a failure here is
+      // the badge losing its source rather than something adjacent to it. The
+      // inbox already tells the truth on screen («تعذّر جلب الرسائل»); this
+      // makes the tab stop contradicting it one tap earlier.
+      _messages?.withdraw();
+    });
   }
 
   @override

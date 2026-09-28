@@ -7,6 +7,7 @@ import '../../core/location/place_state.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/first_run.dart';
 import '../../data/repository.dart';
+import '../../data/unread_message_trust.dart';
 import '../../data/unread_message_count.dart';
 import '../../data/taxonomy.dart';
 import '../../models/chat.dart';
@@ -41,6 +42,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
     with WidgetsBindingObserver, UnreadCountOnResume {
   int _tab = 0;
   late final Repository _repo;
+
+  /// The tab badge's confirmation flag. See `worker_home_screen.dart` and
+  /// `app_scope.dart` — same flag, same reason it lives in the scope.
+  late final UnreadMessageTrust _messages;
   late Future<List<WorkerProfile>> _topWorkers;
 
   @override
@@ -115,9 +120,15 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
     final token = _unreadToken;
     future.then((list) {
       if (!mounted || token != _unreadToken) return;
+      _messages.restore();
       if (_unreadMessages == unreadMessageTotal(list)) return;
       setState(() => _unreadMessages = unreadMessageTotal(list));
-    }).catchError((Object _) {});
+    }).catchError((Object _) {
+      // A failed conversations read is the badge's own read, so it is the most
+      // direct way for the count to stop being a fact. Mute the pip; do not
+      // zero it — see `unread_message_trust.dart`.
+      _messages.withdraw();
+    });
   }
 
   /// Bumped per read so a stale answer cannot overwrite a newer one.
@@ -144,7 +155,9 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
     // AppScope is an InheritedWidget, so it cannot be read in initState.
     if (_scopeReady) return;
     _scopeReady = true;
-    _repo = Repository(AppScope.of(context).api);
+    final scope = AppScope.of(context);
+    _repo = Repository(scope.api);
+    _messages = scope.messages;
     _guest = AuthGate.isGuest(context);
     _place = AppScope.maybeOf(context)?.place;
     _place?.addListener(_onPlaceChanged);
@@ -329,6 +342,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
           // inbox last drew — two numbers for one thing on one screen.
           onRead: (list) {
             if (!mounted) return;
+            // A **landed** conversations read, so the count is the server's
+            // again. The same restore the contractor's shell keeps at its
+            // `onRead`: without it a single dropped request mutes the pip for
+            // the rest of the session, because the withdrawal would have no
+            // matching restore on the path a read actually lands.
+            _messages.restore();
             setState(() => _unreadMessages = unreadMessageTotal(list));
           },
         ),
@@ -353,7 +372,11 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
               icon: Icons.chat_bubble_outline_rounded,
               activeIcon: Icons.chat_bubble_rounded,
               label: 'الرسائل',
-              badge: _unreadMessages),
+              badge: _unreadMessages,
+              // The one destination whose count comes from the conversations
+              // table, and so the one that can be unconfirmed. Stated as a
+              // flag on the item rather than matched on the label.
+              countsMessages: true),
           const AppTabItem(
               icon: Icons.person_outline_rounded,
               activeIcon: Icons.person_rounded,

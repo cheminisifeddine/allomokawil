@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../data/notification_count_trust.dart';
+import '../data/unread_message_trust.dart';
 import 'location/place_state.dart';
 import 'network/api_client.dart';
 import 'security/auth_state.dart';
@@ -18,9 +19,11 @@ class AppScope extends InheritedWidget {
     required this.auth,
     PlaceState? place,
     NotificationCountTrust? trust,
+    UnreadMessageTrust? messages,
     required super.child,
   })  : place = place ?? PlaceState.detached(),
-        trust = trust ?? NotificationCountTrust();
+        trust = trust ?? NotificationCountTrust(),
+        messages = messages ?? UnreadMessageTrust();
 
   final ApiClient api;
   final AuthState auth;
@@ -54,6 +57,26 @@ class AppScope extends InheritedWidget {
   /// holding its own flag proves that flag works, and says nothing about
   /// whether the app is connected to it.
   final NotificationCountTrust trust;
+
+  /// Whether the unread count the «الرسائل» tab paints is still a server
+  /// answer.
+  ///
+  /// **A second flag, and never [trust].** The two pips are drawn from two
+  /// different tables — [trust] is the notifications row count over
+  /// `/api/unread`, this is the sum of per-thread `unread_count` over
+  /// `/api/mobile/conversations` — and the reason they cannot share a flag is
+  /// the same reason the badge exists at all. See
+  /// `unread_message_count.dart`.
+  ///
+  /// It lives here for the reason [trust] does: a flag owned by the header is
+  /// destroyed by the pop, and the tab bar has to outlive the route that
+  /// withdrew it.
+  ///
+  /// **Never null**, for the same reason: a screen pumped on its own still
+  /// builds, and a test reads the flag back out of this scope rather than
+  /// constructing its own — a test holding its own flag proves that flag
+  /// works and says nothing about whether the app is connected to it.
+  final UnreadMessageTrust messages;
 
   static AppScope of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<AppScope>();
