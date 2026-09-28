@@ -52,6 +52,29 @@ class _NotificationsBellState extends State<NotificationsBell>
   /// resume, which is worse than a stale one.
   bool _refreshing = false;
 
+  /// A read was asked for while another was in flight, and it is not the same
+  /// question — see [_refresh].
+  ///
+  /// **This flag exists because the guard above was swallowing the one read
+  /// that cannot be dropped.** Coalescing is right only when the two asks are
+  /// the same question: two resumes inside one frame both mean «what is
+  /// unread right now», and the answer already in flight is that answer. The
+  /// read that follows coming back from the centre is *not* the same
+  /// question. The user has just marked notifications read, and the read in
+  /// flight was issued before that write, so it is holding a snapshot of a
+  /// world that has since moved on. Silently dropping the correcting ask left
+  /// the header painted with the count from before he emptied the centre: a
+  /// pip standing over a screen he just cleared, disagreeing with it in
+  /// public, and never re-read — because nothing else observes the count until
+  /// he leaves the app and comes back, which is the one thing the resume
+  /// refresh is there to prevent.
+  ///
+  /// So a superseding ask is remembered and served as soon as the in-flight
+  /// read returns, and that read's own answer is **not painted**: it is a
+  /// number the user has already been shown to be out of date, and flashing
+  /// it for the length of one request is the same lie held for shorter.
+  bool _superseded = false;
+
   @override
   void initState() {
     super.initState();
@@ -97,8 +120,21 @@ class _NotificationsBellState extends State<NotificationsBell>
     _refresh();
   }
 
-  Future<void> _refresh() async {
+  /// Reads the pip's number.
+  ///
+  /// [force] is the difference between *the same question twice* and *a
+  /// different one*. A lifecycle resume leaves it false, so a second resume
+  /// inside the same frame is coalesced into the read already open. Coming
+  /// back from the centre passes true, because the count the in-flight read is
+  /// holding predates the write the user just made.
+  Future<void> _refresh({bool force = false}) async {
     if (_refreshing) {
+      if (!force) {
+        return;
+      }
+      // Answered by the in-flight read's own completion, not queued behind a
+      // second open request: one read is still enough to find out.
+      _superseded = true;
       return;
     }
     _refreshing = true;
@@ -107,11 +143,20 @@ class _NotificationsBellState extends State<NotificationsBell>
       if (!mounted) {
         return;
       }
+      if (_superseded) {
+        // A newer ask arrived while this was open, so this number is already
+        // known to be behind and is not drawn at all.
+        return;
+      }
       setState(() => _unread = n);
     } catch (_) {
       // Keep the last known count: a dropped request is not a broken header.
     } finally {
       _refreshing = false;
+      if (_superseded) {
+        _superseded = false;
+        await _refresh(force: true);
+      }
     }
   }
 
@@ -124,7 +169,9 @@ class _NotificationsBellState extends State<NotificationsBell>
       MaterialPageRoute<void>(builder: (_) => NotificationsScreen(repo: _repo)),
     );
     if (mounted) {
-      await _refresh();
+      // Forced: he may have marked things read in there, and the count the
+      // in-flight read is holding was asked for before he did.
+      await _refresh(force: true);
     }
   }
 

@@ -6092,3 +6092,70 @@ running app for defects like these rather than inventing a feature.
       user leaves with is the pip he comes back to. The bell already guards a
       stale count on resume; what is untested is the **mark-read → pop-back →
       pip** round trip when the write was refused.
+
+### Phase 5 — engineering hardening: a pip the user could not put away, because
+#### the read that would have put it away was thrown away on the way
+
+- [x] **The unread pip was painted with a number the app had already been told
+      was wrong.** The last cycle closed every `POST` in `Repository` and handed
+      this one over: *the mark-read → pop-back → pip round trip*. Two screens
+      compute the unread count independently — `NotificationsBell._refresh` asks
+      `/api/unread`, and `_NotificationsScreenState._unread` counts the rows the
+      centre drew — and nothing pinned that the pip the user leaves with is the
+      pip he comes back to.
+      *The defect, and it is in the guard that was there to prevent a different
+      one.* `_refresh` opened with `if (_refreshing) return;`. That is right for a
+      lifecycle resume: two resumes in one frame ask the *same* question, and the
+      answer in flight is the answer to it — spending a second request only risks
+      the slower one landing last and painting a badge that goes backwards. It is
+      wrong for the read that follows coming back from the centre, because that is
+      not the same question. The user has just marked notifications read; the read
+      in flight was issued **before** that write, so it is holding a snapshot of a
+      world that has since moved on, and the one call that would correct it is the
+      call the guard deletes. So: resume with a read open on a 3G bar → open the
+      centre → mark everything read (server count now 0) → tap back → **the
+      correcting read is dropped** → the in-flight read answers with the pre-write
+      number and the header paints a pip over a centre he just emptied. Nothing
+      re-reads afterwards, so it stays wrong until he next leaves and returns to
+      the app — the one thing the resume refresh exists to prevent. The centre
+      and the pip disagree in public, one gesture apart, and the user is the only
+      one who can see it.
+      *Fixed, and the fix keeps the guard's original job.* `_refresh` takes
+      `force`. A resume leaves it false, so the same question is still coalesced
+      into the read already open. A pop-back passes true: a superseding ask is
+      remembered in `_superseded` and served as soon as the in-flight read
+      returns — and that read's own answer is **not painted at all**, because it
+      is a number the user has already been shown to be behind, and flashing it
+      for the length of one request is the same lie held for shorter.
+      *The test is built on a snapshot fake, which is the whole point.* A fake
+      that reads `unread` at response time answers with the *new* number and makes
+      the bug look harmless — the mistake `notification_center_test` already made
+      once. `_Held` captures the count when the request **arrives**, then blocks
+      on a gate, so the answer is stale by construction. It also counts `requests`
+      and `served` separately: the second read must actually *land*, not merely be
+      requested. A second case pins the guard's original purpose so the fix cannot
+      quietly cost it — two resumes in one frame must still spend one request.
+      *Red before green is verified, not claimed:* with `_refresh` reverted to
+      `if (_refreshing) return;` the first case fails on exactly the defect
+      (`Expected: <2> Actual: <1> — the pop-back must spend the read the guard
+      deleted`) while the coalescing case still passes, which is what makes the
+      first failure meaningful rather than a broken harness.
+      *Evidence.* `flutter analyze` → **No issues found!** (5.0 s).
+      `flutter test` → **1270 passed / 3 skipped / 1 failed** (was 1268/3/1, **+2**).
+      The one failure is `subscription_clock_test.dart`, which I confirmed is
+      pre-existing rather than assuming it: it fails **in isolation**, and it
+      fails **identically on a clean stashed tree** with none of this cycle's code
+      in its import graph. It is a timezone assumption — the box is UTC, the case
+      wants an Algiers day. Left alone on purpose: it is not a regression, and
+      fixing it is its own item.
+      *Files:* `lib/src/widgets/notifications_bell.dart`,
+      `test/unread_round_trip_test.dart` (new).
+      *Commit:* `ffe21d8`.
+      *Next:* the read side is now covered where two screens shared a number, but
+      only for the **successful** write. The refused write is still untested on
+      this path: `_markRead` shows the centre's own «أعد المحاولة» copy when the
+      re-read cannot confirm, and then `_open` still fires a forced `_refresh`,
+      which re-reads a count the user was just told the app does not know. The
+      next pass should pin what the pip does when the write was refused and the
+      re-read could not run — does it agree with the sentence the user just read,
+      or does it quietly repaint a number the app has disclaimed?
