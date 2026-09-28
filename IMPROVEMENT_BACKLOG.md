@@ -5596,3 +5596,102 @@ running app for defects like these rather than inventing a feature.
       writer is the **photo** side of the send path, where the same
       `lastPersisted` discipline has never been applied to the image file the
       user picked, as opposed to the record naming it.
+
+- [x] **An edit that never saved was reported as saved, and the screen never
+      even asked the right question.** Local `8f77877`, remote `9bae78e`. The
+      eighth write in the app to be put behind the unconfirmed-write contract,
+      and the first one where the **false sentence is the success one**.
+      `ProjectNewScreen` reused the create path's recheck verbatim:
+      `myProjects().any((p) => p.title.trim() == publishedTitle)`.
+
+      *Why that question cannot answer for an edit.* It is **tautological**: the
+      project is already in the user's own list, under its *old* title, and the
+      answer is `true` before the PATCH is sent. So every ambiguous edit was told
+      «وجدناه في القائمة — الطلب وصل بنجاح» and the form popped as it does on
+      success. A client who fixed a mistyped budget, corrected a phone number in
+      the description or removed a photo watched the change silently revert, and
+      a removed photo came back on the next load. The roles are *reversed* from
+      the chat and portfolio bugs: nothing is duplicated, which is exactly why
+      `threadHolds` and `portfolioHolds` do not cover it — there, the false
+      sentence was the failure one.
+
+      *The trap, and it is the part worth keeping.* The only write on this
+      screen that can be **unconfirmed** is the photo upload.
+      `ApiClient.patch` is declared `idempotent: true` (a PATCH writes a fixed
+      field set to one row, so a re-send lands the same values and cannot create
+      a second one), so `_withFailover` only ever throws `S.errOffline` for it.
+      A bare `POST /api/upload` is not idempotent, and an upload that left the
+      phone and was never answered is exactly the ambiguous case. The upload
+      runs **first**, inside `_submit`, before the PATCH is even built.
+      The previous tick's version assigned the snapshot *after* the upload loop
+      — so in the one case that needed it, `sent` was `null` and the new branch
+      was unreachable dead code. The tautology survived a fix that looked
+      correct. It is now built **before** the loop, which is also the only
+      moment the form's values are still live.
+
+      *What an edit can ask and a create cannot.* An edit sends the whole row,
+      so the server's copy of it **is** the write. Every field is compared
+      (primary trade *and* the full set, budget as one pair, photos as a
+      multiset), and the mismatch is **named**:
+      «ما زال المشروع يحمل: الميزانية — أعد المحاولة». Naming the field is the
+      whole point — «لم يُحفظ التعديل» sends a client who just fixed a budget
+      back into the form to compare every box by eye. Only the *first*
+      disagreement is spoken; a client who changed the budget and the
+      description learns less from «الميزانية، الوصف» than from one place to look.
+
+      *The photo is deliberately not compared, and that took two passes.* The
+      server's copy of the row is byte-identical whether the blob reached R2 or
+      never left the phone, so a predicate that asked about it would report the
+      picture as lost on every stalled upload and the user would re-add a photo
+      already on the server. It is counted as `pendingPhotos` and given its own
+      sentence, «حُفظت التعديلات، أما %s فلم يصلنا جوابها» — not a caveat bolted
+      onto a success claim, because «التعديلات محفوظة» is a claim about
+      *everything* the form sent. The count is [photosAr], borrowed rather than
+      re-spelled: a fourth hand-written photo count in this app is how the first
+      three came to disagree. The *kept* photos **are** still compared — a photo
+      the user removed is knowable (the re-read proves the PATCH never went, so
+      the server still holds it) and worth saying. The first pass removed that
+      too and the suite caught it.
+
+      *Also here:* `hideCurrentSnackBar` before the outcome toast, because two
+      `showSnackBar` calls **queue** — the answer sat behind «نتحقّق الآن من
+      القائمة…» for that sentence's full duration. The portfolio screen already
+      does this for the same two-sentence pattern.
+
+      *Four harness failures, all mine, all fixed rather than waived.* (1) The
+      add-photo tile is 392 dp down a scrolling form, so `tester.tap` on the
+      label's `Text` hit whatever was at those coordinates, the picker never
+      opened, and **every assertion in the group passed for the wrong reason** —
+      the upload loop was empty and the PATCH ran. Driven as the `InkWell`
+      ancestor and scrolled to, and now asserted on the thumbnail's semantic
+      label. (2) A picker path that does not exist on disk: `Image.file` throws
+      inside the build and the thumbnail never reaches the tree. It needs a real
+      1 px PNG. (3) `expect(said, contains(S.fieldBudget))` on a `List<String>` is
+      *element* equality, so a sentence that **embeds** the field name can never
+      match — the screen was already right and the test could only ever fail. (4)
+      The PATCH mock returned `{'ok': true}` while `updateProject` runs the
+      answer through `Project.fromJson`, so the decode threw and the screen
+      reported «حدث خطأ غير متوقع» — which reads as a failure the fix caused.
+
+      *Red before green, and it failed harder than expected.* Against the
+      pre-fix source the test does not merely see a wrong sentence: **the
+      project is never re-read at all** — `patches=0 rereads=0`, because the
+      old code falls through to the list query the defect lives in and answers
+      from the client's own stale list.
+
+      *Evidence:* `flutter analyze` -> **No issues found!** (9.2 s).
+      `flutter test` -> **1163 passed / 3 skipped / 1 failed** (was 1141/3/1; the
+      new file is the +22). Not visual — the write path and two toasts, no
+      pixels moved, so no screenshot applies.
+
+      *The one failure is `subscription_clock_test.dart` «a plan ending
+      tomorrow counts 1, never 0 and never -3». **Pre-existing, not mine** — it
+      is untouched by this cycle and the previous tick verified it fails
+      identically on a clean tree. It builds a date two days out and asserts its
+      own captured stdout contains no `-3`, which its surrounding `print` lines
+      put there. Left for its own tick.
+
+      *Next:* the write-outcome contract is now on all eight writes. The unwritten
+      surface left is project photo **deletion** — a photo shown with a delete
+      affordance on the public profile would be a ninth write, and the profile
+      screen has none of this either.
