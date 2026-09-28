@@ -6715,3 +6715,75 @@ running app for defects like these rather than inventing a feature.
       `customer_home_screen.dart:120` and `chat_list_screen.dart:108`. The
       code comments that previously argued the opposite merge have been
       corrected, so nothing in the tree will mislead the implementation.
+
+### Phase 5 — engineering hardening: the mounted guard was added to the thread
+#### and never to the three screens a picker can outlive
+
+- [ ] **Six `setState` calls sit after an `await` with no `mounted` guard, in
+      the three screens that open the OS gallery.** The loop shipped this exact
+      fix for the chat screen (`8c9434a`, `test/chat_unmount_test.dart`) and
+      `chat_screen.dart` now carries **19 `mounted` guard statements** (21 code
+      occurrences, comments excluded) — its two image and text send paths, plus
+      every post-`await` draw in `_settleUnconfirmed` and `_deliver`. The pattern is established and correct. It was applied to
+      the thread and to nothing else, and these are the three screens that
+      hand control to the **OS image picker** — an activity that can be
+      backgrounded, killed from recents, or answered much later, which is a
+      longer window than the chat screen's own `SharedPreferences` write.
+      Verified sites, each read individually rather than pattern-matched:
+
+      | # | file | line | the `await` | the draw |
+      | --- | --- | --- | --- | --- |
+      | 1 | `project_new_screen.dart` | 242 | `pickMultiImage(limit: room)` | `_images.addAll(...)` |
+      | 2 | `project_new_screen.dart` | 450 | `_detour(showModalBottomSheet<String>)` | wilaya + clears commune |
+      | 3 | `project_new_screen.dart` | 474 | `_detour(showModalBottomSheet<String>)` | `_commune.text = picked` |
+      | 4 | `verification_screen.dart` | 96 | `pickImage(gallery)` | `_certs[index] = file` |
+      | 5 | `verification_screen.dart` | 104 | `pickImage(gallery)` | `_docs[index] = (...)` |
+      | 6 | `my_portfolio_screen.dart` | 198 | `pickImage(source, q78, w1600)` | `_busy = true` + `_error = null` |
+
+      **What is proven and what is not — read this before sizing the fix.**
+      Proven, by reading each function: the draw is unguarded in all six, and
+      the same file guards its *other* post-`await` draws (`project_new_screen`
+      guards its submit path with `if (mounted)`, `my_portfolio_screen` guards
+      the registration at `:213` and the `finally` at `:264`), so these are
+      omissions in an otherwise-guarded file rather than a deliberate style.
+      **Not proven: that any of the six is reachable with the `State` already
+      disposed.** I checked for the in-app disposers — there is no
+      `pushAndRemoveUntil`, no `popUntil` and no `navigatorKey` anywhere in
+      `lib/`, and the only `popUntil` callers are `auth_screen` and
+      `review_screen`, neither of which can pop these routes. So the honest
+      statement is: the guards are missing, the shape is the one that crashed
+      the thread, and **no reachable pop path has been identified**. The two
+      remaining ways in are the ones the loop cannot see from source: the user
+      swiping the app away from recents while the picker is foreground, and
+      the OS reclaiming the activity. Both dispose the `State` with no Dart
+      code running, and neither is answerable by reading this repository.
+      Filing it unchecked rather than claiming a crash the audit did not
+      reproduce, because the previous two entries were corrected for exactly
+      that and the next tick should not inherit the error.
+
+      *The cheapest honest fix, if the next tick wants one:* `if (!mounted)
+      return;` immediately after each of the six `await`s, matching
+      `chat_screen.dart:842`. Note the three `project_new` ones lose a
+      `setState` that also updates `_detected`/`_commune`, so a guard there
+      must return before the whole closure, not inside it. Site 6 is the
+      one to reason about: its draw is `_busy = true`, so a lost guard is not
+      a crash but a permanently stuck spinner if the upload then runs.
+      *Test to write first (red before green):* a `State` popped under a
+      picker that never answers, in the shape of `test/chat_unmount_test.dart`
+      — that file already holds the reusable `OutboxStore`-style never-answer
+      double, and the harness has to fake `ImagePicker` through the same
+      seam, which is the part that is real work rather than a copy.
+      *Floor to beat:* **1292 passed / 3 skipped / 1 failed** (the one failure
+      is `subscription_clock_test`, pre-existing and unrelated).
+
+      *Status 29 Sep — filed, not implemented.* The build gate is still held
+      by the orphaned `flutter_tester` (pid 13912, PPID 1, 0-tick CPU over a
+      6 s sample, tenth consecutive tick), so `flutter analyze` and
+      `flutter test` could not be run. Per the protocol this tick took the
+      non-build item the gate allows: a read-only audit, with every site
+      re-read after the first automated pass rejected two false positives —
+      `chat_screen.dart:548` (the guard sits at the top of the enclosing
+      `catch`, seven lines up) and `my_portfolio_screen.dart:262` (guarded the
+      same way, at `:229`, and unreachable behind `return`). The six filed
+      sites are the ones that survived both checks. Nothing was committed to
+      `lib/`, so there is no red build and nothing to re-validate later.
