@@ -6782,8 +6782,14 @@ running app for defects like these rather than inventing a feature.
       `flutter test` could not be run. Per the protocol this tick took the
       non-build item the gate allows: a read-only audit, with every site
       re-read after the first automated pass rejected two false positives —
+      **and with the «17 mounted references» figure in the first draft of this
+      entry caught as wrong on re-check and corrected to 19 guard statements
+      (21 code occurrences) before the commit** —
       `chat_screen.dart:548` (the guard sits at the top of the enclosing
       `catch`, seven lines up) and `my_portfolio_screen.dart:262` (guarded the
       same way, at `:229`, and unreachable behind `return`). The six filed
       sites are the ones that survived both checks. Nothing was committed to
       `lib/`, so there is no red build and nothing to re-validate later.
+      *Commit:* local `0dc837e` / remote `da1812c`, **blob MATCH** verified
+      against the remote tree and the entry's text confirmed present in the
+      remote copy of the file.
