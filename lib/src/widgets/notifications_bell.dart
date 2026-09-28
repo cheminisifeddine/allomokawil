@@ -10,10 +10,18 @@ import '../screens/notifications/notifications_screen.dart';
 
 /// Bell plus unread pip for the two home headers.
 ///
-/// The count comes from the same `/api/unread` endpoint the message tab
-/// already trusts. A failed call keeps the last known count instead of
-/// painting an error on the header, and the count is refreshed on the way back
-/// from the centre, so opening a notification clears the pip.
+/// The count comes from `/api/unread` (`Repository.unreadCount`), which is
+/// the **notifications** table and NOT the message tab's number. A failed call
+/// keeps the last known count instead of painting an error on the header, and
+/// the count is refreshed on the way back from the centre, so opening a
+/// notification clears the pip.
+///
+/// It is a different number from the badge on «الرسائل», and that is correct:
+/// this pip is cleared by `/api/notifications/read`, the badge by reading a
+/// thread. An earlier version of this comment claimed the message tab reads
+/// this same endpoint; it reads `/api/mobile/conversations` instead. Painting
+/// one count in two places would have put two different numbers for the same
+/// thing on one screen. `unread_message_count.dart` has the full argument.
 ///
 /// **The count is also refreshed when the app comes back to the foreground**,
 /// which is the moment it actually goes stale. Before this, `_refresh` ran

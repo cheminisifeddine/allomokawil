@@ -6590,6 +6590,49 @@ running app for defects like these rather than inventing a feature.
       dropped read on a 3G bar leaves the last number up with no signal that
       anything happened at all.
 
+      *CORRECTION (28 Sep, source-level audit before implementing).* Two
+      premises above were checked against the source and were wrong; both would
+      have shipped a wrong implementation.
+
+      **(1) The trust file's path.** It is
+      `lib/src/data/notification_count_trust.dart`, **not**
+      `lib/src/services/notification_count_trust.dart`. There is no
+      `lib/src/services/` directory. Verified:
+      ```sh
+      find . -name "*count_trust*" -not -path "./build/*"   # -> ./lib/src/data/...
+      ```
+
+      **(2) The stronger claim — that the badge and the bell read one source —
+      was false, and the code said so twice.** `app_tab_bar.dart` claimed *"The
+      number comes from the same `/api/unread` the bell reads, so the two
+      cannot disagree: one count, one source, painted in two places"*, and
+      `notifications_bell.dart:13` claimed *"the same `/api/unread` endpoint the
+      message tab already trusts"*. **Both are wrong and they contradicted
+      `unread_message_count.dart`**, whose own header explains at length why the
+      badge must NOT use `/api/unread` — different table, different
+      clear-action, and painting one count on a tab called «الرسائل» above an
+      inbox drawing its own per-row counts would put two different numbers for
+      the same thing on one screen. The truth: the badge is `unreadMessageTotal`
+      over `/api/mobile/conversations`; the bell is `Repository.unreadCount`
+      over `/api/unread`. Verified at the call sites, both `badge:
+      _unreadMessages` (`worker_home_screen.dart:231`,
+      `customer_home_screen.dart:356`).
+
+      *Why this mattered and is worth the tick.* The two comments are load-
+      bearing in the worst way: they read as the **authoritative** statement
+      that one flag can serve both pips. A tick that trusted them would have
+      reused `NotificationCountTrust` for the badge — the exact merge
+      `unread_message_count.dart` was written to prevent — and the reuse would
+      have looked correct at every line it touched. The conclusion this entry
+      reached ("needs its own flag") was right, but for the wrong stated
+      reason: the flag is not unwired, it is about another table. **The
+      comments were fixed this tick** (`app_tab_bar.dart`, `notifications_bell
+      .dart`), so the file can no longer argue the next tick into the merge.
+      *Shipped:* two doc corrections, no behavioural change. Analyzer and tests
+      were correctly NOT run — the build gate was blocked (see below).
+
+      *Original entry continues, with (1) and (2) above overriding it.*
+
       *The trust flag is not merely unwired here — it is about a different
       table.* `withdraw()` has exactly one caller in the whole app
       (`notifications_screen.dart:213`) and `restore()` exactly one

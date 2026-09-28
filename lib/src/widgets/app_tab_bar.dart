@@ -31,8 +31,30 @@ class AppTabItem {
   /// withdrawn count that goes grey on tab 0 and simply ceases to exist on
   /// tab 2 is the app forgetting its own honesty, not the user reading it.
   ///
-  /// The number comes from the same `/api/unread` the bell reads, so the two
-  /// cannot disagree: one count, one source, painted in two places.
+  /// **This badge is NOT the bell's number, and a comment that said it was is
+  /// how the two tables were nearly merged.** An earlier version of this line
+  /// claimed the count came from the same `/api/unread` the bell reads. It did
+  /// not, and it cannot:
+  ///
+  ///   `/api/unread`              -> the **notifications** row count, cleared by
+  ///                                 `/api/notifications/read`.
+  ///   `/api/mobile/conversations` -> per-thread `unread_count`, cleared by
+  ///                                 reading the thread.
+  ///
+  /// `AppTabItem.badge` is fed from `unreadMessageTotal(...)` on the
+  /// conversations list (`worker_home_screen.dart:231` / `customer_home_screen
+  /// .dart:356`, both `badge: _unreadMessages`). Different tables, different
+  /// clear-actions, so the two pips are **meant** to differ, and the badge is
+  /// the sum of the rows the inbox draws beneath it, so the tab and the list
+  /// agree by construction. `unread_message_count.dart` states this at length.
+  ///
+  /// The consequence is the whole reason this badge cannot borrow the bell's
+  /// withdrawal flag: `NotificationCountTrust` is about `/api/unread`, and a
+  /// failed *conversations* read would not move it, while a notification
+  /// withdrawal would grey a number that has nothing to do with notifications.
+  /// Keep the flag and the pips separate. Until this badge grows a state of
+  /// its own, a failed conversations read leaves the last number painted in
+  /// `AppTheme.accent` — the "do this" colour — with nothing to mark it stale.
   final int badge;
 
   const AppTabItem({
