@@ -3158,7 +3158,21 @@ it is a correctness gap that duplicates a user's data.
       `flutter test` -> **1364 passed / 3 skipped / 0 failed**, up from
       1356/3/0 (+8, the new file).
 
-      *Commit* `da3ea31`. Blobs verified against the remote tree.
+      *Commit* `da3ea31` (local), remote `778a83a`. All four blobs verified
+      **MATCH** against the real remote tree — **after a second push, because
+      the first one lied again.** `gh_push.py` printed
+      `Pushed 1 changed -> ...4718a1f` and exited 0 having uploaded
+      **only `IMPROVEMENT_BACKLOG.md`**; the three code files were still
+      `DIFFER` on the real tree. The blob check is what caught it, exactly as
+      the step-6 note says it would. Cause is the helper's own file list: a
+      push that names one path pushes one path, and the code commit `da3ea31`
+      had to travel in a second call. Nothing about this is new; it is the
+      fourth time, and it is the reason the exit code is not evidence.
+      *Also this tick:* a `toImage` capture inside a widget test **hangs the
+      tester past its 10-minute timeout** even though every assertion passed and
+      the PNG was written correctly. The capture was removed from the suite and
+      the pixels were read out of the throwaway image instead — a timed-out
+      test is a red build, and the proof is worth more than the test.
       *Not next tick's item, recorded so it is not re-audited:* the
       `specialties`-as-String branch in `models/worker.dart:110` that an
       earlier tick flagged is **dead** — production returns a `List` on all
