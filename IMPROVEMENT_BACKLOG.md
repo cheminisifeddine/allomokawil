@@ -7026,3 +7026,100 @@ running app for defects like these rather than inventing a feature.
       no screenshot and none is claimed: the diff adds no widget, no style
       and no string. Every string in the file is Arabic, and all copy is
       from the existing screens.
+
+- [x] **The wilaya sheet could outlive the screen that opened it, and the
+      guard existed on one copy of the function out of three.** `c41f259` /
+      remote `0123beb`.
+
+      *Found on 28 Sep 2026, immediately after the Phase 6 harness item.*
+      `test/picker_unmount_test.dart` fixed six `setState`-after-dispose sites
+      on the **image-picker** seam and `test/chat_unmount_test.dart` fixed the
+      chat screen. Neither ever covered the **wilaya bottom sheet** — the app's
+      other surface that hands control to something outside the current frame
+      and then draws with whatever comes back. A three-site audit turned up
+      exactly this:
+
+      | screen                  | its `_pickWilaya` | guarded? |
+      |-------------------------|-------------------|----------|
+      | project_new_screen.dart | yes               | **yes**  |
+      | browse_screen.dart      | yes               | **NO**   |
+      | worker_home_screen.dart | yes               | **NO**   |
+
+      The same function copied three times, and **the copy is the defect**:
+      the guard was already in the app and no later audit looked for the two
+      that lacked it. `worker_home_screen.dart` guards `_editProfile` 190 lines
+      above the hole.
+
+      *Reachability is the sheet's, not the OS picker's.* A bottom sheet is the
+      app's **own** surface, so this is strictly *more* reachable than the image
+      picker the app already treats as a live bug: rotate the phone
+      mid-selection, or the activity is reclaimed and the sheet's route is gone
+      while its answer is still delivered. The screen underneath is no longer
+      there to receive it.
+
+      *One guard, two different defects.* On `worker_home` the `if (!mounted)
+      return;` sits **before** the two assignments, not merely before
+      `_reload()`. A lost guard on the `setState` is a red frame; a lost guard
+      on `_wilayaChosen` is a **silently wrong screen** — that flag is what
+      stops `_seedFromPlace` from re-detecting the GPS wilaya over the man's own
+      choice, so he picks وهران and gets his location back instead. That is a
+      wrong answer, not a missing frame, and it is why the placement matters
+      more than the presence of the guard.
+
+      *Red before green, both sites named by the framework's own stack:*
+
+      ```
+      setState() called after dispose(): _BrowseScreenState (defunct, not mounted)
+        #2 _BrowseScreenState._reload      browse_screen.dart:56
+        #3 _BrowseScreenState._pickWilaya  browse_screen.dart:347
+      setState() called after dispose(): _MarketplaceViewState (defunct, not mounted)
+        #2 _MarketplaceViewState._reload      worker_home_screen.dart:486
+        #3 _MarketplaceViewState._pickWilaya  worker_home_screen.dart:902
+      ```
+
+      2 red, 0 green -> 2 green.
+
+      *Harness is `picker_unmount_test.dart`'s disposal order, unchanged* — the
+      screen's route first, **one** pump, then the surface above it answers —
+      because re-deriving it is how that file's first four versions measured
+      nothing while looking like coverage. `_disposeRoute` asserts
+      `find.byType(screen), findsNothing` after every disposal, so a future
+      change that stops disposing anything fails loudly instead of going quietly
+      vacuous.
+
+      **Two harness bugs of my own, recorded so a later tick does not
+      re-introduce them.** Both were found by running the test, not by reading
+      it, and neither was the app's fault:
+
+        * The sheet finder was `DraggableScrollableSheet`, copied from the
+          picker test. These two callers are the app's only
+          `showModalBottomSheet` **without** `isScrollControlled`, so the route
+          is a plain `ModalBottomSheetRoute<String>`. Confirmed with a throwaway
+          probe that printed the live route type, not assumed. With the wrong
+          finder both cases failed on the *expectation*, which is a
+          harness bug wearing the costume of a passing test.
+        * The contractor home's filter bar starts **below the fold**, behind
+          the header sliver (avatar, name, stats, three tool tiles), so a bare
+          `find.text` sees zero widgets. `_reveal` scrolls the
+          `CustomScrollView` until the pill exists.
+
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1302 passed / 3 skipped / 1 failed**, up from the
+      1300 floor (+2, the two new cases). The one failure is
+      `subscription_clock_test` «a plan ending tomorrow counts 1, never 0 and
+      never -3» — it hardcodes `2026-09-30` and reads `DAYS=2`. Re-ran it with
+      `lib/` stashed: fails identically on a pristine tree. Not this change, and
+      not fixed here.
+
+      *Not visual.* The diff adds two `if (!mounted) return;` lines and their
+      comments — no widget, no style, no string. No screenshot, and none is
+      claimed.
+
+      *A note on the leaked tester, because it is the second time this loop has
+      hit it.* The red run left a `flutter_tester` behind with `PPID 1` (a
+      **red** run — the two `setState` exceptions abort the isolate before the
+      engine is told to exit). It was proven leaked before being touched: parent
+      is `systemd`, 0 CPU ticks over 4 s, 0 sockets, 197 MB on a no-swap box.
+      Killed that PID only. **A red test run leaks its engine**; a green one does
+      not. A later tick that runs red tests should expect the gate to go LEAKED
+      on the next run and should prove the process orphaned before killing it.
