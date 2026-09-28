@@ -7,6 +7,7 @@ import '../../core/app_scope.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/photo_count_copy.dart';
 import '../../data/portfolio_allowance.dart';
+import '../../data/portfolio_write_outcome.dart';
 import '../../data/repository.dart';
 import '../../models/worker.dart';
 import '../../widgets/a11y.dart';
@@ -14,6 +15,7 @@ import '../../widgets/net_image.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
 import '../../core/l10n/error_copy.dart';
+import '../../core/l10n/write_outcome.dart';
 import '../../core/l10n/strings.dart';
 
 /// "My work gallery" — the contractor's own past-work uploader.
@@ -29,7 +31,20 @@ import '../../core/l10n/strings.dart';
 /// a time: on a phone on a mobile network, uploading four photos in parallel is
 /// how a weak uplink drops all four.
 class MyPortfolioScreen extends StatefulWidget {
-  const MyPortfolioScreen({super.key});
+  /// The data layer, taken by the caller when one is supplied.
+  ///
+  /// Null in the app, where the screen builds its own from [AppScope] — the
+  /// normal path and the one every user takes. The seam exists because the
+  /// screen's write path can only be tested against a **multipart upload**,
+  /// and `http.MultipartRequest` builds its own client instead of using the
+  /// one handed to [ApiClient]: a `MockClient` never sees it, and under
+  /// `TestWidgetsFlutterBinding` a real socket to loopback deadlocks in the
+  /// fake-async zone. Injecting the repository is the same route
+  /// `ReviewScreen` takes for the same class of reason, and it keeps the
+  /// production call site a single `const MyPortfolioScreen()`.
+  final Repository? repo;
+
+  const MyPortfolioScreen({super.key, this.repo});
 
   @override
   State<MyPortfolioScreen> createState() => _MyPortfolioScreenState();
@@ -65,7 +80,8 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
     // AppScope is an InheritedWidget, so it cannot be read in initState.
     if (_scopeReady) return;
     _scopeReady = true;
-    _repo = Repository(AppScope.of(context).api);
+    // See [MyPortfolioScreen.repo]. Production always takes the AppScope path.
+    _repo = widget.repo ?? Repository(AppScope.of(context).api);
     _load();
   }
 
@@ -183,8 +199,16 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
       _busy = true;
       _error = null;
     });
+    // The URL, read out here and nowhere else. It is the only name the server
+    // can be asked about, and it exists on the phone for exactly one window:
+    // between the upload answering and the registration being posted. A write
+    // that fails after that point is the case below, and if the URL were read
+    // out of the `try` it would be exactly the sentence the old code could not
+    // say.
+    String? uploadedUrl;
     try {
       final url = await _repo.uploadDocument(File(picked.path));
+      uploadedUrl = url;
       await _repo.addPortfolioImage(worker.id, imageUrl: url);
       if (!mounted) return;
       setState(() {
@@ -203,10 +227,99 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
       );
     } catch (e) {
       if (!mounted) return;
+      // Two different failures share one `catch`, and the old code called both
+      // of them «تعذّر رفع الملف»:
+      //
+      //  * the **upload** failed — nothing is in R2, and the picture exists
+      //    only in the phone's gallery, where the user still has it. Retrying
+      //    is exactly right and costs one more attempt.
+      //  * the **registration** failed — the picture *is* in R2 under a URL
+      //    this phone is holding, and what never answered is the POST that
+      //    names it on his profile. Retrying uploads the same room a second
+      //    time under a *different* key, registers a second row, and spends a
+      //    second slot of his plan's `portfolio_limit` on one photo.
+      //
+      // The transport layer already refuses to guess which of the two happened
+      // and says so in `S.errWriteUnconfirmed`; this is the answer to that
+      // sentence, and the honest one comes from the server rather than from us.
+      if (isWriteUnconfirmed(e)) {
+        if (uploadedUrl == null) {
+          // The **upload** is what never answered, so there is no name to ask
+          // the server about and nothing in the gallery could ever match one.
+          // `S.errWriteUnconfirmed` ends with «تحقّق من القائمة قبل إعادة
+          // المحاولة» and here that instruction is a dead end: no amount of
+          // refreshing shows a picture the app has no URL for. What is true is
+          // that nothing is on his profile yet and the picture is still in the
+          // phone's gallery, so the honest sentence is the upload one and the
+          // retry it offers costs one more attempt. The worst case is an
+          // orphaned object in R2 nobody ever names — the cheap failure.
+          setState(() => _error = S.errUpload);
+        } else {
+          await _settleUnconfirmed(uploadedUrl);
+        }
+        return;
+      }
       setState(() => _error = errorCopy(e, fallback: S.errUpload));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Answers «did that photo reach my profile?» after the app refused to guess.
+  ///
+  /// The gallery on this screen *is* the list [S.errWriteUnconfirmed] tells the
+  /// user to check, so it is re-read and the fresh one is put on screen — a
+  /// stale grid would be asking him to confirm something the app is displaying
+  /// but cannot see. The three answers are the app's shared ones, so this
+  /// screen cannot drift into saying something the other six do not.
+  ///
+  /// The first toast is «نتحقّق الآن من القائمة…» and the second is the outcome,
+  /// which is a second sentence about the same photo while the first is still on
+  /// screen. That is deliberate and is what the other write screens do: the
+  /// re-read is a network round trip the user would otherwise sit through
+  /// looking at a screen that appears to be doing nothing, and a check that
+  /// takes two seconds needs to be visible before it takes them.
+  Future<void> _settleUnconfirmed(String uploadedUrl) async {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text(S.writeUnconfirmedRecheck)));
+    final workerId = _worker!.id;
+    final result = await resolvePortfolioWriteOutcome(
+      uploadedUrl: uploadedUrl,
+      fetch: () => _repo.portfolioImages(workerId),
+    );
+    if (!mounted) return;
+    // Put the server's own gallery on screen before saying anything about it.
+    // A landed photo is then visible without a refresh, a missing one is
+    // visibly absent, and the counts the header draws come from the same list
+    // the answer talks about.
+    final fresh = result.gallery;
+    if (fresh != null) {
+      setState(() {
+        _images = fresh;
+        // Counted here rather than after the setState, because the header that
+        // prints it is built by this very call and a counter bumped after it
+        // would not reach the screen until some other rebuild.
+        if (result.outcome == WriteOutcome.landed) _uploadedThisRun++;
+        // The plan's count is re-read from the server's own gallery for the
+        // same reason, and NOT decremented when a photo is missing: the server
+        // is the only thing that knows whether the earlier write spent a slot,
+        // and a gate computed from a guess is how a paid contractor gets
+        // locked out of a gallery that has room.
+        final a = _allowance;
+        if (a != null) {
+          _allowance = PortfolioAllowance(limit: a.limit, used: fresh.length);
+        }
+      });
+    }
+    // `hideCurrentSnackBar` first, and this is load-bearing rather than
+    // cosmetic. Two `showSnackBar` calls in a row **queue**: the second waits
+    // for the first to time out, so the answer to «did my photo arrive?» would
+    // sit behind «checking the list now…» for its full duration and the user
+    // would have already looked away. The subscription screen already does it
+    // this way for the same two-sentence pattern.
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(writeOutcomeCopy(result.outcome))));
   }
 
   @override

@@ -2620,6 +2620,108 @@ it is a correctness gap that duplicates a user's data.
 
 ---
 
+- [x] **The portfolio add reported a lost photo as a failed upload, and its own
+      retry spends a second plan slot on the picture you already have.**
+      *The seventh write, and the only one of the seven with no
+      `resolveWriteOutcome` on it.* Six paths re-read the server after
+      `errWriteUnconfirmed` and say which of three things is true — it landed,
+      it is missing, it is unknown: `project_new_screen`, `project_detail`,
+      `chat_screen`, `review_screen`, `verification_screen`,
+      `subscription_screen`. A contractor adding a photo of finished work to
+      the gallery that is the whole reason a client trusts him had none of it,
+      and one `catch` served the whole send — so it made two wrong claims
+      about one failure.
+      *The wrong sentence, about the wrong call.* The screen said
+      «تعذّر رفع الملف» — «we could not upload the file». The file *did*
+      upload: `uploadDocument` returned a URL and it is sitting in R2. What
+      never answered was the **second** call, the one that registers that URL
+      against the profile. The screen was reporting a failure that had not
+      happened, on a step that had already succeeded.
+      *The cost is the plan, not a duplicate line.* «أعد المحاولة» is the right
+      instinct for a lost photo and a plan-spending one here: a retry
+      re-uploads the same room under a **new R2 key**, so it is a genuinely
+      different URL, and registers a second row. Each row spends one of the
+      plan's `portfolio_limit` slots. A contractor who retries a photo he
+      already has can reach «بلغت حد صور خطتك: 5 صور» with half his work
+      missing — and the app's own `photo_count_copy.dart` is careful to say
+      «5 صور» in that sentence, so the wall is stated correctly and arrived at
+      by duplicating his work.
+      *The direction that also had to change.* The ambiguous failure is not
+      always the registration. If the **upload** is what never answered, no URL
+      ever exists, and `errWriteUnconfirmed`'s «تحقّق من القائمة قبل إعادة
+      المحاولة» is unfollowable — no amount of refreshing shows a picture the
+      app has no name for. That case is told the upload sentence, which is both
+      true and the right advice: the picture is still in the phone's gallery
+      and a retry costs one more attempt. Answering «landed» there would be a
+      claim about a photo that has no name.
+      *The identity question is easier here than in chat, for the structural
+      reason the chat bug taught us.* `threadHolds` failed because it compared
+      a **local path** against an **R2 URL** — two namespaces that can never be
+      equal in any build. By the time this write fails the phone is already
+      holding the URL, because that is the thing it is about to post. So the
+      re-read asks a question with a real answer: is this exact URL in the
+      gallery the server just sent back? `portfolio_write_outcome.dart` holds
+      the predicate and the probe, and the screen takes the URL out of the
+      `try` — read out of the `try`, it is exactly the sentence the old code
+      could not say.
+      *Two fixes that are not about the write at all, found in the same file.*
+      The fresh gallery now **replaces** `_images` rather than being appended
+      to a list the screen had already optimistically grown, and the
+      `portfolio_limit` count is recomputed from that fresh list — never
+      decremented on a guess, because only the server knows whether the earlier
+      write spent a slot. And the second toast calls `hideCurrentSnackBar`
+      first: two `showSnackBar` calls in a row **queue**, so the answer to
+      «did my photo arrive?» sat behind «نتحقّق الآن من القائمة…» for that
+      sentence's full duration, which the user reads and looks away from.
+      *Mutation-gated at three levels, and the third found a green test that
+      proved nothing.* Reverting the screen takes the file red. Restoring the
+      old comparison's looseness — matching on a substring, the exact shape
+      the chat outbox shipped — turns **all thirteen** tests red. Forcing the
+      unconfirmed *upload* down the registration branch fails the upload test.
+      The predicate mutation initially **survived**: the decoy only shared a
+      *prefix* with the real key, so a substring matcher walked straight past
+      it. The decoy is now every suffix and every substring of a real R2 key —
+      the bare tail, a shorter unrelated key, the extension alone, the same key
+      on a different host, the same key with something appended — plus the
+      reverse direction, because a decoy has to be indistinguishable from the
+      real thing to everything except the rule. **Two of the first four decoys
+      were then themselves wrong** and the suite caught them: one was a literal
+      copy of the real URL, so the test failed for the honest reason that the
+      predicate was *right*; the decoy list is now made of keys that differ
+      from the real one in exactly one way each.
+      *Three harness failures, all mine, all instructive.* (1) The first version
+      asserted `uploads == 1` and got 0: `http.MultipartRequest` builds its
+      **own** `HttpClient` and never touches the one injected into `ApiClient`,
+      so a `MockClient` cannot see an upload however it is wired. (2) A
+      loopback `HttpServer` instead, which is how `upload_content_type_test.dart`
+      does it — it **hangs**, because `TestWidgetsFlutterBinding` runs the body
+      in a fake-async zone and a real socket never completes. (3) Lifting
+      `HttpOverrides.global` fixes the socket and not the zone, so the test
+      froze the whole run. The fix is the seam `ReviewScreen` already has:
+      `MyPortfolioScreen.repo` takes an optional `Repository` (null in the app,
+      which is the one call site and stays `const`), and **only** the multipart
+      upload is stubbed. The registration POST and the gallery re-read travel
+      the real transport, so the `errWriteUnconfirmed` under test is the one the
+      transport actually throws — a hand-thrown exception would have proved the
+      screen handles an object, not that the failure reaches it.
+      *Evidence:* `flutter analyze` -> **No issues found!** (14.3 s);
+      `flutter test` -> **1142 passed / 3 skipped / 1 failed** (was
+      1129/3/0; the new file is the +13). The one failure is
+      `subscription_clock_test.dart` «a plan ending tomorrow counts 1, never 0
+      and never -3», and it is **pre-existing, not mine**: stashed to a clean
+      tree and re-run, it fails identically. It builds a date two days out and
+      asserts its own captured stdout contains no `-3`, which the surrounding
+      `print` lines put there on the day it runs. Unrelated to this item and
+      left for its own tick. No new Arabic copy, so `error_copy_test.dart` is
+      unchanged and every sentence on this path was already in its invariant
+      map. Not visual — the write path and two toasts; no pixels moved, so no
+      screenshot applies.
+      *Commit:* local `dddf8cf`.
+      *Next in this family:* the write-outcome contract is now on all seven
+      writes. The unwritten surface left is **project photo deletion** — a
+      photo the app shows with a delete affordance on the public profile would
+      be an eighth write, and the profile screen has none of this either.
+
 ## Completed
 
 ### Phase 0 — first-run experience: CLOSED 12 Sep
