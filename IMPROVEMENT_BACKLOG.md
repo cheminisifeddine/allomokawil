@@ -3098,6 +3098,74 @@ it is a correctness gap that duplicates a user's data.
       as a write in this app at all (no `delete` call outside `ApiClient`), so
       filing it would be inventing a feature rather than fixing a defect.
 
+- [x] **A thread whose last message was a photo rendered no preview line at
+      all — the inbox row silently dropped to a bare name.** `da3ea31`.
+
+      Found on the live API, not by reading code. `Repository.sendImage` posts
+      `image_url` and `message_type: 'image'` and **no `content` field at
+      all**, so the server stores a NULL. Posted a real picture into a real
+      thread on production this tick:
+
+          POST /api/messages/35  {"image_url":"...","message_type":"image"}
+          -> {"id":43,"content":null,"message_type":"image", ...}
+
+      and the inbox that lists it answers:
+
+          "last_message_at":"2026-09-28 22:01:12",
+          "last_message_content":null
+
+      The row gated its one-line preview on `lastMessageContent != null`
+      (`chat_list_screen.dart:300`), so that thread drew **the name, and
+      nothing else** — no preview line, a visibly shorter card than the text
+      thread beside it. The same NULL comes back for a conversation that was
+      opened and never written to, so the *newest* thread in the inbox — the
+      one a customer has just opened and is waiting on a reply to — is the
+      emptiest-looking row on the screen.
+
+      **Why it is a defect, not a missing feature:** on a marketplace where a
+      photo of a finished bathroom is how a contractor answers, the row whose
+      whole job is to say "he sent you something" says nothing, and the user
+      reads that as "he has not replied". It is silent: no error, no empty
+      state, just a missing line.
+
+      *Shipped:* `data/chat_preview_copy.dart` owns the rule — **a preview is
+      never optional**. Three answers, never two: the words verbatim; «صورة»
+      when the last message carried no text but the thread has a timestamp
+      (the only thing this API sends without content); «لا رسائل بعد» when the
+      thread is genuinely empty. The two namings are deliberately different —
+      one is a reply waiting to be written, the other is a reply that already
+      arrived — and «صورة» is the word the photo viewer already titles itself
+      (`chat_screen.dart`), so the inbox and the thread it opens name the same
+      thing the same way. A blank/whitespace `content` folds to the empty
+      sentence rather than drawing an empty line, because the composer can
+      enqueue an empty draft and a blank ellipsised line reads as a broken row.
+
+      *Red before green.* With the fix stashed, the two widget cases fail with
+      the framework quoting the defect: `Found 0 widgets with text "صورة"` and
+      the same for «لا رسائل بعد». **A third failure was my test's fault, not
+      the rule's** — `'قصير ' * 200` ends in a space and `.trim()` correctly
+      removes it, so the assertion, not the code, was corrected.
+
+      *Proven by pixels, not by assertion.* Captured the real `ChatListScreen`
+      with all three row states in one image. Three ink bands, each **exactly
+      102 px** tall, at 179–281 / 371–473 / 563–665 — the picture row is the
+      same height as a text row, so the fix is a line of copy and not a taller,
+      mismatched card. Each row's preview line is a 47-row band at the same
+      relative offset, and the copy renders in body ink **#16213E** on both,
+      the same as the text row: no error red, no stray style.
+
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1364 passed / 3 skipped / 0 failed**, up from
+      1356/3/0 (+8, the new file).
+
+      *Commit* `da3ea31`. Blobs verified against the remote tree.
+      *Not next tick's item, recorded so it is not re-audited:* the
+      `specialties`-as-String branch in `models/worker.dart:110` that an
+      earlier tick flagged is **dead** — production returns a `List` on all
+      three rows of a real wilaya response, and hand-rolled string surgery on a
+      shape the server does not send is a refactor for its own sake, which
+      this backlog explicitly excludes.
+
 ## Completed
 ## Completed
 
