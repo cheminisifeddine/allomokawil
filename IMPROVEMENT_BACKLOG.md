@@ -142,6 +142,26 @@ CPU and holds `build/unit_test_assets`, so **report it, do not kill it**, and
 do not start a test run over the top of it — on 13 Sep it blocked a tick this
 way for 37 minutes.
 
+**Identifying the orphan vs. a live build, written out** (re-verified 28 Sep,
+because the rule above has no command in it and a rule with no command gets
+argued with instead of followed). PPID 1 plus a flat CPU counter is the whole
+test — the two together, never either alone:
+```bash
+pgrep -af "[f]lutter"                     # who matched, by full command
+ps -o pid,ppid,time -p <pid>              # PPID 1 == reparented orphan
+a=$(awk '{print $14+$15}' /proc/<pid>/stat); sleep 6
+b=$(awk '{print $14+$15}' /proc/<pid>/stat); echo $((b-a))   # 0 == idle
+```
+Verified 28 Sep on pid 13912: PPID **1**, `TIME` **0:00:02** after 30 min
+elapsed, and a **0-tick** delta over a 6 s sample, sleeping in
+`do_epoll_wait` with its only build fd on `build/unit_test_assets`. Box is
+`uid=0` this run, so `kill -0` would have succeeded and a kill would have
+worked — **that is not permission.** The rule above is report-don't-kill, and a
+process we can reap is still a process we did not start. The `pgrep -fc
+"[f]lutter"` gate stays conservative on purpose: it counts the orphan, so a
+tick that finds one takes a non-build item and says so in its report rather
+than racing a `flutter test` against a 7.8 GB no-swap box.
+
 **Honesty rule:** if an item turns out to be already implemented, already
 correct, or blocked on something outside the app, do not fake progress — mark it
 with the reason and move to the next item.
@@ -6536,3 +6556,104 @@ running app for defects like these rather than inventing a feature.
       check with no signal that it is old. The next pass should decide whether
       the tab owes a dated or a muted state, and pin what the user is told
       when the last read was twenty minutes ago and the badge is still gold.
+
+### Phase 5 — engineering hardening: the state the pip earned three cycles
+#### ago does not exist on the tab, and only the gesture the badge replaces
+#### tells the truth
+
+- [ ] **The message tab's badge paints a last-known count in confirmed gold
+      after a read it never completed.** The previous entry ended on the honest
+      question: does the tab owe a *dated* or a *muted* state, and what is the
+      user told when the last read was twenty minutes ago and the badge is
+      still gold. Answering it meant reading how the number is stored, and the
+      number has no state at all.
+
+      *What the greps found.*
+      ```sh
+      grep -n "final int badge" lib/src/widgets/app_tab_bar.dart        # 36
+      grep -n "color: AppTheme.accent," lib/src/widgets/app_tab_bar.dart # 268
+      grep -n "catchError" lib/src/screens/worker/worker_home_screen.dart    # 127
+      grep -n "catchError" lib/src/screens/customer/customer_home_screen.dart # 120
+      grep -rn "\.withdraw()\|\.restore()" lib/
+      ```
+      `AppTabItem.badge` is a **bare `int`**. There is no `unconfirmed` beside
+      it and nowhere to put one, and line 268 paints `AppTheme.accent`
+      unconditionally — the colour the theme file itself defines as the app's
+      one action voice (*"One accent colour = one action. Amber = 'do this'"*,
+      `app_theme.dart:13`). So a count the phone cannot check is drawn in the
+      colour that means **act now**.
+
+      *All three failure paths are silent, and one of them is a comment with no
+      code in it.* `worker_home_screen.dart:127` is a `catchError` whose body is
+      three comment lines; `customer_home_screen.dart:120` is `{}`; and
+      `chat_list_screen.dart:108` is `onError: (_, __) {}`. Between them, a
+      dropped read on a 3G bar leaves the last number up with no signal that
+      anything happened at all.
+
+      *The trust flag is not merely unwired here — it is about a different
+      table.* `withdraw()` has exactly one caller in the whole app
+      (`notifications_screen.dart:213`) and `restore()` exactly one
+      (`notifications_bell.dart:201`). Both are on the **`/api/unread`**
+      path. The tab badge is the **sum of per-conversation `unread_count`**,
+      cleared by *reading a thread* — a different table with a different
+      clear-action, which `unread_message_count.dart`'s own header states at
+      length. So reusing `NotificationCountTrust` here would be the exact bug
+      the badge was built to avoid, arriving from the other direction: a failed
+      *messages* read would not mute it, and a *notifications* withdrawal would
+      mute a number it has no knowledge of. **This needs its own flag, or the
+      existing one made per-source.** Do not bolt `trust` onto `AppTabItem`.
+
+      *The contradiction is on one screen, one tap apart.* The inbox that sits
+      under this badge **does** have an honest failed state —
+      `chat_list_screen.dart:188-192`, «تعذّر جلب الرسائل» + «تحقّق من اتصالك
+      بالإنترنت ثم أعد المحاولة» + a retry action. So the user who taps in is
+      told the truth, and the user who does not is shown a confident gold 4.
+      **The single gesture that reveals the truth is the gesture the badge
+      exists to replace.**
+
+      *The lie, stated exactly.* A contractor on a dead connection reads a gold
+      «4». Twenty minutes later, still gold, still 4. He has no way to tell
+      *4 right now* from *4 as of 10:42*, no timestamp, no dot, no muted fill —
+      and the app's own action colour says the number is fresh enough to act
+      on. This is the class of failure Phase 5 exists to close, and the header
+      pip closed it three cycles ago.
+
+      *Decision to pin, since the handoff asked for one and the next tick
+      should not re-derive it.* **Muted, not dated, and keep the digits.**
+      (1) A timestamp does not fit a 16 px pip at `AppTheme.fsBadge` 11 — it
+      would be illegible, which is a worse lie than none. (2) Dropping the
+      badge on failure destroys real information, because the number is still
+      the best estimate the phone has. (3) Muted is the state the app already
+      teaches: `notifications_bell.dart:287-302` renders white on
+      `AppTheme.textMuted` at **4.96:1**, identical weight and size to the
+      confirmed pip, so nothing but the colour differs and one word teaches the
+      user both pips at once. Reuse `S.notifCountUnconfirmed` (`'غير مؤكّد'`) as
+      the `Semantics` value so the state is *heard* and not only painted —
+      colour is the one difference a screen reader cannot see. A fourth state
+      (a question mark, a dot) would teach the user a second vocabulary for the
+      one thing the app already has a colour for.
+
+      *The trap, which is the reason this is an item and not a two-line patch.*
+      "Mute it to 0 on failure" is the obvious move and it is **worse than the
+      bug**: 0 is «أنت على اطّلاع» — a claim — and a 0 that vanishes because a
+      request dropped is a missed message the user was told he did not have.
+      The comment at `worker_home_screen.dart:128-130` is *right* that the last
+      number beats a 0; what is missing is the **qualifier**, not the number.
+      Withdrawal must be one-directional, exactly as
+      `notification_count_trust.dart` is: only a **landed** read of
+      `/api/mobile/conversations` restores it. A successful read of any other
+      list does not count — proving a row is read says nothing about the size
+      of the whole unread set the badge sums. Note also that the flag must be
+      withdrawn by **all three** of the silent paths above, not just the two
+      shells: the inbox's own `_arm(... onError:)` is the read the badge is
+      drawn from, so a failure there is the most direct one of the three.
+
+      *Red before green.* Reverting every touched file must fail the new tests.
+      Build the harness the way the previous entry built it — the **real**
+      `WorkerHomeScreen` / `CustomerHomeScreen` under a real `AppScope`, no
+      `AppTabBar` constructed by hand — and remember the two harness lies that
+      cost the last cycle two of its three files: walk the **engine's** state
+      machine (`paused` is reachable only from `hidden`), and read pixels with
+      `tool/px_count.py`, where a zero is an error and not a number.
+      Floor to beat: **1292 passed / 3 skipped / 1 failed** (the one failure is
+      `subscription_clock_test`, pre-existing and unrelated).
