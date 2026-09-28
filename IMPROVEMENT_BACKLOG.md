@@ -6808,8 +6808,12 @@ running app for defects like these rather than inventing a feature.
 ### Phase 5 — engineering hardening: the mounted guard was added to the thread
 #### and never to the three screens a picker can outlive
 
-- [ ] **Six `setState` calls sit after an `await` with no `mounted` guard, in
-      the three screens that open the OS gallery.** The loop shipped this exact
+- [x] **Six `setState` calls sit after an `await` with no `mounted` guard, in
+      the three screens that open the OS gallery.** SHIPPED 28 Sep, local
+      `19f80bb` / remote `d7ae9b0`, blob MATCH on all four files. The six
+      `if (!mounted) return;` lines are in, and the test that proves them is
+      in. Details below the entry — including the four harness revisions that
+      measured nothing before they measured anything. The loop shipped this exact
       fix for the chat screen (`8c9434a`, `test/chat_unmount_test.dart`) and
       `chat_screen.dart` now carries **19 `mounted` guard statements** (21 code
       occurrences, comments excluded) — its two image and text send paths, plus
@@ -6882,3 +6886,82 @@ running app for defects like these rather than inventing a feature.
       *Commit:* local `0dc837e` / remote `da1812c`, **blob MATCH** verified
       against the remote tree and the entry's text confirmed present in the
       remote copy of the file.
+
+
+      *Status 28 Sep — SHIPPED.* The gate was open (the box was clear:
+      `ps -eo pid,ppid,comm | awk '$3 ~ /^(flutter|dart|java|gradle)$/'` is
+      empty), so this was an implementation tick rather than another audit.
+      Six lines of `if (!mounted) return;`, one per site, in
+      `project_new_screen.dart` (3), `verification_screen.dart` (2) and
+      `my_portfolio_screen.dart` (1). The guard sits **before** the null
+      check, not inside the `if`: a `setState` on a disposed `State` is the
+      crash, and `if (file != null)` is only the reason it usually does not
+      happen — a guard written inside the `if` leaves the same crash on the
+      path that matters and reads as if the case were covered.
+
+      *The test, and what it cost.* `test/picker_unmount_test.dart`, six
+      cases, one per site. The harness is the same trick
+      `chat_unmount_test.dart` uses on the outbox store — a gated handler —
+      moved onto the real `plugins.flutter.io/image_picker` channel, so the
+      screens are driven exactly as a user drives them. The picker is held
+      unanswered, the route is removed, and the gate is then released **onto
+      a disposed `State`**.
+
+      **Four harness revisions measured nothing before they measured
+      anything, and each would have shipped as a green test.** They are
+      written out because every one of them is a way of writing this test
+      that looks right:
+
+      1. **Mounting the screens as `home:` disposed nothing.** They sat on
+         the navigator's only route, `canPop()` was false, `pop()` did
+         nothing, and `removeRoute` on the sole route emptied the history and
+         tripped a framework assertion. Fixed by pushing each screen behind
+         a launcher route, as `chat_unmount_test.dart` already does.
+      2. **Removing the screen's route while a sheet sat on top disposed
+         nothing either.** An entry below a present route is kept, not
+         disposed, so the `State` survived and the post-`await` draw still
+         found a live widget.
+      3. **A plain pop answers `null`.** `if (picked == null) return;` took
+         the early exit and the guarded line never ran — a green test
+         proving nothing. Fixed by handing the surface its real answer with
+         `removeRoute(route, result)`, so a user who chose وهران is
+         reproduced rather than one who dismissed the sheet.
+      4. **Delivering the answer one frame too early.** A route entry's
+         `dispose` is deferred to a post-frame callback, so removing the
+         screen and the sheet with no frame between them delivered the
+         answer to a still-alive `State`. The screen goes first, then **one
+         pump**, then the surface above it answers.
+
+      The helper now asserts `find.byType(screen), findsNothing` after every
+      disposal, so a future change that stops disposing anything fails
+      loudly instead of going quietly vacuous.
+
+      *Red before green, honestly counted.* `git stash push -- lib/` and the
+      file goes **6 red, 0 green** — the setState exception at each of the
+      six sites, with `_MyPortfolioScreenState._pickAndUpload
+      (my_portfolio_screen.dart:198)` named in the stack. Restored, the file
+      is 6 green. That is the whole proof; the earlier intermediate runs
+      where 4 of 6 or 5 of 6 were red are the harness bugs above, not partial
+      coverage, and they are recorded here so a later tick does not mistake
+      one for the other.
+
+      *Reachability, unchanged and not overstated.* The in-app disposers
+      still cannot produce this — no `pushAndRemoveUntil`, no `popUntil`
+      above these routes, no `navigatorKey` in `lib/`. The test disposes the
+      route imperatively because that is what the OS does when it reclaims
+      an activity, not because a user can reach it from inside the app. The
+      claim is that the screens are not safe when it happens, which is a
+      smaller claim than a crash and the one the evidence supports.
+
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1300 passed / 3 skipped / 1 failed**, up from the
+      1294 floor (+6, the six new cases). The one failure is
+      `subscription_clock_test` «a plan ending tomorrow counts 1, never 0
+      and never -3», the pre-existing date-dependent flake — it hardcodes
+      `2026-09-30` and reads `DAYS=2`; unrelated to this change and present
+      before it.
+
+      *Not visual.* Ten lines of a lifetime guard draw nothing, so there is
+      no screenshot and none is claimed: the diff adds no widget, no style
+      and no string. Every string in the file is Arabic, and all copy is
+      from the existing screens.
