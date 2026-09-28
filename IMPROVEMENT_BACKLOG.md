@@ -2717,11 +2717,89 @@ it is a correctness gap that duplicates a user's data.
       map. Not visual — the write path and two toasts; no pixels moved, so no
       screenshot applies.
       *Commit:* local `dddf8cf`.
-      *Next in this family:* the write-outcome contract is now on all seven
-      writes. The unwritten surface left is **project photo deletion** — a
-      photo the app shows with a delete affordance on the public profile would
-      be an eighth write, and the profile screen has none of this either.
+- [x] **The three owner commits told the owner to check a list the app never
+      re-read.** Found 28 Sep 2026, auditing the write-outcome contract after
+      the project *edit* path was repaired in `8f77877`. Eight write paths
+      re-read the server after `errWriteUnconfirmed` and say which of three
+      things is true — it landed, it is missing, or it is still unknown:
+      `project_new_screen` (create and edit), `project_detail` (submit a bid),
+      `chat_screen`, `review_screen`, `verification_screen`,
+      `subscription_screen`, `my_portfolio_screen`. The **three writes
+      immediately above the bid form on that same screen** had none of it.
+      `_accept`, `_complete` and `_cancel` each caught the failure, called
+      `errorCopy(e)` and returned.
 
+      `errorCopy` returns an `ArabicCopyError`'s message verbatim, so the owner
+      was told «انقطع الاتصال قبل تأكيد وصول طلبك. تحقّق من القائمة قبل إعادة
+      المحاولة» — *check the list before retrying* — about the one list on the
+      screen that was **never re-read**. It is stale by construction: the re-read
+      is the only thing that would have told the story, so the instruction asks
+      the user to perform the app's own job by eye. This is precisely the
+      failure the write-outcome work exists to prevent, and it survived seven
+      ticks because every previous item was a screen whose **first** write lacked
+      the contract — and this screen's bid form already had it, forty lines
+      below the accept button, which is what made the gap read as closed.
+
+      The cost is the instruction, not the sentence:
+
+      * **Accept** is the only write in the product that commits a contract —
+        the screen's own comment says so. Its guard clears in `finally`, so a
+        stalled accept leaves the button live and the owner's next move is the
+        one the sentence tells him to make. He cannot see whether the
+        contractor is hired, and **every sibling quote still wears a live
+        accept button** the server will now refuse with a 409 he cannot explain.
+      * **Complete** is the only door into the review form. A stall told the
+        owner the job was not closed, so the review the whole trust model rests
+        on may or may not have been written.
+      * **Cancel** is the mildest, and is included because the fix is the same
+        three lines. Without it this item would be a claim that the contract is
+        complete while a quarter of one screen's writes still lied.
+
+      **The rule is a change in the server's copy of the row, never a claim
+      about the request.** `project_commit_outcome.dart` asks one question of
+      the project as the server now holds it. Status alone is **not** evidence
+      for an accept: a project `in_progress` for a *different* worker is the
+      decoy that would tell a client a rival's contract is his, and a
+      `selected_worker_id` left over from an earlier run must not make an open
+      project hired. An accept with no worker to name is never a landing —
+      naming a worker the phone cannot name is not evidence, and the
+      conservative false is a «missing» the owner may retry.
+
+      Two answers are deliberately **not** `WriteOutcome.missing`, because that
+      sentence ends in «أعد المحاولة» and neither is retryable: the project is
+      **committed to somebody else** (retrying is now impossible — every other
+      quote answers 409), and the project is **cancelled** while a complete is
+      unconfirmed (it cannot be completed at all). Both get their own sentence
+      rather than a degraded `unknown`, because the app *does* know something
+      true and specific. Ordering is load-bearing: a landed cancel is a landed
+      cancel and is never described as an uncancellable complete.
+
+      **One failure, one line.** `ScaffoldMessenger` **queues** by default, so
+      the naive wiring showed `errWriteUnconfirmed` for its full four seconds
+      and the answer that contradicts it afterwards — «لم يصل… أعد المحاولة» on
+      the highest-stakes button in the app, four seconds before «تم قبول
+      العرض». The recheck line goes up and `_showCommitResult` calls
+      `hideCurrentSnackBar()` first. This was caught by the widget tests, not
+      by reading: the first green run still failed all four, on a correct
+      re-read and a correct classification.
+
+      *Evidence (real output):* `flutter analyze` -> **No issues found!**
+      (4.7 s). `flutter test` -> **1181 passed / 3 skipped / 1 failed** (was
+      1163/3/1; the new file is the +18). The one failure is
+      `subscription_clock_test.dart` «a plan ending tomorrow counts 1, never 0
+      and never -3», and it is **pre-existing, not mine**: stashed to a clean
+      tree and re-run, it fails identically, for the reason recorded under
+      `dddf8cf` above. Not visual — the write path and two toasts, no pixels
+      moved, so no screenshot applies.
+      *Commit:* local `7eddef0`, remote `230b8b0`. All four blobs verified
+      **MATCH** against the remote tree.
+      *Next in this family:* the write-outcome contract is now on **all eleven**
+      writes, including the three here. The unwritten surface is unchanged
+      from the note under `dddf8cf` — **project photo deletion** does not exist
+      as a write in this app at all (no `delete` call outside `ApiClient`), so
+      filing it would be inventing a feature rather than fixing a defect.
+
+## Completed
 ## Completed
 
 ### Phase 0 — first-run experience: CLOSED 12 Sep
