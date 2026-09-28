@@ -7613,3 +7613,66 @@ running app for defects like these rather than inventing a feature.
       the next tick can finally take a *visual* item and back a layout claim
       with a real screenshot. This is the fourth consecutive tick to burn
       calls on the dead path.
+
+- [x] **A review notification drew the score `5/5` as the only line under its
+      headline.** The Worker encodes a review as a bare fraction and nothing
+      else: `{"type":"review_received","title":"تقييم جديد","body":"5/5"}`.
+      Read live this tick, not copied from a previous tick's note — the whole
+      chain was driven on production (register customer 389 + worker 390 ->
+      project -> quote -> accept -> complete -> review) and
+      `/api/notifications` read back. Two reviews returned `"body":"5/5"` and
+      `"body":"3/5"`; every other type carries a real sentence. So the row a
+      contractor opens to find out how a customer rated his work read, in
+      full, «تقييم جديد / 5/5» — the only Latin-numeral string in the centre,
+      not a sentence, and carrying no information (1/5 and 5/5 differ by one
+      glyph). The customer's own comment was not in the body either.
+      *New* `lib/src/data/notification_body_copy.dart` owns the rule: a body a
+      person wrote is verbatim; a body that is only a rating is named
+      («حصلت على تقييم 5 نجوم») through the shared `arabicCounted`, so 1/5 is
+      «نجمة», 2/5 is «نجمتين» and 10/5 is «نجوم»; a missing body still draws a
+      line rather than collapsing the card beside its neighbours. The pattern
+      is anchored, so `5/5 عمل ممتاز` is a person writing and survives. A
+      `new_message` row with no body says «افتح الرسائل للاطلاع عليها» — saying
+      «لا تفاصيل» about a message sitting unread in the inbox is a lie, and
+      that is the one type the copy must not flatten.
+      *Red before green.* Reverting the single call in
+      `notifications_screen.dart` to `n.body ?? ''` fails **3** widget cases;
+      restored from backup and re-verified by line number.
+      *The golden was the second, independent proof.* `15_notifications` went
+      red at **0.20%, 655 px** — and its baseline had the `5/5` glyphs baked
+      in, at line 196 of the fixture. The diff was read pixel by pixel before
+      re-baselining: **one 15 px band, y 483-497**, where a ~8 px fraction on
+      the right became a ~250 px full-width Arabic sentence and nothing else
+      in the 850 px frame moved. Re-baselined on that evidence, not to make a
+      red go away.
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1383 passed / 3 skipped / 0 failed**, up from
+      1364/3/0 (+19).
+      *Commit* `5109e0c`; remote `f5d210a`. All five blobs — including the
+      regenerated golden — **MATCH** against the real remote tree.
+
+- [ ] **BACKEND-API, not app code: `POST /api/mobile/projects/:id/review`
+      returns 500 whenever `worker_id` is in the body — and the app always
+      sends it.** Found on production this tick, by accident, while driving the
+      review above. Same project, same token, two calls:
+      `{"rating":5,"comment":"…","worker_id":390}` -> **500**
+      `{"rating":5,"comment":"…"}`                 -> **200 `{"ok":true}`**
+      and the 500 is not a validation error: `rating:9` is correctly rejected
+      with 400, so the validator runs and then something downstream throws.
+      `Repository.createReview` (`repository.dart:425`) posts
+      `{'worker_id': workerId, 'rating': …, 'comment': …}` and
+      `review_screen.dart:51` always supplies the id, so **every review a real
+      customer leaves in the shipped app hits this 500.** The screen treats a
+      500 as a write it cannot confirm, so the user gets «لم نتمكن من التأكد»
+      and is sent to re-check — on a rating that was never stored. This is the
+      worst class of bug on this surface: the customer is told the app is
+      unsure, and the rating is simply gone.
+      **The backend source is not on this box** (no `finili` tree, no
+      `wrangler.jsonc` anywhere under `/home/hatch`), so this cannot be fixed
+      or even read from here. It needs BACKEND-API, or the founder to say who
+      owns that repo. Until then a review cannot be completed in the real app.
+      *Also noted while isolating it:* `/api/mobile/workers/:id/reviews`
+      returned `[]` and `/api/mobile/workers/390` 404s for a worker that had
+      two reviews and a notification for each — because a freshly registered
+      worker has no contractor profile row. Not filed as a defect; it is the
+      onboarding gap, and it means a review-only worker is not readable.
