@@ -7742,7 +7742,9 @@ running app for defects like these rather than inventing a feature.
       `حتى 9000 دج` for a max alone and `من 7000 دج` for a min alone.
       Shots in `/tmp/shots/price_range_compare.png` and
       `/tmp/shots/price_range_max_only.png`.
-      Commit `see git log`.
+      Commit `f83fd4c` (local) / `b3d887f` (remote, pushed through the
+      git-data helper, so the local `origin/main` tracker is stale as always).
+      All 6 blobs verified byte-for-byte against the remote tree.
 
       *Note for the next tick:* the wire probe created **customer 391** and
       **worker 392** on production and left worker 124 holding
