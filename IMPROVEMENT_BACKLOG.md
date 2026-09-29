@@ -9131,3 +9131,56 @@ running app for defects like these rather than inventing a feature.
       The one item still open is `POST /api/mobile/projects/:id/review` 500 —
       **not app code**, backend source is not on this box, re-checked three
       times and deliberately not re-filed a fourth.
+
+## 2026-09-29 — the directory could not filter for half the trades
+
+- [x] **`Taxonomy.categories.take(8)` in the browse filter strip: a literal 8
+      against a 16-trade taxonomy, and because the strip was a lazy horizontal
+      `ListView` the eight trades past the cut were never *constructed*, not
+      merely off-screen.** Found 29 Sep by reading `browse_screen.dart` for the
+      class of defect the last two ticks shipped — a field or a value the wire
+      sends and the app drops — and landing on a number typed into a `take()`.
+      Present since the 12 Sep design overhaul.
+      *Shipped:* extracted to `lib/src/widgets/trade_filter_bar.dart` as an
+      eager `Row` over the full `Taxonomy.categories`, with the active trade
+      scrolled into view (a post-frame `Scrollable.ensureVisible` at
+      `alignment: 0.15`, so «كل الولايات» stays legible beside the trade).
+      All sixteen trades are now reachable; `BrowseScreen(initialCategory:)`
+      no longer applies a filter whose chip is off the strip.
+      *Why eager, which cost a second fix:* a chip past a lazy list's viewport
+      has no `BuildContext` and cannot be measured. The first version kept the
+      `ListView` and walked the strip forward a viewport at a time — it worked
+      to trade 15 and then ran out of budget at 3,456px of a 4,265px strip with
+      the sixteenth chip still unbuilt. Sixteen small pills is not a performance
+      problem.
+      *The regression the swap caused, and the reason the golden mattered:*
+      a `ListView` hands its children a **tight** cross-axis constraint and a
+      `Row` hands them a **loose** one and then centres them, so extracting the
+      strip silently shrank every pill from 50px to 46px painted — a 6dp tap
+      target lost on all sixteen, with nothing about the pill itself changed.
+      `CrossAxisAlignment.stretch` restores it. Nothing reported this: the
+      analyzer is clean, the tap-target audit rates the new file **ADVISORY**
+      (hand-rolled, sized by layout) rather than failing, and it would have
+      passed review. The golden diffed by 3,595px confined to the strip band
+      (rows 138–189) with everything above and below byte-identical, and
+      *measuring the pill's own painted height* is what said why. After the fix
+      the same diff is **6 columns**.
+      *A test that was certifying the bug it sat next to:*
+      `test/offline_taxonomy_test.dart` asserted
+      `Taxonomy.categories.take(8).last` — written the same day as the `.take(8)`,
+      so it proved "the strip reaches the eighth trade", which is exactly what
+      the strip was built to do and exactly the half of the marketplace it
+      should not have been able to reach. It now asserts the sixteenth trade by
+      the strip's own key. A test that encodes the bug next to it is worse than
+      no test, because it reads as coverage.
+      *Evidence:* `flutter analyze` → **No issues found!**
+      `flutter test` → **1595 passed / 3 skipped / 0 failed** (was 1587/3/0,
+      +8). Sabotage: `take(8)` reinstated → **6 red**; `crossAxisAlignment`
+      removed → **golden 10_browse red**. Baseline `10_browse` regenerated;
+      pill height measured 50px before and after. All four blobs verified
+      **MATCH** against the remote tree via the API. Commit `11f8b98` local,
+      `b26b69a` on `main`.
+      *Next.* The truncated-constant family is done — the same class of defect
+      was found in a `take()` and in a test that agreed with it. The open item
+      is still `POST /api/mobile/projects/:id/review` 500 — **not app code**,
+      backend source is not on this box, deliberately not re-filed a fourth time.
