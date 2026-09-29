@@ -785,3 +785,84 @@ class SkeletonBox extends StatelessWidget {
   }
 }
 
+
+/// One line of copy that **reserves no height when it has nothing to say**.
+///
+/// Every count in this app is honest about a value it cannot print: a zero, a
+/// missing field, a duration the contractor never typed all answer `''` rather
+/// than «0 صور» or a gap. That contract is right, and the copy files document
+/// it at length. It is the *caller* that has to act on the answer, and that is
+/// where the copy audit stopped.
+///
+/// **The cost is measured, not assumed.** `Text('')` inside a `Column` still
+/// builds a line box: the `Text` has a non-zero font size, so the framework
+/// sizes a strut to the line height and the empty paragraph occupies
+/// **20 px at `fontSize: 14, height: 1.4`**. Probed on this exact device
+/// config — two lines measure 40 px, the same two lines with an empty `Text`
+/// between them measure 60 px. In a `Row` the same empty `Text` costs nothing,
+/// because there is no cross-axis strut to reserve. So the hole is a *vertical*
+/// one and only a vertical one, and it is exactly the defect the guarded
+/// sentences went to such lengths to remove: the string is whole, the analyzer
+/// is happy, the unit test on the copy function passes — and the screen shows a
+/// band of nothing where a line of Arabic should be.
+///
+/// Every site this fixes had its own copy call, its own style and its own
+/// `SizedBox` between siblings, and each of them would need the same
+/// `if (line.isNotEmpty) ...[SizedBox, Text]` dance spelled out again. The
+/// failure this file exists to stop is *a second copy of the thing that lacked
+/// the guard* — so the guard is one widget and the empty string decides.
+///
+/// The widget is deliberately dumb: it does not decide what an empty string
+/// means, does not substitute a fallback, and does not warn. Substituting is
+/// how a hole gets papered over instead of fixed, and the copy files already own
+/// the decision of what is worth saying.
+class CopyLine extends StatelessWidget {
+  /// The Arabic sentence. An empty string draws nothing at all.
+  final String text;
+
+  final TextStyle? style;
+
+  final int? maxLines;
+  final TextOverflow? overflow;
+  final TextAlign? textAlign;
+  final TextDirection? textDirection;
+  final Key? copyKey;
+
+  /// Gap above this line, in logical pixels.
+  ///
+  /// Applied **only when the line renders**, which is the whole point: a
+  /// `const SizedBox(height: 2)` left as a sibling of a `Text('')` is itself
+  /// 2 px of nothing, and the leading gap is the half of this defect that is
+  /// easiest to miss because it lives outside the widget that causes it.
+  final double gapAbove;
+
+  const CopyLine(
+    this.text, {
+    super.key,
+    this.style,
+    this.maxLines,
+    this.overflow,
+    this.textAlign,
+    this.textDirection,
+    this.copyKey,
+    this.gapAbove = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (text.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      // `only` so a zero gap adds no padding object at all.
+      padding: gapAbove > 0 ? EdgeInsets.only(top: gapAbove) : EdgeInsets.zero,
+      child: Text(
+        text,
+        key: copyKey,
+        style: style,
+        maxLines: maxLines,
+        overflow: overflow,
+        textAlign: textAlign,
+        textDirection: textDirection,
+      ),
+    );
+  }
+}

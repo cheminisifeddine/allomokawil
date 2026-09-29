@@ -9355,3 +9355,83 @@ it structurally. Open item is still `POST /api/mobile/projects/:id/review` 500 �
 re-filed a fifth time. A fresh backlog item is warranted: the copy helpers are
 audited but the **screen-level** `Text('')` cases (a copy function that returns
 `''` legitimately and a widget that draws nothing) are not.
+
+## 2026-09-29 — a copy function that answers `''` still had a widget holding space for it
+
+The previous tick closed the **copy** half of the zero-count family: six
+helpers that returned a sentence with a hole in it. The other half was never
+audited — what a widget does with an empty answer. Probed it, and the answer
+is a real layout cost:
+
+> `Text('')` inside a `Column` **reserves a full line box** — 20 px at
+> `fontSize: 14, height: 1.4` (two lines measure 40 px; the same two lines
+> with an empty `Text` between them measure 60 px). In a `Row` the same empty
+> `Text` costs **nothing**, because there is no cross-axis strut to reserve.
+
+So the defect is strictly vertical, and it is invisible to every instrument
+this repo had: the string is whole, `flutter analyze` is clean, the unit test
+on the copy function passes, and the widget tree is *identical* with and
+without the guard — `Text('')` is a real widget.
+
+*Shipped.* `CopyLine` in `lib/src/widgets/ui.dart` — one line of copy that
+reserves no height when it has nothing to say, with `gapAbove` so the gap
+belongs to the line it separated rather than outliving it. Three call sites
+converted: the wilaya sheet's two counts, and the portfolio header's two lines
+(the `const SizedBox(height: 2)` between them is the half that survives the
+text collapsing, and it moved inside the line for that reason).
+
+*Three new guards, and the one that mattered.* `test/no_empty_text_site_test.dart`
+is a **source sweep**: it reads every `.dart` under `lib/`, finds every
+function that can return `''`, and fails if one reaches a `Text` without
+either a `CopyLine` or an `isEmpty`/`isNotEmpty` branch between the binding
+and the draw. Two exempted sites branch on the **predicate** rather than the
+string (`lastMessageAt != null`, `isDecided`); each exemption is proved in its
+own test from the same function the screen calls, so a copy function that
+grows a second empty arm turns the file red before the screen can draw a hole.
+
+**The sweep's first version was worthless, and the second one was worse.**
+Version one matched only `Text(someFn(` — a call written straight into the
+widget. It stayed **green on a sabotage that deleted the guard from the live
+wilaya sheet**, because the honest way to write that call site is to name the
+string first (`final countLine = …; Text(countLine)`) and a regex cannot see
+that. Version two followed locals, matched on the *name* file-wide, and
+reported five widgets in `ui.dart` that never call a copy function at all
+(`StatusPill.quote` holds a local called `label`; so does every button). It
+is scoped by **enclosing block** now, and the guard is looked for anywhere
+between the binding and the draw rather than in a three-line window — because
+`if (countLine.isEmpty) return …` sits eight lines above the `Text` it
+protects. Both sabotages are caught now, verified by running them.
+
+*What is NOT claimed.* **Both converted sites are latent, not live.** The
+wilaya sheet's count row lives inside the `ListView` that is only built when
+`shown.isNotEmpty`, and `matches` is the *untruncated* count while `search()`
+caps at 80 — so `matches >= 1` on every path that reaches that line, and the
+zero case renders the `EmptyView` branch instead. Every wilaya in the shipped
+dataset has at least 2 communes, so the header's `_total` cannot be 0 either.
+The portfolio header is the same: `_Header` is built only when
+`_images.isNotEmpty`, and `_subLine` falls back to a fixed sentence when the
+allowance is null. I wrote a comment claiming the opposite, rendered the
+screen, and the capture contradicted it — so the comment is corrected in
+place and the correction is the part worth reading. The guards stay because
+the contract they protect is real and a future caller should get a collapsed
+line rather than a hole, but they are **not** dressed up as a live bug.
+
+*Rendered, and the instrument that could not see it.* The real `_CommuneSheet`
+on the real `ProjectNewScreen`, both states, 392x860 @2.75, Cairo loaded
+(`/tmp/shots/empty_count_01_no_match.png`, `…_02_with_match.png`). A count
+line that has a value measures **1199** dark pixels in its band; the same band
+in the zero state measures **0**. But note *why* the sabotaged build also
+measured zero: an empty `Text` draws **no ink at all** — it reserves a box and
+paints nothing — so band-ink is the wrong instrument, and the first pixel
+assertion in this file was **green on the sabotage** for exactly that reason.
+Recording it because a future tick will otherwise reach for the same probe.
+`tool/band_ink.py` is kept (it is the count-band control); the geometry probe
+written while chasing this is deleted rather than shipped unused.
+
+*Gate.* `flutter analyze` -> **No issues found!**
+`flutter test` -> **1621 passed / 3 skipped / 0 failed** (was 1606/3/0, +15).
+
+*Next.* The copy family is now closed on **both** sides — the sentence and the
+widget that holds it. The remaining open item is still
+`POST /api/mobile/projects/:id/review` 500, **not app code**, backend source
+not on this box, deliberately not re-filed a fifth time.

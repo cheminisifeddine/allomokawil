@@ -997,8 +997,12 @@ class _CommuneSheetState extends State<_CommuneSheet> {
                     style: AppTheme.label.copyWith(fontSize: AppTheme.fsBody),
                   ),
                 ),
+                // [CopyLine], not `Text`: `communeCountAr` answers `''` for a
+                // wilaya whose dataset came back empty, and in a `Row` that
+                // costs nothing — but the next caller will put this in a Column
+                // and the guard is already written.
                 if (!_loading)
-                  Text(
+                  CopyLine(
                     communeCountAr(_total),
                     style: AppTheme.caption.copyWith(color: AppTheme.textMuted),
                   ),
@@ -1064,10 +1068,32 @@ class _CommuneSheetState extends State<_CommuneSheet> {
                         itemCount: shown.length + 1,
                         itemBuilder: (_, i) {
                           if (i == 0) {
+                            // **Corrected on 29 Sep, and the correction is the
+                            // point.** This comment originally claimed a search
+                            // that matched nothing rendered a 20 px line box of
+                            // nothing here. It does not, and cannot: the count
+                            // row lives inside the `ListView` that is only
+                            // built when `shown.isNotEmpty`, and `matches` is
+                            // the *untruncated* match count while `shown` is
+                            // capped at 80. So `matches >= 1` on every path
+                            // that reaches this line — the zero case renders
+                            // the `EmptyView` branch instead, which is what
+                            // the capture proved when it stayed green under
+                            // sabotage.
+                            //
+                            // The guard is kept anyway, and for the reason the
+                            // copy files give: a value the app cannot print is
+                            // silence, and a caller that stops branching should
+                            // get a collapsed line rather than a hole. It is
+                            // latent, not live, and it is recorded as such.
+                            final countLine = communeCountAr(matches);
+                            if (countLine.isEmpty) {
+                              return const SizedBox.shrink();
+                            }
                             return Padding(
                               padding: const EdgeInsets.fromLTRB(6, 0, 6, 8),
                               child: Text(
-                                communeCountAr(matches),
+                                countLine,
                                 style: AppTheme.caption
                                     .copyWith(color: AppTheme.textMuted),
                               ),

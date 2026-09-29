@@ -441,12 +441,23 @@ class _Header extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(portfolioCountLineAr(count),
-                    style: AppTheme.label
-                        .copyWith(fontSize: AppTheme.fsSmall, color: AppTheme.success)),
-                const SizedBox(height: 2),
-                Text(
+                // Both lines go through [CopyLine], and the 2 px gap moves
+                // inside the second one. Measured on this app's own text
+                // styles: `Text('')` in a `Column` still builds a line box
+                // (20 px at `fsSmall`, 1.5), so a header whose count the copy
+                // function could not answer drew a blank band between the
+                // title row and the sentence under it. The `const
+                // SizedBox(height: 2)` left as a sibling is the other half of
+                // the same hole — 2 px of nothing that survives even after the
+                // text collapses — so it belongs to the line it separated.
+                CopyLine(
+                  portfolioCountLineAr(count),
+                  style: AppTheme.label
+                      .copyWith(fontSize: AppTheme.fsSmall, color: AppTheme.success),
+                ),
+                CopyLine(
                   _subLine(),
+                  gapAbove: 2,
                   style: AppTheme.caption.copyWith(
                       color: AppTheme.success, fontSize: AppTheme.fsCaption, height: 1.5),
                 ),
