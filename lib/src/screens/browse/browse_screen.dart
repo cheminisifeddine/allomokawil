@@ -170,6 +170,21 @@ class _BrowseScreenState extends State<BrowseScreen> {
                     final hasFilter = _category != null ||
                         _wilaya != null ||
                         _query.isNotEmpty;
+                    // Two different situations were sharing one state, and only
+                    // one of them had a button.
+                    //
+                    // With a filter or a word set, the user is holding
+                    // something of their own and can undo it in a tap. With
+                    // nothing set — a young marketplace, two contractors on the
+                    // whole platform — the reader has nothing to undo, so the
+                    // state rendered **no action at all** and told him to
+                    // «جرّب تغيير التخصص أو الولاية»: advice about two controls
+                    // he never touched, with nothing under it to press. The
+                    // honest action is a re-fetch, which is what the sibling
+                    // market already does in the same situation
+                    // (`worker_home_screen`), and the heading «لا نتائج
+                    // مطابقة» was simply false — nothing was matched, because
+                    // nothing was searched.
                     return RefreshIndicator(
                       onRefresh: _refresh,
                       color: AppTheme.navy,
@@ -180,15 +195,29 @@ class _BrowseScreenState extends State<BrowseScreen> {
                             AppTheme.s16, AppTheme.s16, AppTheme.s16, AppTheme.s28),
                         children: [
                           EmptyView(
-                            icon: Icons.search_off_rounded,
-                            title: 'لا نتائج مطابقة',
-                            message: _query.isEmpty
-                                ? 'جرّب تغيير التخصص أو الولاية'
-                                : 'لا يوجد مقاول يطابق «$_query».\nجرّب كلمة أقصر أو امسح البحث',
+                            icon: hasFilter
+                                ? Icons.search_off_rounded
+                                : Icons.inbox_rounded,
+                            title: hasFilter
+                                ? 'لا نتائج مطابقة'
+                                : 'لا يوجد مقاول حالياً',
+                            message: !hasFilter
+                                ? 'لم يسجّل أي مقاول في الدليل بعد.\n'
+                                    'حدّث الصفحة، أو عد لاحقاً.'
+                                : _query.isEmpty
+                                    ? 'جرّب تغيير التخصص أو الولاية'
+                                    : 'لا يوجد مقاول يطابق «$_query».\nجرّب كلمة أقصر أو امسح البحث',
                             actionLabel: hasFilter
                                 ? 'مسح البحث والفلاتر'
-                                : null,
-                            onAction: hasFilter ? _clearFilters : null,
+                                : 'تحديث',
+                            // The default icon is a refresh arrow, which on the
+                            // "clear" branch would be the one button in the app
+                            // promising to refetch what it is about to throw
+                            // away. Same rule as `EmptyView.actionIcon`.
+                            actionIcon: hasFilter
+                                ? Icons.close_rounded
+                                : Icons.refresh_rounded,
+                            onAction: hasFilter ? _clearFilters : _refresh,
                           ),
                         ],
                       ),

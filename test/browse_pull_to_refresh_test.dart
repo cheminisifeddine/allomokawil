@@ -224,7 +224,14 @@ void main() {
       return _json(<Object?>[_worker(1, 'مقاول أول')]);
     });
     await _pump(tester, b.api, b.auth);
-    expect(find.text('لا نتائج مطابقة'), findsOneWidget);
+    // The heading, not the pull: this screen's *unfiltered* empty state is
+    // «لا يوجد مقاول حالياً» — it was «لا نتائج مطابقة» until 29 Sep, when
+    // that heading was found to be claiming a search had happened when the
+    // reader had set no filter and typed nothing. This test pumps a screen
+    // with no `initialCategory` and no query, so it has always been reading
+    // the unfiltered state. What it is really about — that the empty state
+    // accepts the pull — is unchanged.
+    expect(find.text('لا يوجد مقاول حالياً'), findsOneWidget);
     expect(_searchReads(b.log), 1);
 
     await _pull(tester);

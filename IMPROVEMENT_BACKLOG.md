@@ -7803,3 +7803,61 @@ running app for defects like these rather than inventing a feature.
       that drives a screen to a **refused** state and captures it, rather than
       rendering a static card. It filters the pre-existing ink-splash warning
       the same way the two existing profile tests do, and nothing else.
+
+- [x] **The empty contractor directory was a dead end: a heading, a sentence
+      telling you to change two filters, and no button at all.**
+      `browse_screen.dart` had one `EmptyView` for two different situations and
+      only one of them carried an action. With a filter or a typed word set the
+      user holds something of their own and could undo it in a tap. With
+      **nothing set**, `actionLabel` and `onAction` were both `null`, so the
+      screen rendered a heading, a body sentence, and no control whatsoever —
+      while saying **«جرّب تغيير التخصص أو الولاية»**, advice about two filter
+      chips that sit directly above the message and are both switched off.
+      *Shipped:* the two situations are now separated. Unfiltered gets
+      «لا يوجد مقاول حالياً» / «لم يسجّل أي مقاول في الدليل بعد. حدّث الصفحة، أو
+      عد لاحقاً» with a **«تحديث»** button wired to `_refresh` and the
+      `inbox_rounded` icon. Filtered keeps its old heading, copy and
+      «مسح البحث والفلاتر» action, and now passes `actionIcon:
+      Icons.close_rounded` explicitly so the clear button cannot inherit the
+      default refresh arrow and promise to re-fetch what it is about to throw
+      away.
+      *The unfiltered case is the ordinary one, not an edge.* Probed on
+      production: `GET /api/mobile/workers/search` **does not implement `q` at
+      all** — `q=`, `q=دهن` and `q=TTTTNONEXISTENT` all answer with the same 70
+      rows, so `browse_screen`'s own `_matchesQuery` is the only thing that
+      ever filters. `category` and `wilaya` *are* honoured (9 / 3 rows), and
+      **31 of the 48 wilayas are selectable and currently return zero
+      contractors**, as are `electrical`, `hvac_heating` and
+      `waterproofing_insulation`. A young marketplace renders this state on
+      first launch, and it is the first screen a client opens to find
+      somebody.
+      *The heading was false too, not just bare.* «لا نتائج مطابقة» claims a
+      search happened; nothing was searched. Both sibling feeds already get
+      this right — `projects_screen` and `worker_home_screen` always offer the
+      control that undoes the state — so the directory was the last dead end
+      in the app, and the only one the user cannot leave by tapping anything.
+      *Red before green:* 3 of the 4 new cases in
+      `test/browse_empty_action_test.dart` fail at HEAD — *Found 1 widget with
+      text "لا نتائج مطابقة"*, *Found 0 widgets with text "لا يوجد مقاول
+      حالياً"*, and no `close_rounded` under the clear action. The 4th (a
+      typed word still offers to clear it) passed before and after, pinned so
+      the split cannot be collapsed back.
+      *Pixels.* `browse_empty_action_BEFORE.png` contains **0** accent pixels
+      in the whole 1176x2580 frame; `browse_empty_action.png` contains a
+      **888x168 px** solid `AppTheme.accent` band at y 1407-1574, below the
+      body copy. `browse_empty_filtered.png` shows the filtered branch with
+      the same 888x168 button at y 1335-1502. Side-by-side in
+      `/tmp/shots/browse_empty_compare.png`.
+      *One existing test edited, honestly.* `browse_pull_to_refresh_test.dart`
+      asserted «لا نتائج مطابقة» as a landmark in a test that pumps the screen
+      with no `initialCategory` and no query — so it was always reading the
+      *unfiltered* state, and the landmark, not the contract, went stale. The
+      pullability it tests is untouched and still passes.
+      *Gate.* `flutter analyze` → **No issues found!**
+      `flutter test` → **1403 passed / 3 skipped / 0 failed** (was 1397/3/0).
+      Commit `59d1356`.
+      *Note for the next tick:* the wilaya picker is a lazy `ListView` of 58
+      tiles in a bottom sheet — only 7 are ever built, so a test cannot `tap`
+      an arbitrary wilaya by name. Drive the filter through
+      `BrowseScreen(initialCategory: …)` (what `customer_home_screen` does) or
+      the sheet's own scrolling, not `find.text('الجزائر')`.
