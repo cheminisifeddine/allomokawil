@@ -28,6 +28,7 @@ import 'package:allomokawil/src/models/enums.dart';
 import 'package:allomokawil/src/models/worker.dart';
 import 'package:allomokawil/src/screens/worker/profile_edit_screen.dart';
 import 'package:allomokawil/src/widgets/number_field.dart';
+import 'package:allomokawil/src/widgets/ui.dart';
 
 /// A worker row the server would answer with.
 WorkerProfile _profile({
@@ -533,6 +534,55 @@ void main() {
 
       expect(find.text(S.profileSavedUnverified), findsOneWidget);
       expect(find.text(S.profileSavedOk), findsNothing);
+    });
+
+    testWidgets('one refusal, one sentence: the error is never printed twice',
+        (tester) async {
+      // The pinned footer exists so «حفظ الملف» is reachable on a form taller
+      // than the phone. It then also printed the error -- as bare red caption
+      // text -- while the list body printed the *same* string again inside a
+      // full-width red _Notice card. The contractor who failed to save was
+      // told he had made a mistake, twice, in two different type sizes, on one
+      // screen, with the second copy glued to the button he has to look away
+      // from in order to find the field that is wrong.
+      //
+      // The footer is the only one of the two that is *always* on screen: the
+      // body copy scrolls away with the list, and after a rejection the user
+      // is at the bottom (the save button is pinned there), so the body copy is
+      // off-screen at the exact moment it is needed. The footer wins.
+      final a = api();
+      await pump(tester, a, await auth(a));
+
+      // The name field is the first control and the cheapest refusal: it is
+      // mandatory, and clearing it needs no scroll. It is a bare `TextField`,
+      // not a `NumberField`, so the shared `clearField` helper (which looks for
+      // a numeric field *inside* its finder) does not apply -- empty the
+      // controller directly instead, which is what the helper does too.
+      final name = tester.widget<TextField>(find.byType(TextField).first);
+      name.controller!.clear();
+      await tester.pump();
+      onlyKnownWarning(tester);
+
+      final save = find.text('\u062d\u0641\u0638 \u0627\u0644\u0645\u0644\u0641');
+      expect(save, findsOneWidget);
+      await tester.tap(save);
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 60));
+      }
+      onlyKnownWarning(tester);
+
+      const refusal = '\u0627\u0643\u062a\u0628 \u0627\u0633\u0645\u0643 \u0643\u0645\u0627'
+          ' \u062a\u0631\u064a\u062f \u0623\u0646 \u064a\u0638\u0647\u0631 \u0644\u0644\u0645\u0634\u062a\u0631\u064a\u0646';
+      // Exactly one. Two is the defect this pins.
+      expect(find.text(refusal), findsOneWidget);
+      // And the one that survived is the pinned one, next to the button: the
+      // form did not scroll away from the error when the save was refused.
+      expect(
+        find.descendant(of: find.byType(StickyCta), matching: find.text(refusal)),
+        findsOneWidget,
+      );
+      // No PATCH: a form that cannot be saved must not claim to have tried.
+      expect(sent.where((r) => r.method == 'PATCH'), isEmpty);
     });
   });
 }

@@ -217,10 +217,14 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           : ListView(
               padding: const EdgeInsets.fromLTRB(18, 4, 18, 30),
               children: [
-                if (_error != null) ...[
-                  const SizedBox(height: 8),
-                  _Notice(text: _error!),
-                ],
+                // The error is rendered **once**, in the pinned footer. It used
+                // to be drawn here as well -- the same string, in a red card at
+                // the top of the form and again in red type under the save
+                // button. This position is also the wrong one: it is the first
+                // child of a *lazy* list, so after the user has scrolled down
+                // to reach the form's last field and taps the pinned save, it
+                // is not built at all. Printing it only here would have made a
+                // refused save show nothing at all.
                 const SectionTitle('الاسم الظاهر', icon: Icons.badge_rounded),
                 TextField(
                   controller: _name,
@@ -358,15 +362,22 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // The one and only error surface on this screen. It lives in
+            // `bottomNavigationBar`, so it is mounted from the first frame and
+            // never scrolls away: the refusal appears beside the button the
+            // user just pressed, which is the only place it can be read at the
+            // moment it is true. `fsMeta` is what the removed duplicate used,
+            // so deleting it downgrades nothing.
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Text(
                   _error!,
+                  textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontFamily: 'Cairo',
-                    fontSize: AppTheme.fsCaption,
-                    height: 1.4,
+                    fontSize: AppTheme.fsMeta,
+                    height: 1.5,
                     color: AppTheme.danger,
                   ),
                 ),
@@ -419,42 +430,6 @@ class _Hint extends StatelessWidget {
           height: 1.6,
           color: AppTheme.textMuted,
         ),
-      ),
-    );
-  }
-}
-
-class _Notice extends StatelessWidget {
-  final String text;
-  const _Notice({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: AppTheme.cardPad,
-      decoration: AppTheme.cardDecorationOf(
-        fill: AppTheme.dangerWash,
-        border: AppTheme.danger,
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.error_outline_rounded,
-              color: AppTheme.danger, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(
-                fontFamily: 'Cairo',
-                fontSize: AppTheme.fsMeta,
-                height: 1.5,
-                color: AppTheme.danger,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
