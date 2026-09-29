@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
+import '../../core/l10n/error_copy.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/l10n/write_outcome.dart';
 import '../../core/theme/app_theme.dart';
@@ -9,6 +10,7 @@ import '../../data/notification_body_copy.dart';
 import '../../data/notification_count_trust.dart';
 import '../../data/notification_read_outcome.dart';
 import '../../data/repository.dart';
+import '../../data/stale_notifications_copy.dart';
 import '../../models/chat.dart';
 import '../../models/notification.dart';
 import '../chat/chat_list_screen.dart';
@@ -16,6 +18,7 @@ import '../chat/chat_screen.dart';
 import '../profile_screen.dart';
 import '../project/project_detail_screen.dart';
 import '../project/projects_screen.dart';
+import '../../widgets/ui.dart';
 import '../../widgets/motion.dart';
 
 /// Notification centre: every quote, acceptance, message and review the user
@@ -83,7 +86,26 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   late final NotificationCountTrust _trust;
 
   List<AppNotification> _items = const [];
+
+  /// The failure, when one is being shown.
+  ///
+  /// **Used to be a dead field on a populated list, and that was the defect.**
+  /// `_load` assigned it on failure and `_body` read it only inside
+  /// `if (_items.isEmpty)`, so a failed *re-read* — by far the most ordinary
+  /// failure on this screen — set a value no branch could see and the centre
+  /// went on drawing yesterday's rows with nothing said about it. A first read
+  /// that fails still gets the full-screen error; this field now carries the
+  /// failure to both of those places instead of only one.
   String? _error;
+
+  /// Whether [_items] is being drawn while a newer read has failed to land.
+  ///
+  /// Separate from [_error] because a *first* read that fails and a *re-read*
+  /// that fails are opposite answers — the first has nothing to draw, the
+  /// second has a whole list it must not throw away — and one nullable string
+  /// cannot carry "the list on screen is stale" on its own. `_error` is set by
+  /// both; this says which of them the body is in.
+  bool get _stale => _error != null && _items.isNotEmpty;
 
   @override
   void didChangeDependencies() {
@@ -107,11 +129,24 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         _items = list;
         _error = null;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) {
         return;
       }
-      setState(() => _error = S.errUnexpected);
+      setState(() => _error = errorCopy(e, fallback: S.errUnexpected));
+      // **The half of this bug that was sitting unused.** This screen is the
+      // input to the header's unread pip — `_unread` counts these very rows —
+      // and `notification_count_trust.dart` exists precisely so the header
+      // stops painting a count the app cannot check as a fact. A failed read
+      // here means the number behind that pip is the phone's memory, so the
+      // same sentence the centre now shows on screen is shown to the header.
+      //
+      // Withdrawing does not clear the number; it stops claiming to be the
+      // server's, which is the whole claim `restore()` is documented against
+      // (only a real read of `/api/unread` puts it back). The screen already
+      // did this for the one failure it could see — the `_settleRead` re-read
+      // that could not run — so a plain pull-to-refresh was the odd one out.
+      _trust.withdraw();
     }
   }
 
@@ -334,13 +369,28 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         onAction: failed ? _load : () => Navigator.of(context).maybePop(),
       );
     }
+    // **The banner is a header on the list, not a replacement for it.** That
+    // is the whole fix, and it is the same shape the inbox and the project
+    // list landed on: the rows are real and a newer read did not land, so they
+    // stay, and the doubt is stated above them. A header keeps the pull gesture
+    // working too — the rows scroll, so there is always something to pull.
+    //
+    // Reached only when [_stale]: a first read that failed has no rows and was
+    // already answered by the full-screen error above.
+    final stale = _stale;
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-      itemCount: _items.length,
+      itemCount: _items.length + (stale ? 1 : 0),
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       // Rows fade up on first build (AppMotion.reveal). The list is short, so
       // every row reveals together — no stagger, no row left waiting on a timer.
-      itemBuilder: (_, i) => Reveal(child: _tile(_items[i])),
+      itemBuilder: (_, i) {
+        if (stale && i == 0) {
+          return _StaleNotificationsBanner(line: staleNotificationsLineAr(
+              _error ?? S.errUnexpected));
+        }
+        return Reveal(child: _tile(_items[i - (stale ? 1 : 0)]));
+      },
     );
   }
 
@@ -515,6 +565,50 @@ class _NewTag extends StatelessWidget {
         S.newTag,
         style: AppTheme.caption
             .copyWith(fontSize: AppTheme.fsBadge, color: AppTheme.accentDeep),
+      ),
+    );
+  }
+}
+
+/// The amber band above a notification list that failed to re-read.
+///
+/// The tone is the one `stale_catalogue_copy.dart`, `chat_list_screen` and
+/// `worker_home_screen` already use (`accentDeep` over `accentWash`), so a
+/// screen that is quietly out of date looks the same wherever it is found. The
+/// unread pip it protects is also amber, and that is deliberate rather than a
+/// clash: both mean the same thing here — something on this screen is not yet
+/// the server's.
+class _StaleNotificationsBanner extends StatelessWidget {
+  const _StaleNotificationsBanner({required this.line});
+
+  /// The composed sentence from [staleNotificationsLineAr].
+  final String line;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      key: const Key('stale-notifications'),
+      color: AppTheme.accentWash,
+      borderColor: AppTheme.accent,
+      padding: AppTheme.cardPadRail,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.history_toggle_off_rounded,
+              size: AppTheme.s20, color: AppTheme.accentDeep),
+          const SizedBox(width: AppTheme.s8),
+          Expanded(
+            child: Text(
+              line,
+              key: const Key('stale-notifications-line'),
+              style: AppTheme.body.copyWith(
+                color: AppTheme.accentDeep,
+                height: 1.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
