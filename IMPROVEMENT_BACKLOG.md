@@ -8919,3 +8919,92 @@ running app for defects like these rather than inventing a feature.
       *Next.* `chat_list_screen` is the last surface in the family still
       undated. And the `relativeTimeAr` hour-floor above is filed as its own
       item — it needs a full-suite cycle, not a ten-minute one.
+
+- [x] **The `relativeTimeAr` hour-floor — the lossy band the last three ticks
+      each pinned by assertion instead of fixing. `diff.inHours < 24` floored,
+      so 60 through 119 minutes all printed «قبل ساعة» and the minutes were
+      discarded outright.** Filed out of the dated-subscription-band cycle, which
+      probed it directly (1→«قبل دقيقة», 59→«قبل 59 دقيقة», 60/90/119→«قبل
+      ساعة», 120→«قبل ساعتين») and deliberately did not fix it, because the
+      function is shared by the chat list, the notification centre and every
+      member of the stale-band family and that needs its own full-suite cycle.
+      This is that cycle. On a notification row that is cosmetic; on the stale
+      catalogue it meant a price read an hour ago and a price read an hour and a
+      half ago were **the same sentence**, on the one band where the number is
+      money.
+
+      *The obvious fix is wrong, and only the grammar can tell you.*
+      Widening the *minute* band to 119 — the smallest possible diff — makes
+      «قبل ساعة» **unreachable**: 119 minutes would read «قبل 119 دقيقة» and 120
+      already reads «قبل ساعتين», so the singular becomes dead code in a
+      function whose entire job is Arabic count agreement. So the hour arm is
+      kept for exactly one duration, the first minute of the hour: 60 minutes
+      stays bare «قبل ساعة», and 61-119 carry the remainder as
+      «قبل ساعة و 30 دقيقة». «قبل ساعة و 0 دقيقة» would be a real sentence
+      about a number nobody can picture.
+
+      *Why compound at all, and only there.* Past the first hour the bare count
+      is enough — 2h05m is «قبل ساعتين» and nobody re-reads the 5 — but inside
+      it the bare count is a lie about resolution: «قبل ساعة» claims the value
+      is under 120 minutes when it may be 119, and a read 60 minutes old and one
+      119 minutes old are nearly double. That is the only window where the
+      discarded remainder changes the decision, so it is the only one that
+      carries it. The compound is scoped to this arm **on purpose**:
+      `stale_catalogue_test` pins 2h05m with `isNot(contains('و '))`, so a figure
+      can never be dated two ways inside one app, and «قبل ساعة و 30 دقيقة»
+      appears here and nowhere else.
+
+      *My own code was wrong first, and the analyzer could not see it.* The
+      first version built both halves with the private `_ago`, which is
+      «قبل ‹noun›» on its own, and printed **«قبل ساعة و قبل دقيقة»** on screen.
+      It is valid Dart, the analyzer is green on it, and no test covered it —
+      it was caught by probing the function at 61 minutes and reading the
+      string. The halves are now built with `arabicCounted`, which owns the
+      agreement and writes no preposition, and «قبل » is written once. A second
+      of my own assertions was backwards (it subtracted where it meant to add)
+      and failed on the first run.
+
+      *Sabotage-checked, all three red.* Reverting to the old `inHours` floor
+      → 5 of 7 tests red. The "obvious fix" (widen the minute band to 120, no
+      compound) → same 5 red, so the two candidate implementations are
+      separated by the tests and not merely by intent. `_ago` on both halves →
+      4 red, which is the double-preposition bug above pinned in its own shape.
+
+      *Two goldens/tests that pinned the old string, rewritten with the reason
+      kept.* `design_shots_test` asserted `find.text('قبل ساعة')` for a row at
+      1h48 and the baseline PNG had it baked in; `stale_catalogue_test` carried a
+      20-line comment stating the expected string **was a defect**. Both now
+      assert the corrected sentence, and the catalogue comment records that the
+      test got *stricter*: the distinctive value is now a whole phrase where it
+      was one lossy word, so the stamp-only-first sabotage (09:00 = 120 min =
+      «قبل ساعتين») is separated from correct code (09:30 = 90 min =
+      «قبل ساعة و 30 دقيقة») by more text than before.
+
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1560 passed / 3 skipped / 0 failed**, up from
+      1552/3/0 (+8). *One* golden changed, `15_notifications`, and the diff was
+      read pixel by pixel before re-baselining: 12 rows, x 191-249, 239 px, the
+      label's own rows in both images (153-164) — it did not move or reflow, its
+      glyphs changed. Right-anchored at x=302 in both, growing leftward 49 px ->
+      110 px with no collision on any row.
+
+      *Pixels, A/B, same frame.* New shot `22_subscription_stale_90min.png` at
+      90 minutes against the 40-minute `16_subscription_stale_dated.png`:
+      differing rows confined to **491-536**, the age line, and nothing else in
+      the 3710 px frame moved. Age-line ink **6206 -> 8186** (threshold 220) and
+      its left edge **x 582 -> 430** against an unmoved right edge at 998 — the
+      compound extends leftward, which is the correct direction in RTL.
+      Band dark ink 37096 -> 38895, the longer sentence carrying more glyphs.
+      `contrast_audit.py token` -> **28/28 pass**.
+
+      *Files.* `lib/src/data/notification_copy.dart`,
+      `test/relative_time_hour_floor_test.dart` (new, 7 tests),
+      `test/stale_catalogue_shot_test.dart` (new 90-minute shot),
+      `test/stale_catalogue_test.dart`, `test/design_shots_test.dart`,
+      `test/goldens/15_notifications.png`.
+
+      *Next.* The stale-band family is closed and the shared time grammar is
+      now sharp at every boundary it has. The one item still open is
+      `POST /api/mobile/projects/:id/review` 500 — **not app code**, backend
+      source is not on this box, re-checked three times and deliberately not
+      re-filed a fourth.

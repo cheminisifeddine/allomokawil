@@ -476,25 +476,24 @@ void main() {
           .map((t) => t.data ?? '')
           .join();
       //
-      // **The expected string is `«قبل ساعة»`, and that is a defect, not a
-      // feature.** It is the *distinctive* value that matters: the sabotage
-      // stamps 09:00, which is 120 minutes and reads «قبل ساعتين», so this
-      // assertion separates correct from broken even while sitting on a
-      // lossy boundary. 90 minutes and 120 minutes are different reads of the
-      // catalogue and they say different things.
+      // **This assertion was a defect written down as a fact, and on 29 Sep the
+      // defect was fixed.** The old comment read: «the expected string is
+      // `«قبل ساعة»`, and that is a defect, not a feature» — filed correctly,
+      // as its own item, because `relativeTimeAr` is shared by the chat list,
+      // the notification centre and every member of the stale-band family and
+      // could not be changed inside a ten-minute tick.
       //
-      // The lossiness is `relativeTimeAr`'s and it is **app-wide**, not this
-      // screen's: `diff.inHours < 24` floors, so 60 through 119 minutes all
-      // print «قبل ساعة» and the minutes are discarded outright. Verified on
-      // this tick by probing `readAgeAr` directly — 1→«قبل دقيقة», 59→«قبل 59
-      // دقيقة», 60→«قبل ساعة», 90→«قبل ساعة», 119→«قبل ساعة», 120→«قبل
-      // ساعتين». On the notifications list that is cosmetic; on this one it
-      // means a price read an hour ago and a price read two hours ago are
-      // the same sentence. It is filed as its own item rather than fixed
-      // here: `relativeTimeAr` is shared by the chat list, the notification
-      // centre and every member of the stale-band family, and a change to it
-      // needs the full suite, not one ten-minute tick.
-      expect(aged, contains('قبل ساعة'),
+      // The fix gives the one-hour window a compound. 90 minutes from 11:00
+      // is now «قبل ساعة و 30 دقيقة» where it used to be «قبل ساعة» — the
+      // same sentence as a read 60 minutes old, and 90 is not 60.
+      //
+      // **The test got stricter, not looser.** The distinctive value used to
+      // be one lossy word; it is now a whole phrase, so the sabotage (a stamp
+      // frozen at 09:00, which is 120 minutes and reads «قبل ساعتين») is
+      // separated from correct code by *more* text than before, and the
+      // `isNot(contains('و '))` pin in the age test above is untouched: 2h05m
+      // is still bare «قبل ساعتين».
+      expect(aged, contains('قبل ساعة و 30 دقيقة'),
           reason: 'the figures on screen were read at 09:30, not at the very '
               'first read at 09:00 — a stamp that is never refreshed dates '
               'the wrong read and states a number nobody can rely on: "$aged"');

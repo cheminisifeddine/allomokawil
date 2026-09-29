@@ -897,8 +897,14 @@ void main() {
     final s = await boot();
     await _shoot(tester, '15_notifications_pinned',
         NotificationsScreen(clock: () => _pinnedClock), s.api, s.auth);
-    expect(find.text('قبل ساعة'), findsOneWidget,
-        reason: 'row 41 is 01:12Z against the pinned 03:00Z — 1h48 ago');
+    // **This string changed on 29 Sep and the change is the point of the test.**
+    // Row 41 is 01:12Z against the pinned 03:00Z — 1h48 — and it used to read
+    // «قبل ساعة», the same sentence as a row 60 minutes old. `relativeTimeAr`
+    // floored `diff.inHours`, so 60 through 119 minutes were one value and the
+    // minutes were discarded. This row is 1h48 and it now says so.
+    expect(find.text('قبل ساعة و 48 دقيقة'), findsOneWidget,
+        reason: 'row 41 is 1h48, and a row an hour old reads «قبل ساعة» — the '
+            'two must not be the same sentence');
     // Row 38 is `2026-09-11 09:05Z` against the pinned 13th 03:00Z: 41h55m, and
     // **two calendar days** — 11th to 13th. It used to read «أمس» here and in
     // the baseline PNG, because `Duration.inDays` floors 41h to 1 while

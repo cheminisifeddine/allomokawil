@@ -277,4 +277,123 @@ void main() {
           .writeAsBytesSync(bytes!.buffer.asUint8List());
     });
   });
+
+  testWidgets('a NINETY-MINUTE band is drawn, the hour carries its minutes',
+      (tester) async {
+    // The shot above proves a band dated in **minutes**. This one proves the
+    // fix of 29 Sep, and it had to be drawn separately: the minute band and
+    // the one-hour window are different arms of the same function, and a
+    // single 40-minute picture would have passed identically before and
+    // after the change — exactly the test that cannot tell right from wrong.
+    //
+    // **This is the surface where the number is money.** Every other member of
+    // the family dates a list the user is reading; this one sits over a price,
+    // a pending payment and a quota. A figure read an hour and a half ago
+    // being dated «قبل ساعة» told a contractor that a BaridiMob decision could
+    // wait another half hour.
+    //
+    // So the clock is injected and aged **ninety** minutes, which is inside
+    // the window that used to floor, and the picture is proof the banner
+    // carries the remainder rather than the hour alone.
+    var now = DateTime(2026, 9, 29, 9, 0);
+    tester.view.physicalSize = const Size(1080, 3400);
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+
+    var reads = 0;
+    final api = ApiClient(
+      baseUrls: const ['https://x.test'],
+      httpClient: MockClient((req) async {
+        if (req.url.path.endsWith('/api/mobile/subscription')) {
+          reads++;
+          if (reads == 1) {
+            return http.Response(
+                '{"currency":"DZD","note_ar":"x","auto_renew":false,'
+                '"plans":[],"current":{"plan":"free_trial","status":"active"}}',
+                200,
+                headers: {'content-type': 'application/json'});
+          }
+          return http.Response('', 503,
+              headers: {'content-type': 'application/json'});
+        }
+        return http.Response('{}', 200,
+            headers: {'content-type': 'application/json'});
+      }),
+      timeout: const Duration(milliseconds: 200),
+    );
+
+    final key = GlobalKey();
+    await tester.pumpWidget(AppScope(
+      api: api,
+      auth: AuthState(api),
+      child: RepaintBoundary(
+        key: key,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          locale: const Locale('ar'),
+          supportedLocales: const [Locale('ar'), Locale('en')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: SubscriptionScreen(clock: () => now),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    // The read lands at 09:00, the network dies, and the phone is not touched
+    // again until 10:30 — **ninety minutes**, which is inside the one-hour
+    // window that used to floor. Before 29 Sep this banner said «قبل ساعة»,
+    // the same sentence as a read 60 minutes old, and the two are not the same
+    // decision about whether a price is safe to quote.
+    now = DateTime(2026, 9, 29, 10, 30);
+    await tester.tap(find.byTooltip(S.planRetry));
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+    // Crossed by a whole minute, not a frame: the banner is re-dated by the
+    // once-a-minute age tick, so a test that only pumps frames is asserting
+    // on the sentence as it stood when the failure landed.
+    await tester.pump(const Duration(minutes: 1));
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(find.byKey(const Key('stale-catalogue')), findsOneWidget);
+    // Asserted in the widget as well as in the pixels, because a band can be
+    // *drawn* with the right colour and the wrong words and only the text
+    // widget knows which one it is.
+    final line = tester
+        .widgetList<Text>(find.byKey(const Key('stale-catalogue-line')))
+        .map((t) => t.data ?? '')
+        .join();
+    expect(line, contains('قبل ساعة و 30 دقيقة'),
+        reason: '90 minutes is not 60: the hour arm must carry its minutes, or '
+            'a price read an hour and a half ago is dated as an hour old');
+    // ignore: avoid_print
+    print('90MIN LINE: $line');
+
+    final (rows, dark) = (await tester.runAsync(() => _scanBanner(key)))!;
+    // ignore: avoid_print
+    print('90MIN rows=$rows dark=$dark');
+
+    expect(rows, greaterThan(20),
+        reason: 'the amber wash is not on screen at the size it should be');
+    // Higher than the undated shot's floor of 300, because the second
+    // sentence is real ink: a banner that drew the failure clause and dropped
+    // the age would still clear 300 and pass the older assertion.
+    expect(dark, greaterThan(500),
+        reason: 'the banner drew no readable Arabic: $dark dark pixels on '
+            'the wash');
+
+    await tester.runAsync(() async {
+      final boundary =
+          key.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      final img = await boundary.toImage(pixelRatio: 3.0);
+      final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+      Directory(_out).createSync(recursive: true);
+      File('$_out/22_subscription_stale_90min.png')
+          .writeAsBytesSync(bytes!.buffer.asUint8List());
+    });
+  });
 }

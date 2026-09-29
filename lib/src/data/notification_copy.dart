@@ -91,6 +91,56 @@ String relativeTimeAr(DateTime? at, {DateTime? now}) {
   if (diff.inMinutes < 60) {
     return _ago(diff.inMinutes, 'دقيقة', 'دقيقتين', 'دقائق');
   }
+  // The one-hour window, 60 through 119 minutes, and the reason this arm is
+  // not the hour arm any more.
+  //
+  // `diff.inHours` **floors**: it answered «قبل ساعة» for 60 *and* for 90
+  // *and* for 119 minutes, and threw the minutes away. Probed on 29 Sep, on
+  // this exact function: 1 -> «قبل دقيقة», 59 -> «قبل 59 دقيقة», 60/90/119 ->
+  // «قبل ساعة», 120 -> «قبل ساعتين». A price read an hour ago and a price
+  // read an hour and a half ago were the same sentence, in the stale-band
+  // copy the founder reads when deciding whether a number is safe to quote.
+  //
+  // **Why compound here and not below.** The obvious fix — widen the minute
+  // band to 119 — is wrong in a way only the grammar can tell you: it makes
+  // «قبل ساعة» unreachable. 119 minutes would read «قبل 119 دقيقة» and 120
+  // already reads «قبل ساعتين», so the singular hour would become dead code in
+  // a function whose entire job is Arabic count agreement. The hour arm is
+  // kept for **exactly one** duration: the first minute of the hour, 60.
+  //
+  // **Why compound at all.** Past the first hour the bare count is enough
+  // (2h05m is «قبل ساعتين» and nobody re-reads the 5), but inside the first
+  // hour the bare count is a lie about resolution: «قبل ساعة» claims the value
+  // is under 120 minutes when it may be 119, and the difference between a read
+  // 60 minutes old and one 119 minutes old is nearly double. That is the only
+  // window in this function where the discarded remainder can change the
+  // decision, so it is the only window that carries it.
+  //
+  // The compound is scoped to this arm on purpose. `stale_catalogue_test` pins
+  // «قبل ساعتين» with `isNot(contains('و '))` — 2h05m must stay bare, because
+  // a figure dated two ways inside one app is the exact defect
+  // `readAgeAr` exists to stop. So «قبل ساعة و 30 دقيقة» appears here and
+  // nowhere else, and it never attaches to 2 or more hours.
+  if (diff.inMinutes < 120) {
+    final hours = diff.inHours;
+    final mins = diff.inMinutes % 60;
+    // 60 minutes exactly: the bare «قبل ساعة», which is the correct and only
+    // answer for a read that is precisely one hour old. «قبل ساعة و 0 دقيقة»
+    // would be a real sentence about a number nobody can picture.
+    if (mins == 0) {
+      return _ago(hours, 'ساعة', 'ساعتين', 'ساعات');
+    }
+    // **The preposition is written once, for the whole phrase.** The first
+    // version of this line built both halves with [_ago], which is
+    // «قبل ‹noun›» — and printed «قبل ساعة و قبل دقيقة» on screen. Caught by
+    // probing this function at 61 minutes, not by the analyzer and not by any
+    // test: the string is a valid Dart expression either way, it is simply the
+    // wrong Arabic, and only rendering the number can tell you that. So the
+    // halves are built with [arabicCounted], which owns the agreement and
+    // writes no preposition, and «قبل » is written once here.
+    return 'قبل ${arabicCounted(hours, 'ساعة', two: 'ساعتين', few: 'ساعات')}'
+        ' و ${arabicCounted(mins, 'دقيقة', two: 'دقيقتين', few: 'دقائق')}';
+  }
   if (diff.inHours < 24) {
     return _ago(diff.inHours, 'ساعة', 'ساعتين', 'ساعات');
   }
