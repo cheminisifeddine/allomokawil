@@ -7697,6 +7697,67 @@ running app for defects like these rather than inventing a feature.
       talks to. Still BACKEND-API's, still not reachable from the app, and
       still not re-filed, so the next tick does not walk it a fourth time.*
 
+- [x] **A failed refresh on the notification centre left the app claiming
+      its list was current — the eighth member of the family, and the only
+      one that failed *silently*.** Found 29 Sep 2026 by the same audit,
+      finishing work the previous tick had started and been cut off in.
+      *Shipped:* a `_stale` getter (`_error != null && _items.isNotEmpty`), the
+      amber band inserted as list item **0** so it is a header on the rows and
+      not a replacement for them, and — the half that was sitting unused —
+      **`_trust.withdraw()` on a failed read**, so the home header's unread
+      pip stops drawing a number the app can no longer check in the same
+      breath the centre is admitting it cannot check that number. New pure
+      `lib/src/data/stale_notifications_copy.dart`. A failed **first** read
+      still gets the full-screen error and its retry button.
+      *Why this one is not an eighth argument to the others.* The other seven
+      **destroyed the data and reported it** — loud, and still wrong, because
+      the rows were real and the honest state is "these are the last ones
+      read". This screen **kept the rows and reported nothing at all**, and
+      silence is indistinguishable from "nothing happened". The mechanism is
+      one line: `_load` assigns `_error` and never touches `_items`, while
+      `_body` read `_error` only inside `if (_items.isEmpty)` — so on a
+      populated list the field was *unreachable*. A dead field with a
+      well-commented doc on it.
+      *And it is the only member that reaches the next screen.* This list is
+      the **input** to the unread pip — `_unread` counts these very rows — so
+      a silent stale read here is the source of a number the user looks at one
+      screen later. The app already had both halves: `notification_count_trust`
+      exists to stop the header drawing an unverified count as a fact, and this
+      screen already withdrew it for the one failure it could see (the
+      `_settleRead` re-read that could not run). A plain pull-to-refresh, the
+      most ordinary failure on the screen, withdrew nothing.
+      *Files:* `lib/src/screens/notifications/notifications_screen.dart`,
+      `lib/src/data/stale_notifications_copy.dart`,
+      `test/stale_notifications_test.dart` (8 new),
+      `test/stale_notifications_shot_test.dart` (1 new).
+      *Evidence:* analyze **No issues found!**; suite
+      **1461 passed / 3 skipped / 0 failed** (was 1452/3/0), `EXIT=0`.
+      Red before green: reverting only the source file gives `+5 -3`.
+      *Pixels* (`/tmp/shots/21_notifications_stale.png`, real Cairo via
+      `FontLoader` — no Chrome on this box, so the capture is taken in-test):
+      **wash rows 231..578** with Arabic inside them, and **112 rows of
+      notification text below it at y 683..1100** — a header *on* the rows.
+      `contrast_audit.py token` -> **28/28 pass**.
+      Commit `ad38e5b` -> remote `8a59d0a`. All 4 blobs **MATCH** against the
+      real remote tree.
+      *The shot is the **inverse** of the five before it, and the difference is
+      the point.* Those bands replaced a blank area, so a global ink count was
+      useless and the dark pixels had to be counted *inside the wash rows*.
+      This screen has rows **underneath** the band carrying their own ink, so
+      "there are dark pixels below the band" proves nothing, and the assertion
+      has to be a **y-ordering** claim instead of a counting one: the band
+      starts above every row and the row text starts below every wash row. A
+      count cannot separate "a header on the list" from "a banner that ate the
+      list"; only an ordering can. Worth carrying to the next member.
+      *Two harness traps, both of which cost a run.* A `new_quote` row carries
+      the type's Arabic label **and** the title the backend stored, so when the
+      two are the same string a text finder reports **two** widgets for one row
+      — anchored the shot on `Key('notification-5')` instead. And a global
+      "first dark pixel" landed on the app-bar title *above* the band, so the
+      band looked textless on a build that was drawing it perfectly; the
+      scanner now counts dark pixels **inside the wash rows**, exactly as the
+      family's other shots do.
+
 - [x] **A failed pull-to-refresh on the client home blanked BOTH strips —
       the supply, and the user's own jobs — and this screen is the first
       member of the family that needed different words for each half.**
