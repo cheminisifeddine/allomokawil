@@ -9278,3 +9278,80 @@ call sites (`project_photo_count_copy.dart:84`, `project_edit_outcome.dart:324`,
 next. The open item is still `POST /api/mobile/projects/:id/review` 500 —
 **not app code**, backend source is not on this box, and deliberately not
 re-filed a fifth time.
+
+### Phase 1 — Arabic-first correctness: the second count in the same sentence
+      was never guarded, and the photo side had it in two places
+
+- [x] **A limit the server never stated left a hole in the middle of the same
+      sentence the previous cycle fixed the end of — and the photo side had the
+      identical defect, twice, still live.** `photosAr(0)` and
+      `communeCountAr(0)` were scheduled here as *verification* ("their three
+      call sites all branch on emptiness first"), and that was wrong on both
+      counts. The branch exists at the **call site**; the **sentence** it calls
+      into was still unguarded, which is the only place a future caller that
+      stops branching can reach.
+      *Found by execution, not by reading.* A scratch probe called every
+      empty-on-zero helper in `lib/src/data/` across 21 counts (1, 2, 3-10,
+      11, 99, 100, 110, 120, 1000 and the negatives a bad parse produces) and
+      flagged any sentence with a double space. It printed six:
+        * `cappedQuotesUsageAr(used, 0)` — «استعملت عرض واحد من  مجانية هذا
+          الشهر». The previous cycle guarded the **usage** count and left the
+          **limit** raw, one clause along. And `quote_limit: 0` is not
+          hypothetical: `_int()` returns 0 for a field sent as 0, and on
+          `SubscriptionStatus.fromJson` only a literal `null` gets the
+          3-default (plan.dart:253). A server that stops sending the value
+          hands this a 0, and the revenue screen grows a hole.
+        * `cappedQuotesUsageAr(used, -1)` and `quotesLeftLineAr(…, -1)` — the
+          negative that means *unlimited* on every paid tier, printed as
+          «من  » because the screen's branch was the only guard.
+        * `portfolioLeftLineAr(0, 5)` — «بقيت  من 5 صور في خطتك», on the
+          **gallery header**, for a contractor who has filled his free
+          allowance. Live state, not an edge case.
+        * `portfolioLeftLineAr(0, -1)` and `portfolioFullLineAr(-1)` — the last
+          of these printed «بلغت حد صور خطتك: », a sentence with a colon
+          pointing at nothing, on the full-gallery notice.
+      *Shipped.* All six guarded at the sentence, not at the call site, so a
+      caller that stops branching gets copy rather than a hole. The new forms
+      drop the clause they cannot back: «اشتراكك مجانية — أرسلت عرض واحد هذا
+      الشهر» (no «من» when no allowance was stated), «بلغت حد صور خطتك»
+      (limit with no count after the colon), «بقيت صورتان في خطتك».
+      A negative limit routes to the unlimited sentence, because that is what a
+      negative *means* here — not a hole to patch.
+      *New* `test/zero_is_silence_test.dart` sweeps the **family** rather than
+      the instance: six helpers, 21 counts, 11 limits, asserting a *structural*
+      property (no double space, no space before punctuation, no outer space)
+      instead of a golden string — so it survives a noun changing and, unlike
+      the assertion written against the limit's noun, cannot pass while a hole
+      sits beside it in the same string.
+      *Sabotage, both directions.* Deleting the capped limit guard → the sweep
+      goes red **while `quote_count_copy_test.dart` stays green** — which is the
+      whole argument for it. Deleting the portfolio left guards → red again.
+      *My own test asserted beyond the contract first.* The sweep initially
+      demanded that `portfolioCountLineAr(-3)` answer with a sentence; it
+      correctly returns `''` — an absent count is dropped and the caller keeps
+      whatever sentence it has. The assertion was relaxed to one-directional
+      (if it answers, the answer must be whole), and the reasoning is in the
+      test so the next writer does not "fix" it back.
+      *Rendered, not asserted.* `test/zero_hole_render_shot_test.dart` shoots
+      the real `SubscriptionScreen` at 392x850 @ 2.75 in the three states the
+      change owns. Pixel read with the in-repo decoder: **overflow-yellow 0,
+      edge-ink 0** on all three — no RenderFlex stripe, no clipped glyph.
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1606 passed / 3 skipped / 0 failed** (was 1598/3/0).
+      One assertion of mine was a false positive and was scoped rather than
+      deleted: a bare `contains('من ')` over the whole screen trips on the
+      plan card's own «بدون عمولة ولا نسبة», so it is now scoped to the usage
+      line it is about.
+      *What is still NOT true.* The `quote_limit: 0` case is **not reachable
+      today** — the live catalogue read on this tick ships `3` and `-1` only
+      (free/basic/pro/gold), so no contractor sees it now. It is a latent hole
+      in copy the server owns, guarded because the value parses, not because a
+      user hit it. That distinction is recorded here rather than claimed as a
+      live defect.
+
+*Next.* The empty-count family is closed on both sides and the sweep now guards
+it structurally. Open item is still `POST /api/mobile/projects/:id/review` 500 —
+**not app code**, backend source is not on this box, and deliberately not
+re-filed a fifth time. A fresh backlog item is warranted: the copy helpers are
+audited but the **screen-level** `Text('')` cases (a copy function that returns
+`''` legitimately and a widget that draws nothing) are not.

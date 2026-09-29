@@ -95,7 +95,30 @@ String cappedQuotesUsageAr(int used, int limit, {required bool isFree}) {
   // branch above: the zero form is not a strained «صفر عروض», it is a
   // shorter sentence that stops before the count that is not there.
   if (sent.isEmpty) return 'اشتراكك${isFree ? ' مجانية' : ''} — لم تستعمل أي عرض بعد';
-  return 'استعملت $sent من ${quotesAr(limit)}$free هذا الشهر';
+
+  // The **limit** is a count too, and it was the half of this sentence the
+  // first fix did not reach: the guard went on the usage count and the limit
+  // still went in raw. `quotesAr(0)` is silence, so a limit of 0 produced
+  // «استعملت عرض واحد من  مجانية هذا الشهر» — the same double space one
+  // clause further along.
+  //
+  // And a limit of 0 is a value this app really parses, not a hypothetical:
+  // `_int()` returns it for a field sent as 0 or as an unparseable string, and
+  // on `SubscriptionStatus.fromJson` only a literal `null` gets the 3-default.
+  // So a server that drops the field's value hands this function a 0, and the
+  // revenue screen grows a hole.
+  //
+  // A negative limit is not a hole to patch but a different plan: it is the
+  // word this app uses for unlimited (`quoteLimit < 0`, every paid tier), and
+  // the screen reaches the unlimited sentence for it. Handled here as well so
+  // a caller that stops branching first still gets a true sentence rather than
+  // «من » followed by nothing.
+  final room = quotesAr(limit);
+  if (room.isEmpty) {
+    if (limit < 0) return unlimitedQuotesUsageAr(used);
+    return 'اشتراكك${isFree ? ' مجانية' : ''} — أرسلت $sent هذا الشهر';
+  }
+  return 'استعملت $sent من $room$free هذا الشهر';
 }
 
 /// The plan row on the worker's home: «بقي عرضان من 3 عروض هذا الشهر».
@@ -106,5 +129,9 @@ String quotesLeftLineAr(String nameAr, int left, int limit) {
   // Same hole as the capped branch: a zero `left` is the absence of a count,
   // and «بقي  من 3 عروض» is worse than a sentence that stops at the plan.
   if (room.isEmpty) return '$nameAr — استنفدت عروض هذا الشهر';
-  return '$nameAr — بقي $room من ${quotesAr(limit)} هذا الشهر';
+  // Same second count, same reason: «بقي عرض واحد من  هذا الشهر» names a plan
+  // the server never stated. The sentence stops at the room it can back.
+  final total = quotesAr(limit);
+  if (total.isEmpty) return '$nameAr — بقي $room هذا الشهر';
+  return '$nameAr — بقي $room من $total هذا الشهر';
 }

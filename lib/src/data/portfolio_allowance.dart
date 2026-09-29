@@ -96,8 +96,21 @@ class PortfolioAllowance {
 /// limit: two counts, both from [photosAr], neither spelled by hand. Both
 /// nouns in one sentence is the case [arabicCounted] exists to get right, and
 /// «5» is the value that makes the trailing noun flip to counted singular.
-String portfolioLeftLineAr(int left, int limit) =>
-    'بقيت ${photosAr(left)} من ${photosAr(limit)} في خطتك';
+///
+/// **Both counts are guarded, because both can be absent.** `photosAr(0)` is
+/// silence, so a gallery at its limit printed «بقيت  من 5 صور في خطتك» — the
+/// exact hole the quote side shipped — and a limit that was not stated (a
+/// `_int()` 0, which is what an absent `portfolio_limit` parses to) printed
+/// «بقيت صورتان من  في خطتك». A negative limit is the word for *unlimited* on
+/// this app, so the sentence is that one rather than a «من » with nothing after
+/// it.
+String portfolioLeftLineAr(int left, int limit) {
+  final room = photosAr(left);
+  if (room.isEmpty) return 'بلغت حد صور خطتك';
+  final total = photosAr(limit);
+  if (total.isEmpty) return 'بقيت $room في خطتك';
+  return 'بقيت $room من $total في خطتك';
+}
 
 /// The header when the ceiling is not a ceiling: «صور بلا حد في خطتك».
 ///
@@ -110,5 +123,13 @@ String portfolioUnlimitedLineAr() => 'صور بلا حد في خطتك';
 ///
 /// The limit is named, because the line it replaces is a count of what he has
 /// and a silent replacement would read as a bug rather than a limit.
-String portfolioFullLineAr(int limit) =>
-    'بلغت حد صور خطتك: ${photosAr(limit)}';
+///
+/// A limit that is not a number is a server that did not answer, and the
+/// colon is what made that read as a fault: «بلغت حد صور خطتك: » — a sentence
+/// pointing at nothing. The claim that is still true, and is the one the tile
+/// underneath it needs, is the limit itself with no count attached.
+String portfolioFullLineAr(int limit) {
+  final total = photosAr(limit);
+  if (total.isEmpty) return 'بلغت حد صور خطتك';
+  return 'بلغت حد صور خطتك: $total';
+}
