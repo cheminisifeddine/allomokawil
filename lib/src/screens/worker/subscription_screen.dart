@@ -13,6 +13,7 @@ import '../../data/subscription_write_outcome.dart';
 import '../../data/subscription_ack.dart';
 import '../../data/plan_renewal_copy.dart';
 import '../../data/plan_reach_copy.dart';
+import '../../data/stale_catalogue_copy.dart';
 import '../../data/quote_count_copy.dart';
 import '../../data/repository.dart';
 import '../../models/plan.dart';
@@ -265,6 +266,22 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     padding: const EdgeInsets.fromLTRB(
                         AppTheme.gutter, AppTheme.s16, AppTheme.gutter, AppTheme.s32),
                     children: [
+                      // Said out loud, above the numbers, and only when a
+                      // re-read has actually failed. `_load` keeps the previous
+                      // catalogue on purpose — discarding a paying
+                      // contractor's plan because a cell network blinked
+                      // would be worse than showing him last read's truth — but
+                      // until this existed, that decision was invisible: the
+                      // error it recorded was read only inside the
+                      // `catalogue == null` branch, so every failed *refresh*
+                      // (the button, the pull, the reload after a payment) left
+                      // his real price, his pending payment and his remaining
+                      // quota on screen with no statement that a newer read had
+                      // failed. See `stale_catalogue_copy.dart`.
+                      if (_error != null) ...[
+                        _StaleBanner(line: staleCatalogueLineAr(_error!)),
+                        const SizedBox(height: AppTheme.gap),
+                      ],
                       _CurrentPlanCard(status: catalogue.current),
                       if (catalogue.pendingRequest != null) ...[
                         const SizedBox(height: AppTheme.gap),
@@ -899,6 +916,55 @@ class _PendingCard extends StatelessWidget {
   }
 }
 
+/// The notice that a failed re-read left last read's numbers on screen.
+///
+/// Deliberately **not** the `_LoadFailed` state below it. Blanking the screen
+/// on a failed refresh would throw away a plan this man has already paid for,
+/// and the pull-to-refresh gesture is the first thing anyone tries after a
+/// flaky connection — a screen that empties every time the network stutters
+/// teaches people never to refresh. So the data stays and the doubt is stated.
+///
+/// Amber, not danger: nothing is lost and nothing is wrong with his account,
+/// and a red banner on a healthy plan card would cry wolf. The app's own
+/// staleness tone is the same one `worker_home_screen` ages its header into
+/// (`AppTheme.accentDeep` over `accentWash`), so a figure that went quiet
+/// looks the same wherever it is found.
+class _StaleBanner extends StatelessWidget {
+  const _StaleBanner({required this.line});
+
+  /// The composed sentence from [staleCatalogueLineAr].
+  final String line;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      key: const Key('stale-catalogue'),
+      color: AppTheme.accentWash,
+      borderColor: AppTheme.accent,
+      padding: AppTheme.cardPadRail,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.history_toggle_off_rounded,
+              size: AppTheme.s20, color: AppTheme.accentDeep),
+          const SizedBox(width: AppTheme.s8),
+          Expanded(
+            child: Text(
+              line,
+              key: const Key('stale-catalogue-line'),
+              style: AppTheme.body.copyWith(
+                color: AppTheme.accentDeep,
+                height: 1.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _LoadFailed extends StatelessWidget {
   const _LoadFailed({required this.message, required this.onRetry});
 
@@ -908,6 +974,10 @@ class _LoadFailed extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
+      // Distinct from the stale banner above: this one means there is nothing
+      // to show at all, which is the opposite of showing something old. The
+      // two states are kept apart in code, not just in wording.
+      key: const Key('plan-load-failed'),
       child: Padding(
         padding: const EdgeInsets.all(AppTheme.gutter),
         child: Column(
