@@ -7765,6 +7765,8 @@ running app for defects like these rather than inventing a feature.
       y 645-923 and the project text sits *below* it at y 1031-2118, so it
       is a header on the list and not a replacement for it.
       `contrast_audit.py token` -> **28/28 pass**.
+      Commit `a9fd072`, remote `99e56fb`; all 7 blobs **MATCH** against the
+      real remote tree.
       *Why it is the mildest, stated honestly:* the directory is worse — it
       holds the supply. This holds the user's **own** history, and he can
       still reach the marketplace. But the rows are the only record he has
