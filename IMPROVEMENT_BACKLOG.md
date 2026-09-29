@@ -7750,3 +7750,56 @@ running app for defects like these rather than inventing a feature.
       **worker 392** on production and left worker 124 holding
       `price_range_min/max = 5000/5000`. Both are test accounts this loop
       cannot delete (founder-gated) — ids now **385, 386, 389, 390, 391, 392**.
+
+- [x] **A refused profile save told the contractor he had made a mistake
+      twice, in two type sizes, and only when he happened to be scrolled to the
+      top of the form.** `profile_edit_screen.dart` painted the same `_error`
+      string in two places at once: a red `_Notice` card as the **first child
+      of the form's `ListView`**, and the identical string again as red
+      `fsCaption` type inside the pinned `bottomNavigationBar` above
+      «حفظ الملف».
+      *Shipped:* the pinned footer is the single error surface. The body copy
+      and the now-unreferenced `_Notice` widget (916 chars, zero call sites)
+      are deleted. The surviving copy keeps `fsMeta` — the size the deleted
+      duplicate used — so nothing is visually downgraded, and is centred.
+
+      | scrolled position | copies on screen | of which pinned | before |
+      | --- | --- | --- | --- |
+      | top of the form | 2 | 1 | yes |
+      | last field | 1 | 1 | no |
+      | after the fix, either position | **1** | 1 | — |
+
+      *The duplicate was not a second view of one thing — the two copies
+      disagreed on whether they existed.* The form is a **lazy** `ListView`, so
+      the body copy is unmounted once the user scrolls down. That is not a
+      rendering detail, it is a behaviour: a refusal raised from the bottom of
+      the form was painted by a child that is not built, so the user was shown
+      **nothing at all**, and the one place the sentence was guaranteed to be
+      readable was the place that did not repeat it. The numbers above are
+      counted off the live widget tree at a real 392x844 viewport, not reasoned
+      about.
+
+      *Red before green:* the new case in `profile_write_outcome_test.dart`
+      failed with *Found 2 widgets with text "اكتب اسمك كما تريد أن يظهر
+      للمشترين"* — the 13.5px body copy and the 12.5px footer copy. The shot
+      test prints the same count and went **2 → 1**.
+      *Gate.* `flutter analyze` → **No issues found!**
+      `flutter test` → **1397 passed / 3 skipped / 0 failed** (was 1396/3/0).
+      *Pixels, not reasoning.* `profile_error_before_top.png` carries a
+      full-width red band (w≈1118–1121 of 1176) at y 216–377 **and** a second
+      band at y≈2258; `profile_error_once_top.png` has only the footer band at
+      y 2260–2298. Counted danger-red pixels in the top-of-form region:
+      **11,468 before, 0 after.** 233 distinct shades in the band and 3,048px
+      of exact `AppTheme.danger` = real antialiased Cairo, not tofu. The save
+      button's navy fill sits below at y 2400–2425 — present, not overlapping
+      the sentence, not pushed out of the bar.
+      Shots: `/tmp/shots/profile_error_once_top.png` and the side-by-side
+      `/tmp/shots/profile_error_compare.png`.
+      Commits `c3b491e` (the fix) and `2707b57` (build-gate exec bits the host
+      rebuild left at 644 against the remote's 755 — the loop's own gate).
+
+      *Note for the next tick:* the shot test is at
+      `test/profile_error_shot_test.dart` and is the first one in this repo
+      that drives a screen to a **refused** state and captures it, rather than
+      rendering a static card. It filters the pre-existing ink-splash warning
+      the same way the two existing profile tests do, and nothing else.
