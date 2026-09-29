@@ -9435,3 +9435,85 @@ written while chasing this is deleted rather than shipped unused.
 widget that holds it. The remaining open item is still
 `POST /api/mobile/projects/:id/review` 500, **not app code**, backend source
 not on this box, deliberately not re-filed a fifth time.
+
+## 2026-09-29 — the publish form read its own fields after the await that writes them
+
+- [x] **The project form sent whatever was on screen when the upload finished,
+      not what was on screen when the customer pressed publish.** Found while
+      auditing `_submit` for the `Set.first` shape, on the file the previous
+      tick had already touched.
+
+*The shape of it.* `_submit` validated the form once, at the top —
+`_categories.isEmpty` is the guard — but that is not the value it sent. The
+photo upload is the one **unconfirmed** write on the screen and it runs
+**first**, so `await _repo.uploadDocument(...)` sits between the validation and
+every send line. And only the publish button is disabled while that runs
+(`loading: _busy` → `onPressed: null`); the **trade grid is not**, so a customer
+who adds a trade, presses «نشر المشروع», and then tidies their selection while
+the photo is still going up is editing a form that has already left.
+
+*What that produced, all three confirmed by running the real screen:*
+
+1. **The crash.** `category: _categories.first` on a set the live grid had just
+   emptied raises `Bad state: No element` — an `Error`, and `errorCopy` has no
+   arm for it in any case. So a valid form, with every field the user typed
+   still on screen, was answered with «حدث خطأ غير متوقع … **أغلق التطبيق وافتحه
+   من جديد**», and the project was never written. The one class of failure this
+   app exists to prevent, on the app's most important form.
+2. **The silent addition.** A trade *added* during the upload landed in the
+   POST: the project was published under `['construction','renovation']` when
+   the customer had approved one trade and never saw the second.
+3. **The mixed snapshot (edit path).** `sent` was built pre-await and then
+   *re-taken* post-await from a mixture of pre- and post-await reads
+   (`categories: sent.categories` but `wilaya: _wilaya`, `budgetMin:
+   _budgetMinValue`). That snapshot is what the unconfirmed-write recheck
+   compares against, so a stalled edit could be reported «arrived» while
+   carrying a title the form never showed. Caught on the wire: the PATCH sent
+   `عنوان لم يُضغط بعد` — a title typed after the save button was pressed.
+
+*The fix, and it is deliberately not "disable the form".* The values that are
+sent are captured **once, before the first `await`**, as `sentTitle`,
+`sentCategories`, `sentPrimary`, `sentDescription`, `sentCommune`,
+`sentBudgetMin/Max`, `sentUrgency`, `sentWilaya` — the same set the validation
+just accepted, and the same set the recheck compares against. The form stays
+editable on purpose: an upload can take ten seconds, and a user who cannot
+touch a form for ten seconds assumes it has frozen. It is the **write** that is
+fixed, not the form. `publishedTitle` and `sentTitle` are now one value — two
+names for one string is exactly how a create that answers "arrived" ends up
+asking about the wrong one.
+
+*`test/submit_busy_category_test.dart` (4 tests).* Drives the real
+`ProjectNewScreen` with the real `Repository`, with **only** `uploadDocument`
+replaced — it is a `MultipartRequest` that builds its own `HttpClient`, so a
+`MockClient` can never see an upload, and the login and the POST/PATCH travel
+the real transport, which is what makes the request body the evidence. The
+upload is parked on a `Completer` so the form is *provably* mid-write when the
+trade is changed. **All three behavioural tests were run against the unfixed
+screen and fail there** (nothing posted / `['construction','renovation']` /
+`عنوان لم يُضغط بعد`) and pass with the fix, so they are not vacuous.
+
+*Two guards of my own were worthless here, and both are deleted rather than
+shipped.* The first draft of this file asserted only that an empty `Set.first`
+throws — true, and it proves nothing about the screen. Worse, the first draft's
+taps **missed**: the trade tiles sit above the fold once the form has been
+scrolled to the bottom, and `tap()` on an off-screen widget is a *warning*, not
+a failure, so both tests went **green without ever reaching the defect**. They
+now `ensureVisible` first and assert the tile's `selected` flag actually
+flipped, which is what turned them red. And a source sweep for "form field read
+after an await" was written and **deleted**: it fired on 16 sites, every one of
+them a correct pattern (a guard read *before* the write that sets it, or a
+value passed as an argument *before* the awaited call), and it could not tell
+its own file's captures from a late read. A regex that cannot distinguish a
+capture from a bug is not a guard, it is a noise generator — which is the same
+lesson as last tick's band-ink probe, in a different costume.
+
+*Gate.* `flutter analyze` -> **No issues found!**
+`flutter test` -> **1625 passed / 3 skipped / 0 failed** (was 1621/3/0, **+4**).
+
+*Next.* The write-vs-form distinction is now pinned for the publish form only.
+The same capture-before-await question is still unanswered for
+`profile_edit_screen.dart` (whose post-await reads are all inside the same
+`await` that fills the form, so they are reads of a *loading* form and may well
+be correct) and for `review_screen.dart` — but each of those needs its own
+evidence, not this tick's. Still open and still not app code:
+`POST /api/mobile/projects/:id/review` 500, re-checked three times, untouched.

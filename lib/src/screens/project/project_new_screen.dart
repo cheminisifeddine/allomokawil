@@ -256,7 +256,49 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
     setState(() => _busy = true);
     // The one handle we will have on a row the server may already have created
     // while its answer was in flight, so it is read before the write, not after.
-    final publishedTitle = _title.text.trim();
+    // It is the same string as `sentTitle` below — kept as one value on purpose,
+    // because a create that answers "arrived" must ask about the title that was
+    // actually sent, and two names for one string is how those drift apart.
+    // **The trades, captured here for the same reason the title is.**
+    //
+    // The guard above proved `_categories` was not empty *at this moment*; the
+    // send line below runs `_categories.first` after the upload `await`s, and
+    // the trade grid is the one part of this form that stays live while the
+    // write is in flight — `loading: _busy` disables the publish button, and
+    // nothing else. A customer who taps a trade, presses publish, and then
+    // tidies their selection during the upload could deselect the last one, and
+    // `Set.first` on an empty set throws `Bad state: No element` — an `Error`,
+    // which `errorCopy` has no arm for, so a valid form was answered with
+    // «حدث خطأ غير متوقع … أغلق التطبيق وافتحه من جديد» and the project was
+    // never written. The mirror of that is just as real: a trade *added*
+    // mid-upload landed in the POST, so the project was published under a
+    // trade list the user never saw and never approved.
+    //
+    // So the values that are sent are read **once**, here, before the first
+    // `await` — the set the user approved, and the same one the validation
+    // above just accepted. The form stays editable on purpose: an upload can
+    // take ten seconds, and a user who cannot touch a form for ten seconds
+    // assumes it has frozen. It is the *write* that is fixed, not the form.
+    final sentCategories = List<String>.of(_categories);
+    final sentPrimary = sentCategories.first;
+    // And the same capture for every *other* field, for the same reason: the
+    // title, description, budget, urgency, wilaya and commune are all read
+    // after the upload `await` too, so editing any of them mid-write published
+    // values the user never pressed publish for — and on the edit path the
+    // recheck snapshot was built from a *mixture* of pre-await and post-await
+    // values, so a stalled write could be reported «arrived» while carrying
+    // something the form never showed. One capture, one truth: what was on
+    // screen when the button was pressed is what the wire gets, and it is the
+    // same set the recheck compares against.
+    final sentTitle = _title.text.trim();
+    final sentDescription =
+        _desc.text.trim().isEmpty ? null : _desc.text.trim();
+    final sentCommune =
+        _commune.text.trim().isEmpty ? null : _commune.text.trim();
+    final sentBudgetMin = _budgetMinValue;
+    final sentBudgetMax = _budgetMaxValue;
+    final sentUrgency = _urgency;
+    final sentWilaya = _wilaya;
     // The same handle for the *edit* half, and the reason it is built here and
     // not after the PATCH: this is the only description of what the form was
     // sending while the answer is in flight, and the user can still be editing
@@ -319,28 +361,28 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
       sent = sent == null
           ? null
           : ProjectEditSnapshot.form(
-              title: sent.title,
-              categories: sent.categories.toSet(),
-              wilaya: _wilaya,
-              commune: sent.commune,
-              budgetMin: _budgetMinValue,
-              budgetMax: _budgetMaxValue,
-              urgency: _urgency,
-              description: sent.description,
+              title: sentTitle,
+              categories: sentCategories.toSet(),
+              wilaya: sentWilaya,
+              commune: sentCommune,
+              budgetMin: sentBudgetMin,
+              budgetMax: sentBudgetMax,
+              urgency: sentUrgency,
+              description: sentDescription,
               images: allImages,
             );
       if (editing != null && sent != null) {
         await _repo.updateProject(
           editing.id,
-          title: _title.text.trim(),
-          description: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
-          category: _categories.first,
-          categories: _categories.toList(),
-          wilaya: _wilaya,
-          commune: _commune.text.trim().isEmpty ? null : _commune.text.trim(),
-          budgetMin: _budgetMinValue,
-          budgetMax: _budgetMaxValue,
-          urgency: _urgency,
+          title: sentTitle,
+          description: sentDescription,
+          category: sentPrimary,
+          categories: sentCategories,
+          wilaya: sentWilaya,
+          commune: sentCommune,
+          budgetMin: sentBudgetMin,
+          budgetMax: sentBudgetMax,
+          urgency: sentUrgency,
           images: allImages,
         );
         if (mounted) {
@@ -351,15 +393,15 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
         return;
       }
       await _repo.createProject(
-        title: publishedTitle,
-        description: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
-        category: _categories.first,
-        categories: _categories.toList(),
-        wilaya: _wilaya,
-        commune: _commune.text.trim().isEmpty ? null : _commune.text.trim(),
-        budgetMin: _budgetMinValue,
-        budgetMax: _budgetMaxValue,
-        urgency: _urgency,
+        title: sentTitle,
+        description: sentDescription,
+        category: sentPrimary,
+        categories: sentCategories,
+        wilaya: sentWilaya,
+        commune: sentCommune,
+        budgetMin: sentBudgetMin,
+        budgetMax: sentBudgetMax,
+        urgency: sentUrgency,
         images: urls,
       );
       if (mounted) {
@@ -399,7 +441,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
         final outcome = await resolveWriteOutcome(
           recheck: () async {
             final rows = await _repo.myProjects();
-            return rows.any((p) => p.title.trim() == publishedTitle);
+            return rows.any((p) => p.title.trim() == sentTitle);
           },
         );
         if (!mounted) return;
