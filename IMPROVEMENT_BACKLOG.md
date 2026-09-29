@@ -7689,6 +7689,13 @@ running app for defects like these rather than inventing a feature.
       behind it. Still BACKEND-API's, still nothing this loop can do about it
       from the app side, and deliberately not re-filed as a new item so the
       next tick does not walk the same dead end twice.*
+      *Re-checked a third time, 29 Sep, by the tick that shipped the wilaya
+      picker fix.* `find /home/hatch -maxdepth 4` for any `finili` tree still
+      returns only Hermes profile directories, and the only `wrangler.jsonc`
+      files under `/home/hatch` belong to unrelated repos (Vitestore,
+      Vitestore-full, colisify) — **not** one of them is the API this app
+      talks to. Still BACKEND-API's, still not reachable from the app, and
+      still not re-filed, so the next tick does not walk it a fourth time.*
 
 - [x] **A contractor who typed one price published a price *range* with equal
       ends — «7000 - 7000 دج» — on the profile and the browse card.**
@@ -7861,3 +7868,61 @@ running app for defects like these rather than inventing a feature.
       an arbitrary wilaya by name. Drive the filter through
       `BrowseScreen(initialCategory: …)` (what `customer_home_screen` does) or
       the sheet's own scrolling, not `find.text('الجزائر')`.
+
+- [x] **A typo in the wilaya picker locked the customer out of posting their
+      project, and the sheet said only «لا توجد نتائج».**
+      *Found 29 Sep 2026 by auditing the two sibling pickers side by side.*
+      The **commune** picker, thirty lines below in the same file, already
+      had all three of the things the wilaya picker lacked:
+      a «مسح البحث» clear button, an empty state that names the actual
+      situation («لا توجد بلدية بهذا الاسم»), and a «استعمل "…" كما كتبتها»
+      escape hatch — justified in the file's own comment as *"the dataset must
+      never be the reason a project cannot be posted."*
+      The **wilaya** sheet had none of the three: no clear button, a bare
+      «لا توجد نتائج», no escape.
+      *The difference that makes it a trap rather than a nit.* The commune is
+      optional; the **wilaya is required** — `project_new_screen.dart:247`
+      refuses to post while `_wilaya == null`. So a single mistyped letter put
+      the user on an empty list with **no way back** except dismissing the sheet
+      and reopening it, and nothing on screen named the field that was
+      blocking them. And this sheet is the app's *first-run path* for location
+      (58 wilayas is too many to hunt blind, which is why it is searchable), so
+      a mistyped search is ordinary, not an edge case.
+      *Shipped.* `project_new_screen.dart` gains the commune picker's clear
+      button (tooltip «مسح البحث», disabled while the field is empty) and the
+      honest heading «لا توجد ولاية بهذا الاسم». Deliberately **no** «use as
+      typed» escape here, unlike the commune: the wilaya is a closed 58-code
+      taxonomy posted as a numeric id the server maps, so free text is not a
+      value the field can accept — clear plus an honest heading is the whole
+      fix. The reason is recorded in the code.
+      *One thing the audit got wrong, corrected before it was written up:*
+      «الجزاير» — the intuitive hamza typo — does **not** reach this state,
+      because `ArabicSearch` folds the hamza by design. The trap needs a query
+      that genuinely misses, and on a Latin keyboard in Algeria `alger` is the
+      common one. The first draft of the test asserted the fold was broken;
+      it was testing the wrong thing.
+      *Red before green.* All 3 cases fail at HEAD (`Found 1 widget with text
+      "لا توجد نتائج"`, `Found 0 widgets with text "لا توجد ولاية بهذا الاسم"`,
+      no `close_rounded` in the sheet). Verified by stashing the source change
+      and re-running, not by trusting the green.
+      *Pixels.* `/tmp/shots/wilaya_trap_empty.png` (1176x2580, real widget
+      tree, Cairo loaded, 392x860 @3.0). Measured: the clear `×` renders in
+      `AppTheme.textSecondary` `475065` at **44x45 px, x 116-159, y 706-750**,
+      inside the 168x168 px button rect — **live, not greyed**; the
+      `search_off` icon at 98x99 px, x 539-636; the heading text at **540 px
+      wide, y 1876-1929**. Cropped to `/tmp/shots/wilaya_trap_sheet.png`.
+      *A trap worth recording for the next tick:* a modal sheet is pushed into
+      the Navigator's **overlay**, a sibling of the `home` route — so a
+      `RepaintBoundary` on `home` photographs the dimmed screen *behind* the
+      sheet and the capture silently contains none of the thing under test.
+      The boundary must wrap the whole `MaterialApp`. This is the same class of
+      mistake as the unmounted-widget bug the last tick wrote up, and it fails
+      the same way: green test, empty claim.
+      *Gate.* `flutter analyze` → **No issues found!**
+      `flutter test` → **1406 passed / 3 skipped / 0 failed** (was 1403/3/0).
+      Commit `ec1730f`.
+      *Note for the next tick:* the wilaya sheet is a lazy `ListView` of 58
+      tiles — only a handful are ever built, so a test cannot `tap` an
+      arbitrary wilaya by name. Drive the filter, not `find.text('الجزائر')`.
+      The sheet's search `TextField` is findable via
+      `find.descendant(of: find.byType(DraggableScrollableSheet), ...)`.

@@ -873,17 +873,36 @@ class _WilayaSheetState extends State<_WilayaSheet> {
             child: TextField(
               autofocus: false,
               onChanged: (v) => setState(() => _q = v.trim()),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: 'ابحث عن ولاية...',
-                prefixIcon: Icon(Icons.search_rounded),
+                prefixIcon: const Icon(Icons.search_rounded),
+                // The commune picker ships this and the wilaya picker did not.
+                // A search that cannot be undone is a one-way door: the wilaya
+                // is a REQUIRED field (see `_canSave`), so a user who mistypes
+                // one letter lands on an empty list with no way back to the 58
+                // names except dismissing the sheet and reopening it — and
+                // nothing on screen says the field is the reason they cannot
+                // post.
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                  color: AppTheme.textSecondary,
+                  tooltip: 'مسح البحث',
+                  onPressed: _q.isEmpty
+                      ? null
+                      : () => setState(() => _q = ''),
+                ),
               ),
             ),
           ),
           Expanded(
+            // Names the situation instead of claiming a search found nothing,
+            // and unlike the commune picker there is no "use it as typed"
+            // escape: the wilaya is a closed 58-code taxonomy posted as a
+            // numeric id the server maps.
             child: list.isEmpty
                 ? const EmptyView(
                     icon: Icons.search_off_rounded,
-                    title: 'لا توجد نتائج',
+                    title: 'لا توجد ولاية بهذا الاسم',
                   )
                 : ListView.builder(
                     controller: controller,
