@@ -8675,7 +8675,61 @@ running app for defects like these rather than inventing a feature.
       than a substring search over a log that a formatter owns. A log that
       disagrees with a render is a **grep** problem until proven otherwise.
       *Next.* Still undated in the family: `home_strip`,
-      `chat_list_screen`, `subscription_screen`. And the under-a-minute rule is
-      now written out **four** times — `statsFreshnessAr`, `staleMarketAgeAr`,
-      `staleProjectsAgeAr` and `staleDirectoryAgeAr` — which is one tick's worth
-      of work to lift into one helper rather than a fifth copy.
+      `chat_list_screen`, `subscription_screen`.
+
+- [x] **The rule that decides whether a read is old enough to tell a user
+      about was written out four times — and the fourth copy is what the next
+      edit would have hardened alone.**
+      `6391eeb` -> remote `ad71da2c` + `9468267`.
+
+      *Four copies of a policy is a latent split-brain.* Whether a read is old
+      enough to be worth a sentence is a **policy**, and a policy held in four
+      files is a policy that will be held in four different states after the
+      first edit. `statsFreshnessAr` (the header), `staleMarketAgeAr` (the
+      open-project feed), `staleProjectsAgeAr` («مشاريعي») and
+      `staleDirectoryAgeAr` («ابحث عن مقاول») each carried their own copy of the
+      same seven lines *and* their own copy of the "silence, not «الآن»"
+      justification. The repo has already paid for this exact class once — the
+      subscription card hand-rolled its own copy of the same grammar and called
+      three hours «قبل 3 ساعت».
+
+      *Shipped.* `lib/src/data/read_age_ar.dart` owns the rule: `null` and
+      clock-skew and under-a-minute all answer `''`, and everything past 60s is
+      `relativeTimeAr`'s wording, not a re-derivation. All four surfaces route
+      through it. The four old names survive as **named aliases** because four
+      screens and their tests call them by those names — what changed is that
+      none of them is a second implementation.
+
+      *What was deliberately NOT lifted.* `statsAreStale` answers a different
+      question — should the header **shout**, rather than should it be dated —
+      at a different number (an hour, not a minute). A test now pins that
+      independence: at 59 minutes a read is dated out loud but not yet loud.
+      Merging the two would have been the refactor's own bug.
+
+      *The previous tick was cut off mid-edit and left the tree unbuildable*
+      — two files had a `String String` return-type typo and
+      `stats_freshness_copy.dart` had a duplicated doc block with `String`
+      glued to its first line. Fixed here, along with a doc claim that the
+      clock-skew arm reports «الآن» when it has always reported silence. So the
+      first job of this tick was not the lift; it was finishing one.
+
+      *The test was wrong before it was right, and that is the real finding.*
+      The first version of the agreement case sampled 30s / 7min / 3h / 1d, and
+      a deliberately drifted threshold (60 -> 300s) **passed all four** — 7
+      minutes is above both cutoffs, so a threshold bug had nowhere to show
+      between them. The structural sabotage (re-deriving the rule in-file, no
+      behaviour change) also passed, correctly: an identical copy is not a
+      defect, and no behavioural test can see one. The samples now crowd the
+      gap — 59/60/61 and a spread through the first five minutes — and that
+      version reds with **`market dated a 60s read differently`**. Recorded
+      because the naive version of this test is the one that would have shipped
+      green and caught nothing.
+
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1523 passed / 3 skipped / 0 failed**, up from
+      1511/3/0 (+12, the new file). All 6 blobs verified `MATCH` against the
+      real remote tree at tip `9468267`.
+
+      *Next.* `home_strip`, `chat_list_screen` and `subscription_screen` are
+      still undated, and the subscription card is the one that has a
+      hand-rolled grammar to correct rather than a shared helper to adopt.
