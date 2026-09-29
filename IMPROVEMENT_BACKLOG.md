@@ -8580,3 +8580,43 @@ running app for defects like these rather than inventing a feature.
       file now agree on the under-a-minute rule, so the shared helper is
       probably worth lifting out of `stats_freshness_copy.dart` rather than
       imported from two directions — worth one tick to decide, not to guess.
+
+- [x] **«مشاريعي» admitted its list was stale and never said how stale — the
+      customer's only record of the jobs he posted, undated.** 29 Sep 2026,
+      the second member of the family to get the freshness half after
+      `stale_market_copy.dart`.
+      *Shipped:* `staleProjectsAgeAr` + `staleProjectsLineWithAgeAr` in
+      `lib/src/data/stale_projects_copy.dart` — age **appended** as a second
+      sentence, never substituted for the reason; under a minute prints
+      nothing (a hiccup is not a number); an undatable read returns the old
+      line byte-for-byte, which is what protects this screen's existing
+      screenshot; clock skew gives `''`, never `قبل -3 دقيقة`. Routed through
+      `relativeTimeAr` rather than a third hand-rolled grammar.
+      In `projects_screen.dart`: an injectable `clock`, `_cacheReadAt` stamped
+      in the **same** `setState` that installs `_cache` and on the landing
+      clock rather than the issue time, and a once-a-minute `_ageTimer` re-armed
+      from the success arm — so a customer who leaves the tab open stops
+      reading a frozen «قبل 12 دقيقة» on an hour-old list.
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1497 passed / 3 skipped / 0 failed**, up from
+      1484/3/0 (+13). Red-before-green: reverting *only* the band call reddens
+      the 2 widget cases and leaves all 10 pure copy cases green; reverting
+      *only* the timer arm reddens exactly the tick case.
+      Pixels `/tmp/shots/19_projects_stale.png` (1179x2763 @3.0, real Cairo
+      in-test — no Chrome on this box), now captured on an injected clock aged
+      40 min so the shot proves the **dated** band rather than the old wording.
+      Band reads: «لم نتمكن من تحديث مشاريعك — هذه آخر نتيجة قرأناها. خلل
+      مؤقّت في الخادم… | قراها قبل 40 دقيقة.» Wash **y 645..899**, ink rows
+      **691..811**, first project row **y 1514** — a header, rows still below.
+      `darkInBand=42660`, wash rows 530. `contrast_audit.py token` -> 28/28.
+      *Two of my own assertions were wrong before the app was.* The first
+      draft expected a band where `afterLoad` had already pulled, and expected
+      «قبل 48 دقيقة» where `relativeTimeAr` counts from the **read** (09:00),
+      not the failure (09:12) — 50 minutes. The age describes when the rows
+      were true; the screen was right and the test was not.
+      *Next.* Still undated in the family: `browse_screen` (the directory — it
+      holds the *supply*, so the worst of the remaining four),
+      `home_strip`, `chat_list_screen`, `subscription_screen`. And the
+      under-a-minute rule is now written out three times — `statsFreshnessAr`,
+      `staleMarketAgeAr` and `staleProjectsAgeAr` — which is one tick's worth of
+      work to lift into one helper rather than a fourth copy.

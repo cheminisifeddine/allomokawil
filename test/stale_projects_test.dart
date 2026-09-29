@@ -70,6 +70,10 @@ Future<ApiClient> _pumpProjects(
   required int succeedingReads,
   required Future<void> Function(WidgetTester) afterLoad,
 
+  /// The clock the band is dated against, when a test needs to move time.
+  /// Defaults to the real one, so every existing case is unchanged.
+  DateTime Function()? clock,
+
   /// Reads (1-based) that answer successfully *after* the first [succeedingReads]
   /// have been spent. Exists for the one case that needs a read to fail and
   /// then recover, which a plain threshold cannot express — without it the
@@ -123,7 +127,7 @@ Future<ApiClient> _pumpProjects(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       locale: const Locale('ar'),
-      home: ProjectsScreen(repo: Repository(api)),
+      home: ProjectsScreen(repo: Repository(api), clock: clock),
     ),
   ));
   await tester.pumpAndSettle(const Duration(seconds: 2));
@@ -166,6 +170,103 @@ void main() {
       // verbatim would be a lazy re-use: this list is *his* work, and the
       // sentence has to read like it.
       expect(staleProjectsLineAr(S.errOffline), contains('مشاريعك'));
+    });
+  });
+
+  group('staleProjectsAgeAr — the band says HOW old, not just that it is old',
+      () {
+    final base = DateTime(2026, 9, 29, 14, 0);
+
+    test('a read inside the minute is not a number worth printing', () {
+      // A pull that failed on a slow connection while the list is twenty
+      // seconds old is a hiccup. «قبل 20 ثانية» under it is a reassurance
+      // dressed as a measurement, and the band already said everything there
+      // is to say.
+      expect(staleProjectsAgeAr(base.subtract(const Duration(seconds: 20)),
+          now: base), isEmpty);
+    });
+
+    test('a minute and older is counted in the app\'s own words', () {
+      // Same grammar the market band prints, asserted on this surface so the
+      // two cannot drift into dating one read two ways.
+      expect(staleProjectsAgeAr(base.subtract(const Duration(minutes: 12)),
+          now: base), 'قبل 12 دقيقة');
+      expect(staleProjectsAgeAr(base.subtract(const Duration(minutes: 2)),
+          now: base), 'قبل دقيقتين');
+      expect(staleProjectsAgeAr(base.subtract(const Duration(hours: 3)),
+          now: base), 'قبل 3 ساعات');
+      expect(staleProjectsAgeAr(base.subtract(const Duration(hours: 2)),
+          now: base), 'قبل ساعتين');
+    });
+
+    test('a read that crossed midnight is yesterday, not N hours', () {
+      // 28 Sep 10:00 read, 29 Sep 14:00 now: **28 hours**, but it crossed one
+      // midnight, so the calendar day count is 1. Asserted here because
+      // `relativeTimeAr` counts **calendar** days and a future "simplification"
+      // of this file into a 24-hour period count is the exact defect that made
+      // one message read two ways in the chat list.
+      expect(staleProjectsAgeAr(DateTime(2026, 9, 28, 10), now: base), 'أمس');
+    });
+
+    test('a read older than a year is dated, not counted in months', () {
+      expect(staleProjectsAgeAr(DateTime(2024, 3, 9), now: base), contains('/'));
+    });
+
+    test('clock skew is not the future', () {
+      // A stamp ahead of the phone is a broken clock between the server and
+      // the handset. Ageing it would print «قبل -3 دقيقة» and blame the
+      // reader\'s phone for somebody else\'s clock.
+      expect(staleProjectsAgeAr(base.add(const Duration(minutes: 3)), now: base),
+          isEmpty);
+    });
+
+    test('a read that never happened has no age', () {
+      expect(staleProjectsAgeAr(null, now: base), isEmpty);
+    });
+  });
+
+  group('staleProjectsLineWithAgeAr — the age is added, the reason is kept', () {
+    final base = DateTime(2026, 9, 29, 14, 0);
+
+    test('an undatable read produces the OLD line, byte for byte', () {
+      // The contract that protects the existing screenshots of this screen. A
+      // shorter "variant" here would re-open a defect on a screen that is
+      // already correct, so the fallback is equality, not resemblance.
+      expect(staleProjectsLineWithAgeAr(S.errOffline, null, now: base),
+          staleProjectsLineAr(S.errOffline));
+      expect(
+          staleProjectsLineWithAgeAr(
+              S.errOffline, base.subtract(const Duration(seconds: 5)),
+              now: base),
+          staleProjectsLineAr(S.errOffline));
+    });
+
+    test('an old read gains a second sentence, and keeps the reason', () {
+      // Both halves are load-bearing: the reason says *why* the list is not
+      // newer, the age says how wrong it can be.
+      final line = staleProjectsLineWithAgeAr(
+          S.errOffline, base.subtract(const Duration(minutes: 12)),
+          now: base);
+      expect(line, contains(S.errOffline));
+      expect(line, contains('لم نتمكن من تحديث مشاريعك'));
+      expect(line, contains('قبل 12 دقيقة'));
+      expect(line, matches(RegExp(_arabic)));
+    });
+
+    test('the age is its own sentence, so the band stays two lines tall', () {
+      final line = staleProjectsLineWithAgeAr(
+          S.errOffline, base.subtract(const Duration(hours: 3)),
+          now: base);
+      expect(line, contains('\n'));
+      expect(line.split('\n'), hasLength(2));
+      expect(line.split('\n').last, 'قرأناها قبل 3 ساعات.');
+    });
+
+    test('the failure with no sentence still ages', () {
+      final line = staleProjectsLineWithAgeAr(
+          '   ', base.subtract(const Duration(minutes: 5)), now: base);
+      expect(line, startsWith(staleProjectsLineAr('   ')));
+      expect(line, contains('قبل 5 دقائق'));
     });
   });
 
@@ -368,6 +469,110 @@ void main() {
       expect(find.text('تعذّر جلب المشاريع'), findsOneWidget);
       expect(find.byKey(const Key('stale-projects')), findsNothing,
           reason: 'there is nothing to qualify — the error is the truth here');
+    });
+  });
+
+  group('ProjectsScreen — the band dates the read it is qualifying', () {
+    testWidgets('a failed refresh says how old the surviving rows are',
+        (tester) async {
+      // The band already said «هذه آخر نتيجة قرأناها». What it could not say is
+      // how long ago that was, and for *this* screen it is not a nicety: these
+      // rows are the only record the customer has of the jobs he posted, so a
+      // list that failed at 09:00 and one that failed an hour ago printing the
+      // same confident sentence is how he restarts a job from nothing.
+      var now = DateTime(2026, 9, 29, 9, 0);
+      await _pumpProjects(
+        tester,
+        succeedingReads: 1,
+        clock: () => now,
+        afterLoad: (t) async {
+          await t.drag(find.text('دهان فيلا'), const Offset(0, 340));
+          await t.pumpAndSettle(const Duration(seconds: 3));
+        },
+      );
+
+
+      // Twelve minutes later the list fails to re-read.
+      now = DateTime(2026, 9, 29, 9, 12);
+      await tester.drag(find.text('دهان فيلا'), const Offset(0, 340));
+      await tester.pumpAndSettle(const Duration(seconds: 3));
+
+      final band = tester.widget<Text>(find.byKey(
+          const Key('stale-projects-line')));
+      final text = band.data!;
+      // Both halves: the reason says why the list is not newer, the age says
+      // how wrong it can be. A band that traded one for the other is worse
+      // than the band it replaces.
+      expect(text, contains(S.errServer));
+      expect(text, contains('لم نتمكن من تحديث مشاريعك'));
+      expect(text, contains('قبل 12 دقيقة'));
+    });
+
+    testWidgets('a fresh read is not dated, and the old wording is untouched',
+        (tester) async {
+      // The contract that protects this screen\'s existing screenshots: a read
+      // inside the minute produces the OLD line, byte for byte. A shorter
+      // "variant" would silently re-open a defect on a screen already correct.
+      var now = DateTime(2026, 9, 29, 9, 0);
+      await _pumpProjects(
+        tester,
+        succeedingReads: 1,
+        clock: () => now,
+        afterLoad: (t) async {
+          // Before the pull, a good read has nothing to qualify.
+          expect(find.byKey(const Key('stale-projects-line')), findsNothing,
+              reason: 'a successful first read must not print an age');
+          now = DateTime(2026, 9, 29, 9, 0, 20); // 20 seconds later
+          await t.drag(find.text('دهان فيلا'), const Offset(0, 340));
+          await t.pumpAndSettle(const Duration(seconds: 3));
+        },
+      );
+
+      final text =
+          tester.widget<Text>(find.byKey(const Key('stale-projects-line')))
+              .data!;
+      expect(text, staleProjectsLineAr(S.errServer),
+          reason: 'a read still inside the minute must read exactly as it did '
+              'before the age existed — «قبل 20 ثانية» would be a reassurance '
+              'dressed as a measurement');
+    });
+
+    testWidgets('the age advances on its own, without a re-read',
+        (tester) async {
+      // The tick is the half a stamp alone does not give. Without it the age is
+      // frozen at whatever it said when the failure landed: a customer who
+      // leaves the tab open over a coffee break keeps reading «قبل 12 دقيقة»
+      // on a list that is now an hour old — the same lie in a slower costume.
+      var now = DateTime(2026, 9, 29, 9, 0);
+      await _pumpProjects(
+        tester,
+        succeedingReads: 1,
+        clock: () => now,
+        afterLoad: (t) async {
+          now = DateTime(2026, 9, 29, 9, 12);
+          await t.drag(find.text('دهان فيلا'), const Offset(0, 340));
+          await t.pumpAndSettle(const Duration(seconds: 3));
+        },
+      );
+      expect(find.textContaining('قبل 12 دقيقة'), findsOneWidget);
+
+      // Fifty minutes pass with no request issued at all. Nothing is pulled,
+      // nothing is refetched — the only thing that moves is the clock. Still
+      // inside the hour arm, so the answer is a minute count; the boundary is
+      // deliberately left to the pure cases above rather than guessed here.
+      now = DateTime(2026, 9, 29, 9, 50);
+      await tester.pump(const Duration(minutes: 1));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('قبل 12 دقيقة'), findsNothing,
+          reason: 'a frozen age is the same confidently-wrong claim this file '
+              'was opened for, in slower motion');
+      // Counted from the **successful read at 09:00**, not from the failure at
+      // 09:12 — the age describes when the rows were true, which is the whole
+      // point of it. (My first guess here was 38, measured from the failure,
+      // and the screen correctly refused it.)
+      expect(find.textContaining('قبل 50 دقيقة'), findsOneWidget,
+          reason: 'the tick must age the band without a re-read');
     });
   });
 }

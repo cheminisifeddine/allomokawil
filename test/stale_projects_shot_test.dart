@@ -137,6 +137,12 @@ void main() {
     await auth.login(phone: '0773000000', password: 'secret123',
         rememberMe: true);
 
+    // The clock this screen dates the band against. Frozen at 40 minutes past
+    // the successful read below, so the capture shows the band **with its age**
+    // — the thing this tick added. Left at the real clock the shot would
+    // render the undated fallback and the pixels would prove nothing about it.
+    final readAt = DateTime(2026, 9, 29, 9, 0);
+    var now = readAt;
     final key = GlobalKey();
     await tester.pumpWidget(AppScope(
       api: api,
@@ -153,15 +159,31 @@ void main() {
             GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
-          home: ProjectsScreen(repo: Repository(api)),
+          home: ProjectsScreen(repo: Repository(api), clock: () => now),
         ),
       ),
     ));
     await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    // The successful read above landed at `readAt`. Forty minutes pass and the
+    // re-read fails, which is the state the band exists for.
+    now = readAt.add(const Duration(minutes: 40));
     await tester.drag(find.text('دهان فيلا'), const Offset(0, 340));
     await tester.pumpAndSettle(const Duration(seconds: 3));
 
     expect(find.byKey(const Key('stale-projects')), findsOneWidget);
+
+    // The pixels below prove the band is on screen; this proves the band says
+    // *how old* it is, since a shot of the old wording would look identical.
+    final line =
+        tester.widget<Text>(find.byKey(const Key('stale-projects-line'))).data!;
+    expect(line, contains('قبل 40 دقيقة'),
+        reason: 'the captured band must be the dated one: "$line"');
+    // The reason survives the age: a band that traded one for the other would
+    // be a worse band than the one this replaced.
+    expect(line, contains('لم نتمكن من تحديث مشاريعك'));
+    // ignore: avoid_print
+    print('BAND line="$line"');
 
     final (rows, dark) = (await tester.runAsync(() => _scanBand(key)))!;
     // ignore: avoid_print
