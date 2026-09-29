@@ -8733,3 +8733,75 @@ running app for defects like these rather than inventing a feature.
       *Next.* `home_strip`, `chat_list_screen` and `subscription_screen` are
       still undated, and the subscription card is the one that has a
       hand-rolled grammar to correct rather than a shared helper to adopt.
+
+- [x] **The home screen's two stale bands admitted their rows were stale and
+      never said how stale — and the test that claimed to cover the per-stamp
+      wiring could not see the bug it was written for.**
+      29 Sep 2026, the **fifth** member of the family to get the freshness
+      half, and the first holding **two** lists behind one gesture.
+      `5888339` -> remote `e6232704`.
+
+      *Shipped.* `staleHomeStripAgeAr` + `staleHomeStripLineWithAgeAr` in
+      `stale_home_strip_copy.dart`, routed through `readAgeAr` rather than a
+      fifth copy of the rule. The age is **appended** as a second sentence and
+      never substituted for the reason; under a minute prints nothing; an
+      undatable read returns the old line **byte for byte**, which is the
+      contract that protects this screen's existing screenshot; clock skew gives
+      `''`, never `قبل -3 دقيقة`. In `customer_home_screen.dart`: an injectable
+      `clock`, **separate** stamps per strip, and a once-a-minute `_ageTimer`
+      re-armed from the success arm and cancelled in `dispose` (the shell's
+      `IndexedStack` keeps this tab alive, so an uncancelled timer outlives it).
+
+      *Why this screen and not the next in some list order.* The band already
+      said `هذه آخر نتيجة قرأناها` — true, and useless alone: a pull that failed
+      four seconds ago and one that failed forty minutes ago printed the same
+      sentence. Here that gap is the decision. The **projects** strip is the
+      user's own jobs and nothing else in the app lists them, so an old one may
+      already have been taken by somebody else. The **contractors** strip is
+      supply, duplicated one tap away in `ابحث عن مقاول`, so its band exists to
+      reassure. Same number, same reason: a doubt without a magnitude is not
+      actionable.
+
+      *The test was wrong before the app was, twice — and that is the finding.*
+      The case named `the two strips are dated by their OWN reads, not one stamp`
+      passed with **both strips wired to a single shared stamp**, and it passed
+      because it asserted the projects band was **absent** — a band that is not
+      on screen cannot be dated wrongly. Rewritten to render the strip and
+      assert a **number**, that version *still* passed the sabotage: the
+      corrupted line lives in the projects **success** arm, and the scenario had
+      the projects read dead for its whole duration, so that arm never re-ran
+      and the bad value was never written. The scenario that finally reds has
+      to make the projects read **succeed once after the shared stamp is taken**
+      and then fail again, so the success arm re-runs and the band is rebuilt on
+      the value it wrote. It now fails with the shared stamp wired in
+      (`قبل 3 ساعات` vs `قبل 4 ساعات`), and the other two sabotages — reverting
+      the band call, and never arming the tick — each red exactly their own
+      case. A test that cannot fail on the bug in its own name is a comment.
+
+      *A harness collision worth recording, because it nearly cost the file.*
+      I wrote the new shot test as a new file and **overwrote the existing
+      `test/stale_home_strip_shot_test.dart`**, which already had a shot for
+      this screen at `/tmp/shots/20_home_workers_stale.png`. `git status`
+      showed it as *modified*, not untracked, which is the only reason it was
+      caught. The original was recovered with `git show HEAD:<path>` and the
+      dated case added alongside it, sharing an extracted `_client()` builder so
+      there is one fixture instead of two that can drift. Both cases are in the
+      commit and both still pass.
+
+      *Pixels, A/B, same frame.* Undated `20_home_workers_stale.png` vs dated
+      `20_home_workers_stale_dated.png` (1179x2488, real Cairo via
+      `FontLoader` — no Chrome on this box, so the capture is in-test):
+      band wash rows **261 -> 330**, ink runs **5 -> 8**, and the first
+      contractor card moves **y 2172 -> 2269** — the age is an addition, and the
+      list is still drawn underneath it. Band box **y 1803..2150**, `darkInBand=
+      38697` vs 32960 undated. `contrast_audit.py token` -> **28/28 pass**.
+
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1536 passed / 3 skipped / 0 failed**, up from
+      1523/3/0 (+13). All four blobs verified `MATCH` against the real remote
+      tree at tip `e6232704`.
+
+      *Next.* `chat_list_screen` and `subscription_screen` are still undated.
+      `subscription_screen` stays the priority: the subscription card is the one
+      surface with a **hand-rolled** grammar to correct (`قبل 3 ساعت` at three
+      hours), not just a shared helper to adopt.
