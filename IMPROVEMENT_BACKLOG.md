@@ -8863,7 +8863,8 @@ running app for defects like these rather than inventing a feature.
 
       *Gate.* `flutter analyze` -> **No issues found!**
       `flutter test` -> **1544 passed / 3 skipped / 0 failed**, up from
-      1536/3/0 (+8).
+      1536/3/0 (+8). *Commit* `d45e34d`; remote `3d1ca68`. All five blobs
+      verified **MATCH** against the real remote tree.
 
       *Files.* `lib/src/data/stale_catalogue_copy.dart`,
       `lib/src/screens/worker/subscription_screen.dart`,
