@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/auth_gate.dart';
+import '../../core/l10n/error_copy.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/location/place_state.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/first_run.dart';
 import '../../data/repository.dart';
+import '../../data/stale_home_strip_copy.dart';
 import '../../data/unread_message_trust.dart';
 import '../../data/unread_message_count.dart';
 import '../../data/taxonomy.dart';
@@ -86,6 +88,65 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
   /// never signed in.
   Future<List<Project>>? _recentProjects;
 
+  /// What the two home strips last read successfully, and the sentence for the
+  /// last read that failed.
+  ///
+  /// Deliberately scoped to a *settled* answer. A read still in flight writes
+  /// nothing here, so the previous strip survives it and the reader is never
+  /// shown a skeleton over rows he did not ask to reload. The doubt is a fact
+  /// about the data, so it is recorded as a *sentence* rather than as a flag
+  /// and drawn on the strip it belongs to — the two reads behind [_refresh] can
+  /// fail independently, and one band about «the screen» would be a claim
+  /// about a strip that answered.
+  ///
+  /// See `stale_home_strip_copy.dart` — the seventh screen in this family, and
+  /// the first where the two halves need different words.
+  List<WorkerProfile>? _workersCache;
+  String? _workersStaleReason;
+  List<Project>? _projectsCache;
+  String? _projectsStaleReason;
+
+  /// Points one strip at a read, and records what that read settled to.
+  ///
+  /// The cache is written on every settled success and cleared of doubt by the
+  /// next one, so the band cannot outlive the read that answered it.
+  ///
+  /// `onError` does not `setState` on its own: this is called from inside a
+  /// `setState` in [_reloadWorkers], [_reloadStrips] and [_refresh], and the
+  /// answer to a future is a microtask later than all three, so the rebuild is
+  /// scheduled here and lands after the caller's own.
+  void _armWorkers(Future<List<WorkerProfile>> read) {
+    _topWorkers = read;
+    read.then((list) {
+      if (!mounted) return;
+      setState(() {
+        _workersCache = list;
+        _workersStaleReason = null;
+      });
+    }, onError: (Object e, StackTrace _) {
+      if (!mounted) return;
+      setState(() => _workersStaleReason = errorCopy(e));
+    });
+  }
+
+  /// The projects half of [_armWorkers]. Not null-guarded here, because every
+  /// call site already checks [_guest] — a visitor has no projects read at all,
+  /// and asking for one would only produce the error state this screen must not
+  /// show him.
+  void _armProjects(Future<List<Project>> read) {
+    _recentProjects = read;
+    read.then((list) {
+      if (!mounted) return;
+      setState(() {
+        _projectsCache = list;
+        _projectsStaleReason = null;
+      });
+    }, onError: (Object e, StackTrace _) {
+      if (!mounted) return;
+      setState(() => _projectsStaleReason = errorCopy(e));
+    });
+  }
+
   /// The same endpoint the messages tab reads. The client home needs it because
   /// the first-run guide has to disappear as soon as the owner has contacted
   /// somebody. Null for a visitor, for the same reason as the projects above.
@@ -161,7 +222,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
     _guest = AuthGate.isGuest(context);
     _place = AppScope.maybeOf(context)?.place;
     _place?.addListener(_onPlaceChanged);
-    _topWorkers = _repo.topWorkers(limit: 12, preferWilaya: _place?.wilayaId);
+    _armWorkers(_repo.topWorkers(limit: 12, preferWilaya: _place?.wilayaId));
     if (_guest) {
       // Nothing to read without an account, and nothing to decide either: the
       // two session-only strips stay empty and the tab shows the way in.
@@ -169,7 +230,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
       _conversations = null;
       _unreadMessages = 0;
     } else {
-      _recentProjects = _repo.myProjects();
+      _armProjects(_repo.myProjects());
       _conversations = _repo.conversations();
       _unreadToken++;
       _resolveUnread();
@@ -188,7 +249,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
     // Future-returning callback in debug. A GPS answer landing after boot is an
     // everyday event on this screen, so this was throwing on the main path.
     setState(() {
-      _topWorkers = _repo.topWorkers(limit: 12, preferWilaya: id);
+      _armWorkers(_repo.topWorkers(limit: 12, preferWilaya: id));
     });
   }
 
@@ -248,8 +309,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
   /// the strip still updated, so the button worked; it was throwing underneath
   /// itself on every tap, and the pull gesture drove the same handler.
   void _reloadWorkers() => setState(() {
-        _topWorkers =
-            _repo.topWorkers(limit: 12, preferWilaya: _place?.wilayaId);
+        _armWorkers(
+            _repo.topWorkers(limit: 12, preferWilaya: _place?.wilayaId));
       });
   void _reloadProjects() => setState(_reloadStrips);
 
@@ -297,7 +358,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
   /// states this screen must not show him.
   void _reloadStrips() {
     if (_guest) return;
-    _recentProjects = _repo.myProjects();
+    _armProjects(_repo.myProjects());
     _conversations = _repo.conversations();
     // The count is re-summed here because **coming back from a thread is what
     // clears it**: the server marks a conversation read when it is opened, so
@@ -315,7 +376,11 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
         _ExploreView(
           firstRun: _firstRun,
           topWorkers: _topWorkers,
+          workersCache: _workersCache,
+          workersStaleReason: _workersStaleReason,
           recentProjects: _recentProjects,
+          projectsCache: _projectsCache,
+          projectsStaleReason: _projectsStaleReason,
           guest: _guest,
           onRetryWorkers: _reloadWorkers,
           onRetryProjects: _reloadProjects,
@@ -421,6 +486,14 @@ class _ExploreView extends StatelessWidget {
   final bool firstRun;
   final Future<List<WorkerProfile>> topWorkers;
 
+  /// The last settled answer for each strip, and the sentence for the last read
+  /// that failed. Held by the parent so the doubt survives the strip's own
+  /// re-read; see the state fields on `_CustomerHomeScreenState`.
+  final List<WorkerProfile>? workersCache;
+  final String? workersStaleReason;
+  final List<Project>? projectsCache;
+  final String? projectsStaleReason;
+
   /// Null for a signed-out visitor — the tab then shows the way in instead of
   /// a strip it has nothing to put in.
   final Future<List<Project>>? recentProjects;
@@ -444,7 +517,11 @@ class _ExploreView extends StatelessWidget {
   const _ExploreView({
     required this.firstRun,
     required this.topWorkers,
+    required this.workersCache,
+    required this.workersStaleReason,
     required this.recentProjects,
+    required this.projectsCache,
+    required this.projectsStaleReason,
     required this.guest,
     required this.onRetryWorkers,
     required this.onRetryProjects,
@@ -557,11 +634,24 @@ class _ExploreView extends StatelessWidget {
           FutureBuilder<List<WorkerProfile>>(
             future: topWorkers,
             builder: (context, snap) {
-              if (snap.connectionState != ConnectionState.done) {
-                return const SliverToBoxAdapter(
-                    child: Shimmer(child: _WorkerStripSkeleton()));
-              }
-              if (snap.hasError) {
+              // The family's split, unchanged: a failed *first* read has
+              // nothing to draw and keeps the error; a failed *re-read* keeps
+              // the rows and states the doubt. `null` has to mean "nothing to
+              // draw" for a **waiting** read too, or an unanswered request
+              // falls out of the skeleton into the empty strip below and tells
+              // a client on a slow connection that there are no contractors
+              // before the phone has even asked.
+              final waiting = snap.connectionState != ConnectionState.done;
+              final failed = snap.hasError && !waiting;
+              final stale = failed && workersStaleReason != null;
+              final shown = (waiting || failed)
+                  ? workersCache
+                  : (snap.data ?? const <WorkerProfile>[]);
+              if (shown == null) {
+                if (waiting) {
+                  return const SliverToBoxAdapter(
+                      child: Shimmer(child: _WorkerStripSkeleton()));
+                }
                 return SliverToBoxAdapter(
                   child: EmptyView(
                     icon: Icons.wifi_off_rounded,
@@ -572,8 +662,7 @@ class _ExploreView extends StatelessWidget {
                   ),
                 );
               }
-              final workers = snap.data ?? const <WorkerProfile>[];
-              if (workers.isEmpty) {
+              if (shown.isEmpty) {
                 // "سيظهر أفضل المقاولين هنا" left the client with nothing to do.
                 // The one action that makes contractors appear for him is the one
                 // he can take himself: publish the project so it reaches them.
@@ -589,20 +678,39 @@ class _ExploreView extends StatelessWidget {
                   ),
                 );
               }
+              // The doubt is an annotation *on* the strip, so it sits above
+              // the cards rather than replacing them — a client who has pulled
+              // twice and failed twice still has the contractors he was
+              // looking at, and the band is what says so.
               return SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 190,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 18),
-                    itemCount: workers.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 12),
-                    itemBuilder: (context, i) => WorkerCard(
-                      worker: workers[i],
-                      variant: WorkerCardVariant.vertical,
-                      onTap: () => onWorker(workers[i]),
+                child: Column(
+                  children: [
+                    if (stale)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                            AppTheme.gutter, 0, AppTheme.gutter, AppTheme.s12),
+                        child: _StaleHomeStripBand(
+                          key: const Key('stale-workers'),
+                          line: staleHomeStripLineAr(
+                              workersStaleReason!, StaleHomeStrip.contractors),
+                        ),
+                      ),
+                    SizedBox(
+                      height: 190,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 18),
+                        itemCount: shown.length,
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(width: 12),
+                        itemBuilder: (context, i) => WorkerCard(
+                          worker: shown[i],
+                          variant: WorkerCardVariant.vertical,
+                          onTap: () => onWorker(shown[i]),
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               );
             },
@@ -631,11 +739,24 @@ class _ExploreView extends StatelessWidget {
             FutureBuilder<List<Project>>(
               future: recentProjects,
               builder: (context, snap) {
-                if (snap.connectionState != ConnectionState.done) {
-                  return const SliverToBoxAdapter(
-                      child: Shimmer(child: _ProjectStripSkeleton(count: 2)));
-                }
-                if (snap.hasError) {
+                // Same split as the contractors strip above, and for the same
+                // reason, but the stakes are higher: nothing else in the app
+                // lists *his own* jobs, so erasing these three rows is not an
+                // inconvenience — it is the home screen forgetting what he
+                // posted. A `null` here has to mean "nothing to draw" for a
+                // waiting read too, or the first run is told he has no projects
+                // before the request answers.
+                final waiting = snap.connectionState != ConnectionState.done;
+                final failed = snap.hasError && !waiting;
+                final stale = failed && projectsStaleReason != null;
+                final shown = (waiting || failed)
+                    ? projectsCache
+                    : (snap.data ?? const <Project>[]);
+                if (shown == null) {
+                  if (waiting) {
+                    return const SliverToBoxAdapter(
+                        child: Shimmer(child: _ProjectStripSkeleton(count: 2)));
+                  }
                   return SliverToBoxAdapter(
                     child: EmptyView(
                       icon: Icons.wifi_off_rounded,
@@ -646,8 +767,7 @@ class _ExploreView extends StatelessWidget {
                     ),
                   );
                 }
-                final projects = snap.data ?? const <Project>[];
-                if (projects.isEmpty) {
+                if (shown.isEmpty) {
                   return SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 18),
@@ -657,12 +777,22 @@ class _ExploreView extends StatelessWidget {
                     ),
                   );
                 }
-                final recent = projects.take(3).toList();
+                final recent = shown.take(3).toList();
                 return SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 18),
                     child: Column(
                       children: [
+                        if (stale)
+                          Padding(
+                            padding:
+                                const EdgeInsets.only(bottom: AppTheme.s12),
+                            child: _StaleHomeStripBand(
+                              key: const Key('stale-projects-strip'),
+                              line: staleHomeStripLineAr(projectsStaleReason!,
+                                  StaleHomeStrip.projects),
+                            ),
+                          ),
                         for (var i = 0; i < recent.length; i++) ...[
                           if (i > 0) const SizedBox(height: 12),
                           ProjectCard(
@@ -677,6 +807,48 @@ class _ExploreView extends StatelessWidget {
               },
             ),
           const SliverToBoxAdapter(child: SizedBox(height: 28)),
+        ],
+      ),
+    );
+  }
+}
+
+/// The band that states a strip failed to re-read, without erasing it.
+///
+/// The **same widget for both strips on purpose** — the projects list, the
+/// inbox and the directory each drew their own, and four near-identical
+/// private classes is how one of them ends up in the error red instead of the
+/// wash. The doubt is a fact about the data, not an alarm, so it is drawn in
+/// the same `accentDeep`-on-`accentWash` as its siblings rather than in the red
+/// of the full-screen error it replaces.
+class _StaleHomeStripBand extends StatelessWidget {
+  const _StaleHomeStripBand({super.key, required this.line});
+
+  /// The composed sentence from `staleHomeStripLineAr`.
+  final String line;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      color: AppTheme.accentWash,
+      borderColor: AppTheme.accent,
+      padding: AppTheme.cardPadRail,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.history_toggle_off_rounded,
+              size: AppTheme.s20, color: AppTheme.accentDeep),
+          const SizedBox(width: AppTheme.s8),
+          Expanded(
+            child: Text(
+              line,
+              style: AppTheme.body.copyWith(
+                color: AppTheme.accentDeep,
+                height: 1.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
       ),
     );

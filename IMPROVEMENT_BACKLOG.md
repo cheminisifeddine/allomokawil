@@ -7697,6 +7697,69 @@ running app for defects like these rather than inventing a feature.
       talks to. Still BACKEND-API's, still not reachable from the app, and
       still not re-filed, so the next tick does not walk it a fourth time.*
 
+- [x] **A failed pull-to-refresh on the client home blanked BOTH strips —
+      the supply, and the user's own jobs — and this screen is the first
+      member of the family that needed different words for each half.**
+      Found 29 Sep 2026 by the same audit that has been walking the family
+      since the subscription bug, and the **seventh** screen in it.
+      *Shipped:* `_workersCache` / `_projectsCache` plus a `_staleReason` each
+      on `_CustomerHomeScreenState`, every read routed through two new
+      `_arm` methods, and an amber band on the strip that failed. New pure
+      `lib/src/data/stale_home_strip_copy.dart`, and `_StaleHomeStripBand` —
+      **one** band widget for both strips on purpose, because four
+      near-identical private classes is how one of them ends up drawn in the
+      error red instead of the wash.
+      *Why it is not just a seventh argument to `staleProjectsLineAr`.* The
+      other six each hold **one** list. This one holds **two** behind **one**
+      gesture, they fail independently, and the honest ranking is
+      asymmetric: the contractors strip is the supply but it is *duplicated*
+      («ابحث عن مقاول» is one tap away), while «مشاريعي الأخيرة» is the only
+      place in the app that lists the user's own jobs. One shared sentence
+      would have to be vaguer than either, so the copy takes a
+      `StaleHomeStrip` enum and each half says its own noun.
+      *Evidence.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1452 passed / 3 skipped / 0 failed** (was
+      1441/3/0, +11). Red before green: reverting only
+      `customer_home_screen.dart` gives `+6 -4` on the new file.
+      *Pixels* (`/tmp/shots/20_home_workers_stale.png`, real Cairo via
+      `FontLoader` — the web/CDP path still cannot run, see the JDK note
+      above): the band is **279 wash rows carrying 32,960 dark text
+      pixels**, and it occupies y **1803-2081** with card content below it
+      at y 2310+ — so it is a header *on* the strip, not a replacement for
+      it, which is the claim the whole fix rests on and the one the unfixed
+      screen cannot make at all. `contrast_audit.py token` -> **28/28 pass**.
+      *The design-recipe ratchet caught my first draft.* A band padded with
+      a literal `18` pushed `card_recipe_test.dart` R4 from 197 to 199
+      off-grid literals, and the build went red for a **number**, not a look
+      — the guard is a whole-file text scan, so any new card anywhere fails
+      it. Fixed to `AppTheme.gutter` + `AppTheme.s12`; the ratchet is back at
+      its baseline. Worth knowing for the next tick: this is the second time
+      this guard has caught an off-grid literal in new code, and the fix is
+      always a named token, never a re-baseline.
+      *Three harness traps, each of which cost a run of its own.*
+      * The two strips **do not agree on what "attempt 1" is.** `/workers/top`
+        is read once at rest, but `/my/projects` is read **twice** — the shell
+        is an `IndexedStack`, so the *projects tab* fires its own request
+        alongside the explore strip's and the phone cannot tell them apart.
+        A "fail from attempt N" threshold therefore kills the *first* read,
+        the screen correctly shows its first-read error, and the assertion
+        meant to prove «a failed re-read keeps the rows» never gets to test a
+        re-read at all. The harness now flips **liveness** (`workersDead`)
+        after the first read has been seen on screen, so it never has to
+        guess how many requests the shell made.
+      * A `RefreshIndicator` fires at **scroll offset 0 and nowhere else.**
+        The projects strip sits ~1100 logical px below the fold, so revealing
+        it and *then* pulling does nothing at all — the gesture is swallowed
+        and the read is never re-issued, which fails as if the fix were
+        broken. Assert the request count, never trust the gesture.
+      * The two strips are ~1100 px apart on an 829 px viewport, so **a
+        sliver that has scrolled out is not in the tree** and a single pass
+        can assert nothing. The "only the strip that failed gets a band" test
+        checks in two passes, and the shot needs a returning client: an
+        account with no projects and no conversations shows the first-run
+        guide, and that card pushes the contractors strip off the viewport so
+        the capture photographs an empty page.
+
 - [x] **A failed refresh on «ابحث عن مقاول» told the client the
       directory was empty — and this screen never had a cache to lose in
       the first place.** Found 29 Sep 2026 by auditing a new surface, and
