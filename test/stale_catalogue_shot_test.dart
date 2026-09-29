@@ -165,4 +165,116 @@ void main() {
           .writeAsBytesSync(bytes!.buffer.asUint8List());
     });
   });
+  testWidgets('a DATED banner is drawn above the numbers, the age included',
+      (tester) async {
+    // The banner carries a second sentence now — «قرأناها قبل 40 دقيقة» — and
+    // the shot above cannot see that at all, because a shot on a real wall
+    // clock captures the one frame where the age is deliberately silent: a
+    // read inside the minute. So the clock is injected and aged 40 minutes,
+    // and this picture proves the dated banner rather than the wording the app
+    // shipped before.
+    //
+    // **This is the sixth member of the family, and the first one whose band
+    // sits over money.** Every sibling's strip is a list the user is reading;
+    // this one is a price, a pending payment and a quota. The number on the
+    // band is the difference between «the price I read this morning» and «the
+    // price I read last month», which are not the same decision about
+    // BaridiMob.
+    var now = DateTime(2026, 9, 29, 9, 0);
+    tester.view.physicalSize = const Size(1080, 3400);
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+
+    var reads = 0;
+    final api = ApiClient(
+      baseUrls: const ['https://x.test'],
+      httpClient: MockClient((req) async {
+        if (req.url.path.endsWith('/api/mobile/subscription')) {
+          reads++;
+          if (reads == 1) {
+            return http.Response(
+                '{"currency":"DZD","note_ar":"x","auto_renew":false,'
+                '"plans":[],"current":{"plan":"free_trial","status":"active"}}',
+                200,
+                headers: {'content-type': 'application/json'});
+          }
+          return http.Response('', 503,
+              headers: {'content-type': 'application/json'});
+        }
+        return http.Response('{}', 200,
+            headers: {'content-type': 'application/json'});
+      }),
+      timeout: const Duration(milliseconds: 200),
+    );
+
+    final key = GlobalKey();
+    await tester.pumpWidget(AppScope(
+      api: api,
+      auth: AuthState(api),
+      child: RepaintBoundary(
+        key: key,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          locale: const Locale('ar'),
+          supportedLocales: const [Locale('ar'), Locale('en')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: SubscriptionScreen(clock: () => now),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    // The read lands at 09:00, the network then dies, and the phone is not
+    // touched again for forty minutes.
+    now = DateTime(2026, 9, 29, 9, 40);
+    await tester.tap(find.byTooltip(S.planRetry));
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+    // Crossed by a whole minute, not a frame: the banner is re-dated by the
+    // once-a-minute age tick, so a test that only pumps frames is asserting
+    // on the sentence as it stood when the failure landed.
+    await tester.pump(const Duration(minutes: 1));
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(find.byKey(const Key('stale-catalogue')), findsOneWidget);
+    // Asserted in the widget as well as in the pixels, because a band can be
+    // *drawn* with the right colour and the wrong words and only the text
+    // widget knows which one it is.
+    final line = tester
+        .widgetList<Text>(find.byKey(const Key('stale-catalogue-line')))
+        .map((t) => t.data ?? '')
+        .join();
+    expect(line, contains('قبل 40 دقيقة'),
+        reason: 'the shot must capture the dated band, not the undated one');
+    // ignore: avoid_print
+    print('BANNER LINE: $line');
+
+    final (rows, dark) = (await tester.runAsync(() => _scanBanner(key)))!;
+    // ignore: avoid_print
+    print('BANNER rows=$rows dark=$dark');
+
+    expect(rows, greaterThan(20),
+        reason: 'the amber wash is not on screen at the size it should be');
+    // Higher than the undated shot's floor of 300, because the second
+    // sentence is real ink: a banner that drew the failure clause and dropped
+    // the age would still clear 300 and pass the older assertion.
+    expect(dark, greaterThan(500),
+        reason: 'the banner drew no readable Arabic: $dark dark pixels on '
+            'the wash');
+
+    await tester.runAsync(() async {
+      final boundary =
+          key.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      final img = await boundary.toImage(pixelRatio: 3.0);
+      final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+      Directory(_out).createSync(recursive: true);
+      File('$_out/16_subscription_stale_dated.png')
+          .writeAsBytesSync(bytes!.buffer.asUint8List());
+    });
+  });
 }

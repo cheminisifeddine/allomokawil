@@ -8805,3 +8805,70 @@ running app for defects like these rather than inventing a feature.
       `subscription_screen` stays the priority: the subscription card is the one
       surface with a **hand-rolled** grammar to correct (`قبل 3 ساعت` at three
       hours), not just a shared helper to adopt.
+
+- [x] **The subscription banner admitted the figures were from «آخر قراءة
+      ناجحة» and never said how old that read was — on the one surface where a
+      stale number is money.**
+      The sixth member of the stale-band family, and the first one whose band
+      sits over a **price, a pending payment and a quota** rather than a list
+      somebody is reading. `stale_catalogue_copy.dart` was the only member
+      without the freshness half: it prints «لم نتمكن من تحديث بياناتك — هذه
+      أرقام آخر قراءة ناجحة» and stops. A re-read that failed four seconds ago
+      and one that failed last month print the **identical sentence**, and a
+      contractor deciding whether to send BaridiMob against a price he read
+      this morning is not making the decision he is making against one he read
+      last month.
+      *Shipped:* `staleCatalogueAgeAr` + `staleCatalogueLineWithAgeAr`, routed
+      through `readAgeAr` — no sixth copy of the rule. The age is **appended** as
+      a second sentence, never substituted for the diagnosed failure; under a
+      minute, clock skew and an absent read return the old line byte for byte.
+      `subscription_screen.dart` gained an injectable `clock`, a
+      `_catalogueReadAt` stamped where the read **settles** (not where it is
+      issued — a read that took forty seconds on a cell network is dated when it
+      landed), and a once-a-minute `_ageTimer` cancelled in `dispose`.
+
+      *The test that could not see the bug in its own name — twice.* The
+      first version asserted `S.errOffline` survives the age, against a **503**,
+      which `errorCopy` renders as «خلل مؤقّت في الخادم». It failed on a detail
+      of the error mapping, and pinning a staleness test to one error constant
+      turns it into a lie the moment the mapping moves; it is now asserted by
+      shape. The second version staged a second outage and still passed against
+      a screen that stamps only its **first** successful read, because both
+      candidate stamps were 09:00 — correct and broken code printed the same
+      number. A test that cannot tell right from wrong is a comment. The fixed
+      scenario interleaves a **second success at 09:30** and only then kills the
+      read, so the two stamps name different reads. All three sabotages — stamp
+      at issue time, no age tick, stamp never refreshed — now red.
+
+      *A second real defect found and filed, not fixed.* `relativeTimeAr`
+      selects the hour arm on `diff.inHours < 24` and **floors**, so 60 through
+      119 minutes all print «قبل ساعة» and the minutes are discarded. Probed
+      directly this tick: 1→«قبل دقيقة», 59→«قبل 59 دقيقة», 60/90/119→«قبل
+      ساعة», 120→«قبل ساعتين», 1439→«قبل 23 ساعة». On a notification list that
+      is cosmetic; here it means a price read an hour ago and a price read two
+      hours ago are one sentence. It is **not** fixed in this tick on purpose:
+      `relativeTimeAr` is shared by the chat list, the notification centre and
+      every member of this family, and a change to it needs the full suite as
+      its own cycle. The dated-band test asserts the current string and says
+      so in the file, so the behaviour is pinned rather than accidental.
+
+      *Pixels, A/B, same frame.* Undated `16_subscription_stale.png` vs dated
+      `16_subscription_stale_dated.png` (1179x2763 / 1179x3710, real Cairo via
+      `FontLoader` — no Chrome on this box, so the capture is in-test): band
+      wash rows **279 -> 348**, dark ink **31359 -> 37096**, and the 32 newly
+      added tail rows carry real glyphs (max 298 dark px on a row) rather than
+      an empty amber bar. Band box **y 231..509** vs **y 231..578** — same top
+      edge, the age is an addition, the figures below are still drawn.
+      `contrast_audit.py token` -> **28/28 pass**.
+
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1544 passed / 3 skipped / 0 failed**, up from
+      1536/3/0 (+8).
+
+      *Files.* `lib/src/data/stale_catalogue_copy.dart`,
+      `lib/src/screens/worker/subscription_screen.dart`,
+      `test/stale_catalogue_test.dart`, `test/stale_catalogue_shot_test.dart`.
+
+      *Next.* `chat_list_screen` is the last surface in the family still
+      undated. And the `relativeTimeAr` hour-floor above is filed as its own
+      item — it needs a full-suite cycle, not a ten-minute one.

@@ -38,6 +38,8 @@
 // `quote_count_copy.dart` and `pending_request_copy.dart` use.
 library;
 
+import 'read_age_ar.dart';
+
 /// The line shown above a catalogue that failed to re-read.
 ///
 /// [error] is the already-curated Arabic sentence from `errorCopy`, which is
@@ -51,4 +53,58 @@ String staleCatalogueLineAr(String error) {
   // bare failure cannot produce a banner that explains nothing.
   if (reason.isEmpty) return 'هذه البيانات قد لا تكون محدَّثة';
   return 'لم نتمكن من تحديث بياناتك — هذه أرقام آخر قراءة ناجحة. $reason';
+}
+
+/// How old the figures under the catalogue band actually are.
+///
+/// The **freshness half** of the family, and the sixth member to get it, after
+/// the market, the projects list, the directory, the notifications and the
+/// two home strips. The band already says «هذه أرقام آخر قراءة ناجحة» — *these
+/// are the figures from the last successful read* — which is true and useless
+/// on its own. A re-read that failed four seconds ago and one that failed
+/// forty minutes ago print the **same sentence**, and on this screen the gap
+/// between them is the whole decision.
+///
+/// It matters more here than on any sibling, because this is the one surface
+/// where a stale number is money. Every other member of the family shows a
+/// list the user is reading; this one shows **a price, a pending payment and
+/// a remaining quota**. A contractor deciding whether to pay BaridiMob against
+/// a price he read this morning and one he read last month are not making the
+/// same decision, and the band currently gives him no way to tell which he is
+/// looking at. The ack comparison further down the sheet exists to catch
+/// exactly this mismatch, and it can only catch what the user is willing to
+/// challenge — so the doubt has to be priced in words before the payment, not
+/// discovered after it.
+///
+/// **The rule is not this file's.** It is [readAgeAr], which the whole app
+/// routes through so a header, a market, a project list, a directory, two home
+/// strips and now this catalogue cannot each decide what "old enough to
+/// mention" means. Null, clock skew and under-a-minute are silence, and a
+/// band whose figures are still current keeps its own words.
+String staleCatalogueAgeAr(DateTime? readAt, {DateTime? now}) =>
+    readAgeAr(readAt, now: now);
+
+/// The band line with its age, when the age is worth a word.
+///
+/// Same two rules as every sibling, and the second is the easy one to get
+/// wrong:
+///
+///   * The age is **appended**, never substituted. The failure sentence names
+///     the *kind* of failure `errorCopy` diagnosed and the age says nothing
+///     about it. A band that traded the reason for a timestamp would tell a
+///     contractor his quota is «قبل 12 دقيقة» without saying *why* it might
+///     have changed underneath him, and «لم نتمكن من تحديث بياناتك» is the
+///     half that keeps the banner from reading as a routine timestamp.
+///   * Under a minute, undatable and absent stay **exactly the old line**,
+///     byte for byte, so every assertion the previous tick wrote still holds
+///     and no band ever gains a second sentence it has nothing to say.
+String staleCatalogueLineWithAgeAr(
+  String error,
+  DateTime? readAt, {
+  DateTime? now,
+}) {
+  final base = staleCatalogueLineAr(error);
+  final age = staleCatalogueAgeAr(readAt, now: now);
+  if (age.isEmpty) return base;
+  return '$base\nقرأناها $age.';
 }

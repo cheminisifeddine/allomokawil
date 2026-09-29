@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
@@ -39,7 +41,16 @@ import '../../widgets/ui.dart';
 /// instantly without waiting for a human, and a card gateway (CIB/Edahabia) can
 /// be switched on later by publishing its method in the same catalogue.
 class SubscriptionScreen extends StatefulWidget {
-  const SubscriptionScreen({super.key});
+  const SubscriptionScreen({super.key, this.clock});
+
+  /// The wall clock, injectable so a test can age the stale band without
+  /// waiting a real hour. Defaults to the system clock in the app.
+  ///
+  /// Same reason `CustomerHomeScreen` has one: the band below is aged by a
+  /// once-a-minute tick, and the only frame in which that age is deliberately
+  /// silent is the first minute after a read. A test that cannot inject a
+  /// clock can only ever photograph the silent case.
+  final DateTime Function()? clock;
 
   @override
   State<SubscriptionScreen> createState() => _SubscriptionScreenState();
@@ -52,6 +63,17 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   BillingCatalogue? _catalogue;
   bool _loading = true;
   String? _error;
+
+  /// When the figures on screen were last read successfully, and the tick
+  /// that ages them.
+  ///
+  /// The stamp is written where the read *settles*, not where it is issued,
+  /// so a request that took forty seconds on a cell network is dated at the
+  /// moment it actually landed — the case where the number matters most.
+  /// `null` means "nothing has been read yet", and a band over nothing is the
+  /// `_LoadFailed` state, which says its own thing.
+  DateTime? _catalogueReadAt;
+  Timer? _ageTimer;
 
   /// Monthly by default: it is the smaller decision. The toggle is remembered
   /// for the life of the screen so a contractor comparing prices does not have
@@ -72,8 +94,31 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   @override
   void dispose() {
+    _ageTimer?.cancel();
     _codeController.dispose();
     super.dispose();
+  }
+
+  /// The wall clock, injectable for tests. See [SubscriptionScreen.clock].
+  DateTime _now() => (widget.clock ?? DateTime.now)();
+
+  /// Starts the once-a-minute tick that ages the band, once there is a stamp
+  /// to age.
+  ///
+  /// Re-armed from the same place the stamp is written, so a re-read that puts
+  /// the old stamp back does not leave two live timers. Called from [_load]
+  /// rather than from `build`, because a timer created in `build` is a new
+  /// timer on every frame and the tick would multiply.
+  void _armAgeTick() {
+    if (!mounted) return;
+    _ageTimer?.cancel();
+    _ageTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted) return;
+      // Nothing to age yet: a first read that has not landed has no figures,
+      // and a band only ever appears over figures that do.
+      if (_catalogueReadAt == null) return;
+      setState(() {});
+    });
   }
 
   Future<void> _load() async {
@@ -87,7 +132,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       setState(() {
         _catalogue = data;
         _loading = false;
+        // The clock *now*, not the moment the request was issued, so a read
+        // in flight for forty seconds is dated when it actually landed.
+        _catalogueReadAt = _now();
       });
+      _armAgeTick();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -279,7 +328,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       // quota on screen with no statement that a newer read had
                       // failed. See `stale_catalogue_copy.dart`.
                       if (_error != null) ...[
-                        _StaleBanner(line: staleCatalogueLineAr(_error!)),
+                        _StaleBanner(
+                            line: staleCatalogueLineWithAgeAr(
+                                _error!, _catalogueReadAt,
+                                now: _now())),
                         const SizedBox(height: AppTheme.gap),
                       ],
                       _CurrentPlanCard(status: catalogue.current),
