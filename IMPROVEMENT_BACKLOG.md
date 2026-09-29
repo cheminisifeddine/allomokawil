@@ -8370,3 +8370,119 @@ running app for defects like these rather than inventing a feature.
       Commit `1292d97` -> remote `7a6a41e`. All 4 blobs **MATCH** against the
       real remote tree (verified with the blob-hash script, not the exit
       code).
+
+- [x] **A failed *or slow* market re-read took the contractor's whole market
+      away — the ninth screen in the failed-read family, and the only member
+      with two defects instead of one.** Commit `73b1fe2`.
+      `MarketplaceView` in `worker_home_screen.dart` — the busiest surface in
+      the product, and the tab a contractor opens to find work. The builder's
+      first line returned a `Shimmer` for anything unsettled and the second
+      returned a full-screen `EmptyView` («تعذّر جلب المشاريع») for anything
+      that errored, over a feed `_reload` re-issues from **six** controls:
+      pull-to-refresh, the trade chip, the wilaya chip, the late location fix
+      (`_seedFromPlace` drops `_projects`), the empty state's own «تحديث», and
+      the profile-save path. So a *failed* read replaced twenty open projects
+      with an error page and a **slow** one replaced them with a shimmer that
+      stayed for as long as the request took — and the slow one is the
+      newcomer: nothing on that surface said "error", it simply stopped being a
+      market, which is why the other eight screens could not have it.
+      *Why it outranks the directory on reach even though it is not the worst
+      copy.* The browse directory is the *supply* and the market is the same
+      supply, so a client who loses one can tap through to the other. Two
+      things are unique here: it is the **only** read in the family a
+      **visitor** can lose — the market is served with no account at all
+      (`initState` reads the profile only when `!widget.guest`) — and it is
+      what a contractor bids on. It is also the **last** of the family: the
+      `FutureBuilder` surfaces left in the app after this are `profile_screen`'s
+      plan row, `verification_screen`, `project_detail_screen` and
+      `worker_profile_screen`, and all four already keep a field and gate their
+      body on a successful read, which is the correct shape.
+      *Two things the other seven screens never needed, and both are
+      load-bearing rather than tidiness.*
+      **The lazy `??=` had to go.** `_feed` was
+      `_projects ??= repo.browseProjects(...)`, so the *first* read of a
+      session never passed through the cache at all. Left alone, the very first
+      pull a contractor made would have had nothing to fall back on and the
+      whole fix would have been dead on arrival — the defect surviving its own
+      remedy, which is the failure mode that makes a family audit look finished
+      when it is not. `_arm` now returns the future so the getter can install
+      the first read through the same path.
+      **A bare `_cache` would have been a *new* defect here, and this is the
+      one worth carrying to the next tick.** On `browse_screen` and
+      `projects_screen` the changed query narrows the same list, so a fallback
+      is at worst stale. Here the changed query is usually a **wilaya**: the
+      same feed re-read for `16 = الجزائر` and then `09 = البليدة` has no
+      subset relationship, so showing the first answer under the second filter
+      is not a stale list — it is a set of jobs in the **wrong city** under a
+      chip that says otherwise, and the row he taps to bid is in it. Hence
+      `_cacheKey`, the `(category, wilaya)` pair the request was built from,
+      read by `_fallback`. Family rule, sharpened: **on any screen whose
+      re-read changes the *scope* of the result rather than its freshness, a
+      fallback must be keyed on the scope.**
+      *Both empty-state exits carry the band too.* A failed re-read that the
+      live search then narrowed to nothing reached «لا يوجد مشروع مفتوح يطابق
+      «…»» with no mention of the failure — the family's original sin in a new
+      costume, and the reason `_staleMarketSlivers` is shared by all three
+      returns instead of living inside the rows branch.
+      *Wording.* `lib/src/data/stale_market_copy.dart` is deliberately the
+      **directory's** sentence («تحديث القائمة»), not the «مشاريعي» screen's
+      («تحديث مشاريعك»): this is not the user's own project list, it is the
+      open market every other contractor is bidding on, and calling it
+      «مشاريعك» would tell a man that somebody else's job posting is his. That
+      is the same confusion `stale_home_strip_copy.dart`'s enum exists to
+      prevent, and it is now asserted directly.
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1473 passed / 3 skipped / 0 failed** (was 1461/3/0,
+      +12). **Red before green:** reverting only
+      `worker_home_screen.dart` gives **+5 −5** — the five widget cases go red
+      and the five pure-copy cases stay green, which is exactly the expected
+      split and is the check that the tests are testing the screen.
+      *Two assertions had to be rewritten rather than added.* The pre-existing
+      `worker_home_pull_to_refresh_test` asserted
+      `find.text('تعذّر جلب المشاريع'), findsOneWidget` on a failed **re-read** —
+      that assertion *was* the defect, and it was green for weeks because the
+      screen did precisely what it demanded. It now asserts the rows and the
+      band, and a new first-read case pins the error page so the split cannot
+      collapse back into "one message for both".
+      *Pixels* (`/tmp/shots/22_worker_market_stale.png`, 1176x2550 @3.0, real
+      Cairo via `FontLoader` — no Chrome on this box, so the capture is
+      taken in-test): wash **y 216–563** with `accentDeep` ink at y≈300
+      (`9B6415` on `FDF3E3`) and project-card ink (`101828`) at y≈700, i.e.
+      **below** the band. `contrast_audit.py token` -> **28/28 pass**.
+      *Three harness traps, each worth a line because two of them look like a
+      screen fault.*
+      (1) `MarketplaceView` is a tab **body**, not a page — `WorkerHomeScreen`
+      supplies the `Scaffold` and so must the test. Without it the search
+      field throws «No Material widget found» and the whole file measures an
+      exception: 6 of 10 failed for a reason that was in the harness.
+      (2) The **wilaya picker is lazy**. `البليدة` is the 9th wilaya and is
+      simply not built at the top of the sheet, so the first attempt asserted a
+      tap on a finder with nothing to match; `scrollUntilVisible` is the fix.
+      Tapping the `الكل` **category** chip instead would have re-read the same
+      market with the same filter and proved nothing.
+      (3) An **empty `{}` profile fixture** makes the header render its own
+      «تعذّر جلب ملفك» *and* its own «إعادة المحاولة», so an assertion on the
+      market's retry button matches two and fails. A healthy header is the
+      honest starting point for a test about the feed.
+      *The transferable lesson from the shot, and it is the one to keep.* The
+      other six shots scan the **whole frame** for `accentWash` and take the
+      first and last matching rows, which is exact on their screens because
+      the band is the only widget wearing that tone. This one is not: the
+      screen reuses `accentWash` for the **selected filter chip**
+      (`worker_home_screen.dart:1697`) and the **status pill on every project
+      card** (`project_card.dart:92`). A whole-frame scan reported
+      `wash=216..2414`, `darkInBand=45123` and put `inkLast` *inside* the band,
+      and no threshold tuning fixes that. **On any screen that reuses the
+      stale tone for ordinary UI, a whole-frame colour scan cannot measure the
+      band** — it has to be located by the render box of the widget under test
+      and counted inside it. That is now a parameter of `_scanBand`, and it is
+      the single most reusable thing in this entry.
+      *Next.* The `_future` / `FutureBuilder` audit is **finished** — this was
+      the last defective surface. What is left is the blocked review 500
+      (`worker_id` in the body), which is BACKEND-API's and was re-confirmed
+      again this tick: no `finili` tree under `/home/hatch`, and the only
+      `wrangler.jsonc` files there belong to Vitestore and colisify. A useful
+      next target is the **freshness** half of this family rather than another
+      failed-read screen: several of these surfaces now keep rows and admit
+      they are old, but only the header and the plan card carry a *timestamp*,
+      so a feed that survived a failed refresh is honest and undated.

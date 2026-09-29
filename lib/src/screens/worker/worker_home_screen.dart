@@ -10,6 +10,7 @@ import '../../core/auth_gate.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
 import '../../data/photo_count_copy.dart';
+import '../../data/stale_market_copy.dart';
 import '../../data/project_search.dart';
 import '../../data/repository.dart';
 import '../../data/unread_message_trust.dart';
@@ -322,11 +323,19 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   Future<List<Project>>? _projects;
 
   /// The feed to draw, fetched on first use.
-  Future<List<Project>> get _feed => _projects ??= widget.repo.browseProjects(
+  ///
+  /// Routed through [_arm] rather than assigned, and that is load-bearing: the
+  /// lazy `??=` meant the *first* read of a session never wrote the cache, so
+  /// the very first pull-to-refresh a contractor made had nothing to fall back
+  /// on and the fallback this whole item adds would have been dead on arrival
+  /// — the defect would have survived its own fix. [_arm] also stamps
+  /// [_cacheKey], which the `??=` knew nothing about.
+  Future<List<Project>> get _feed => _projects ??= _arm(widget.repo
+          .browseProjects(
         category: _category,
         wilaya: _wilaya,
         status: ProjectStatus.open,
-      );
+      ));
 
   final _search = TextEditingController();
 
@@ -337,6 +346,44 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   /// Kept beside the single-page future instead of replacing it, so the list
   /// never blinks back to a skeleton on the first keystroke.
   List<Project>? _wideRows;
+
+  /// The last rows that actually landed, so a *re-read* that is slow or that
+  /// failed can be annotated instead of replacing the market.
+  ///
+  /// Deliberately scoped to a **settled** answer, and this is what makes the
+  /// pull honest. A read still in flight writes nothing here, so the twenty
+  /// projects the contractor was reading survive both a filter tap and a
+  /// pull-to-refresh rather than blinking to a skeleton. See the builder for
+  /// where the doubt is drawn.
+  List<Project>? _cache;
+
+  /// The filter set [_cache] answers, and the reason a bare cache is not safe
+  /// on this screen the way it is on its siblings.
+  ///
+  /// `browse_screen` and `projects_screen` both keep one list and re-read it
+  /// with a changed query, and falling back to the previous answer there is at
+  /// worst a stale list of *contractors* or of *the user's own* jobs. Here the
+  /// changed query is usually a **wilaya**: the same feed re-read for
+  /// `16 = Boumerdès` and then for `09 = Blida` does not have a subset
+  /// relationship, and showing the first answer under the second filter is
+  /// not a stale list — it is a set of jobs in the **wrong city**, under a
+  /// filter chip that says otherwise. A contractor bids from that row, so this
+  /// is the one place in the family where the fallback has to be scoped to the
+  /// question it answers, and it is why [_arm] records the key with the rows
+  /// instead of trusting a bare `_cache != null`.
+  ///
+  /// Keyed on the pair the request is built from, so it cannot drift from it.
+  (String?, String?)? _cacheKey;
+
+  /// The sentence for the last failed read, or null when there is nothing to
+  /// doubt — a read that has not failed yet, and a first read that failed
+  /// (which has no rows to qualify, so it keeps the full-screen error).
+  ///
+  /// A *sentence* rather than a boolean, for the reason every sibling in this
+  /// family uses one: the band can then name the failure instead of asserting
+  /// that something is wrong, and `errorCopy` has already chosen the wording
+  /// for the kind of failure it was.
+  String? _staleReason;
 
   /// True while the widened fetch is in flight, so the feed can say "still
   /// looking" instead of declaring "no results" too early.
@@ -482,13 +529,84 @@ class _MarketplaceViewState extends State<MarketplaceView> {
     _armFreshnessTick();
   }
 
+  /// Points the market at a read, and records what that read settled to.
+  ///
+  /// The cache is written **on every settled success**, and the failure is
+  /// recorded as a *sentence* rather than as a boolean, so the band can name
+  /// the failure instead of asserting that something is wrong. Both are
+  /// cleared by the next success, so the doubt cannot outlive the read that
+  /// answered.
+  ///
+  /// `onError` does not `setState` on its own: this is called from inside a
+  /// `setState` in [_reload] and [_seedFromPlace]'s caller, and the answer to
+  /// a future is a microtask later than both, so the rebuild is scheduled here
+  /// and lands after the caller's own.
+  ///
+  /// Returns [read] itself, so the lazy `_feed` getter can install the first
+  /// read through here without a second assignment. The returned future still
+  /// carries the failure — the `onError` arm records it, and the `FutureBuilder`
+  /// is the thing that reports it to the reader.
+  Future<List<Project>> _arm(Future<List<Project>> read) {
+    final key = (_category, _wilaya);
+    _projects = read;
+    read.then((list) {
+      if (!mounted) return;
+      setState(() {
+        _cache = list;
+        _cacheKey = key;
+        _staleReason = null;
+      });
+    }, onError: (Object e, StackTrace _) {
+      if (!mounted) return;
+      setState(() => _staleReason = errorCopy(e));
+    });
+    return read;
+  }
+
+  /// The doubt, as a sliver above whatever the builder is about to draw.
+  ///
+  /// Shared by **both** exits — the rows and the empty state — because the
+  /// empty one is a hole this family has sprung before and it opens again
+  /// here for the same reason. A failed re-read that the active search then
+  /// narrows to nothing reached «لا يوجد مشروع مفتوح يطابق «…»» with no
+  /// mention of the failure, and that is the family's original sin in a new
+  /// costume: a confident claim about the market, built on rows the server has
+  /// already contradicted. The sentence is the same one either way, so the two
+  /// paths cannot drift into saying different things about one read.
+  List<Widget> _staleMarketSlivers(String? reason) {
+    if (reason == null) return const <Widget>[];
+    return [
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+              AppTheme.gutter, 0, AppTheme.gutter, AppTheme.s12),
+          child: _StaleMarketBand(
+            key: const Key('stale-market'),
+            line: staleMarketLineAr(reason),
+          ),
+        ),
+      ),
+    ];
+  }
+
+  /// The rows a waiting or failed read may honestly keep on screen.
+  ///
+  /// `null` is the honest answer for a *first* read, and for a read whose
+  /// filter has moved since the rows were fetched — see [_cacheKey]. Every
+  /// other state has something real to show.
+  List<Project>? get _fallback {
+    final cached = _cache;
+    if (cached == null) return null;
+    return _cacheKey == (_category, _wilaya) ? cached : null;
+  }
+
   void _reload() {
     setState(() {
-      _projects = widget.repo.browseProjects(
+      _arm(widget.repo.browseProjects(
         category: _category,
         wilaya: _wilaya,
         status: ProjectStatus.open,
-      );
+      ));
       // A different filter means a different market: drop the widened rows and
       // let the next keystroke widen again.
       _wideRows = null;
@@ -796,11 +914,38 @@ class _MarketplaceViewState extends State<MarketplaceView> {
             FutureBuilder<List<Project>>(
               future: _feed,
               builder: (context, snap) {
-                if (snap.connectionState != ConnectionState.done) {
+                // One branch decides what the reader is looking at, so a
+                // re-read cannot take a different path from a first read.
+                //
+                // **A failed re-read keeps the rows and a waiting one keeps
+                // them too, and that is the whole fix.** It used to answer the
+                // skeleton for anything unsettled and the full-screen
+                // `EmptyView` for anything that errored, over a feed that
+                // [_reload] re-issues from six controls — pull-to-refresh, two
+                // filter chips, the location fix, the empty state's own
+                // «تحديث», and the profile-save path. So a network that blinked
+                // during any of them replaced the open projects a contractor
+                // was reading with an error page, and a *slow* one replaced
+                // them with a shimmer that stayed for as long as the request
+                // took. This is the busiest surface in the product and the one
+                // read that a **visitor** can lose, because the market is
+                // served with no account at all.
+                //
+                // A **first** read has nothing to fall back on and keeps the
+                // error, which is the only state where the error is the truth.
+                // See `stale_market_copy.dart`.
+                final waiting = snap.connectionState != ConnectionState.done;
+                final failed = snap.hasError && !waiting;
+                // `null` while a read is still in flight or a first one failed
+                // — neither can be annotated, because neither has rows the
+                // reader could be mistaking for the server's.
+                final stale = failed && _staleReason != null;
+                final fallback = waiting || failed ? _fallback : null;
+                if (fallback == null && waiting) {
                   return const SliverToBoxAdapter(
                       child: Shimmer(child: _ProjectsSkeleton()));
                 }
-                if (snap.hasError) {
+                if (snap.hasError && fallback == null) {
                   return SliverToBoxAdapter(
                     child: EmptyView(
                       icon: Icons.wifi_off_rounded,
@@ -813,7 +958,10 @@ class _MarketplaceViewState extends State<MarketplaceView> {
                   );
                 }
                 // Prefer the widened rows when a search has already pulled them.
-                final loaded = _wideRows ?? snap.data ?? const <Project>[];
+                final loaded = _wideRows ??
+                    fallback ??
+                    (waiting ? null : snap.data) ??
+                    const <Project>[];
                 final projects = narrowProjects(loaded, _query);
                 if (projects.isEmpty) {
                   // The multi-page fetch is still in flight — that is not yet a
@@ -823,16 +971,21 @@ class _MarketplaceViewState extends State<MarketplaceView> {
                         child: Shimmer(child: _ProjectsSkeleton()));
                   }
                   if (_query.trim().isNotEmpty) {
-                    return SliverToBoxAdapter(
-                      child: EmptyView(
-                        icon: Icons.search_off_rounded,
-                        title: 'لا نتائج مطابقة',
-                        message:
-                            'لا يوجد مشروع مفتوح يطابق «$_query».\nجرّب كلمة أقصر، أو امسح البحث',
-                        actionLabel: 'مسح البحث',
-                        actionIcon: Icons.close_rounded,
-                        onAction: _clearSearch,
-                      ),
+                    return SliverMainAxisGroup(
+                      slivers: [
+                        ..._staleMarketSlivers(stale ? _staleReason : null),
+                        SliverToBoxAdapter(
+                          child: EmptyView(
+                            icon: Icons.search_off_rounded,
+                            title: 'لا نتائج مطابقة',
+                            message:
+                                'لا يوجد مشروع مفتوح يطابق «$_query».\nجرّب كلمة أقصر، أو امسح البحث',
+                            actionLabel: 'مسح البحث',
+                            actionIcon: Icons.close_rounded,
+                            onAction: _clearSearch,
+                          ),
+                        ),
+                      ],
                     );
                   }
                   // "جرّب تغيير الفلتر" was advice with no button under it. A
@@ -840,34 +993,51 @@ class _MarketplaceViewState extends State<MarketplaceView> {
                   // one is re-fetched, because that is the only honest action a
                   // contractor has when the platform has nothing published.
                   final filtered = _category != null || _wilaya != null;
-                  return SliverToBoxAdapter(
-                    child: EmptyView(
-                      icon: Icons.inbox_rounded,
-                      title: 'لا مشاريع مفتوحة حالياً',
-                      message: filtered
-                          ? 'لا يوجد مشروع منشور يطابق الفلتر.\n'
-                              'اعرض كل التخصصات لترى باقي المشاريع.'
-                          : 'لم يُنشر أي مشروع في تخصصك بعد.\n'
-                              'حدّث الصفحة أو عد لاحقاً.',
-                      actionLabel: filtered ? 'اعرض كل المشاريع' : 'تحديث',
-                      actionIcon:
-                          filtered ? Icons.apps_rounded : Icons.refresh_rounded,
-                      onAction: filtered ? _clearFilters : _reload,
-                    ),
+                  return SliverMainAxisGroup(
+                    slivers: [
+                      ..._staleMarketSlivers(stale ? _staleReason : null),
+                      SliverToBoxAdapter(
+                        child: EmptyView(
+                          icon: Icons.inbox_rounded,
+                          title: 'لا مشاريع مفتوحة حالياً',
+                          message: filtered
+                              ? 'لا يوجد مشروع منشور يطابق الفلتر.\n'
+                                  'اعرض كل التخصصات لترى باقي المشاريع.'
+                              : 'لم يُنشر أي مشروع في تخصصك بعد.\n'
+                                  'حدّث الصفحة أو عد لاحقاً.',
+                          actionLabel: filtered ? 'اعرض كل المشاريع' : 'تحديث',
+                          actionIcon: filtered
+                              ? Icons.apps_rounded
+                              : Icons.refresh_rounded,
+                          onAction: filtered ? _clearFilters : _reload,
+                        ),
+                      ),
+                    ],
                   );
                 }
-                return SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 4),
-                  sliver: SliverList.separated(
-                    itemCount: projects.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (context, i) => ProjectCard(
-                      project: projects[i],
-                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => ProjectDetailScreen(
-                              projectId: projects[i].id, repo: widget.repo))),
+                // The doubt is an annotation *on* the market, so it is a
+                // sliver above the rows rather than a page in their place — and
+                // it is above them, not beside them, so the rows keep the
+                // scroll position they were at when the pull failed.
+                return SliverMainAxisGroup(
+                  slivers: [
+                    ..._staleMarketSlivers(stale ? _staleReason : null),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 4),
+                      sliver: SliverList.separated(
+                        itemCount: projects.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (context, i) => ProjectCard(
+                          project: projects[i],
+                          onTap: () => Navigator.of(context)
+                              .push(MaterialPageRoute(
+                                  builder: (_) => ProjectDetailScreen(
+                                      projectId: projects[i].id,
+                                      repo: widget.repo))),
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 );
               },
             ),
@@ -915,6 +1085,50 @@ class _MarketplaceViewState extends State<MarketplaceView> {
     }
   }
 }
+
+/// The amber band above the open-project feed that failed to re-read.
+///
+/// The same tone `stale_directory_copy.dart` and `stale_catalogue_copy.dart`
+/// already age a stale list into (`AppTheme.accentDeep` on `accentWash`), so a
+/// screen that is quietly out of date looks the same wherever it is found. The
+/// doubt is a fact about the data and not an alarm, so it is not drawn in the
+/// red of the full-screen error it stands in for — on a screen that pulls with
+/// one finger in a basement, red here would read as "the market is gone".
+class _StaleMarketBand extends StatelessWidget {
+  const _StaleMarketBand({super.key, required this.line});
+
+  /// The composed sentence from [staleMarketLineAr].
+  final String line;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      color: AppTheme.accentWash,
+      borderColor: AppTheme.accent,
+      padding: AppTheme.cardPadRail,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.history_toggle_off_rounded,
+              size: AppTheme.s20, color: AppTheme.accentDeep),
+          const SizedBox(width: AppTheme.s8),
+          Expanded(
+            child: Text(
+              line,
+              key: const Key('stale-market-line'),
+              style: AppTheme.body.copyWith(
+                color: AppTheme.accentDeep,
+                height: 1.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────
 //  Branded header — identity, availability, and one line of numbers.

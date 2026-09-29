@@ -417,13 +417,14 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a failed market read keeps its own message and its own button',
+  testWidgets('a failed market RE-READ keeps the rows and states the doubt',
       (tester) async {
     final p = _Platform();
     final b = await _boot(p);
     await _pump(tester, b.api, b.auth);
     await _revealMarket(tester);
-    expect(find.textContaining('مشروع'), findsWidgets);
+    expect(find.textContaining('مشروع'), findsWidgets,
+        reason: 'the first read must really serve a market to lose');
 
     p.feedFails = true;
     final profileAtRest = p.profileReads;
@@ -433,10 +434,40 @@ void main() {
 
     expect(p.profileReads, profileAtRest + 1,
         reason: 'the header read is independent of the feed read');
-    // The gesture says nothing: the feed's own FutureBuilder states the failure
-    // in place, naming it, with the one action that can fix it.
-    expect(find.text('تعذّر جلب المشاريع'), findsOneWidget);
-    expect(find.text('إعادة المحاولة'), findsOneWidget);
+    // **This assertion is the item.** It used to read `findsOneWidget`, which
+    // *is* the defect: a re-read that failed replaced twenty open projects with
+    // «تعذّر جلب المشاريع» over the whole screen, on a feed that pull,
+    // two filter chips, the location fix, the empty state's own button and the
+    // profile-save path all re-issue. A contractor who was reading the market
+    // lost the market.
+    expect(find.text('تعذّر جلب المشاريع'), findsNothing,
+        reason: 'a re-read that failed must not cost him the rows he had');
+    expect(find.byKey(const Key('stale-market')), findsOneWidget,
+        reason: 'and it must say out loud that these rows are the last ones read');
+    // The gesture still says nothing *itself* — the band, not the snackbar, is
+    // how the failure reaches him, and it is the one that scrolls with the rows.
+    expect(find.textContaining('مشروع'), findsWidgets,
+        reason: 'the rows that survived the last good read must stay');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a failed market FIRST read still keeps the full-screen error',
+      (tester) async {
+    // The mirror of the case above, and the reason the split exists. With no
+    // rows yet, «تعذّر جلب المشاريع» is the **truth** — there is nothing to
+    // qualify, and a band saying «these are the last results we read» over an
+    // empty screen would be a lie with no rows under it.
+    final p = _Platform()..feedFails = true;
+    final b = await _boot(p);
+    await _pump(tester, b.api, b.auth);
+    await _revealMarket(tester);
+
+    expect(find.text('تعذّر جلب المشاريع'), findsOneWidget,
+        reason: 'with nothing on screen the error page is the honest state');
+    expect(find.text('إعادة المحاولة'), findsOneWidget,
+        reason: 'and it must carry the one action that can fix it');
+    expect(find.byKey(const Key('stale-market')), findsNothing,
+        reason: 'a band over an empty screen claims rows that do not exist');
     expect(tester.takeException(), isNull);
   });
 
@@ -483,7 +514,12 @@ void main() {
     // settled widget — unlike the category strip, which is a horizontal lazy
     // list, so a category is not even built until it is scrolled into view and
     // tapping one is not a stable way to drive this path.
-    expect(find.text('تعذّر جلب المشاريع'), findsOneWidget);
+    // A **first** read that failed, so the full-screen error is the correct
+    // state here and the retry below is the control the app itself offers.
+    // (The pull above it re-read a market that had rows; that path now keeps
+    // them and draws the band instead, and it is asserted in its own test.)
+    expect(find.text('تعذّر جلب المشاريع'), findsOneWidget,
+        reason: 'nothing was ever read, so there is nothing to fall back on');
     final retry = find.text('إعادة المحاولة');
     expect(retry, findsOneWidget);
 
