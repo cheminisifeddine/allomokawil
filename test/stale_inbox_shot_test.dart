@@ -126,6 +126,11 @@ void main() {
     await auth.login(phone: '0773000000', password: 'secret123',
         rememberMe: true);
 
+    // The clock this capture exists to photograph: a read that landed forty
+    // minutes ago, so the band is drawn in its **aged** form — the second
+    // sentence is the thing this cycle added, and a shot of the undated band
+    // would not show it.
+    var now = DateTime(2026, 9, 29, 9, 0);
     final key = GlobalKey();
     await tester.pumpWidget(AppScope(
       api: api,
@@ -142,14 +147,20 @@ void main() {
             GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
-          home: ChatListScreen(repo: Repository(api)),
+          home: ChatListScreen(repo: Repository(api), clock: () => now),
         ),
       ),
     ));
     await tester.pumpAndSettle(const Duration(seconds: 2));
     await tester.drag(find.text('سمير بن عمر'), const Offset(0, 320));
     await tester.pumpAndSettle(const Duration(seconds: 3));
+    expect(find.byKey(const Key('stale-inbox')), findsOneWidget);
 
+    // Age the read past a minute and let the once-a-minute tick re-date the
+    // band, so the captured pixels are the aged sentence and not the silent one.
+    now = DateTime(2026, 9, 29, 9, 40);
+    await tester.pump(const Duration(minutes: 1));
+    await tester.pump(const Duration(seconds: 1));
     expect(find.byKey(const Key('stale-inbox')), findsOneWidget);
 
     final (rows, dark) = (await tester.runAsync(() => _scanBanner(key)))!;
@@ -171,7 +182,7 @@ void main() {
       final img = await boundary.toImage(pixelRatio: 3.0);
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
       Directory(_out).createSync(recursive: true);
-      File('$_out/17_inbox_stale.png')
+      File('$_out/18_inbox_stale_dated.png')
           .writeAsBytesSync(bytes!.buffer.asUint8List());
     });
   });

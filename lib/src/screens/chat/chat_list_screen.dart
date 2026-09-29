@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
@@ -55,6 +57,14 @@ class ChatListScreen extends StatefulWidget {
   /// would be a second chance for the two to disagree.
   final void Function(List<Conversation> conversations)? onRead;
 
+  /// The wall clock, injectable so a test can age the stale band without
+  /// waiting a real hour. Defaults to the system clock in the app.
+  ///
+  /// The band has to say how old its rows are, and a widget test that could
+  /// only photograph the silent case — a read inside the minute — would pass
+  /// against a screen that never dated anything at all.
+  final DateTime Function()? clock;
+
   const ChatListScreen({
     super.key,
     required this.repo,
@@ -62,6 +72,7 @@ class ChatListScreen extends StatefulWidget {
     this.onDiscover,
     this.outbox,
     this.onRead,
+    this.clock,
   });
 
   @override
@@ -98,12 +109,56 @@ class _ChatListScreenState extends State<ChatListScreen> {
   /// shimmer.
   List<Conversation>? _cache;
 
+  /// When the list on screen was last read successfully.
+  ///
+  /// Written where the read **settles**, not where it is issued, and refreshed
+  /// on **every** success — the second half is the one that is easy to get
+  /// wrong. A screen that stamps only its first successful read answers the
+  /// second outage with the age of the first one, and tells a user their
+  /// conversation list is «قبل ساعتين» when it was fetched this very second.
+  DateTime? _cacheReadAt;
+
+  /// Ages the band once a minute, so «قبل 12 دقيقة» is a live claim rather
+  /// than whatever the clock said on the frame the failure landed.
+  ///
+  /// Cancelled in [dispose] and re-armed from the same place the stamp is
+  /// written, so a re-read that puts the stamp back does not leave two live
+  /// timers.
+  Timer? _ageTimer;
+
   @override
   void initState() {
     super.initState();
     _outbox = widget.outbox ?? ChatOutbox();
     _arm(widget.initial ?? widget.repo.conversations());
     _loadQueued();
+  }
+
+  @override
+  void dispose() {
+    _ageTimer?.cancel();
+    super.dispose();
+  }
+
+  /// The wall clock, injectable for tests. See [ChatListScreen.clock].
+  DateTime _now() => (widget.clock ?? DateTime.now)();
+
+  /// Starts the once-a-minute tick that ages the band, once there is a stamp
+  /// to age.
+  ///
+  /// Called from [_arm] rather than from `build`, because a timer created in
+  /// `build` is a new timer on every frame and the tick would multiply. The
+  /// guard is the reason this is not just a blind `setState`: a first read that
+  /// has not landed has no rows to date, and a band only ever appears over rows
+  /// that do.
+  void _armAgeTick() {
+    if (!mounted) return;
+    _ageTimer?.cancel();
+    _ageTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted) return;
+      if (_cacheReadAt == null) return;
+      setState(() {});
+    });
   }
 
   @override
@@ -135,7 +190,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
     read.then((list) {
       if (!mounted) return;
       _messages?.restore();
-      setState(() => _cache = list);
+      setState(() {
+        _cache = list;
+        // The clock *now*, not the moment the request was issued, so a read in
+        // flight for forty seconds is dated when it actually landed.
+        _cacheReadAt = _now();
+      });
+      _armAgeTick();
       onRead?.call(list);
     }, onError: (_, __) {
       // **This is the most direct of the three failure paths**, and the
@@ -244,6 +305,32 @@ class _ChatListScreenState extends State<ChatListScreen> {
               );
             }
             if (convs.isEmpty) {
+              // **A failed read that landed on an empty cache is not an empty
+              // inbox, and this branch used to say it was.** `_cache` is
+              // written on success whatever the list contains, so «the last
+              // read landed and it was empty» and «the read failed and we have
+              // never had a list» are the *same two values* by the time they
+              // reach this line — `_cache == []` — and the code cannot tell them
+              // apart. It answered the empty-inbox CTA either way, so a refresh
+              // that failed on a user who genuinely has no conversations yet
+              // told them «لا محادثات بعد» and offered a button to go browse
+              // the directory. That is a confident false statement built out of
+              // a read that never returned, and it is the one this inbox
+              // exists to prevent: an empty inbox here is a *true* statement
+              // with a real meaning, so it is the last thing that should ever be
+              // printed without a read behind it. Worse, the empty view's only
+              // action is `onDiscover` — there is no retry on it at all, so a
+              // user on a dead network was handed a browse button and no way to
+              // re-read.
+              if (failed) {
+                return EmptyView(
+                  icon: Icons.wifi_off_rounded,
+                  title: 'تعذّر جلب الرسائل',
+                  message: 'تحقّق من اتصالك بالإنترنت ثم أعد المحاولة',
+                  actionLabel: 'إعادة المحاولة',
+                  onAction: _reload,
+                );
+              }
               return _emptyInbox(context);
             }
             return RefreshIndicator(
@@ -258,10 +345,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
                 itemBuilder: (context, i) {
                   if (failed && i == 0) {
-                    return _StaleInboxBanner(line: staleInboxLineAr(
-                        snap.error == null
-                            ? S.errUnexpected
-                            : errorCopy(snap.error!)));
+                    return _StaleInboxBanner(
+                        line: staleInboxLineWithAgeAr(
+                            snap.error == null
+                                ? S.errUnexpected
+                                : errorCopy(snap.error!),
+                            _cacheReadAt,
+                            now: _now()));
                   }
                   final conv = convs[i - (failed ? 1 : 0)];
                   return _ConversationTile(

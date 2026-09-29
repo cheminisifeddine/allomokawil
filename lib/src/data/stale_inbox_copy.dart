@@ -53,6 +53,8 @@
 // `stale_catalogue_copy.dart` and `chat_preview_copy.dart` use.
 library;
 
+import 'read_age_ar.dart';
+
 /// The line shown above a conversation list that failed to re-read.
 ///
 /// [error] is the already-curated Arabic sentence from `errorCopy`, which
@@ -65,4 +67,63 @@ String staleInboxLineAr(String error) {
   // failure cannot produce a banner that explains nothing.
   if (reason.isEmpty) return 'هذه المحادثات قد لا تكون محدَّثة';
   return 'لم نتمكن من تحديث المحادثات — هذه آخر قائمة قرأناها. $reason';
+}
+
+/// How old the conversations under the band actually are.
+///
+/// The **freshness half** of the family, and the ninth member to get it, after
+/// the market, the projects list, the directory, the notifications, the two
+/// home strips and the subscription catalogue. The band already says «هذه آخر
+/// قائمة قرأناها» — *this is the last list we read* — which is true and answers
+/// nothing: a refresh that failed four seconds ago and one that failed three
+/// hours ago print the **same sentence**, and on an inbox that gap is the whole
+/// question the user came here to ask.
+///
+/// It matters more here than on most siblings because this is the one list in
+/// the app that is *moving*. A market of open projects changes when a client
+/// posts one; a directory changes when a contractor signs up. An inbox changes
+/// the moment the person you are talking to replies, and the whole reason to
+/// open this tab is to find out whether they have. Telling someone their list
+/// may be out of date, without saying how far out of date it is, leaves them to
+/// guess between "I missed something while I was in another thread" and "this
+/// is two hours old and there is no point re-opening the thread I left" — two
+/// opposite conclusions drawn from one sentence that admits either.
+///
+/// **The rule is not this file's.** It is [readAgeAr], which the whole app
+/// routes through so that a header, a market, a project list, a directory, two
+/// home strips, a catalogue and now this inbox cannot each decide separately
+/// what "old enough to mention" means. Null, clock skew and under-a-minute are
+/// silence, and a band whose rows are still current keeps its own words.
+String staleInboxAgeAr(DateTime? readAt, {DateTime? now}) =>
+    readAgeAr(readAt, now: now);
+
+/// The band line with its age, when the age is worth a word.
+///
+/// Same two rules as every sibling, and the second is the one that is easy to
+/// get wrong:
+///
+///   * The age is **appended**, never substituted. The failure sentence names
+///     the *kind* of failure `errorCopy` diagnosed, and the age says nothing
+///     about it. A band that traded the reason for a timestamp would print
+///     «قرأناها قبل 12 دقيقة» without saying *why* it might not be newer, and
+///     «لم نتمكن من تحديث المحادثات» is the half that stops the banner reading
+///     as a routine timestamp.
+///   * A read with no age worth printing produces **exactly the old line**,
+///     byte for byte. Every screenshot and every assertion the inbox tests were
+///     written against has to survive unchanged, or this file quietly re-opens
+///     a defect on a screen that is otherwise already correct.
+///
+/// The age is a second sentence rather than a clause inside the first because
+/// Arabic wraps both, and a band that has to stay two lines tall on a 360 px
+/// handset is the difference between a notice the reader takes seriously and
+/// one he scrolls past.
+String staleInboxLineWithAgeAr(
+  String error,
+  DateTime? readAt, {
+  DateTime? now,
+}) {
+  final base = staleInboxLineAr(error);
+  final age = staleInboxAgeAr(readAt, now: now);
+  if (age.isEmpty) return base;
+  return '$base\nقرأناها $age.';
 }
