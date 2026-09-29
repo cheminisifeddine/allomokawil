@@ -89,6 +89,11 @@ void main() {
 
   testWidgets('a failed refresh is drawn above the contractors, in Arabic',
       (tester) async {
+    // The band is **dated** now, and a shot taken on a real wall clock captures
+    // the one frame where the age is deliberately silent — a read inside the
+    // minute. So the clock is injected and aged 40 minutes, and the picture
+    // below proves the *dated* band, not the old wording.
+    var now = DateTime(2026, 9, 29, 9, 0);
     tester.view.physicalSize = const Size(1080, 2532);
     tester.view.devicePixelRatio = 2.75;
     addTearDown(tester.view.reset);
@@ -161,15 +166,23 @@ void main() {
             GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
-          home: const BrowseScreen(),
+          home: BrowseScreen(clock: () => now),
         ),
       ),
     ));
     await tester.pumpAndSettle(const Duration(seconds: 2));
+    now = DateTime(2026, 9, 29, 9, 40);
     await tester.drag(find.text('مقاول أول'), const Offset(0, 340));
     await tester.pumpAndSettle(const Duration(seconds: 3));
 
     expect(find.byKey(const Key('stale-directory')), findsOneWidget);
+    // Asserted in the picture as well as in the pixels, because a band can be
+    // *drawn* with the right colour and the wrong words and only the text
+    // widget knows which one it is.
+    final line =
+        tester.widget<Text>(find.byKey(const Key('stale-directory-line'))).data!;
+    expect(line, contains('قبل 40 دقيقة'),
+        reason: 'the shot must capture the dated band, not the undated one');
 
     final (rows, dark) = (await tester.runAsync(() => _scanBand(key)))!;
     // ignore: avoid_print

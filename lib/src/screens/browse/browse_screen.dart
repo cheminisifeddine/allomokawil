@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
@@ -22,7 +24,21 @@ class BrowseScreen extends StatefulWidget {
   final bool customerSide;
   final String? initialCategory;
 
-  const BrowseScreen({super.key, this.customerSide = true, this.initialCategory});
+  /// The wall clock the band's age is measured against.
+  ///
+  /// Injectable for the same reason and with the same contract as
+  /// `ProjectsScreen.clock` and `MarketplaceView.clock`: the band is dated, and
+  /// a test that cannot move the clock can only ever see one side of the
+  /// minute-old threshold. A widget test that passed a stamp but no clock
+  /// would render a real time against a frozen `now`, and one that passed a
+  /// clock but no stamp would assert the wrong half of the contract.
+  final DateTime Function()? clock;
+
+  const BrowseScreen(
+      {super.key,
+      this.customerSide = true,
+      this.initialCategory,
+      this.clock});
 
   @override
   State<BrowseScreen> createState() => _BrowseScreenState();
@@ -69,6 +85,35 @@ class _BrowseScreenState extends State<BrowseScreen> {
   /// (which has no rows to qualify, so it keeps the full-screen error).
   String? _staleReason;
 
+  /// The wall clock [_cache] was true at, so the band can say *how* old the
+  /// contractors on screen are.
+  ///
+  /// The band already admits «هذه آخر نتيجة قرأناها»; this is the half it could
+  /// not say, and on **this** screen it is not a nicety. The other members of
+  /// the family hold the reader's own history; this one holds the *supply* —
+  /// and a contractor's availability, price band and number change with no push
+  /// the app can send. So a client reading a list that failed to refresh is
+  /// asking whether the man in front of him is still free today, and «failed to
+  /// refresh» does not answer it.
+  ///
+  /// Set in the same `setState` that installs [_cache], because the two are one
+  /// fact: a stamp from a *different* read than the one on screen is worse
+  /// than no stamp, because it is now confidently wrong. [Future] cannot carry
+  /// a completion time, and `then` would have to race the [FutureBuilder]
+  /// already listening to the same object.
+  DateTime? _cacheReadAt;
+
+  /// Ticks once a minute so an honest band does not need a re-read to become an
+  /// honest band.
+  ///
+  /// Without it the age is frozen at whatever it said when the failure landed:
+  /// a client who leaves the directory open while he prices a job keeps reading
+  /// «قبل 12 دقيقة» on a list that is now an hour old, which is the same lie
+  /// in a slower costume. A minute is the resolution the copy reports at, so a
+  /// tick per resolution cannot make the line stale by more than the words it
+  /// prints. Cancelled in [dispose].
+  Timer? _ageTimer;
+
   bool _scopeReady = false;
 
   @override
@@ -102,7 +147,13 @@ class _BrowseScreenState extends State<BrowseScreen> {
       setState(() {
         _cache = list;
         _staleReason = null;
+        // The clock *now*, not the moment the request was issued, so a read
+        // that was in flight for forty seconds is dated when it actually
+        // landed. Stamping at issue time would under-report the age on a slow
+        // connection — the exact case where the number matters most.
+        _cacheReadAt = _now();
       });
+      _armAgeTick();
     }, onError: (Object e, StackTrace _) {
       if (!mounted) return;
       setState(() => _staleReason = errorCopy(e));
@@ -176,8 +227,35 @@ class _BrowseScreenState extends State<BrowseScreen> {
 
   @override
   void dispose() {
+    // The shell keeps the directory alive across tab switches and while a
+    // profile screen is pushed on top of it, so an uncancelled timer keeps
+    // firing — and calling `setState` after dispose — for as long as the app
+    // is open.
+    _ageTimer?.cancel();
     _search.dispose();
     super.dispose();
+  }
+
+  /// The wall clock, injectable for tests. See [BrowseScreen.clock].
+  DateTime _now() => (widget.clock ?? DateTime.now)();
+
+  /// Starts the once-a-minute tick that ages the band, once there is a stamp to
+  /// age.
+  ///
+  /// Re-armed from the same place the stamp is written, so a re-read that puts
+  /// the old stamp back does not end up with two live timers. Called from
+  /// [_arm] rather than from `build`, because a timer created in `build` is a
+  /// new timer on every frame and the tick would multiply.
+  void _armAgeTick() {
+    if (!mounted) return;
+    _ageTimer?.cancel();
+    _ageTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted) return;
+      // Nothing to age yet: a first read that has not landed has no rows, and
+      // a band only ever appears over rows that do.
+      if (_cacheReadAt == null) return;
+      setState(() {});
+    });
   }
 
   @override
@@ -326,7 +404,9 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       itemBuilder: (context, i) {
                         if (stale && i == 0) {
                           return _StaleDirectoryBanner(
-                              line: staleDirectoryLineAr(_staleReason!));
+                              line: staleDirectoryLineWithAgeAr(
+                                  _staleReason!, _cacheReadAt,
+                                  now: _now()));
                         }
                         final w = workers[stale ? i - 1 : i];
                         return WorkerCard(
