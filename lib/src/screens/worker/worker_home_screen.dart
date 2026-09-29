@@ -375,6 +375,17 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   /// Keyed on the pair the request is built from, so it cannot drift from it.
   (String?, String?)? _cacheKey;
 
+  /// When the rows in [_cache] were read, so the band can say how old they
+  /// are rather than only that they are old.
+  ///
+  /// Stamped in the **same** `setState` that installs the rows, for the reason
+  /// [_meReadAt] gives: a stamp from a different read than the one on screen is
+  /// worse than no stamp, because it is then confidently wrong. It is `null`
+  /// whenever there is no cache to date, which is every state the band is not
+  /// drawn in — a first read, and a re-read whose filter has moved (see
+  /// [_fallback]), because rows from another wilaya are not drawn at all.
+  DateTime? _cacheReadAt;
+
   /// The sentence for the last failed read, or null when there is nothing to
   /// doubt — a read that has not failed yet, and a first read that failed
   /// (which has no rows to qualify, so it keeps the full-screen error).
@@ -476,6 +487,13 @@ class _MarketplaceViewState extends State<MarketplaceView> {
     _projects = null;
     _wideRows = null;
     _widened = false;
+    // **The cache stays** — that is the whole point of the family: a late
+    // location fix must not take the market away on a slow connection. So its
+    // age must keep running. Nothing to change: the stamp belongs to the rows,
+    // and the rows are still the ones on screen until the next read answers.
+    // What must not happen is the stamp being *credited* to rows it did not
+    // time, so it is left alone here and cleared only by [_arm]'s success arm,
+    // which is the only thing that installs new rows.
     _searchToken++;
     if (mounted) setState(() {});
   }
@@ -554,8 +572,19 @@ class _MarketplaceViewState extends State<MarketplaceView> {
       setState(() {
         _cache = list;
         _cacheKey = key;
+        // The clock *now*, not the moment the request was issued, so a read
+        // held open by a slow connection is not credited with being fresh the
+        // moment it was asked for. Same rule as [_readMe].
+        _cacheReadAt = _now();
         _staleReason = null;
       });
+      // The market's age is aged by the same minute tick as the header's, and
+      // the tick has to be armed from **here** as well. `_readMe` never runs for
+      // a visitor, so arming only there left the one read in this screen a
+      // signed-out contractor can have with a stamp that never moved: the band
+      // would say «قبل 12 دقيقة» for as long as the app stayed open. Re-armed
+      // rather than started, so two live timers cannot survive a filter change.
+      _armFreshnessTick();
     }, onError: (Object e, StackTrace _) {
       if (!mounted) return;
       setState(() => _staleReason = errorCopy(e));
@@ -575,6 +604,16 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   /// paths cannot drift into saying different things about one read.
   List<Widget> _staleMarketSlivers(String? reason) {
     if (reason == null) return const <Widget>[];
+    // **The freshness half.** The line already admitted that these rows are the
+    // last ones read; what it could not say is how long ago that was, and a
+    // contractor about to bid on one of them is asking exactly that question. A
+    // list four seconds old and a list forty minutes old printed the same
+    // sentence, and only the second is one where a project somebody else has
+    // already taken is a bid he loses. `null` here — a first read, or one whose
+    // filter has moved, since neither is annotated — leaves the line exactly as
+    // it was, which is the whole contract of
+    // `staleMarketLineWithAgeAr`.
+    final line = staleMarketLineWithAgeAr(reason, _cacheReadAt, now: _now());
     return [
       SliverToBoxAdapter(
         child: Padding(
@@ -582,7 +621,7 @@ class _MarketplaceViewState extends State<MarketplaceView> {
               AppTheme.gutter, 0, AppTheme.gutter, AppTheme.s12),
           child: _StaleMarketBand(
             key: const Key('stale-market'),
-            line: staleMarketLineAr(reason),
+            line: line,
           ),
         ),
       ),
@@ -809,10 +848,14 @@ class _MarketplaceViewState extends State<MarketplaceView> {
     _freshnessTimer?.cancel();
     _freshnessTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (!mounted) return;
-      // `setState` even when nothing is on screen yet: the header only exists
-      // for a signed-in contractor, and a visitor's empty tick would be a
-      // rebuild of the public market once a minute for nothing.
-      if (_meReadAt == null) return;
+      // **Both** ages on this screen, and the second one is new. The header's
+      // stats line is gated on [_meReadAt] because it only exists for a
+      // signed-in contractor. The market band is not: the market is served to a
+      // visitor with no account at all, so a contractor whose profile read has
+      // not landed — or who has none — was reading a band whose age froze at
+      // whatever it said when the failure happened, which is the same
+      // confidently-wrong claim this file was opened for, in slower motion.
+      if (_meReadAt == null && _cacheReadAt == null) return;
       setState(() {});
     });
   }

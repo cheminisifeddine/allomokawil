@@ -225,6 +225,13 @@ void main() {
     await auth.login(
         phone: '0773000000', password: 'secret123', rememberMe: true);
 
+    // A frozen clock, so the band has an **age** to draw. Without it this shot
+    // would capture the band a contractor sees for the first minute after a
+    // failed pull, and the second sentence this tick added would never appear
+    // in a picture — the same "the test passes but never looked at it" hole
+    // the ink scan below exists to close, one level up.
+    var now = DateTime(2026, 9, 29, 14, 0);
+
     final key = GlobalKey();
     await tester.pumpWidget(AppScope(
       api: api,
@@ -245,7 +252,8 @@ void main() {
           // *body* and the shell supplies it. Without it the search field
           // throws «No Material widget found» and the capture is an exception.
           home: Scaffold(
-              body: MarketplaceView(repo: Repository(api))),
+              body: MarketplaceView(
+                  repo: Repository(api), clock: () => now)),
         ),
       ),
     ));
@@ -287,6 +295,26 @@ void main() {
     expect(find.byKey(const Key('stale-market')), findsOneWidget);
     expect(find.text('دهان شقة 3 غرف'), findsOneWidget,
         reason: 'the rows must still be there under the band');
+
+    // Age the read by 40 minutes and let the screen's own one-minute tick fire.
+    // This is the frame the shot is *for*: before this tick the band admitted
+    // the rows were the last ones read but not how stale they were, which is
+    // the only question a contractor about to bid on them is asking.
+    now = now.add(const Duration(minutes: 40));
+    await tester.pump(const Duration(minutes: 1, milliseconds: 100));
+    await tester.pump(const Duration(seconds: 1));
+    final aged = tester.widget<Text>(find.byKey(const Key('stale-market-line')));
+    // ignore: avoid_print
+    print('MARKET AGED line="${aged.data?.replaceAll('\n', ' | ')}"');
+    expect(aged.data, contains('قبل 40 دقيقة'),
+        reason: 'the captured frame must be the one that carries an age');
+    // Still a header, still not a page over the list: the extra sentence must
+    // not have pushed the band on top of the rows it annotates.
+    expect(
+        tester.getTopLeft(find.byKey(const Key('stale-market'))).dy +
+            tester.getSize(find.byKey(const Key('stale-market'))).height,
+        lessThanOrEqualTo(tester.getTopLeft(find.text('دهان شقة 3 غرف')).dy),
+        reason: 'a second line must not make the band overlap the first row');
 
     await tester.runAsync(() async {
       final boundary =

@@ -30,6 +30,7 @@ import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:allomokawil/src/core/app_scope.dart';
+import 'package:allomokawil/src/core/l10n/error_copy.dart';
 import 'package:allomokawil/src/core/l10n/strings.dart';
 import 'package:allomokawil/src/core/network/api_client.dart';
 import 'package:allomokawil/src/core/security/auth_state.dart';
@@ -47,6 +48,38 @@ http.Response _json(Object body) => http.Response(
     );
 
 /// The 500 an unreachable Worker produces: an HTML body, no JSON.
+///
+/// **The failure the band is actually shown, in the shape the network layer
+/// actually throws it.** The baseline is built by feeding [_boom] through the
+/// same `ApiClient` the screen uses and catching what comes out, so the test
+/// compares the band against *the sentence the screen really composed*.
+///
+/// That is not ceremony. Two earlier baselines were wrong, both in the same
+/// direction — each guessed at the error instead of raising the one the fixture
+/// produces:
+///
+///   * `S.errOffline` — the offline arm. The fixture breaks the feed with a
+///     500, which is not an offline arm at all.
+///   * `errorCopy(const _StatusFailure(500))` — a stand-in implementing only
+///     `StatusCopyError`. The real 500 arrives as an [ApiException], which is
+///     **also** an `ArabicCopyError`, so `errorCopy` returns its curated
+///     sentence `S.errServer` directly and never consults the status. The
+///     stand-in skipped the interface that decides the answer, so the baseline
+///     read «حدث خطأ غير متوقع» while the band on screen read «خلل مؤقّت في
+///     الخادم».
+///
+/// Both failures had the same cause: a baseline written from a failure the test
+/// never produced is a test that measures the wrong thing and then fails for a
+/// reason that has nothing to do with the band.
+Future<String> _theBandLineForA500(Repository repo) async {
+  try {
+    await repo.browseProjects(category: null, wilaya: null);
+  } catch (e) {
+    return staleMarketLineAr(errorCopy(e));
+  }
+  throw StateError('the fixture was supposed to fail the feed with a 500');
+}
+
 http.Response _boom() =>
     http.Response('<html>Internal Server Error</html>', 500,
         headers: const {'content-type': 'text/html'});
@@ -255,7 +288,9 @@ void main() {
     }
 
     Future<void> pump(WidgetTester tester, ApiClient api, AuthState auth,
-        {Size size = const Size(1176, 2550)}) async {
+        {Size size = const Size(1176, 2550),
+        DateTime Function()? clock,
+        bool guest = false}) async {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 3.0;
       addTearDown(tester.view.reset);
@@ -283,7 +318,8 @@ void main() {
           // file measures an exception instead of a screen — which is what the
           // first run of this file did, for exactly that reason.
           home: Scaffold(
-              body: MarketplaceView(repo: Repository(api))),
+              body: MarketplaceView(
+                  repo: Repository(api), clock: clock, guest: guest)),
         ),
       ));
       await _settle(tester);
@@ -488,6 +524,244 @@ void main() {
       expect(find.byKey(const Key('stale-market')), findsNothing,
           reason: 'the band would be claiming rows the filter excludes');
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the band says HOW OLD the projects are, not just that they '
+        'are old', (tester) async {
+      // **The half this item adds, on the real screen.** The band already said
+      // «هذه آخر نتيجة قرأناها» — these are the last results we read — which is
+      // true and useless alone. A contractor about to bid is asking *how wrong
+      // can this be?*, and a list that failed to refresh four seconds ago and
+      // one that failed forty minutes ago printed the same sentence. Only the
+      // second is one where an open project somebody else has already taken is
+      // a bid he loses.
+      //
+      // The clock is injected rather than slept through, for the reason
+      // `stats_freshness_copy.dart` was written the way it was: waiting forty
+      // real minutes is not a thing a test can do, and a `Future.delayed` that
+      // long is a hung suite, not a slow one.
+      var now = DateTime(2026, 9, 29, 14, 0);
+      final p = _Platform();
+      final b = await boot(p);
+      await pump(tester, b.api, b.auth, clock: () => now);
+      await _revealMarket(tester);
+      expect(find.text('دهان شقة 3 غرف'), findsOneWidget);
+
+      p.feedFails = true;
+      await _backToTop(tester);
+      await tester.fling(
+          find.byType(CustomScrollView).first, const Offset(0, 340), 1200);
+      await _settle(tester, frames: 12);
+      await _revealMarket(tester);
+
+      // The read landed at 14:00 and the clock has not moved, so there is no
+      // age to print yet: a hiccup is not a number.
+      //
+      // Read off the band widget rather than with `find.textContaining`, and
+      // the reason is a trap this file set for itself: the base line already
+      // ends «هذه آخر نتيجة **قرأناها**», so any matcher on that word matches
+      // the band whether or not it has an age, and the "no age yet" assertion
+      // passed for the wrong reason until the second sentence was added.
+      expect(find.byKey(const Key('stale-market')), findsOneWidget);
+      const bandKey = Key('stale-market-line');
+      expect(
+        tester.widget<Text>(find.byKey(bandKey)).data,
+        isNot(contains('قبل')),
+        reason: 'a read that is still current must not be dated',
+      );
+      // The fixture breaks the feed with a 500, which `errorCopy` renders as
+      // the transient-server arm — so the baseline is composed from *that* arm
+      // rather than from a failure the test never produced. Comparing against
+      // a hard-coded string is how a test comes to be asserting a wording the
+      // screen does not actually use.
+      expect(tester.widget<Text>(find.byKey(bandKey)).data,
+          await _theBandLineForA500(Repository(b.api)),
+          reason: 'no age means the old line, byte for byte');
+
+      // Now the clock runs and the same band, unchanged in every other way,
+      // starts reporting an age.
+      now = now.add(const Duration(minutes: 40));
+      // A full minute, not a second: the age is not recomputed on demand, the
+      // screen's one-minute tick is what redraws it — that is the same
+      // mechanism `stats_freshness_test.dart` drives, and pumping 1 s here only
+      // worked because the clock had already been advanced. Pumping a minute
+      // also proves the timer is the thing firing, which is the actual claim:
+      // a band that read the clock on every build would pass either way.
+      await tester.pump(const Duration(minutes: 1, milliseconds: 100));
+      await _settle(tester, frames: 4);
+      await _revealMarket(tester);
+
+      expect(find.text('دهان شقة 3 غرف'), findsOneWidget,
+          reason: 'the rows are still the market — dating them costs nothing');
+      final text = tester.widget<Text>(find.byKey(bandKey)).data!;
+      expect(text, contains('قبل 40 دقيقة'),
+          reason: 'the band must now say how old these rows are');
+      // The reason is still there. The age says *how wrong*, the failure says
+      // *why*, and a band that traded one for the other would be worse than
+      // the one this replaced.
+      expect(text, contains('لم نتمكن من تحديث'));
+      expect(text, endsWith('.'), reason: 'the age is its own sentence: "$text"');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'a VISITOR with no profile read still gets a band that keeps counting',
+        (tester) async {
+      // **The case the one-minute tick gate was actually changed for, and the
+      // reason it is worth its own test.** The market is served with no account
+      // at all, and `initState` reads the profile only when `!widget.guest`, so
+      // for a visitor [_meReadAt] is null *forever* — there is no header to
+      // stamp. The tick used to be gated on that stamp alone, so for this whole
+      // audience the band rendered once, at the moment the pull failed, and
+      // then froze: «قبل 40 دقيقة» would have stayed «قبل 12 دقيقة» for as
+      // long as the tab stayed open, which is the same confidently-wrong claim
+      // in slower motion than the one this item exists to fix.
+      //
+      // It is a **separate** case rather than an extra assertion on the one
+      // above because the two differ only in a flag, and a shared helper would
+      // let the one that carries the fix be silently dropped while the copy
+      // tests stayed green — which is exactly what happened on the first
+      // verification pass: with the gate reverted to `_meReadAt` only, this
+      // file still reported 20/20, because no test here was a guest.
+      var now = DateTime(2026, 9, 29, 14, 0);
+      final p = _Platform();
+      final b = await boot(p);
+      await pump(tester, b.api, b.auth, clock: () => now, guest: true);
+      await _revealMarket(tester);
+      expect(find.text('دهان شقة 3 غرف'), findsOneWidget,
+          reason: 'the market is served to a signed-out visitor too');
+
+      p.feedFails = true;
+      await _backToTop(tester);
+      await tester.fling(
+          find.byType(CustomScrollView).first, const Offset(0, 340), 1200);
+      await _settle(tester, frames: 12);
+      await _revealMarket(tester);
+
+      now = now.add(const Duration(minutes: 12));
+      await tester.pump(const Duration(minutes: 1, milliseconds: 100));
+      await _settle(tester, frames: 4);
+      await _revealMarket(tester);
+
+      expect(
+        tester.widget<Text>(find.byKey(const Key('stale-market-line'))).data,
+        contains('قبل 12 دقيقة'),
+        reason: 'a visitor has no profile read, so only the market age can '
+            'keep this line moving',
+      );
+    });
+  });
+
+  group('staleMarketAgeAr — the band says HOW old, not just that it is old', () {
+    final base = DateTime(2026, 9, 29, 14, 0);
+    DateTime ago(int m) => base.subtract(Duration(minutes: m));
+
+    test('a read inside the minute is not a number worth printing', () {
+      // A pull that failed on a slow connection while the list is thirty
+      // seconds old is a hiccup. «قبل 30 ثانية» under it is a reassurance
+      // dressed as a measurement, and the band already said everything there is
+      // to say.
+      expect(staleMarketAgeAr(base.subtract(const Duration(seconds: 20)),
+          now: base), isEmpty);
+    });
+
+    test('a minute and older is counted in the app\'s own words', () {
+      expect(staleMarketAgeAr(ago(12), now: base), 'قبل 12 دقيقة');
+      expect(staleMarketAgeAr(ago(1), now: base), 'قبل دقيقة');
+      expect(staleMarketAgeAr(ago(2), now: base), 'قبل دقيقتين');
+      expect(staleMarketAgeAr(ago(190), now: base), 'قبل 3 ساعات');
+      // Doubles and the calendar boundary, because a re-derived grammar is
+      // exactly how the subscription card ended up wrong.
+      expect(staleMarketAgeAr(ago(120), now: base), 'قبل ساعتين');
+      // 28 Sep 10:00 read, 29 Sep 14:00 now: **28 hours**, but it crossed
+      // midnight once, so the calendar day count is 1 and the answer is «أمس»,
+      // not «قبل 28 ساعة». This is the boundary `relativeTimeAr` documents —
+      // a 27-hour-old message is two calendar days old — and asserting it here
+      // is what stops this file from later being "simplified" into a 24-hour
+      // period count, which is the exact defect that made one message read two
+      // ways in the chat list and the chat divider.
+      expect(staleMarketAgeAr(DateTime(2026, 9, 28, 10), now: base), 'أمس');
+      // Checked against the implementation rather than assumed, because the
+      // guess was wrong once already on this tick: 27 hours also reads «أمس»
+      // here. `relativeTimeAr` counts **calendar** days, and a read that
+      // crossed one midnight is yesterday however long it has been. That is the
+      // documented rule and it is the one this surface inherits — what this
+      // file must not do is quietly become a 24-hour period count, which is
+      // how the chat list and the chat divider ended up dating one message two
+      // different ways on the same thread.
+    });
+
+    test('a read older than a year is dated, not counted in months', () {
+      // Same bound `relativeTimeAr` applies to a message from 2015. A market
+      // unrefreshed for a year is not a latency problem and must not be
+      // described in the vocabulary of one.
+      expect(staleMarketAgeAr(DateTime(2024, 3, 9), now: base), contains('/'));
+    });
+
+    test('clock skew is not the future', () {
+      // A stamp ahead of the phone is a broken clock somewhere between the
+      // server and the handset. Ageing it would print «قبل -3 دقيقة» and blame
+      // the reader's phone for somebody else\'s clock.
+      expect(staleMarketAgeAr(base.add(const Duration(minutes: 3)),
+              now: base),
+          isEmpty);
+    });
+
+    test('a read that never happened has no age', () {
+      expect(staleMarketAgeAr(null, now: base), isEmpty);
+    });
+  });
+
+  group('staleMarketLineWithAgeAr — the age is added, the reason is kept', () {
+    final base = DateTime(2026, 9, 29, 14, 0);
+
+    test('an undatable read produces the OLD line, byte for byte', () {
+      // **The contract that protects the other eight screens.** Every one of
+      // them was screenshotted and tested against this exact wording. A
+      // shorter "variant" here would re-open a defect on seven screens that
+      // are already correct, so the fallback is not approximate: it is
+      // equality with what `staleMarketLineAr` alone returns.
+      expect(staleMarketLineWithAgeAr(S.errOffline, null, now: base),
+          staleMarketLineAr(S.errOffline));
+      expect(
+          staleMarketLineWithAgeAr(S.errOffline,
+              base.subtract(const Duration(seconds: 5)), now: base),
+          staleMarketLineAr(S.errOffline));
+    });
+
+    test('an old read gains a second sentence, and keeps the reason', () {
+      final line = staleMarketLineWithAgeAr(
+          S.errOffline, base.subtract(const Duration(minutes: 12)),
+          now: base);
+      // Both halves are load-bearing. The reason says *why* the list is not
+      // newer, which is the half the contractor can act on; the age says how
+      // wrong it can be. A band that traded one for the other would be a worse
+      // band than the one this item replaces.
+      expect(line, contains(S.errOffline));
+      expect(line, contains('لم نتمكن من تحديث'));
+      expect(line, contains('قبل 12 دقيقة'));
+      expect(line, matches(RegExp(_arabic)));
+    });
+
+    test('the age is its own sentence, so the band stays two lines tall', () {
+      // Both wrap on a 360 px handset and a band that grows to three is a
+      // notice a contractor scrolls past.
+      final line = staleMarketLineWithAgeAr(
+          S.errOffline, base.subtract(const Duration(hours: 3)),
+          now: base);
+      expect(line, contains('\n'));
+      expect(line.split('\n'), hasLength(2));
+      expect(line.split('\n').last, 'قرأناها قبل 3 ساعات.');
+    });
+
+    test('the failure with no sentence still ages', () {
+      final line = staleMarketLineWithAgeAr(
+          '   ', base.subtract(const Duration(minutes: 5)), now: base);
+      expect(line, startsWith(staleMarketLineAr('   ')));
+      expect(line, isNot(startsWith(staleMarketLineAr(S.errOffline))),
+          reason: 'a reasonless failure must not borrow the named-failure '
+              'wording');
+      expect(line, contains('قبل 5 دقائق'));
     });
   });
 }
