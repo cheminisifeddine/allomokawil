@@ -7697,6 +7697,68 @@ running app for defects like these rather than inventing a feature.
       talks to. Still BACKEND-API's, still not reachable from the app, and
       still not re-filed, so the next tick does not walk it a fourth time.*
 
+- [x] **A failed refresh on «الرسائل» told the user he had no conversations —
+      and it hid the one screen that admits a message never left.** `46cc59d`
+      *The inverse of the subscription bug, and the worse half of the pair.*
+      That screen kept its data and hid the failure; this one threw the data
+      away **and** showed the failure, so nothing was left to doubt.
+      *The shape.* `_cache` is documented as "the last list that landed, kept so
+      a re-read does not blank the screen", because the tab this inbox lives in
+      re-reads it on every foreground. A **pending** re-read used it. A
+      **failed** one answered `null` and rendered `EmptyView` — so the single
+      state the cache was written for, rows on screen with the server
+      unreachable, was the only state that destroyed them, and
+      `«تعذّر جلب الرسائل»` is a full-screen *replacement*, not a banner.
+      *Why it is worse than the subscription case.* This inbox carries the
+      per-row queued pill, so it is the last place a user can see a message that
+      never left. A failed refresh did not merely hide history — it hid the
+      evidence an unsent message exists, and an empty inbox in this app is a
+      **true statement with a real meaning** ("no conversations yet"). The bad
+      connection that stopped a message sending was the one that hid the proof
+      it never sent.
+      *A second, deeper defect, found while proving the first.* Writing the
+      test against the real screen turned up something the reading missed:
+      `setState(() => _cache = list)` sat **after** `if (onRead == null)
+      return;`, so the cache was only ever written by the two home shells — the
+      only callers that pass `onRead`. The notification centre opens this same
+      screen with no callback (`notifications_screen.dart:272`), and there the
+      fallback the code claims to make could not be made at all. Caching is not
+      the badge's business; only `UnreadMessageTrust` and `onRead` are. The
+      doc comment is rewritten, because the old one was the thing that made this
+      read as correct.
+      *The fix.* State the doubt, do not act on it. A failed **first** read
+      still gets the full-screen error — there is genuinely nothing to draw, and
+      the retry button is the whole answer. A failed **re-read** keeps the rows
+      and gains an amber band that scrolls as a *list header*, in the same
+      `accentDeep`/`accentWash` tone `stale_catalogue_copy.dart` already ages a
+      stale catalogue into. New pure `lib/src/data/stale_inbox_copy.dart`.
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1423 passed / 3 skipped / 0 failed**, up from
+      1417/3/0 (+6).
+      *Red before green:* reverting **only** the source file makes the test
+      fail with the defect's own signature — `Found 1 widget with text
+      "تعذّر جلب الرسائل"` and `Found 0 widgets with key ['stale-inbox']
+      descending from`. Not an error from the test, the defect reproducing.
+      *Pixels* (`test/stale_inbox_shot_test.dart`, real Cairo via `FontLoader`):
+      band **279 x 1179 px = 93 x 393 dp**, **28,155 dark-on-wash pixels**,
+      counted with the in-repo decoder and scoped to the band's own rows — the
+      list behind it is white, so a global ink count would measure the page. An
+      empty amber bar still satisfies `find.byKey`; that is what the shot
+      catches. `contrast_audit.py token` -> **28/28 pass**.
+      *Three traps recorded, each one cost this tick a run.* (1) `AuthGate.
+      isGuest` swaps the whole inbox for a sign-in wall, so a test with no
+      session **passes against a screen that never drew a conversation at all** —
+      the mock must answer `/api/login` (not `/api/auth/login`) and the user
+      fixture's role key is `type`, not `role`, or `User.fromJson` throws and
+      `login` raises `ApiException`. (2) `fling` returns a Future: dropping the
+      `await` silences the analyzer and then trips "Guarded function conflict"
+      at the next `pumpAndSettle` — the analyzer was right and my "fix" was
+      wrong. (3) `estimatedChildCount` on a `ListView.separated` is not the item
+      count, so the "banner is a header, not a replacement" assertion is
+      asserted on the **tree shape** (`find.descendant(of: the ListView)`)
+      instead, because a count would still pass if the banner were swapped in
+      *for* a row — the thing that must not happen is the list being replaced.
+
 - [x] **A contractor who typed one price published a price *range* with equal
       ends — «7000 - 7000 دج» — on the profile and the browse card.**
       *Shipped:* new `lib/src/data/price_range_copy.dart`. `priceRangeAr(min,

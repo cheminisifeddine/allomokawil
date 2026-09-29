@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/auth_gate.dart';
+import '../../core/l10n/error_copy.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/chat_outbox.dart';
 import '../../data/chat_preview_copy.dart';
 import '../../data/notification_copy.dart';
+import '../../data/stale_inbox_copy.dart';
 import '../../data/repository.dart';
 import '../../data/unread_message_trust.dart';
 import '../../models/chat.dart';
@@ -115,15 +118,25 @@ class _ChatListScreenState extends State<ChatListScreen> {
   /// The callback fires **off the future**, so it is guarded on [mounted]: the
   /// shell that owns this tab lives in an `IndexedStack` and can be disposed
   /// while a request is still open.
+  ///
+  /// **The cache is written whether or not a shell is listening, and that used
+  /// not to be true.** `setState(() => _cache = list)` sat *after* an
+  /// `if (onRead == null) return;`, so the field this class documents as the
+  /// reason a re-read does not blank the screen was only ever written on the
+  /// two home shells, which are the only callers that pass `onRead`. The
+  /// notification centre opens this same screen with no callback
+  /// (`notifications_screen.dart:272`), and there the cache was never set, ever
+  /// — so the fallback the code claims to make could not be made at all and a
+  /// failed refresh there wiped the list exactly as it always did. Caching is
+  /// not the badge's business; only [UnreadMessageTrust] and [onRead] are.
   void _arm(Future<List<Conversation>> read) {
     _future = read;
     final onRead = widget.onRead;
-    if (onRead == null) return;
     read.then((list) {
       if (!mounted) return;
       _messages?.restore();
       setState(() => _cache = list);
-      onRead(list);
+      onRead?.call(list);
     }, onError: (_, __) {
       // **This is the most direct of the three failure paths**, and the
       // backlog filed it as the one that was easiest to forget: the inbox's own
@@ -202,10 +215,22 @@ class _ChatListScreenState extends State<ChatListScreen> {
             // cannot take a different path from a first read: waiting falls
             // back to the last list that landed, and only a first read —
             // which has no cache to fall back on — shows the skeleton.
+            //
+            // **A failed re-read falls back to the cache too, and that is the
+            // whole fix.** It used to answer `null` for `snap.hasError`, so
+            // the one state [_cache] was written for — rows on screen, server
+            // unreachable — was the only one that threw the rows away and
+            // replaced the inbox with the full-screen error. On the surface
+            // that admits unsent messages (the per-row queued pill, this app's
+            // last honest signal that a message never left), that meant the bad
+            // connection which stopped a message sending was also the one that
+            // hid the proof it never sent, and an empty inbox in this app is a
+            // true statement with a real meaning. See `stale_inbox_copy.dart`.
             final waiting = snap.connectionState != ConnectionState.done;
-            final convs = waiting
+            final failed = snap.hasError && !waiting;
+            final convs = waiting || (failed && _cache != null)
                 ? _cache
-                : (snap.hasError ? null : (snap.data ?? const <Conversation>[]));
+                : (failed ? null : (snap.data ?? const <Conversation>[]));
             if (convs == null) {
               if (waiting) {
                 return const Shimmer(child: LoadingList(count: 4));
@@ -223,15 +248,28 @@ class _ChatListScreenState extends State<ChatListScreen> {
             }
             return RefreshIndicator(
               onRefresh: () async => _reload(),
+              // The banner is a list header, not a replacement for the list, so
+              // it scrolls with the rows and the pull gesture still has
+              // something to pull. A failure is stated, not acted on: the rows
+              // are real and a newer read did not land.
               child: ListView.separated(
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
-                itemCount: convs.length,
+                itemCount: convs.length + (failed ? 1 : 0),
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, i) => _ConversationTile(
-                  conv: convs[i],
-                  queued: _queued[convs[i].id] ?? 0,
-                  onTap: () => _openThread(convs[i]),
-                ),
+                itemBuilder: (context, i) {
+                  if (failed && i == 0) {
+                    return _StaleInboxBanner(line: staleInboxLineAr(
+                        snap.error == null
+                            ? S.errUnexpected
+                            : errorCopy(snap.error!)));
+                  }
+                  final conv = convs[i - (failed ? 1 : 0)];
+                  return _ConversationTile(
+                    conv: conv,
+                    queued: _queued[conv.id] ?? 0,
+                    onTap: () => _openThread(conv),
+                  );
+                },
               ),
             );
           },
@@ -258,6 +296,50 @@ class _ChatListScreenState extends State<ChatListScreen> {
           : (isCustomer ? 'تصفّح المقاولين' : 'تصفّح المشاريع المفتوحة'),
       actionIcon: Icons.search_rounded,
       onAction: widget.onDiscover,
+    );
+  }
+}
+
+/// The amber band above a list that failed to re-read.
+///
+/// The staleness tone is deliberately the one `stale_catalogue_copy.dart` and
+/// `worker_home_screen` already use (`AppTheme.accentDeep` over `accentWash`),
+/// so a screen that is quietly out of date looks the same wherever it is found.
+/// The queued pill on a row below it is also amber, and that is intentional
+/// rather than a clash: both mean the same thing here — something on this
+/// screen is not yet the server's.
+class _StaleInboxBanner extends StatelessWidget {
+  const _StaleInboxBanner({required this.line});
+
+  /// The composed sentence from [staleInboxLineAr].
+  final String line;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      key: const Key('stale-inbox'),
+      color: AppTheme.accentWash,
+      borderColor: AppTheme.accent,
+      padding: AppTheme.cardPadRail,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.history_toggle_off_rounded,
+              size: AppTheme.s20, color: AppTheme.accentDeep),
+          const SizedBox(width: AppTheme.s8),
+          Expanded(
+            child: Text(
+              line,
+              key: const Key('stale-inbox-line'),
+              style: AppTheme.body.copyWith(
+                color: AppTheme.accentDeep,
+                height: 1.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
