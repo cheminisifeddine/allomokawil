@@ -130,6 +130,92 @@ const _refusal = '\u0627\u0643\u062a\u0628 \u0627\u0633\u0645\u0643 \u0643\u0645
 void main() {
   setUpAll(_loadFonts);
 
+  testWidgets('shot: a profile that never loaded is a dead end with a retry, '
+      'not an empty form', (tester) async {
+    // The pixels for the state this fix created. The unit test proves the form
+    // is gone; this proves what replaced it is readable on a 392x844 phone and
+    // is not a bare sentence on white.
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = _phone * 2.75;
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+
+    final a = ApiClient(
+      baseUrls: ['https://x.test'],
+      httpClient: MockClient((req) async {
+        http.Response json(Object b, [int status = 200]) => http.Response(
+            jsonEncode(b), status,
+            headers: {'content-type': 'application/json'});
+        if (req.url.path.endsWith('/api/login')) {
+          return json({
+            'token': 'tok',
+            'user': {
+              'id': 392,
+              'phone': '0773000000',
+              'email': null,
+              'full_name': '\u0645\u0633\u062a\u062e\u062f\u0645',
+              'type': 'worker',
+              'avatar_url': null,
+              'wilaya': '16',
+              'commune': null,
+              'created_at': '2026-09-11 20:00:00',
+            },
+          });
+        }
+        // The read the form is built from answers 500.
+        return json({'error': 'boom'}, 500);
+      }),
+    );
+    final au = await _auth(a);
+    final key = GlobalKey();
+    final errors = <FlutterErrorDetails>[];
+    final previous = FlutterError.onError;
+    FlutterError.onError = errors.add;
+
+    await tester.pumpWidget(MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light,
+      locale: const Locale('ar'),
+      supportedLocales: const [Locale('ar'), Locale('en')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      home: RepaintBoundary(
+        key: key,
+        child: AppScope(api: a, auth: au, child: const ProfileEditScreen()),
+      ),
+    ));
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 60));
+    }
+
+    // The two things a contractor has to be able to read here, and the thing
+    // that must NOT be there.
+    expect(find.text('\u062a\u0639\u0630\u0651\u0631 \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0645\u0644\u0641'),
+        findsOneWidget);
+    expect(find.text('\u0625\u0639\u0627\u062f\u0629 \u0627\u0644\u0645\u062d\u0627\u0648\u0644\u0629'),
+        findsOneWidget);
+    expect(find.text('\u062d\u0641\u0638 \u0627\u0644\u0645\u0644\u0641'), findsNothing);
+
+    await _capture(tester, key, 'profile_load_failed');
+
+    tester.takeException();
+    FlutterError.onError = previous;
+    final fatal = [
+      for (final e in errors)
+        if (!'${e.exception}'.contains('ink splashes may be invisible') &&
+            !'${e.exception}'.contains('Multiple exceptions'))
+          e
+    ];
+    if (fatal.isNotEmpty) {
+      File('$_outDir/profile_load_failed.ERROR.txt')
+          .writeAsStringSync(fatal.map((e) => e.toString()).join('\n'));
+      fail('the screen threw during layout — see the .ERROR.txt beside it');
+    }
+  });
+
   testWidgets('shot: a refused save is stated once, beside the save button',
       (tester) async {
     SharedPreferences.setMockInitialValues({});

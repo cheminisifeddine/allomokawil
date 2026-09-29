@@ -48,6 +48,18 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   bool _saving = false;
   String? _error;
 
+  /// Whether the row this form edits is actually **in hand**.
+  ///
+  /// Not `!_error`: a refusal below the button sets `_error` too, and on a
+  /// loaded form that must not blank the boxes. This is the one flag that
+  /// means "these boxes hold the server's values", and it is the difference
+  /// between a form and a machine for overwriting a profile with empties.
+  ///
+  /// Set on the first successful read, and **cleared by nothing** — a retry
+  /// that fails again must not restore a form still holding the previous
+  /// answer, because the PATCH below would then be sending a stale row.
+  bool _loaded = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -69,11 +81,18 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     super.dispose();
   }
 
+  /// Re-reads the profile, and is the **only** way this screen ever leaves the
+  /// failed state.
   Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final p = await _repo.myProfile();
       if (!mounted) return;
       setState(() {
+        _loaded = true;
         _name.text = p.fullName;
         _bio.text = p.bio ?? '';
         _years.text = p.experienceYears > 0 ? '${p.experienceYears}' : '';
@@ -212,8 +231,36 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('تعديل ملفي')),
+      // A read that failed gets the shared dead-read state and nothing else.
+      //
+      // The bug this replaces: `_error` used to be set here and the **whole
+      // form rendered anyway** — every box empty, the save button live. That
+      // is not a cosmetic error, it is data loss with a green result. The PATCH
+      // this screen sends is unconditional (see `Repository.updateMyProfile`),
+      // so one save from a form that never loaded writes '' and null over a
+      // real biography, real years, real prices and a real radius; the
+      // verification this screen is proud of then re-reads, finds the server
+      // holding exactly what was just destroyed, and reports «تم حفظ ملفك
+      // بنجاح». Every sibling that loads a body already refuses to draw
+      // anything but a retry in this state (`worker_profile_screen.dart:151`,
+      // `project_detail_screen.dart:355`, `subscription_screen`); this form was
+      // the only one in the app that treated a failed read as a good one.
       body: _loading
           ? const SkeletonFormPage(fields: 5)
+          : !_loaded
+              ? Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 620),
+                    child: EmptyView(
+                      icon: Icons.error_outline_rounded,
+                      title: 'تعذّر تحميل الملف',
+                      message: _error,
+                      actionLabel: 'إعادة المحاولة',
+                      onAction: _load,
+                      danger: true,
+                    ),
+                  ),
+                )
           : ListView(
               padding: const EdgeInsets.fromLTRB(18, 4, 18, 30),
               children: [
@@ -358,8 +405,14 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
             ),
       // Pinned, not at the end of the list: the form is longer than the
       // viewport, so a save button below the fold reads as "no way to save".
-      bottomNavigationBar: StickyCta(
-        child: Column(
+      // No pinned bar at all while the row is not in hand: a save button under
+      // an error is a control that says "your empty boxes are a decision the
+      // server will obey", which is the exact false promise above. The retry in
+      // the body is the only action this state offers.
+      bottomNavigationBar: !_loaded
+          ? null
+          : StickyCta(
+              child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             // The one and only error surface on this screen. It lives in
@@ -382,15 +435,15 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                   ),
                 ),
               ),
-            PrimaryButton(
-              label: 'حفظ الملف',
-              icon: Icons.check_rounded,
-              loading: _saving,
-              onPressed: _saving ? null : _save,
+                  PrimaryButton(
+                    label: 'حفظ الملف',
+                    icon: Icons.check_rounded,
+                    loading: _saving,
+                    onPressed: _saving ? null : _save,
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
-      ),
     );
   }
 }
