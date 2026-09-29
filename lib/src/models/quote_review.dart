@@ -1,3 +1,5 @@
+import 'notification.dart' show parseServerTime;
+
 /// A contractor's bid on an open project.
 class Quote {
   final int id;
@@ -85,6 +87,25 @@ class Review {
   final List<String> images;
   final String customerFullName;
 
+  /// When the customer left the rating, or null when the server sent no
+  /// timestamp.
+  ///
+  /// The Worker sends `created_at` on every review row — it is in the payload
+  /// `live_payload_models_test.dart` captured from production, and in every
+  /// fixture this app has been driven with — and this parser **dropped it**,
+  /// so every review on a contractor's profile drew as an undated card. On the
+  /// one page a customer picks a tradesman from, a review left last week and a
+  /// review left eight months ago looked identical, which is the difference
+  /// between a man whose work kept being good and a man who was good once.
+  /// See `data/review_order.dart`.
+  ///
+  /// Read through [parseServerTime] rather than [DateTime.tryParse], for the
+  /// same reason every other model on this wire does: D1 writes
+  /// `YYYY-MM-DD HH:MM:SS` in **UTC with no zone marker**, and `tryParse`
+  /// would read it as Algiers wall-clock — so the review would be dated an
+  /// hour off, and one sent late on the 31st would file itself under the 1st.
+  final DateTime? createdAt;
+
   const Review({
     required this.id,
     required this.projectId,
@@ -93,6 +114,7 @@ class Review {
     this.comment,
     required this.images,
     required this.customerFullName,
+    this.createdAt,
   });
 
   factory Review.fromJson(Map<String, dynamic> json) {
@@ -108,6 +130,9 @@ class Review {
       images: imgs,
       customerFullName:
           (json['customer_full_name'] ?? '') as String,
+      // Nullable on purpose: a row the server could not date is an absence,
+      // and `review_order.dart` puts those last rather than dropping them.
+      createdAt: parseServerTime(json['created_at']),
     );
   }
 }

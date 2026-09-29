@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/notification_copy.dart';
 import '../../data/price_range_copy.dart';
 import '../../data/repository.dart';
+import '../../data/review_order.dart';
 import '../../data/taxonomy.dart';
 import '../../data/worker_stats_copy.dart';
 import '../../models/enums.dart';
@@ -25,7 +27,14 @@ import '../../core/l10n/strings.dart';
 /// unchanged — only the presentation moved onto the shared UI kit.
 class WorkerProfileScreen extends StatefulWidget {
   final int workerId;
-  const WorkerProfileScreen({super.key, required this.workerId});
+
+  /// The wall clock the review dates are measured against. See
+  /// [_ReviewCard.clock]: null in production, fixed in the golden and widget
+  /// tests so a date cannot drift the suite.
+  final DateTime Function()? clock;
+
+  const WorkerProfileScreen(
+      {super.key, required this.workerId, this.clock});
 
   @override
   State<WorkerProfileScreen> createState() => _WorkerProfileScreenState();
@@ -198,6 +207,7 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
           reviews: _reviews,
           onContact: () => _openChat(w),
           onRetry: _retryReviews,
+          clock: widget.clock,
         ),
         const SizedBox(height: 8),
       ],
@@ -599,10 +609,14 @@ class _ReviewsSection extends StatelessWidget {
   /// same conflation, on the section that carries a man's reputation.
   final VoidCallback onRetry;
 
+  /// See [_ReviewCard.clock].
+  final DateTime Function()? clock;
+
   const _ReviewsSection({
     required this.reviews,
     required this.onContact,
     required this.onRetry,
+    this.clock,
   });
 
   @override
@@ -654,7 +668,10 @@ class _ReviewsSection extends StatelessWidget {
             ),
           );
         }
-        final list = snap.data ?? const <Review>[];
+        // Newest first, and the undated rows last — see `review_order.dart`.
+        // Drawing the list in whatever order the Worker sent is what let a
+        // page with dates on it read «قبل 3 أشهر» above «الآن».
+        final list = newestReviewFirst(snap.data ?? const <Review>[]);
         if (list.isEmpty) {
           return AppCard(
             key: const Key('profile-reviews-empty'),
@@ -689,7 +706,7 @@ class _ReviewsSection extends StatelessWidget {
             for (final r in list)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: _ReviewCard(review: r),
+                child: _ReviewCard(review: r, clock: clock),
               ),
           ],
         );
@@ -700,12 +717,30 @@ class _ReviewsSection extends StatelessWidget {
 
 class _ReviewCard extends StatelessWidget {
   final Review review;
-  const _ReviewCard({required this.review});
+
+  /// The wall clock the row's date is measured against.
+  ///
+  /// `relativeTimeAr` renders from the *difference* to now, so a screen that
+  /// always reads `DateTime.now()` ages the same row differently as the hours
+  /// pass — which is what pinned `NotificationsScreen` to a fixed clock: the
+  /// `15_notifications` golden drifted on an hour boundary and took the whole
+  /// `flutter test` gate red with it, roughly 50 minutes after it was
+  /// captured. Tests hand in a fixed clock; production leaves it null and reads
+  /// the real time, exactly as that screen does.
+  final DateTime Function()? clock;
+
+  const _ReviewCard({required this.review, this.clock});
 
   @override
   Widget build(BuildContext context) {
     final name = review.customerFullName.trim();
     final comment = review.comment;
+    // «قبل 3 أشهر» on a card that had no date at all: this row is the evidence
+    // a customer reads before choosing this man, and every other dated list in
+    // the app says how old it is. Same function, not a fifth copy of the
+    // grammar. Empty when the server sent no timestamp — the row then draws
+    // exactly as it always did, rather than an invented one.
+    final when = relativeTimeAr(review.createdAt, now: clock?.call());
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -726,6 +761,18 @@ class _ReviewCard extends StatelessWidget {
               RatingStars(rating: review.rating.toDouble(), size: 13),
             ],
           ),
+          if (when.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(
+                when,
+                key: const Key('review-when'),
+                style: AppTheme.caption
+                    .copyWith(color: AppTheme.textMuted),
+              ),
+            ),
+          ],
           if (comment != null && comment.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             Text(comment, style: AppTheme.body),

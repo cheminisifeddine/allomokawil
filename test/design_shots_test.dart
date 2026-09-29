@@ -648,7 +648,8 @@ void main() {
     await _shoot(
         tester, '08_worker_home', const WorkerHomeScreen(), s.api, s.auth);
     await _shoot(tester, '09_worker_profile',
-        const WorkerProfileScreen(workerId: 16), s.api, s.auth);
+        WorkerProfileScreen(workerId: 16, clock: () => _pinnedClock),
+        s.api, s.auth);
   });
 
   testWidgets('shots: browse + chat + misc', (tester) async {
