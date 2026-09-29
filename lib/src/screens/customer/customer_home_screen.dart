@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
@@ -34,7 +36,15 @@ import '../worker/worker_profile_screen.dart';
 /// Dual home screen for clients: find contractors, post a project,
 /// track existing projects and messages.
 class CustomerHomeScreen extends StatefulWidget {
-  const CustomerHomeScreen({super.key});
+  const CustomerHomeScreen({super.key, this.clock});
+
+  /// The wall clock, injectable so a test can age a stale band without
+  /// waiting a real hour. Defaults to the system clock in the app.
+  ///
+  /// The bands under both strips report how old their rows are, so their
+  /// wording is a function of the time between the read and the reader — the
+  /// one thing a test cannot control by arranging a Future.
+  final DateTime Function()? clock;
 
   @override
   State<CustomerHomeScreen> createState() => _CustomerHomeScreenState();
@@ -106,6 +116,32 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
   List<Project>? _projectsCache;
   String? _projectsStaleReason;
 
+  /// When each strip last read cleanly, so the band can say *how* old it is.
+  ///
+  /// The band already admits «هذه آخر نتيجة قرأناها»; this is the half it
+  /// could not say. The two strips get **separate** stamps because they are two
+  /// reads that fail independently, and one stamp shared by both is how a
+  /// projects list that refreshed a second ago gets dated by a contractors read
+  /// that has not landed in an hour.
+  ///
+  /// Written in the same `setState` that installs the cache, because the two
+  /// are one fact: a stamp from a *different* read than the one on screen is
+  /// worse than no stamp, because it is then confidently wrong. Null for a
+  /// signed-out visitor, who has no strips to read at all.
+  DateTime? _workersReadAt;
+  DateTime? _projectsReadAt;
+
+  /// Ticks once a minute so an honest band ages without a re-read.
+  ///
+  /// Same reason and same resolution as the projects screen: the copy reports
+  /// at minute granularity, so one tick per reported resolution cannot make
+  /// the line stale by more than the words it prints. Without it a client who
+  /// leaves the home open keeps reading «قبل 12 دقيقة» on rows that are now an
+  /// hour old, which is the same lie in a slower costume. Cancelled in
+  /// [dispose]; the shell's `IndexedStack` keeps this tab alive across every
+  /// other one, so an uncancelled timer would outlive it and tick a dead state.
+  Timer? _ageTimer;
+
   /// Points one strip at a read, and records what that read settled to.
   ///
   /// The cache is written on every settled success and cleared of doubt by the
@@ -122,7 +158,13 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
       setState(() {
         _workersCache = list;
         _workersStaleReason = null;
+        // The clock *now*, not the moment the request was issued, so a read
+        // in flight for forty seconds is dated when it actually landed.
+        // Stamping at issue time would under-report the age on a slow
+        // connection — the exact case where the number matters most.
+        _workersReadAt = _now();
       });
+      _armAgeTick();
     }, onError: (Object e, StackTrace _) {
       if (!mounted) return;
       setState(() => _workersStaleReason = errorCopy(e));
@@ -140,7 +182,9 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
       setState(() {
         _projectsCache = list;
         _projectsStaleReason = null;
+        _projectsReadAt = _now();
       });
+      _armAgeTick();
     }, onError: (Object e, StackTrace _) {
       if (!mounted) return;
       setState(() => _projectsStaleReason = errorCopy(e));
@@ -255,9 +299,33 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
 
   @override
   void dispose() {
+    _ageTimer?.cancel();
     _place?.removeListener(_onPlaceChanged);
     unregisterUnreadOnResume(this);
     super.dispose();
+  }
+
+  /// The wall clock, injectable for tests. See [CustomerHomeScreen.clock].
+  DateTime _now() => (widget.clock ?? DateTime.now)();
+
+  /// Starts the once-a-minute tick that ages the bands, once there is a stamp
+  /// to age.
+  ///
+  /// Re-armed from the same place the stamps are written, so a re-read that
+  /// puts the old stamp back does not leave two live timers. Called from
+  /// [_armWorkers] and [_armProjects] rather than from `build`, because a
+  /// timer created in `build` is a new timer on every frame and the tick would
+  /// multiply.
+  void _armAgeTick() {
+    if (!mounted) return;
+    _ageTimer?.cancel();
+    _ageTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted) return;
+      // Nothing to age yet: a first read that has not landed has no rows, and
+      // a band only ever appears over rows that do.
+      if (_workersReadAt == null && _projectsReadAt == null) return;
+      setState(() {});
+    });
   }
 
   /// Decides whether this account is still on its first run, from the client's
@@ -378,6 +446,9 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
           topWorkers: _topWorkers,
           workersCache: _workersCache,
           workersStaleReason: _workersStaleReason,
+          workersReadAt: _workersReadAt,
+          projectsReadAt: _projectsReadAt,
+          now: _now(),
           recentProjects: _recentProjects,
           projectsCache: _projectsCache,
           projectsStaleReason: _projectsStaleReason,
@@ -494,6 +565,16 @@ class _ExploreView extends StatelessWidget {
   final List<Project>? projectsCache;
   final String? projectsStaleReason;
 
+  /// When each strip last read cleanly, so its band can say how old the rows
+  /// under it are. Separate per strip because the two reads fail on their own.
+  final DateTime? workersReadAt;
+  final DateTime? projectsReadAt;
+
+  /// The instant the age is measured against, taken **once per build** so both
+  /// bands on a screen cannot disagree about "now" by the microseconds between
+  /// two calls.
+  final DateTime now;
+
   /// Null for a signed-out visitor — the tab then shows the way in instead of
   /// a strip it has nothing to put in.
   final Future<List<Project>>? recentProjects;
@@ -522,6 +603,9 @@ class _ExploreView extends StatelessWidget {
     required this.recentProjects,
     required this.projectsCache,
     required this.projectsStaleReason,
+    required this.workersReadAt,
+    required this.projectsReadAt,
+    required this.now,
     required this.guest,
     required this.onRetryWorkers,
     required this.onRetryProjects,
@@ -691,8 +775,11 @@ class _ExploreView extends StatelessWidget {
                             AppTheme.gutter, 0, AppTheme.gutter, AppTheme.s12),
                         child: _StaleHomeStripBand(
                           key: const Key('stale-workers'),
-                          line: staleHomeStripLineAr(
-                              workersStaleReason!, StaleHomeStrip.contractors),
+                          line: staleHomeStripLineWithAgeAr(
+                              workersStaleReason!,
+                              workersReadAt,
+                              StaleHomeStrip.contractors,
+                              now: now),
                         ),
                       ),
                     SizedBox(
@@ -789,8 +876,11 @@ class _ExploreView extends StatelessWidget {
                                 const EdgeInsets.only(bottom: AppTheme.s12),
                             child: _StaleHomeStripBand(
                               key: const Key('stale-projects-strip'),
-                              line: staleHomeStripLineAr(projectsStaleReason!,
-                                  StaleHomeStrip.projects),
+                              line: staleHomeStripLineWithAgeAr(
+                                  projectsStaleReason!,
+                                  projectsReadAt,
+                                  StaleHomeStrip.projects,
+                                  now: now),
                             ),
                           ),
                         for (var i = 0; i < recent.length; i++) ...[

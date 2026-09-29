@@ -36,6 +36,8 @@
 // `stale_inbox_copy.dart` and `stale_projects_copy.dart` use.
 library;
 
+import 'read_age_ar.dart';
+
 /// Which strip a stale sentence is being composed for.
 ///
 /// Carried as an enum rather than as two free functions because the call site
@@ -73,4 +75,63 @@ String staleHomeStripLineAr(String error, StaleHomeStrip strip) {
     StaleHomeStrip.projects =>
       'لم نتمكن من تحديث مشاريعك — هذه آخر نتيجة قرأناها. $reason',
   };
+}
+
+/// How old the rows under a strip actually are, in the app's own words.
+///
+/// The **freshness half** of the family, and the fourth member to get it after
+/// `stale_market_copy.dart`. The band already says «هذه آخر نتيجة قرأناها» —
+/// *these are the last result we read* — which is true and useless on its own.
+/// A pull that failed four seconds ago and one that failed forty minutes ago
+/// print the **same sentence**, and on this screen the gap between them is
+/// exactly what the user has to decide on.
+///
+/// It matters more here than on the siblings because the two strips fail for
+/// different reasons and the consequences are not symmetric. The projects
+/// strip is the user's own jobs and nothing else in the app lists them, so an
+/// old one may be a job somebody else already took. The contractors strip is
+/// *supply* and is duplicated one tap away in «ابحث عن مقاول», so its band
+/// exists to reassure rather than to warn. Both get the same number for the
+/// same reason: a doubt without a magnitude is not actionable, and the copy
+/// that has been on screen for two days must not read like one that just
+/// happened.
+///
+/// **The rule is not this file's.** It is [readAgeAr], which the whole app
+/// routes through so a header, a market, a project list, a directory and now
+/// these two strips cannot each decide what "old enough to mention" means.
+/// Null, clock skew and under-a-minute are silence, and a band whose rows are
+/// still current keeps its own words.
+String staleHomeStripAgeAr(DateTime? readAt, {DateTime? now}) =>
+    readAgeAr(readAt, now: now);
+
+/// The band line with its age, when the age is worth a word.
+///
+/// Same two rules as every sibling, and the second is the easy one to get
+/// wrong:
+///
+///   * The age is **appended**, never substituted. The failure sentence names
+///     the *kind* of failure `errorCopy` diagnosed and the age says nothing
+///     about it. A band that traded the reason for a timestamp would tell a
+///     client his jobs are «قبل 12 دقيقة» without saying *why* they are not
+///     newer, which is the half he can act on.
+///   * A read with no age worth printing produces **exactly the old line**,
+///     byte for byte, through [staleHomeStripLineAr]. Not a shorter variant,
+///     not a trailing dash: the wording the existing tests and screenshots of
+///     this screen were written against has to survive unchanged, or this
+///     quietly re-opens a defect on a screen that is already correct.
+///
+/// The age is a separate sentence rather than a clause inside the first
+/// because Arabic wraps both, and a band that has to stay two lines tall on a
+/// 360 px handset is the difference between a notice a client reads and one he
+/// scrolls past.
+String staleHomeStripLineWithAgeAr(
+  String error,
+  DateTime? readAt,
+  StaleHomeStrip strip, {
+  DateTime? now,
+}) {
+  final base = staleHomeStripLineAr(error, strip);
+  final age = staleHomeStripAgeAr(readAt, now: now);
+  if (age.isEmpty) return base;
+  return '$base\nقرأناها $age.';
 }

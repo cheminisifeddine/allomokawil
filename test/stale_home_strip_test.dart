@@ -237,8 +237,9 @@ Future<({ApiClient api, AuthState auth})> _boot(_Platform platform) async {
 Future<void> _pump(
   WidgetTester tester,
   ApiClient api,
-  AuthState auth,
-) async {
+  AuthState auth, {
+  DateTime Function()? clock,
+}) async {
   tester.view.physicalSize = const Size(1080, 2280);
   tester.view.devicePixelRatio = 2.75;
   addTearDown(tester.view.reset);
@@ -255,7 +256,7 @@ Future<void> _pump(
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      home: const CustomerHomeScreen(),
+      home: CustomerHomeScreen(clock: clock),
     ),
   ));
   await _settle(tester);
@@ -303,6 +304,256 @@ void main() {
       expect(workers, isNot(contains('مشاريعك')));
       expect(projects, contains('مشاريعك'));
       expect(projects, isNot(contains('المقاولين')));
+    });
+  });
+
+  group('staleHomeStripAgeAr — the band says HOW old, not just that it is old',
+      () {
+    final base = DateTime(2026, 9, 29, 14, 0);
+
+    test('a read inside the minute is not a number worth printing', () {
+      // A pull that failed on a slow connection while the strip is twenty
+      // seconds old is a hiccup. «قبل 20 ثانية» under it is a reassurance
+      // dressed as a measurement, and the band already said everything there
+      // is to say.
+      expect(staleHomeStripAgeAr(base.subtract(const Duration(seconds: 20)),
+          now: base), isEmpty);
+    });
+
+    test('a minute and older is counted in the app\'s own words', () {
+      // Same grammar the market and projects bands print, asserted on this
+      // surface so the two cannot drift into dating one read two ways.
+      expect(staleHomeStripAgeAr(base.subtract(const Duration(minutes: 12)),
+          now: base), 'قبل 12 دقيقة');
+      expect(staleHomeStripAgeAr(base.subtract(const Duration(minutes: 2)),
+          now: base), 'قبل دقيقتين');
+      expect(staleHomeStripAgeAr(base.subtract(const Duration(hours: 3)),
+          now: base), 'قبل 3 ساعات');
+      expect(staleHomeStripAgeAr(base.subtract(const Duration(hours: 2)),
+          now: base), 'قبل ساعتين');
+    });
+
+    test('an age past a year is dated, not counted', () {
+      // A home left unrefreshed across a whole year is not a latency problem
+      // and must not be described in the vocabulary of one.
+      final old = DateTime(2024, 3, 15, 9, 30);
+      final line = staleHomeStripAgeAr(old, now: base);
+      expect(line, isNot(contains('سنة')));
+      expect(line, isNot(contains('شهر')));
+      expect(line, isNot(isEmpty));
+    });
+
+    test('a stamp ahead of the phone is clock skew, not the future', () {
+      // Ageing it into «قبل -3 دقيقة» would be the app blaming the reader's
+      // phone for somebody else's timestamp, so the skewed read is reported as
+      // current and the band keeps its own words.
+      expect(
+          staleHomeStripAgeAr(base.add(const Duration(minutes: 3)), now: base),
+          isEmpty);
+    });
+
+    test('a read that never happened has no age to print', () {
+      expect(staleHomeStripAgeAr(null, now: base), isEmpty);
+    });
+  });
+
+  group('staleHomeStripLineWithAgeAr — appended, never substituted', () {
+    final base = DateTime(2026, 9, 29, 14, 0);
+
+    test('the failure sentence survives the age', () {
+      // The age is an addition, not a replacement. `errorCopy` names the KIND
+      // of failure and the timestamp says nothing about it; a band that traded
+      // the reason for a number would tell a client his jobs are «قبل 12 دقيقة»
+      // without saying why they are not newer.
+      for (final strip in StaleHomeStrip.values) {
+        final line = staleHomeStripLineWithAgeAr(
+            S.errOffline, base.subtract(const Duration(minutes: 12)), strip,
+            now: base);
+        expect(line, contains(S.errOffline), reason: '$strip');
+        expect(line, contains('لم نتمكن من تحديث'), reason: '$strip');
+        expect(line, contains('قبل 12 دقيقة'), reason: '$strip');
+      }
+    });
+
+    test('the age is a second sentence, so the band stays readable when it wraps',
+        () {
+      final line = staleHomeStripLineWithAgeAr(
+          S.errOffline, base.subtract(const Duration(hours: 2)),
+          StaleHomeStrip.projects,
+          now: base);
+      expect(line, contains('\n'));
+      expect(line.split('\n').last, contains('قرأناها قبل ساعتين.'));
+    });
+
+    test('a read with no age worth printing is the old line, byte for byte', () {
+      // Not a shorter variant and not a trailing dash: the wording the
+      // existing screenshots of this screen were written against has to survive
+      // unchanged, or this quietly re-opens a defect on a screen already
+      // correct.
+      for (final strip in StaleHomeStrip.values) {
+        for (final readAt in <DateTime?>[
+          null,
+          base,
+          base.subtract(const Duration(seconds: 59)),
+          base.add(const Duration(minutes: 5)),
+        ]) {
+          expect(
+              staleHomeStripLineWithAgeAr(S.errOffline, readAt, strip,
+                  now: base),
+              staleHomeStripLineAr(S.errOffline, strip),
+              reason: '$strip @ $readAt');
+        }
+      }
+    });
+
+    test('each strip is dated about its own rows', () {
+      final old = base.subtract(const Duration(hours: 5));
+      final workers = staleHomeStripLineWithAgeAr(
+          S.errOffline, old, StaleHomeStrip.contractors, now: base);
+      final projects = staleHomeStripLineWithAgeAr(
+          S.errOffline, old, StaleHomeStrip.projects, now: base);
+      expect(workers, contains('المقاولين'));
+      expect(workers, isNot(contains('مشاريعك')));
+      expect(projects, contains('مشاريعك'));
+      expect(projects, isNot(contains('المقاولين')));
+    });
+  });
+
+  group('CustomerHomeScreen — the band dates its own rows', () {
+    testWidgets('a strip that failed forty minutes ago says so', (tester) async {
+      // The pure half already proves the wording. This proves the *screen*
+      // hands it a stamp, because a correct helper wired to an unchanged
+      // screen passes every pure case in this file clean.
+      var now = DateTime(2026, 9, 29, 14, 0);
+      final platform = _Platform();
+      final b = await _boot(platform);
+
+      await _pump(tester, b.api, b.auth, clock: () => now);
+      expect(find.byKey(const Key('stale-workers')), findsNothing);
+
+      // The read lands at 14:00, then the network dies and the phone is not
+      // touched again for forty minutes.
+      platform.workersDead = true;
+      await _pull(tester);
+      now = now.add(const Duration(minutes: 40));
+      // Crossed by pumping a whole minute, not a frame: the band is re-dated
+      // by the once-a-minute age tick, so a test that only pumps frames is
+      // asserting on the sentence as it stood when the failure landed. This is
+      // the same mechanism that keeps a home left open over a coffee break
+      // from reading «قبل 12 دقيقة» forever.
+      await tester.pump(const Duration(minutes: 1));
+      await _settle(tester, frames: 2);
+
+      expect(find.byKey(const Key('stale-workers')), findsOneWidget);
+      expect(
+        find.textContaining('قبل 40 دقيقة', findRichText: true),
+        findsOneWidget,
+        reason: 'a band that cannot say how old is a doubt with no magnitude',
+      );
+      // The reason must still be there: the age is an addition, not a
+      // replacement for the sentence that names the failure. Asserted on the
+      // band's OWN composed line rather than on a string constant — the
+      // harness returns a 503, so `errorCopy` picks its own two-line sentence
+      // and never prints `S.errOffline` at all. Re-deriving the expected text
+      // from the same helper the screen uses would be circular, so the check
+      // is structural: the band is one Text, and both halves are in it.
+      final band = tester.widget<Text>(
+          find.descendant(
+              of: find.byKey(const Key('stale-workers')),
+              matching: find.byType(Text)));
+      expect(band.data, contains('لم نتمكن من تحديث'),
+          reason: 'the failure sentence must survive the age');
+      expect(band.data, contains('قبل 40 دقيقة'),
+          reason: 'and the age is appended to it, not swapped in');
+    });
+
+    testWidgets('the two strips are dated by their OWN reads, not one stamp',
+        (tester) async {
+      // The two reads fail independently, so a single shared stamp is how a
+      // projects list that refreshed a second ago gets dated by a contractors
+      // read that has not landed in an hour.
+      //
+      // **Two earlier versions of this test could not see that bug at all.**
+      // The first asserted the projects band is ABSENT — a band that is not
+      // on screen cannot be dated wrongly, so it passed green with one shared
+      // stamp wired in. The second rendered the strip but had the projects
+      // read stay dead for the whole scenario, and the shared-stamp copy lives
+      // in the projects **success** arm, so that arm never re-ran and the
+      // corrupted value was never written. Both looked like proof.
+      //
+      // The scenario that can see it: the projects read has to **succeed at
+      // least once after the shared stamp is taken** and then fail again, so
+      // the success arm writes and the band is rebuilt on the value it wrote.
+      var now = DateTime(2026, 9, 29, 14, 0);
+      final platform = _Platform();
+      final b = await _boot(platform);
+
+      await _pump(tester, b.api, b.auth, clock: () => now);
+
+      // 14:00 — both reads die. Both strips keep their rows, both admit it,
+      // and both are stamped 14:00.
+      platform.workersDead = true;
+      platform.projectsDead = true;
+      await _pull(tester);
+
+      // 15:00 — the projects read recovers and re-stamps **itself**; the
+      // contractors read stays dead and keeps its 14:00 stamp.
+      now = now.add(const Duration(hours: 1));
+      platform.projectsDead = false;
+      await _pull(tester);
+
+      // 16:00 — the projects read dies again, so its band comes back standing
+      // on rows that were last true at 15:00.
+      now = now.add(const Duration(hours: 1));
+      platform.projectsDead = true;
+      await _pull(tester);
+
+      // 18:00 — the clock is read by the once-a-minute age tick, so the band
+      // is dated against a real passage of time rather than a frame.
+      now = now.add(const Duration(hours: 2));
+      await tester.pump(const Duration(minutes: 1));
+      await _settle(tester, frames: 2);
+      await _revealProjects(tester);
+      await _settle(tester, frames: 2);
+
+      expect(find.byKey(const Key('stale-projects-strip')), findsOneWidget);
+      final band = tester.widget<Text>(
+          find.descendant(
+              of: find.byKey(const Key('stale-projects-strip')),
+              matching: find.byType(Text)));
+      expect(band.data, contains('مشاريعك'),
+          reason: 'the band must still be talking about the projects');
+
+      // Three hours, counted from the read at 15:00. A stamp shared with the
+      // contractors read carries 14:00 instead and prints «قبل 4 ساعات» —
+      // dating the customer\'s own jobs by a read that never refreshed them.
+      expect(band.data, contains('قبل 3 ساعات'),
+          reason: 'the projects rows were last true at 15:00, not at whatever '
+              'the contractors strip last read');
+      expect(band.data, isNot(contains('قبل 4 ساعات')),
+          reason: 'and specifically not the contractors read\'s stamp');
+    });
+
+    testWidgets('a band on rows read seconds ago prints no age at all',
+        (tester) async {
+      // A pull that failed on a slow connection while the strip is seconds old
+      // is a hiccup. Printing «قبل 4 ثوانٍ» under it would be a reassurance
+      // dressed as a measurement.
+      final platform = _Platform();
+      final b = await _boot(platform);
+      final now = DateTime(2026, 9, 29, 14, 0);
+      await _pump(tester, b.api, b.auth, clock: () => now);
+
+      platform.workersDead = true;
+      await _pull(tester);
+      await _settle(tester, frames: 2);
+
+      expect(find.byKey(const Key('stale-workers')), findsOneWidget);
+      // «قرأناها قبل …» and not a bare «قرأناها»: the base sentence ends
+      // «هذه آخر نتيجة قرأناها», so the shorter needle matches the line that
+      // is on screen whether or not the age is there.
+      expect(find.textContaining('قرأناها قبل', findRichText: true), findsNothing,
+          reason: 'under a minute the honest answer is silence');
     });
   });
 

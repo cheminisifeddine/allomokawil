@@ -106,29 +106,19 @@ Map<String, Object?> _worker(int id, String name) => {
       'avatar_url': null,
     };
 
-void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
-
-  setUpAll(() async {
-    final reg = await rootBundle.load('assets/fonts/Cairo-Regular.ttf');
-    final loader = FontLoader('Cairo')..addFont(Future.value(reg));
-    await loader.load();
-  });
-
-  testWidgets('a failed contractors refresh is drawn above the cards, in Arabic',
-      (tester) async {
-    // 1080x2280, not the taller 2532 the «مشاريعي» shot uses: this screen
-    // stacks the header, a search row, a category grid and two section titles
-    // above the contractors strip, so a taller viewport puts the strip below
-    // the fold and the first read's cards are never built. Found by asserting
-    // the cards before the gesture.
-    tester.view.physicalSize = const Size(1080, 2280);
-    tester.view.devicePixelRatio = 2.75;
-    addTearDown(tester.view.reset);
-    SharedPreferences.setMockInitialValues(<String, Object>{});
-
-    var reads = 0;
-    final api = ApiClient(
+/// The API for this screen's shot, with the contractors read's liveness under
+/// the test's control.
+///
+/// Extracted from the first shot's inline client so the dated case below can
+/// drive the same reads without a second, drifting copy of the fixture — the
+/// failure `stale_home_strip_test.dart` records as a harness that "starts lying
+/// about a path it never walks".
+///
+/// [deadWorkers] is a callback rather than a bool so a test can kill the read
+/// *after* the first load has been seen on screen, which is the shape of the
+/// real event: the phone rendered fine, then the network died under it.
+ApiClient _client({required bool Function() deadWorkers}) {
+  return ApiClient(
       baseUrls: const ['https://x.test'],
       httpClient: MockClient((req) async {
         final path = req.url.path;
@@ -152,17 +142,16 @@ void main() {
               headers: {'content-type': 'application/json'});
         }
         if (path.contains('/api/mobile/workers/top')) {
-          reads++;
-          if (reads == 1) {
-            return http.Response(
-                jsonEncode(<Object?>[
-                  _worker(1, 'مقاول قديم'),
-                  _worker(2, 'مقاول ثانٍ'),
-                ]),
-                200,
+          if (deadWorkers()) {
+            return http.Response('', 503,
                 headers: {'content-type': 'application/json'});
           }
-          return http.Response('', 503,
+          return http.Response(
+              jsonEncode(<Object?>[
+                _worker(1, 'مقاول قديم'),
+                _worker(2, 'مقاول ثانٍ'),
+              ]),
+              200,
               headers: {'content-type': 'application/json'});
         }
         // NOT empty: an account with no projects and no conversations shows
@@ -214,8 +203,36 @@ void main() {
         return http.Response('{}', 200,
             headers: {'content-type': 'application/json'});
       }),
-      timeout: const Duration(milliseconds: 200),
-    );
+      timeout: const Duration(milliseconds: 200));
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUpAll(() async {
+    final reg = await rootBundle.load('assets/fonts/Cairo-Regular.ttf');
+    final loader = FontLoader('Cairo')..addFont(Future.value(reg));
+    await loader.load();
+  });
+
+  testWidgets('a failed contractors refresh is drawn above the cards, in Arabic',
+      (tester) async {
+    // 1080x2280, not the taller 2532 the «مشاريعي» shot uses: this screen
+    // stacks the header, a search row, a category grid and two section titles
+    // above the contractors strip, so a taller viewport puts the strip below
+    // the fold and the first read's cards are never built. Found by asserting
+    // the cards before the gesture.
+    tester.view.physicalSize = const Size(1080, 2280);
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+
+    // The first read succeeds and the second dies: the phone rendered fine,
+    // then the network went under it. `reads` rather than a plain bool because
+    // the strip is re-read on the pull, and the shot is about the frame *after*
+    // that failure.
+    var reads = 0;
+    final api = _client(deadWorkers: () => reads++ > 0);
 
     final auth = AuthState(api);
     await auth.restore();
@@ -283,6 +300,118 @@ void main() {
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
       Directory(_out).createSync(recursive: true);
       File('$_out/20_home_workers_stale.png')
+          .writeAsBytesSync(bytes!.buffer.asUint8List());
+    });
+  });
+
+  testWidgets('a DATED band is drawn above the cards, the age included',
+      (tester) async {
+    // The band carries a second sentence now — «قرأناها قبل 40 دقيقة» — and
+    // the first shot above cannot see that at all, because a shot taken on a
+    // real wall clock captures the one frame where the age is *deliberately*
+    // silent: a read inside the minute. So the clock is injected and aged 40
+    // minutes, and this picture proves the dated band rather than the wording
+    // the app shipped before.
+    //
+    // The date is the number the user is actually missing. The band already
+    // admits «هذه آخر نتيجة قرأناها»; what it could not say is whether that was
+    // four seconds ago or four hours — and on this screen the two strips fail
+    // for opposite reasons, so the gap is the decision: a project of the
+    // user's own may already have been taken, while the contractors strip is
+    // supply that «ابحث عن مقاول» duplicates one tap away.
+    var now = DateTime(2026, 9, 29, 9, 0);
+    tester.view.physicalSize = const Size(1080, 2280);
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+
+    var dead = false;
+    final api = _client(deadWorkers: () => dead);
+    final auth = AuthState(api);
+    await auth.restore();
+    await auth.login(
+        phone: '0773000000', password: 'secret123', rememberMe: true);
+
+    final key = GlobalKey();
+    await tester.pumpWidget(AppScope(
+      api: api,
+      auth: auth,
+      child: RepaintBoundary(
+        key: key,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          locale: const Locale('ar'),
+          supportedLocales: const [Locale('ar'), Locale('en')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: CustomerHomeScreen(clock: () => now),
+        ),
+      ),
+    ));
+    for (var i = 0; i < 16; i++) {
+      await tester.pump(const Duration(milliseconds: 80));
+    }
+    expect(find.text('مقاول قديم'), findsOneWidget,
+        reason: 'the first read worked, so the strip has cards on it');
+
+    // The read lands at 09:00, the network then dies, and the phone is not
+    // touched again for forty minutes.
+    dead = true;
+    now = DateTime(2026, 9, 29, 9, 40);
+    await tester.fling(
+        find.byType(CustomScrollView).first, const Offset(0, 340), 1200);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    // Crossed by a whole minute, not a frame: the band is re-dated by the
+    // once-a-minute age tick, so a test that only pumps frames is asserting on
+    // the sentence as it stood when the failure landed.
+    await tester.pump(const Duration(minutes: 1));
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(find.byKey(const Key('stale-workers')), findsOneWidget);
+    // Asserted in the widget as well as in the pixels, because a band can be
+    // *drawn* with the right colour and the wrong words and only the text
+    // widget knows which one it is.
+    final line = tester.widget<Text>(find.descendant(
+        of: find.byKey(const Key('stale-workers')),
+        matching: find.byType(Text))).data!;
+    expect(line, contains('قبل 40 دقيقة'),
+        reason: 'the shot must capture the dated band, not the undated one');
+    // ignore: avoid_print
+    print('BAND LINE: $line');
+
+    final (rows, dark) = (await tester.runAsync(() => _scanBand(key)))!;
+    // ignore: avoid_print
+    print('BAND rows=$rows dark=$dark');
+
+    expect(rows, greaterThan(20),
+        reason: 'the amber wash is not on screen at the size it should be');
+    // Higher than the undated shot's floor of 200, because the second
+    // sentence is real ink: a band that drew the first sentence and dropped
+    // the age would still clear 200 and pass the older assertion.
+    expect(dark, greaterThan(30000),
+        reason: 'the band drew no readable Arabic: $dark dark pixels on '
+            'the wash');
+
+    // The band is a header *on* the strip, so the contractors the user was
+    // looking at have to still be in the same frame — the age is an addition,
+    // not a replacement for the list.
+    expect(find.text('مقاول قديم'), findsOneWidget);
+    expect(find.text('تعذّر جلب المقاولين'), findsNothing,
+        reason: 'the frame must show the doubt, not a blanked strip');
+
+    await tester.runAsync(() async {
+      final boundary =
+          key.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      final img = await boundary.toImage(pixelRatio: 3.0);
+      final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+      Directory(_out).createSync(recursive: true);
+      File('$_out/20_home_workers_stale_dated.png')
           .writeAsBytesSync(bytes!.buffer.asUint8List());
     });
   });
