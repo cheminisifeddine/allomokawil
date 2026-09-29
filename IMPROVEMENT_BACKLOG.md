@@ -7697,6 +7697,50 @@ running app for defects like these rather than inventing a feature.
       talks to. Still BACKEND-API's, still not reachable from the app, and
       still not re-filed, so the next tick does not walk it a fourth time.*
 
+- [x] **A failed refresh on «ابحث عن مقاول» told the client the
+      directory was empty — and this screen never had a cache to lose in
+      the first place.** Found 29 Sep 2026 by auditing a new surface, and
+      the **fifth** member of the family the subscription bug opened.
+      *Shipped:* `_cache` + `_staleReason` on `_BrowseScreenState`, every
+      read routed through a new `_arm`, and an amber band that scrolls as
+      a list header. New pure `lib/src/data/stale_directory_copy.dart`.
+      A failed **first** read keeps the full-screen error; a failed
+      **re-read** keeps the contractors and states the doubt.
+      *Files:* `lib/src/screens/browse/browse_screen.dart`,
+      `lib/src/data/stale_directory_copy.dart`,
+      `test/stale_directory_test.dart` (6 new),
+      `test/stale_directory_shot_test.dart` (1 new).
+      *Evidence:* analyze `No issues found!`; suite
+      **1429 passed / 3 skipped / 0 failed** (was 1423/3/0), `EXIT=0`.
+      Red before green: reverting only the source file gives
+      `Found 1 widget with text "تعذّر جلب المقاولين"` and
+      `Found 0 widgets with key [<'stale-directory'>] descending from`.
+      Pixels (real Cairo via `FontLoader`): band **274 rows /
+      27,586 dark-on-wash px** in a 1179x2763 capture,
+      `contrast_audit.py token` -> **28/28 pass**.
+      Commit `e7137e6`, pushed as remote `4302c21`; all 4 blobs **MATCH**
+      against the real remote tree.
+      *Why this one is the worst of the five:* every sibling in the family
+      holds the user's **own history** — his conversations, his own
+      projects, his own subscription. The contractor directory holds the
+      **supply**, and supply the user cannot see does not exist. It is
+      also the first screen a client opens and the only read a customer
+      makes who is not here to chat, and it is the read most likely to
+      fail exactly where it matters: one bar of signal, in the shop,
+      pricing the job he is standing in.
+      *The two steps the previous two ticks did not take, and why they
+      were needed here.* `browse_screen` has no `_cache` field at all, so
+      unlike `chat_list_screen` there was nothing to fall back on and the
+      fix had to **add** the fallback, not un-break it — and that also
+      meant a failed re-read had to stop replacing a warm list with a
+      *shimmer* on the pending branch, which the inbox never had to deal
+      with. Recorded here so the next tick does not re-derive it.
+      *Trap recorded:* `gh_push.py` **must be invoked from the repo
+      directory**. Run from `/home/hatch/workspace/repos` it printed
+      `git ls-files returned nothing for .` and pointed at the *wrong*
+      repository; the caller's working directory, not its arguments, is
+      what the helper reads. It exits 0 either way.
+
 - [x] **A failed refresh on «الرسائل» told the user he had no conversations —
       and it hid the one screen that admits a message never left.** `46cc59d`
       *The inverse of the subscription bug, and the worse half of the pair.*
