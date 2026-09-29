@@ -7990,3 +7990,85 @@ running app for defects like these rather than inventing a feature.
         dies with «Bad state: No element».
       Commit `5486614` → remote `e69fa37`. All 3 blobs **MATCH** against the
       real remote tree.
+
+- [x] **A failed *refresh* on «اشتراكي» left a real price, a real pending
+      payment and a real quota on screen, and said nothing.** The screen
+      renders a *stale* catalogue after a failed re-read and the app never
+      admits the numbers in front of the reader may be out of date.
+      *Shipped:* new pure `lib/src/data/stale_catalogue_copy.dart` and a
+      `_StaleBanner` above the body in `subscription_screen.dart`; plus
+      `key: plan-load-failed` so the dead-read state and the stale state are
+      distinguishable in code rather than only in wording.
+      *The mechanism — a field written on every failure and read on one of
+      them.* `_load()` sets `_error` in both its arms (line 81 clears it, line
+      94 sets it from `errorCopy`), and `build()` reads it in **exactly one
+      place**: `message: _error ?? S.planLoadFailed` inside the
+      `catalogue == null` branch. A failed *first* load is therefore reported
+      correctly, and every failed *refresh* is not. That is the refresh
+      button, the pull-to-refresh, and — three times a session, in the code —
+      the `await _load()` that follows `_request()` and `_redeem()`. All of
+      them land on a body that renders `_catalogue` and never mentions the
+      failure again.
+      *Why the previous tick's hypothesis was wrong, and it is worth writing
+      down.* The profile tick closed with «`subscription_screen` has the same
+      `_load()`-sets-`_error` shape and I have not yet verified it gates its
+      body on a successful read». **It does** — `catalogue == null` renders
+      `_LoadFailed` and nothing else, which is the correct dead-read state and
+      was never the defect. Reading the code rather than the shape is what
+      separated the two; a tick that had "confirmed" the shape would have
+      closed this item as already-correct.
+      *Why the silence is a money claim, not a cosmetic one.* The three facts
+      a contractor acts on when he decides whether to pay are the price on
+      the card, the payment waiting on him, and the quotes he has left this
+      month. A refresh fails, the app prints nothing, and he upgrades against
+      a price D1 has since moved — the exact mismatch
+      `subscription_amountMismatchAr` exists to catch under the payment sheet,
+      arriving by silence instead of by a wrong number. He also cannot see
+      that the pending request he is waiting on may already have been cleared.
+      *The fix is to state the doubt, not to blank the data.* Deliberately
+      **not** the `_LoadFailed` state: throwing away a plan this man has
+      already paid for is a worse defect than a stale one, and a screen that
+      empties on every network stutter teaches people never to refresh. The
+      data stays and the sentence goes above it —
+      `staleCatalogueLineAr` composes the curated `errorCopy` sentence with
+      the half `errorCopy` cannot know, that the figures survived a last good
+      read. Amber, not danger: nothing is lost and his account is fine, so red
+      would cry wolf — and the pair (`accentDeep` on `accentWash`, **4.52:1**)
+      is the one `worker_home_screen` already ages its header into, so a figure
+      that went quiet looks the same wherever it is found.
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1417 passed / 3 skipped / 0 failed** (was 1411/3/0).
+      Red before green, verified by reverting **only** the source file and
+      re-running: `stale-catalogue` is found **0** times without the fix.
+      *Caught by the card-recipe guard on the first attempt.* The new
+      `AppCard` carried a hand-rolled `EdgeInsets.all(s12)`, which is rule R3
+      and fails `card_recipe_test.dart` — the full suite went red on
+      `subscription_screen.dart:940`. Fixed to `AppTheme.cardPadRail`, the
+      recipe's own compact token (what the payment sheet already uses).
+      **Worth knowing: `card_recipe_test.dart` is a whole-file text guard, so
+      a new card anywhere fails the build for a number, not for a look.**
+      *Pixels* (`/tmp/shots/16_subscription_stale.png`, 392x921 @3.0, real
+      Cairo via `FontLoader` — the web/CDP path still cannot run, see the JDK
+      note below): the amber wash band is **279 px tall x 1064 px wide =
+      93x355 dp**, carrying **31080 dark text pixels** and 7219 px of the
+      `E8A33D` accent border. The count is scoped to the band's own rows and
+      is *dark-on-wash*, not light-on-navy like the snackbar shot: the page
+      behind the banner is white, so a global ink count would measure the
+      background and pass for any input. A capture that drew an empty amber bar
+      would still satisfy `find.byKey`, which is exactly the failure this shot
+      exists to catch. `contrast_audit.py token` -> **28/28 judged pairs pass**.
+      *Two traps recorded for the next tick.*
+      * `test/stale_catalogue_shot_test.dart` drives the **AppBar refresh
+        action** via `find.byTooltip(S.planRetry)`, not a pull gesture, and
+        needs `physicalSize 1080x2532 @2.75` to fit the plan card. The
+        widget-test twin uses 1080x3400. Use the shot's viewport for pixels and
+        the twin's for assertions; the banner must be inside the first screen
+        of the list, which the taller viewport changes.
+      * `$S.errOffline` written inside a **single-quoted** Dart string is
+        literal text, not interpolation, and the test still compiles and still
+        fails with a bidi-scrambled diff. This cost two runs. Use
+        double quotes, or `endsWith`/`contains` on a `final` line — the
+        current test does the latter.
+      Commit `1292d97` -> remote `7a6a41e`. All 4 blobs **MATCH** against the
+      real remote tree (verified with the blob-hash script, not the exit
+      code).
