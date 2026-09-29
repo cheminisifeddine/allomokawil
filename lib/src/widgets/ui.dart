@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import '../core/text/monogram.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/motion.dart';
+import '../data/quote_status_copy.dart';
 import '../data/review_count.dart';
 import '../data/star_row_shape.dart';
 import '../data/taxonomy.dart';
+import '../models/enums.dart' show QuoteStatus;
 import 'a11y.dart';
 import 'motion.dart';
 
@@ -449,6 +451,45 @@ class StatusPill extends StatelessWidget {
             color: AppTheme.accentDeep,
             wash: AppTheme.accentWash,
             icon: Icons.bolt_rounded);
+    }
+  }
+
+  /// The stamp on a bid the server has already decided.
+  ///
+  /// A sibling of [StatusPill.project] rather than a private widget inside the
+  /// quote card, for the same reason that factory is public: the word, the
+  /// colour and the icon are one decision, and a second copy of it on another
+  /// card is how a marketplace ends up answering «did I win this?» in two
+  /// colours.
+  ///
+  /// A [QuoteStatus.pending] bid carries **no stamp at all** — not a grey
+  /// «قيد الانتظار». The common case is a bid the owner can still act on, and a
+  /// stamp on every card trains the eye to stop reading them; the absence is
+  /// what means "live", exactly as it does on the card.
+  factory StatusPill.quote(QuoteStatus status) {
+    switch (status) {
+      case QuoteStatus.accepted:
+        return StatusPill(
+            label: quoteStatusAr(QuoteStatus.accepted),
+            color: AppTheme.success,
+            wash: AppTheme.successWash,
+            icon: Icons.check_circle_rounded);
+      case QuoteStatus.rejected:
+        return StatusPill(
+            label: quoteStatusAr(QuoteStatus.rejected),
+            color: AppTheme.textSecondary,
+            wash: AppTheme.lineSoft,
+            icon: Icons.cancel_outlined);
+      case QuoteStatus.pending:
+        // Unreachable through the card, which gates on `isDecided`. Handled
+        // anyway because a `switch` on an enum that adds a fourth value must
+        // not throw inside somebody's widget build.
+        final label = quoteStatusAr(QuoteStatus.pending);
+        return StatusPill(
+            label: label.isEmpty ? 'قيد الانتظار' : label,
+            color: AppTheme.info,
+            wash: AppTheme.infoWash,
+            icon: Icons.hourglass_empty_rounded);
     }
   }
 

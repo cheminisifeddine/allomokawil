@@ -1,3 +1,4 @@
+import 'enums.dart' show QuoteStatus;
 import 'notification.dart' show parseServerTime;
 
 /// A contractor's bid on an open project.
@@ -27,6 +28,38 @@ class Quote {
   final int workerTotalReviews;
   final String workerVerificationStatus;
 
+  /// Whether the bid is still on the table, or has been taken or thrown out.
+  ///
+  /// The Worker sends this on every quote row and this parser used to **drop
+  /// it**, so a bid the server had already rejected drew with a live
+  /// «قبول العرض» button. Tapping it answers 200 and changes nothing, because
+  /// the backend rejected every other bid at the moment the owner accepted
+  /// one. The card is byte-for-byte identical before and after the tap, and the
+  /// project reads a different `selected_worker_id` than the man on the card —
+  /// so the one write in this product that signs a contract looked like it
+  /// worked while committing nothing.
+  ///
+  /// Defaulting to [QuoteStatus.pending] for a missing value is deliberate: the
+  /// card stays drawable, and the alternative — hiding a bid the server never
+  /// labelled — would remove the contractor from a decision the owner still has
+  /// to make.
+  final QuoteStatus status;
+
+  /// When the contractor sent this bid, or null when the server sent no
+  /// timestamp.
+  ///
+  /// The sibling of [Review.createdAt], dropped in the same way: the Worker
+  /// sends `created_at` on every quote (observed on production, and in the
+  /// `POST` answer as well as the `GET`), and this model kept `amount`,
+  /// `message`, `estimatedDays` and nothing that said when. A bid sent this
+  /// morning and one sent last March drew identically on the one screen where
+  /// a customer compares two or three people against each other.
+  ///
+  /// Read through [parseServerTime] for the same reason every other model on
+  /// this wire does: D1 writes UTC with no zone marker, so `tryParse` would
+  /// read it as Algiers wall-clock and date the bid an hour early.
+  final DateTime? createdAt;
+
   const Quote({
     required this.id,
     required this.projectId,
@@ -39,7 +72,17 @@ class Quote {
     this.workerAvgRating,
     required this.workerTotalReviews,
     required this.workerVerificationStatus,
+    this.status = QuoteStatus.pending,
+    this.createdAt,
   });
+
+  /// True when this bid is no longer a decision the owner can make.
+  ///
+  /// One boolean, read by both call sites, because the card and the list have
+  /// to agree: a losing bid has to stop offering a button *and* stop counting
+  /// as live. Same rule as `hasPriceRange` — a rule that can only be tested by
+  /// pumping a screen is a rule that ships untested.
+  bool get isDecided => status != QuoteStatus.pending;
 
   factory Quote.fromJson(Map<String, dynamic> json) => Quote(
         id: json['id'] as int,
@@ -59,6 +102,8 @@ class Quote {
             (json['worker_total_reviews'] as num?)?.toInt() ?? 0,
         workerVerificationStatus:
             (json['worker_verification_status'] ?? '') as String,
+        status: QuoteStatus.from(json['status'] as String?),
+        createdAt: parseServerTime(json['created_at']),
       );
 
   /// True when there is a real score to print, as opposed to a `0` the server

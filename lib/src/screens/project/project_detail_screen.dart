@@ -4,8 +4,10 @@ import '../../core/app_scope.dart';
 import '../../core/format/money.dart';
 import '../../core/text/dz_number.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/notification_copy.dart';
 import '../../data/project_commit_outcome.dart';
 import '../../data/quote_duration_copy.dart';
+import '../../data/quote_status_copy.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
 import '../../data/worker_stats_copy.dart';
@@ -35,8 +37,22 @@ class ProjectDetailScreen extends StatefulWidget {
   final String projectId;
   final Repository repo;
 
+  /// The wall clock the bids' ages are measured against.
+  ///
+  /// `relativeTimeAr` renders from the *difference* to now, so a screen that
+  /// reads the real clock is a screen whose pixels depend on when the test
+  /// ran: «الآن» on one run and «قبل 3 دقائق» on the next, which is how a
+  /// golden test comes to fail for no reason a reader can see. This is the
+  /// same seam `NotificationsScreen` and `WorkerProfileScreen` already carry,
+  /// added here for the same reason. Production leaves it null; the tests hand
+  /// in a fixed instant.
+  final DateTime Function()? clock;
+
   const ProjectDetailScreen(
-      {super.key, required this.projectId, required this.repo});
+      {super.key,
+      required this.projectId,
+      required this.repo,
+      this.clock});
 
   @override
   State<ProjectDetailScreen> createState() => _ProjectDetailScreenState();
@@ -436,6 +452,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                           onBid: () => _showBidSheet(project),
                           onRetry: _reload,
                           acceptingQuoteId: _acceptingQuoteId,
+                          clock: widget.clock,
                         ),
                         if (_isOwner) ...[
                           const SizedBox(height: 16),
@@ -963,6 +980,10 @@ class _QuotesSection extends StatelessWidget {
   /// was missing was the branch between them.
   final VoidCallback onRetry;
 
+  /// The wall clock the bid ages are measured against.
+  /// See [ProjectDetailScreen.clock].
+  final DateTime Function()? clock;
+
   const _QuotesSection({
     required this.quotesFuture,
     required this.project,
@@ -971,6 +992,7 @@ class _QuotesSection extends StatelessWidget {
     required this.onBid,
     required this.onRetry,
     required this.acceptingQuoteId,
+    this.clock,
   });
 
   @override
@@ -1049,6 +1071,7 @@ class _QuotesSection extends StatelessWidget {
               _QuoteCard(
                 quote: q,
                 isOwner: isOwner,
+                clock: clock,
                 // Any accept in flight disables every button: the server
                 // rejects all other bids the moment one lands, so offering
                 // them as tappable is offering a dead end.
@@ -1108,12 +1131,17 @@ class _QuoteCard extends StatelessWidget {
   /// This card's quote is the one being accepted — the only card that spins.
   final bool isThisAccepting;
 
+  /// The wall clock the bid's age is measured against; see
+  /// [ProjectDetailScreen.clock].
+  final DateTime Function()? clock;
+
   const _QuoteCard({
     required this.quote,
     required this.isOwner,
     required this.onAccept,
     this.accepting = false,
     this.isThisAccepting = false,
+    this.clock,
   });
 
   @override
@@ -1122,6 +1150,11 @@ class _QuoteCard extends StatelessWidget {
     // asking the copy file twice to reach the same answer is the kind of
     // drift this file exists to stop.
     final durationLine = quoteDurationLineAr(quote.estimatedDays);
+    final statusLabel = quoteStatusAr(quote.status);
+    // A bid the server has already decided is a past fact, so it gets a date
+    // line as well as a stamp. The same two rows the review card prints, from
+    // the same two functions — not a fourth grammar.
+    final sentLine = relativeTimeAr(quote.createdAt, now: clock?.call());
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1139,6 +1172,15 @@ class _QuoteCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 4),
+                    // «مقبول» / «مرفوض», and nothing at all while the bid is
+                    // still live — a stamp on every card would be noise on the
+                    // only case that needs no explanation.
+                    if (statusLabel.isNotEmpty)
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: StatusPill.quote(quote.status),
+                      ),
+                    if (statusLabel.isNotEmpty) const SizedBox(height: 6),
                     // Gated on the score, not on the review count. The count
                     // is a different field: a payload can say "he has reviews"
                     // and still omit the score, and then the old guard drew five
@@ -1172,6 +1214,12 @@ class _QuoteCard extends StatelessWidget {
                 Text('المبلغ: ${Money.dzd(quote.amount)}',
                     style: AppTheme.h2
                         .copyWith(fontSize: AppTheme.fsBar, color: AppTheme.navy)),
+                if (sentLine.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(sentLine,
+                      style: AppTheme.bodySoft
+                          .copyWith(fontSize: AppTheme.fsMeta)),
+                ],
                 if (durationLine.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Row(
@@ -1193,31 +1241,62 @@ class _QuoteCard extends StatelessWidget {
             const SizedBox(height: 12),
             Text(quote.message!, style: AppTheme.bodySoft),
           ],
+          // The action row, and the sentence under it, are drawn for the owner
+          // **only while his decision is real**.
+          //
+          // This is the defect this card was rebuilt for. The Worker rejects
+          // every other bid at the moment one is accepted, and it sends that
+          // verdict back on each row as `status`. The model dropped the field,
+          // so the losing card kept a live «قبول العرض» button: the owner taps
+          // it, the server answers `{"ok":true}`, the screen reloads and the
+          // card is byte-for-byte identical to the one before the tap — while
+          // the project reads a `selected_worker_id` that names the bid that
+          // *won*. The one write in this product that signs a contract appeared
+          // to work while committing nothing, and the sentence under the button
+          // («بالقبول تُرفض باقي العروض تلقائياً») then told him the rejection
+          // was still ahead of him when it had already happened.
+          //
+          // So the button and its sentence are removed together, and replaced
+          // by the verdict: which bid won, and that this one did not. A decided
+          // bid is not an error and not an empty state — it is the outcome of a
+          // competitive marketplace, and the owner deserves to read it rather
+          // than to be left tapping a card that cannot change anything.
           if (isOwner) ...[
             const SizedBox(height: 14),
-            // Wrap, not Row: the action row reflows instead of overflowing on
-            // a narrow phone, and a second action can be added safely.
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: PrimaryButton(
-                    label: 'قبول العرض',
-                    icon: Icons.check_circle_outline_rounded,
-                    // `loading` is what disables it, so the in-flight card and
-                    // its siblings are gated by the same flag.
-                    loading: isThisAccepting,
-                    onPressed: accepting ? null : onAccept,
+            if (!quote.isDecided) ...[
+              // Wrap, not Row: the action row reflows instead of overflowing on
+              // a narrow phone, and a second action can be added safely.
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    child: PrimaryButton(
+                      label: 'قبول العرض',
+                      icon: Icons.check_circle_outline_rounded,
+                      // `loading` is what disables it, so the in-flight card and
+                      // its siblings are gated by the same flag.
+                      loading: isThisAccepting,
+                      onPressed: accepting ? null : onAccept,
+                    ),
                   ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text('بالقبول تُرفض باقي العروض تلقائياً.',
+                  style: AppTheme.caption
+                      .copyWith(color: AppTheme.textSecondary)),
+            ] else
+              Text(
+                quoteStatusNoteAr(quote.status),
+                style: AppTheme.caption.copyWith(
+                  color: quote.status == QuoteStatus.accepted
+                      ? AppTheme.success
+                      : AppTheme.textSecondary,
+                  fontWeight: FontWeight.w600,
                 ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text('بالقبول تُرفض باقي العروض تلقائياً.',
-                style:
-                    AppTheme.caption.copyWith(color: AppTheme.textSecondary)),
+              ),
           ],
         ],
       ),

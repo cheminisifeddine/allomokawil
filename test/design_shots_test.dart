@@ -562,8 +562,15 @@ List<(String, Widget Function(Repository))> _mainScreens(Repository repo) => [
       ('15_notifications', (_) => NotificationsScreen(clock: () => _pinnedClock)),
       (
         '07_project_detail',
+        // Pinned, for the reason `15_notifications` and `16_guest_worker`
+        // already carry. The quote card on this screen prints the bid's age —
+        // «قبل 18 يوم» on 29 Sep, «قبل 20 يوم» on 31 Sep — from the distance
+        // between the row's `created_at` and *now*. Without a seam the
+        // baseline encodes the day it was taken, and the gate goes red on the
+        // next one with a diff that is the calendar, not the layout. This
+        // exact failure is what 19 254 px of this golden measured on 29 Sep.
         (r) => ProjectDetailScreen(
-            projectId: _project['id'] as String, repo: r),
+            projectId: _project['id'] as String, repo: r, clock: () => _pinnedClock),
       ),
     ];
 

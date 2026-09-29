@@ -7697,6 +7697,75 @@ running app for defects like these rather than inventing a feature.
       talks to. Still BACKEND-API's, still not reachable from the app, and
       still not re-filed, so the next tick does not walk it a fourth time.*
 
+- [x] **A bid the server had already refused was still drawn as a live
+      decision — the app offered the owner a contract he had already signed
+      with somebody else.** `c7b2582`. Found on production this tick by
+      driving a real accept, not by reading a screen.
+      *Shipped.* Two contractors bid on one project; the owner accepted the
+      first; the Worker answered `GET /projects/:id/quotes` with a verdict on
+      every row — quote 48 `"accepted"`, quote 49 `"rejected"` **at that same
+      moment** — and `Quote.fromJson` **dropped the field**. The losing card
+      therefore kept a live, enabled «قبول العرض» button. Tapping it is
+      exactly what an owner who changes his mind does, and exactly what a
+      customer does when the list draws the wrong man on top: the POST answers
+      `{"ok":true}`, the screen reloads, and the card is **byte-for-byte
+      identical** to the one before the tap. The project read
+      `selected_worker_id: 125` — the bid that *won* — while the card on
+      screen offered 126 and said nothing. **The one write in this product
+      that signs a contract appeared to succeed while committing nothing**,
+      and the sentence under the button («بالقبول تُرفض باقي العروض
+      تلقائياً») told the owner the rejection was still ahead of him when it
+      had already happened. `created_at` was dropped on the same row — the
+      sibling of the review defect shipped the previous tick, on the one
+      screen where a customer compares two or three people against each other.
+      Now: `QuoteStatus.from` reads the wire value (unknown and absent both
+      answer `pending` — never a throw, never "rejected", because a bid the
+      server did not label must stay drawable), `Quote.isDecided` drives the
+      card, a decided bid loses the button *and* the future-tense sentence and
+      gains the verdict, and a live bid is untouched: the button is still
+      there and the stamp is still absent, because a fix that greys out
+      everything is not a fix.
+      *The two defects worth writing down were in my own test file, and both
+      produced the exact evidence that looks like a product bug.* The pixel
+      capture was 1150 px tall and the bid cards sit **below the fold** on a
+      project with this much chrome above them, so both states photographed
+      the same header; and the second `pumpWidget` rebuilt the same widget
+      types, so Flutter reused the `State` and `initState` never fetched the
+      decided payload a second time. Either one alone yields a
+      byte-identical PNG pair, and the file asserted the verdict was "not
+      reaching the pixels" — a confident false claim about the product,
+      manufactured by a harness that never looked at the cards. An
+      independent capture per state needs a **distinct key**; the
+      `pumpWidget`-twice pattern is not a re-render. Both are now fixed and
+      the real pair is 67 267 vs 66 298 bytes, with the green wash
+      `#E7F5EE` at **0 px live → 9 423 px decided** — the verdict, measured
+      in the pixels rather than asserted in the tree.
+      *`07_project_detail` was also a golden with no pinned clock*, so the
+      19 241 px this change moved in it was mostly the calendar, not the
+      layout: the card prints the bid's age, so the baseline had encoded the
+      day it was taken and would have gone red on the next one. It now carries
+      `_pinnedClock` like `15_notifications` and `16_guest_worker` already
+      did. The regenerated baseline is **identical to the old one above
+      y=731** — the change is confined to the card, and the other two
+      goldens were not touched.
+      *One string was written and then deleted before it shipped.*
+      `quoteStatusActionLabelAr` («المقاول المختار» / «عرض غير معتمد») had
+      no caller: the card prints the note instead, because on a decided bid
+      the useful thing to read is *which* bid won, not a restatement of the
+      stamp three lines above it. Arabic no widget can reach is Arabic nobody
+      sees, and it would have survived only as a string asserted in a test.
+      *Gate:* `analyze` **No issues found!**; `test` **1587 passed / 3 skipped
+      / 0 failed** (was 1572/3/0, +15). *Sabotage:* parser stops
+      recognising `"rejected"` → **4 red**; button drawn on a decided bid →
+      **3 red**. `contrast_audit.py token` → 28/28. Shots:
+      `/tmp/shots/quote/`.
+      *Next.* The dated family is closed, and the decided-bid family now
+      covers the one write in the product that signs a contract. Start a
+      fresh audit rather than a new band. The single open item remains the
+      `POST /api/mobile/projects/:id/review` 500 — **not app code**, backend
+      source is not on this box, re-checked three times and deliberately not
+      re-filed a fourth.
+
 - [x] **«الرسائل» was the last surface in the family whose band could not say
       how old its rows were — and the only one where the band was correct about
       the data and still unreachable.** `0f2f428` -> remote `82e384d`.
