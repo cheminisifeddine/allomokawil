@@ -7926,3 +7926,67 @@ running app for defects like these rather than inventing a feature.
       arbitrary wilaya by name. Drive the filter, not `find.text('الجزائر')`.
       The sheet's search `TextField` is findable via
       `find.descendant(of: find.byType(DraggableScrollableSheet), ...)`.
+
+- [x] **A contractor who opened «تعديل ملفي» with a failed profile read was
+      looking at an editable blank form, and saving it destroyed his own
+      profile — while the app reported success.** The worst defect found so
+      far, and it was invisible because every screen *around* it was correct.
+      *The mechanism, which is what makes it unrecoverable.* `_load()` caught
+      the failure, set `_error` to the Arabic sentence, and `build()` went on
+      to render the **whole form**: every box empty, «حفظ الملف» live. Nothing
+      on that screen said "these boxes are not your values".
+      `Repository.updateMyProfile` sends every field **unconditionally, null
+      included** — deliberately, because a cleared box is a decision, and the
+      PATCH-200 lie fix (an earlier tick) depends on exactly that behaviour.
+      The consequence is the other half of the same decision: a form that never
+      loaded is a form whose boxes are empty, so one save writes `''` and `null`
+      over a real biography, real years, real prices and a real radius.
+      *Why nothing caught it.* The verification this screen is proud of cannot.
+      `ProfileSnapshot` re-reads, finds the server holding exactly what was just
+      destroyed, reports no mismatch, and the app prints «تم حفظ ملفك بنجاح» —
+      correctly, because the destruction **was** saved. A 200 is not wrong here.
+      No client-side rule can separate "the user cleared this box" from "this
+      form never held the box", which is why the fix is a refusal and not a
+      smarter comparison.
+      *Shipped:* `lib/src/screens/worker/profile_edit_screen.dart`. A `_loaded`
+      flag — deliberately **not** `!_error`, because a refused save below the
+      button also sets `_error` and must not blank a loaded form. A failed read
+      now renders the shared `EmptyView` dead-read state with a real retry, and
+      `bottomNavigationBar` is `null` in that state: a save button under an
+      error is a control promising the server will obey a form the app knows it
+      never filled. `_load()` re-arms on retry, so a second failure is
+      recoverable rather than a dead end.
+      This was the **only** form in the app that treated a failed read as a
+      successful one; `worker_profile_screen.dart:151`,
+      `project_detail_screen.dart:355` and `subscription_screen` all already
+      refuse to draw anything but a retry in that state.
+      *Evidence.* `flutter analyze` → **No issues found!**
+      `flutter test` → **1411 passed / 3 skipped / 0 failed** (was 1407/3/0).
+      Red before green, verified by `git stash`-ing the source and re-running
+      (2 red without it, 3 green with it) — not by trusting the green.
+      3 new tests in `test/profile_load_failure_test.dart`; the pure one
+      documents the destruction at the only level that can prove it, by
+      asserting that the PATCH an unloaded form sends carries **explicit nulls
+      and empty strings** (`containsKey` is true *and* the value is `null` —
+      a missing key would have been a harmless no-op).
+      *Pixels, at 392x844 @3.0* (`/tmp/shots/profile_load_failed.png`): the
+      danger disc `FCEDEC` at x 444-730, the `C33F39` icon at 534-640, the
+      amber retry button `E8A33D` at x 200-979, y 1601-1767 = **260x56 dp**,
+      the navy button label `16213E` on 410 px of its widest row. No text field
+      and no save bar anywhere in the band y 860-1900, which is the claim the
+      fix makes. `python3 tool/contrast_audit.py shots /tmp/shots` → **28/28
+      judged pairs pass**.
+      *Two traps recorded for the next tick.*
+      * The 6400 px-tall test viewport renders this screen's `ListTile`
+        ink-splash warning, so a test that pumps the form and then asserts needs
+        the same `takeException` drain the two existing profile tests use.
+        Without it the test fails on the warning and **asserts nothing** — a
+        green-looking failure that measures nothing.
+      * `test/profile_write_outcome_test.dart` has a working
+        `clearField`/`reveal`/`onlyKnownWarning` trio for this screen. A new
+        profile test should reuse them rather than re-deriving, and note that
+        «حفظ الملف» is pinned in `bottomNavigationBar` and is **not** a
+        descendant of the form's scrollable, so `scrollUntilVisible` on it
+        dies with «Bad state: No element».
+      Commit `5486614` → remote `e69fa37`. All 3 blobs **MATCH** against the
+      real remote tree.
