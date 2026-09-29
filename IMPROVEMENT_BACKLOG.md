@@ -9008,3 +9008,57 @@ running app for defects like these rather than inventing a feature.
       `POST /api/mobile/projects/:id/review` 500 — **not app code**, backend
       source is not on this box, re-checked three times and deliberately not
       re-filed a fourth.
+
+- [x] **A contractor's reviews were the one list in the app that could not
+      say how old its rows were — on the one page a customer picks a man
+      from.** `b0cc811` -> remote `c112ac5`.
+      *Shipped.* `Review.createdAt` parsed through `parseServerTime`;
+      `data/review_order.dart` (new) sorts newest-first, keeps undated rows
+      last, never deletes one, and breaks a shared stamp on the higher id;
+      `_ReviewCard` prints through `relativeTimeAr` and the section sorts;
+      `WorkerProfileScreen` takes an injectable `clock`.
+      *The finding.* `Review.fromJson` **dropped `created_at`** — the field the
+      Worker really sends on every review, and the one the app's own captured
+      production payload (`live_payload_models_test.dart`) carries. Every review
+      drew as stars, a name and a comment with no time on it. The chat list, the
+      notification centre, the projects list, the inbox and the browse strip all
+      say how old their rows are; the reviews — the actual evidence — could not.
+      A review from last week and one from eight months ago looked identical,
+      which is the difference between a man whose work kept being good and a
+      man who was good once.
+      *The second defect is the reason this was one change and not a
+      one-liner, and it only exists because of the first.* The list was drawn in
+      whatever order the Worker sent. The moment the cards carry dates, an
+      unsorted list reads «قبل 3 أشهر» directly above «الآن» — the page dating
+      its own evidence inconsistently, which is precisely what this app's copy
+      layer exists to prevent. `List.sort` is not stable, so a shared timestamp
+      is broken on the higher id rather than left to the runtime.
+      *Red before green.* Reverting the sort to the server's order -> 1 widget
+      case red. Dropping `created_at` in the parser again -> 4 red.
+      *The third sabotage is the one worth keeping.* **My first UTC assertion
+      was green against sabotaged code.** This box is `Etc/UTC`, where
+      `DateTime.tryParse` and `parseServerTime` of the same string produce the
+      same instant — so the assertion *could not* fail, and swapping the parser
+      for the naive one left the suite green. It now runs a real Dart VM in a
+      subprocess under `TZ=Africa/Algiers` (the technique
+      `subscription_clock_test.dart` already uses for the same drift between two
+      interpretations of one string) and the naive parser is red. **An
+      assertion that cannot fail on a UTC box is not a test, and writing one is
+      how a UTC-only host hides a bug that every Algerian phone would hit.**
+      *My own number was wrong first.* I asserted «قبل 37 دقيقة» for a review
+      36m10s old; the test caught it and the function was right.
+      *Pixels, not reasoning.* 784x2800 render, sabotaged vs shipped: whole-
+      canvas ink **540991 -> 546136 (+5145)** — additive, as an added line must
+      be — with the diff confined to the two review cards. Widget rects: both
+      date lines at x=231.5, identical left and width (125.5), so right-
+      anchored in RTL with no collision. Ordering proven **in the render**: the
+      server sent 09-01 then 09-11 and the first card drawn is «قبل 18 يوم»,
+      the 09-11 row.
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1572 passed / 3 skipped / 0 failed**, up from
+      1560/3/0 (+12). `contrast_audit.py token` -> 28/28. No golden moved. All
+      five blobs verified **MATCH** against the real remote tree via the API.
+      *Next.* The dated-list family now covers every surface that dates a read.
+      The one item still open is `POST /api/mobile/projects/:id/review` 500 —
+      **not app code**, backend source is not on this box, re-checked three
+      times and deliberately not re-filed a fourth.
