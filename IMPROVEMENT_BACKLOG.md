@@ -8620,3 +8620,62 @@ running app for defects like these rather than inventing a feature.
       under-a-minute rule is now written out three times — `statsFreshnessAr`,
       `staleMarketAgeAr` and `staleProjectsAgeAr` — which is one tick's worth of
       work to lift into one helper rather than a fourth copy.
+
+- [x] **«ابحث عن مقاول» admitted its list was stale and never said how stale —
+      the *supply*, and the worst surface in the app to leave undated.**
+      29 Sep 2026, the **third** member of the family to get the freshness
+      half, after `stale_market_copy.dart` and `stale_projects_copy.dart`.
+      *Shipped:* `staleDirectoryAgeAr` + `staleDirectoryLineWithAgeAr` in
+      `lib/src/data/stale_directory_copy.dart` — age **appended** as a second
+      sentence, never substituted for the reason; under a minute prints
+      nothing (a hiccup is not a number, and «الآن» under a failed read would
+      claim the client is looking at the live directory when the band exists
+      precisely because he is not); an undatable read returns the old line byte
+      for byte, which is what protects this screen's existing screenshot; clock
+      skew gives `''`, never `قبل -3 دقيقة`. Routed through `relativeTimeAr`
+      rather than a fourth hand-rolled grammar.
+      In `browse_screen.dart`: an injectable `clock`, `_cacheReadAt` stamped in
+      the same `setState` that installs `_cache` and on the landing clock
+      rather than the issue time, and a once-a-minute `_ageTimer` re-armed from
+      the success arm — the directory is pushed on top of a profile screen and
+      kept alive by the tab shell, so an uncancelled timer would outlive it.
+      *Why this one and not the next in some list order:* every other member of
+      the family holds the reader's **own history** — his messages, his
+      projects, his subscription. This one holds the **supply**, and a
+      contractor's availability, price band and number change with no push the
+      app can send. So the question the band forces is not «is my list
+      current» but «is the man in front of me still free today», and it is being
+      asked in a basement shop, on one bar, by someone pricing a job he is
+      standing in.
+      *Tests:* +14 (11 pure, 3 widget). One pure case asserts the **same** read
+      dates the **same** way through `staleDirectoryAgeAr`,
+      `staleMarketAgeAr` and `staleProjectsAgeAr`, so the three cannot drift
+      into dating one read three ways.
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1511 passed / 3 skipped / 0 failed**, up from
+      1497/3/0 (+14). Red-before-green: reverting *only* the band call reddens
+      the 2 widget cases and leaves all 11 pure cases green; reverting *only*
+      the timer arm reddens exactly the tick case.
+      Pixels `/tmp/shots/18_directory_stale.png` (1179x2763 @3.0, real Cairo
+      via `FontLoader` — no Chrome on this box), captured on an injected clock
+      aged 40 min, because a shot on a real wall clock captures the one frame
+      where the age is *deliberately* silent. A/B against the undated build
+      (`/tmp/shots/18_undated_ab.png`): wash rows **274 -> 343**, ink runs
+      **3 -> 5**, the whole delta being the added second sentence, and the first
+      contractor row still below the band at **984 -> 1053** — a header, not a
+      replacement. `contrast_audit.py token` -> 28/28.
+      Commit `5f84eb6`; remote `261e2c8`. All four blobs verified `MATCH`
+      against the real remote tree at tip `261e2c8`.
+      *A harness trap worth the three minutes it cost.* The band's own
+      `print` appeared to disagree with the run — a `grep 'قبل 40 دقيقة'` on
+      the test log found nothing while the pixels said the band was dated. It
+      was not a defect: the second sentence had landed on a line the pattern
+      did not match, and the honest check was `length`/`contains('40')`/newline
+      count on the string itself (146 chars, one `\n`, contains `40`) rather
+      than a substring search over a log that a formatter owns. A log that
+      disagrees with a render is a **grep** problem until proven otherwise.
+      *Next.* Still undated in the family: `home_strip`,
+      `chat_list_screen`, `subscription_screen`. And the under-a-minute rule is
+      now written out **four** times — `statsFreshnessAr`, `staleMarketAgeAr`,
+      `staleProjectsAgeAr` and `staleDirectoryAgeAr` — which is one tick's worth
+      of work to lift into one helper rather than a fifth copy.
