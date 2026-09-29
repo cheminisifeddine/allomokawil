@@ -44,12 +44,13 @@
 // use.
 library;
 
-// Only [relativeTimeAr] is needed, imported rather than re-derived for the
-// reason `stats_freshness_copy.dart` spells out: the count grammar and the
-// calendar-day boundary already live behind it, and a hand-rolled copy of
-// «قبل ساعتين» is how the subscription card came to call three hours
-// «قبل 3 ساعت».
+// [readAgeAr] is the only dependency. The count grammar and the calendar-day
+// boundary live two files behind it, and a hand-rolled copy of «قبل ساعتين» is
+// how the subscription card came to call three hours «قبل 3 ساعت».
+// `notification_copy.dart` stays imported for [relativeTimeAr], which this
+// file's own documentation cites.
 import 'notification_copy.dart';
+import 'read_age_ar.dart';
 
 /// The line shown above a contractor list that failed to re-read.
 ///
@@ -105,20 +106,12 @@ String staleDirectoryLineAr(String error) {
 /// for somebody else's timestamp, so the skewed read is reported as current
 /// (`''`) and the band keeps its own words.
 String staleDirectoryAgeAr(DateTime? readAt, {DateTime? now}) {
-  if (readAt == null) return '';
-  final today = now ?? DateTime.now();
-  final diff = today.difference(readAt);
-  if (diff.isNegative) return '';
-  // The under-a-minute arm is this function's own and deliberately identical
-  // to `staleMarketAgeAr`'s, `staleProjectsAgeAr`'s and `statsFreshnessAr`'s:
-  // it is the threshold the header uses, so a minute-old market and a
-  // minute-old directory agree on what counts as news. [relativeTimeAr] answers
-  // «الآن» under a minute, which is right for a message that genuinely just
-  // arrived and wrong here — this line is an apology, and «قرأناها الآن» under
-  // it would claim the client is looking at the live directory when the band
-  // exists precisely because he is not.
-  if (diff.inSeconds < 60) return '';
-  return relativeTimeAr(readAt, now: today);
+  // **The rule is not this file's.** It is [readAgeAr], which the whole app
+  // routes through so that a header, a market, a project list and a directory
+  // cannot decide separately what "old enough to mention" means. This function
+  // survives because four screens and their tests call it by name; it is a
+  // named alias, not a second implementation.
+  return readAgeAr(readAt, now: now);
 }
 
 /// The band line with its age, when the age is worth a word.

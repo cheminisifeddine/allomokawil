@@ -52,12 +52,13 @@
 // and this file is the ninth.
 library;
 
-// Only [relativeTimeAr] is needed, and it is imported rather than
-// re-derived for the reason `stats_freshness_copy.dart` spells out: the
-// count grammar and the calendar-day boundary already live behind it,
-// and a fifth hand-rolled copy of «قبل ساعتين» is how the subscription card
-// ended up calling three hours «قبل 3 ساعت».
+// [readAgeAr] is the only dependency. The count grammar and the calendar-day
+// boundary live two files behind it, and a fifth hand-rolled copy of
+// «قبل ساعتين» is how the subscription card ended up calling three hours
+// «قبل 3 ساعت». `notification_copy.dart` stays imported for [relativeTimeAr],
+// which this file's own documentation cites.
 import 'notification_copy.dart';
+import 'read_age_ar.dart';
 
 /// The line shown above the open-project feed that failed to re-read.
 ///
@@ -104,32 +105,18 @@ String staleMarketLineAr(String error) {
 ///     [relativeTimeAr]. A market left unrefreshed across a whole year is not
 ///     a latency problem and must not be described in the vocabulary of one.
 ///
-/// Routed through [relativeTimeAr] rather than re-derived, for the same reason
-/// `stats_freshness_copy.dart` gives: this is now the *fourth* surface in the
-/// app that dates a read, and the subscription card already got a hand-rolled
-/// copy of the same grammar wrong. One answer, one rule, one place to be
-/// wrong.
-///
 /// **Negative ages are clock skew, not the future.** A stamp ahead of the phone
 /// is a broken clock somewhere between the server and the handset; ageing it
 /// into «قبل -3 دقيقة» would be the app blaming the reader's phone for
-/// somebody else's timestamp, so the skewed read is reported as current
-/// (`null`) and the band keeps its own words.
+/// somebody else's timestamp, so the skewed read is reported as having no age
+/// (`''`) and the band keeps its own words.
 String staleMarketAgeAr(DateTime? readAt, {DateTime? now}) {
-  if (readAt == null) return '';
-  final today = now ?? DateTime.now();
-  final diff = today.difference(readAt);
-  if (diff.isNegative) return '';
-  // **The under-a-minute arm is this function's own, and not a copy of
-  // `stats_freshnessAr`'s by accident.** [relativeTimeAr] answers «الآن» under
-  // a minute, which is right for a message that genuinely just arrived and
-  // wrong here: this line is an apology, and «قرأناها الآن» under it claims the
-  // contractor is looking at the current market when the band exists precisely
-  // because he is not. Silence is the honest answer for a read that is still
-  // current, and it is the same threshold the header uses, so a minute-old
-  // market and a minute-old header agree on what counts as news.
-  if (diff.inSeconds < 60) return '';
-  return relativeTimeAr(readAt, now: today);
+  // **The rule is not this file's.** It is [readAgeAr], which the whole app
+  // routes through so that a header, a market, a project list and a directory
+  // cannot decide separately what "old enough to mention" means. This function
+  // survives because four screens and their tests call it by name; it is a
+  // named alias, not a second implementation.
+  return readAgeAr(readAt, now: now);
 }
 
 /// The band line with its age, when the age is worth a word.

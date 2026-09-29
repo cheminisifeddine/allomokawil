@@ -27,11 +27,13 @@
 // hand-rolled copy already did once.
 library;
 
-// Only [relativeTimeAr] is needed: the day/month arms and the Arabic count
-// grammar already live behind it, and re-deriving them here is how the same
-// rule drifts into a second copy. `arabic_agreement` and `chat_time` are
-// reached through it rather than imported directly.
+// [readAgeAr] is the whole dependency, and it is imported rather than
+// re-derived for the reason its own comment gives: the day/month arms and the
+// Arabic count grammar already live behind it. `arabic_agreement` and
+// `chat_time` stay unimported, because this file has no business reaching
+// past the helper to re-build the sentence it returns.
 import 'notification_copy.dart';
+import 'read_age_ar.dart';
 
 /// How long ago the header's numbers were read, in the app's own words.
 ///
@@ -55,15 +57,20 @@ import 'notification_copy.dart';
 ///     one read two different ways is the defect this file was opened for.
 ///
 /// A read from the *future* is clock skew, not a value from tomorrow: it is
-/// reported as «الآن» instead of being allowed to print a negative age.
+/// reported as having no age (`''`) instead of being allowed to print a
+/// negative age — a broken clock is not the reader's fault, and the sentence
+/// that says so is not this one.
+///
+/// The **rule is [readAgeAr]'s**, and this function survives only as a named
+/// alias: the header was written first and two later bands copied it, so all
+/// four now route through one file instead of four copies deciding separately
+/// what "a minute and older" means.
+///
+/// [statsAreStale] keeps its own threshold and is *not* routed through
+/// [readAgeAr] — it answers a different question (loud or muted) at a different
+/// number (an hour), and merging the two would be the refactor's own bug.
 String statsFreshnessAr(DateTime? readAt, {DateTime? now}) {
-  if (readAt == null) return '';
-  final today = now ?? DateTime.now();
-  final diff = today.difference(readAt);
-  // Silence, not «الآن». See the contract above: the clause exists to report a
-  // read that has gone off, and a read that has not gone off is not an event.
-  if (diff.isNegative || diff.inSeconds < 60) return '';
-  return relativeTimeAr(readAt, now: today);
+  return readAgeAr(readAt, now: now);
 }
 
 /// Whether a header read is old enough to be worth dating out loud.
