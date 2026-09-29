@@ -208,9 +208,19 @@ class _BrowseScreenState extends State<BrowseScreen> {
                   // truth. See `stale_directory_copy.dart`.
                   final waiting = snap.connectionState != ConnectionState.done;
                   final failed = snap.hasError && !waiting;
-                  final shown = (waiting || failed) && _cache != null
+                  // `null` means "there is nothing to draw", and it has to mean
+                  // that for a **waiting** read too, not only a failed one.
+                  // Collapsing "no cache" and "no rows" into the same empty
+                  // list is what sends an unanswered directory to the
+                  // «لا يوجد مقاول حالياً» state — telling a client who is
+                  // mid-request, on one bar, that the marketplace is empty.
+                  // Found 29 Sep while fixing the sibling in `projects_screen`,
+                  // which had the same expression and the same latent bug.
+                  final shown = _cache != null && (waiting || failed)
                       ? _cache!
-                      : (failed ? null : (snap.data ?? const <WorkerProfile>[]));
+                      : (waiting || failed
+                          ? null
+                          : (snap.data ?? const <WorkerProfile>[]));
                   if (shown == null) {
                     if (waiting) {
                       return const Shimmer(child: LoadingList(count: 5));

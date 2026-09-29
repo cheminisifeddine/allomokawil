@@ -7741,6 +7741,69 @@ running app for defects like these rather than inventing a feature.
       repository; the caller's working directory, not its arguments, is
       what the helper reads. It exits 0 either way.
 
+- [x] **A failed refresh on «مشاريعي» erased the only record a user has of
+      his own jobs — and the fix I wrote for it broke a sibling in the same
+      family.** Sixth member of the family the subscription bug opened, and
+      the mildest of them, which is worth saying out loud because the family
+      is only useful if its members are ranked honestly.
+      *Shipped:* `_cache` + `_staleReason` on `_ProjectsScreenState`, every
+      read routed through a new `_arm`, and an amber band that scrolls as a
+      list header. New pure `lib/src/data/stale_projects_copy.dart`.
+      A failed **first** read keeps the full-screen error; a failed
+      **re-read** keeps the projects and states the doubt.
+      *Files:* `lib/src/screens/project/projects_screen.dart`,
+      `lib/src/data/stale_projects_copy.dart`,
+      `test/stale_projects_test.dart` (10 new),
+      `test/stale_projects_shot_test.dart` (1 new).
+      *Evidence:* analyze `No issues found!`; suite
+      **1441 passed / 3 skipped / 0 failed** (was 1429/3/0), `EXIT=0`.
+      Red before green: reverting only the source file turns
+      `+5 -4`, and the defect's own string «تعذّر جلب المشاريع» is in the
+      failure output.
+      Pixels (real Cairo via `FontLoader`): band **461 rows / 36,923
+      dark-on-wash px** in a 1179x2763 capture; the band occupies
+      y 645-923 and the project text sits *below* it at y 1031-2118, so it
+      is a header on the list and not a replacement for it.
+      `contrast_audit.py token` -> **28/28 pass**.
+      *Why it is the mildest, stated honestly:* the directory is worse — it
+      holds the supply. This holds the user's **own** history, and he can
+      still reach the marketplace. But the rows are the only record he has
+      of jobs he posted or worked; nothing else in the app lists them, so
+      «تعذّر جلب المشاريع» is not an inconvenience, the list ceasing to
+      exist. And the **tab strip makes it worse than a single screen**: five
+      pills, each a full re-read, and a customer choosing between contractors
+      spends that decision flipping tabs on one bar of signal in the shop.
+      *The bug I introduced and the loop caught — read this before writing
+      the same `shown` expression a third time.* The restructure from
+      `snap.data` to a single `shown` variable was written as
+      `(waiting || failed) && _cache != null ? _cache! : (failed ? null : ...)`,
+      and that collapses **"no cache" and "no rows" into the same empty
+      list**. A *waiting* first read then fell out of the shimmer into
+      `_emptyList`, which calls `AppScope.of(context)` — and told a customer
+      on a slow connection that he has no projects, before the request had
+      answered. **The new file's own tests passed clean; it only surfaced in
+      the full suite** (`skeleton_loading_test.dart` and `tap_target_test.dart`,
+      the latter only when the two files run together, so a single-file re-run
+      hides it). The fix is `(waiting || failed) ? (cache ?? null) : data`.
+      **`browse_screen` shipped last tick carries the identical expression
+      and the identical latent bug**, where it is worse: a waiting first read
+      there reaches «لا يوجد مقاول حالياً» and tells a client the whole
+      marketplace is empty. Fixed in the same tick, and the new in-flight
+      test pins the projects half of it.
+      *Trap recorded — three harness rules, each cost a run.* (1) The tab
+      strip is a horizontally scrolling `ListView`; `tap()` on «قيد التنفيذ»
+      warns it is off-screen at x=401 in a 392 pt viewport. Use a pill that
+      is in bounds. (2) A `succeedingReads` threshold cannot express "read 2
+      fails and read 3 recovers", so the harness grew a `recoveringReads`
+      set — without it the "the doubt clears" test fails its own second pull
+      and proves nothing. (3) A test for the *in-flight* state must use a
+      never-completing `Completer` client, **not** a 503 (which resolves in a
+      microtask and tests the failed branch instead), must take its session
+      from prefs with **no `login()` call** (the dead client answers neither,
+      so logging in hangs the test), and must **pump 21 s at the end** to
+      drain the client's own 20 s timeout, or the run ends on "A Timer is
+      still pending even after the widget tree was disposed".
+
 - [x] **A failed refresh on «الرسائل» told the user he had no conversations —
       and it hid the one screen that admits a message never left.** `46cc59d`
       *The inverse of the subscription bug, and the worse half of the pair.*

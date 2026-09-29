@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/auth_gate.dart';
+import '../../core/l10n/error_copy.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
 import '../../data/project_search.dart';
+import '../../data/stale_projects_copy.dart';
 import '../../data/repository.dart';
 import '../../models/enums.dart';
 import '../../models/project.dart';
@@ -58,6 +60,29 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   ProjectStatus? _status = ProjectStatus.open;
   late Future<List<Project>> _future;
 
+  /// The last rows that arrived, kept so a *re-read* that fails can fall back
+  /// to them instead of erasing the list.
+  ///
+  /// This screen never had the field at all, so `_future` was re-assigned by
+  /// every pull and by every status tab while the failure branch drew
+  /// «تعذّر جلب المشاريع» over the whole list. That made a *pending* re-read
+  /// replace the user's own projects with a shimmer and a *failed* one replace
+  /// them with an error page. These rows are the only record the user has of
+  /// jobs he posted or worked — nothing else in the app lists them — so
+  /// throwing them away is not a temporary inconvenience, it is the list
+  /// ceasing to exist.
+  ///
+  /// Deliberately scoped to a *settled* answer. A read still in flight writes
+  /// nothing here, so the previous list survives it and the reader is never
+  /// shown a shimmer for work he did not ask for. See the builder for where
+  /// the doubt is drawn.
+  List<Project>? _cache;
+
+  /// The sentence for the last failed read, or null when there is nothing to
+  /// doubt — a read that has not failed yet, and a first read that failed
+  /// (which has no rows to qualify, so it keeps the full-screen error).
+  String? _staleReason;
+
   final _search = TextEditingController();
 
   /// Live text from the search box. The narrowing runs in memory over the rows
@@ -68,23 +93,56 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   @override
   void initState() {
     super.initState();
-    _future = widget.repo.myProjects(status: _status);
+    _arm(widget.repo.myProjects(status: _status));
+  }
+
+  /// Points the list at a read, and records what that read settled to.
+  ///
+  /// The cache is written **on every settled success**, and the failure is
+  /// recorded as a *sentence* rather than as a boolean, so the band can name
+  /// the failure instead of asserting that something is wrong. Both are
+  /// cleared by the next success, so the doubt cannot outlive the read that
+  /// answered.
+  ///
+  /// `onError` does not `setState` on its own: this is called from inside a
+  /// `setState` in [_reload] and [_refresh], and the answer to a future is a
+  /// microtask later than both, so the rebuild is scheduled here and lands
+  /// after the caller's own.
+  void _arm(Future<List<Project>> read) {
+    _future = read;
+    read.then((list) {
+      if (!mounted) return;
+      setState(() {
+        _cache = list;
+        _staleReason = null;
+      });
+    }, onError: (Object e, StackTrace _) {
+      if (!mounted) return;
+      setState(() => _staleReason = errorCopy(e));
+    });
   }
 
   void _reload(ProjectStatus? s) {
     setState(() {
       _status = s;
-      _future = widget.repo.myProjects(status: s);
+      _arm(widget.repo.myProjects(status: s));
     });
   }
 
   /// Pull-to-refresh: re-issues the exact request the visible tab already made.
+  ///
+  /// Awaitable on purpose. [RefreshIndicator] holds the spinner until the
+  /// future it was handed resolves, so a pull that returned before the request
+  /// answered would snap the indicator away and leave a list that *looks*
+  /// freshly loaded while still holding the rows the user was trying to
+  /// replace.
   Future<void> _refresh() async {
-    setState(() => _future = widget.repo.myProjects(status: _status));
+    final read = widget.repo.myProjects(status: _status);
+    setState(() => _arm(read));
     try {
-      await _future;
+      await read;
     } catch (_) {
-      // The FutureBuilder renders the error state; nothing to do here.
+      // The builder renders the doubt; nothing to do here.
     }
   }
 
@@ -145,10 +203,36 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
               child: FutureBuilder<List<Project>>(
                 future: _future,
                 builder: (context, snap) {
-                  if (snap.connectionState != ConnectionState.done) {
-                    return const Shimmer(child: _ProjectsSkeleton(count: 4));
-                  }
-                  if (snap.hasError) {
+                  // One branch decides what the reader is looking at, so a
+                  // re-read cannot take a different path from a first read.
+                  //
+                  // **A failed re-read falls back to the cache, and that is the
+                  // whole fix.** It used to answer the full-screen error for
+                  // *every* failure, and this screen's primary interaction is a
+                  // status tab — five pills, each a full re-read. A customer
+                  // choosing between contractors spends the decision flipping
+                  // them on one bar of signal, and every flip that failed
+                  // erased the list he was comparing offers on. A *first* read
+                  // has nothing to fall back on and keeps the error, which is
+                  // the only state where the error is the truth. See
+                  // `stale_projects_copy.dart`.
+                  final waiting = snap.connectionState != ConnectionState.done;
+                  final failed = snap.hasError && !waiting;
+                  // `null` means "there is nothing to draw", and it has to mean
+                  // that for a **waiting** read too, not only a failed one.
+                  // Collapsing "no cache" and "no rows" into the same empty
+                  // list is what sends an unanswered feed to `_emptyList` —
+                  // which is how a customer on a slow connection is told he
+                  // has no projects, before the request has even answered.
+                  final shown = _cache != null && (waiting || failed)
+                      ? _cache!
+                      : (waiting || failed
+                          ? null
+                          : (snap.data ?? const <Project>[]));
+                  if (shown == null) {
+                    if (waiting) {
+                      return const Shimmer(child: _ProjectsSkeleton(count: 4));
+                    }
                     return ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
@@ -164,29 +248,43 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                       ],
                     );
                   }
-                  final loaded = snap.data ?? const <Project>[];
-                  if (loaded.isEmpty) {
+                  if (shown.isEmpty) {
                     return _emptyList(context);
                   }
-                  final projects = narrowProjects(loaded, _query);
+                  final projects = narrowProjects(shown, _query);
                   if (projects.isEmpty) {
                     return _noMatchList();
                   }
+                  // The doubt is an annotation *on* the list, so the band
+                  // scrolls with it as a header rather than sitting above a
+                  // list that is pretending nothing happened.
+                  final stale = failed && _staleReason != null;
                   return ListView.separated(
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
-                    itemCount: projects.length,
+                    // +1 for the band. `estimatedChildCount` is the estimate
+                    // the scroll view is allowed to use, NOT the item count,
+                    // so the band is asserted on in the tests as a descendant
+                    // of the list rather than as a count.
+                    itemCount: projects.length + (stale ? 1 : 0),
                     separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (context, i) => Reveal(
-                      child: ProjectCard(
-                        project: projects[i],
-                        onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                                builder: (_) => ProjectDetailScreen(
-                                    projectId: projects[i].id,
-                                    repo: widget.repo))),
-                      ),
-                    ),
+                    itemBuilder: (context, i) {
+                      if (stale && i == 0) {
+                        return _StaleProjectsBanner(
+                            line: staleProjectsLineAr(_staleReason!));
+                      }
+                      final p = projects[stale ? i - 1 : i];
+                      return Reveal(
+                        child: ProjectCard(
+                          project: p,
+                          onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) => ProjectDetailScreen(
+                                      projectId: p.id,
+                                      repo: widget.repo))),
+                        ),
+                      );
+                    },
                   );
                 },
               ),
@@ -332,6 +430,48 @@ class _TabPill extends StatelessWidget {
           ),
         ),
       )),
+    );
+  }
+}
+
+/// The amber band a failed re-read leaves above the list it did not replace.
+///
+/// Same tone and same shape as `_StaleDirectoryBanner` in `browse_screen` and
+/// the inbox band: the doubt is a fact about the data, not an alarm, so it is
+/// drawn in the same `accentDeep`-on-`accentWash` the stale catalogue uses
+/// rather than in the red of the full-screen error it replaces.
+class _StaleProjectsBanner extends StatelessWidget {
+  const _StaleProjectsBanner({required this.line});
+
+  /// The composed sentence from [staleProjectsLineAr].
+  final String line;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      key: const Key('stale-projects'),
+      color: AppTheme.accentWash,
+      borderColor: AppTheme.accent,
+      padding: AppTheme.cardPadRail,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.history_toggle_off_rounded,
+              size: AppTheme.s20, color: AppTheme.accentDeep),
+          const SizedBox(width: AppTheme.s8),
+          Expanded(
+            child: Text(
+              line,
+              key: const Key('stale-projects-line'),
+              style: AppTheme.body.copyWith(
+                color: AppTheme.accentDeep,
+                height: 1.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
