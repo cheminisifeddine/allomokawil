@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
+import '../../core/l10n/error_copy.dart';
 import '../../core/text/arabic_search.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
 import '../../data/repository.dart';
+import '../../data/stale_directory_copy.dart';
 import '../../data/taxonomy.dart';
 import '../../models/worker.dart';
 import '../../widgets/empty_state.dart';
@@ -38,6 +40,35 @@ class _BrowseScreenState extends State<BrowseScreen> {
 
   Future<List<WorkerProfile>>? _future;
 
+  /// The last list that landed, kept so a re-read does not blank the directory.
+  ///
+  /// **This screen had no cache at all until 29 Sep 2026**, which made it the
+  /// worst member of the family `worker_profile_screen` and `chat_list_screen`
+  /// already belong to. Every re-read — a pull, a submitted search, clearing
+  /// the box, a filter chip — re-assigned `_future`, and the builder's failure
+  /// branch painted «تعذّر جلب المقاولين» over the whole feed. So a *pending*
+  /// re-read put a shimmer where a warm list of contractors was, and a
+  /// *failed* one put an error page there. Neither state had anything to hold
+  /// on to, because nothing was ever kept.
+  ///
+  /// The directory is the worst surface in the app to lose that on. It is the
+  /// first screen a client opens, and the only read a customer makes who is not
+  /// here to chat: the other screens in this family hold the user's own
+  /// history, this one holds the *supply*. Supply he cannot see does not
+  /// exist — and he is most likely to be reading it on one bar of signal, in
+  /// the shop, pricing the job he is standing in.
+  ///
+  /// Deliberately scoped to a *settled* answer. A read that is still in flight
+  /// writes nothing here, so the previous list survives it and the reader is
+  /// never shown a shimmer for work he did not ask for. See the builder for
+  /// where the doubt is drawn.
+  List<WorkerProfile>? _cache;
+
+  /// The sentence for the last failed read, or null when there is nothing to
+  /// doubt — a read that has not failed yet, and a first read that failed
+  /// (which has no rows to qualify, so it keeps the full-screen error).
+  String? _staleReason;
+
   bool _scopeReady = false;
 
   @override
@@ -48,15 +79,39 @@ class _BrowseScreenState extends State<BrowseScreen> {
     _scopeReady = true;
     _repo = Repository(AppScope.of(context).api);
     _category = widget.initialCategory;
-    _future = _repo.searchWorkers(
-        category: _category, wilaya: _wilaya, query: _query);
+    _arm(_repo.searchWorkers(
+        category: _category, wilaya: _wilaya, query: _query));
+  }
+
+  /// Points the directory at a read, and records what that read settled to.
+  ///
+  /// The cache is written **on every settled success**, and the failure is
+  /// recorded as a *sentence* rather than as a boolean, so the banner can
+  /// name the failure instead of asserting that something is wrong. Both are
+  /// cleared by the next success, so the doubt cannot outlive the read that
+  /// answered.
+  ///
+  /// `onError` does not `setState` on its own: this is called from inside a
+  /// `setState` in [_reload] and from `didChangeDependencies`, and the answer
+  /// to a future is a microtask later than both, so the rebuild is scheduled
+  /// here and lands after the caller's own.
+  void _arm(Future<List<WorkerProfile>> read) {
+    _future = read;
+    read.then((list) {
+      if (!mounted) return;
+      setState(() {
+        _cache = list;
+        _staleReason = null;
+      });
+    }, onError: (Object e, StackTrace _) {
+      if (!mounted) return;
+      setState(() => _staleReason = errorCopy(e));
+    });
   }
 
   void _reload() {
-    setState(() {
-      _future = _repo.searchWorkers(
-          category: _category, wilaya: _wilaya, query: _query);
-    });
+    setState(() => _arm(_repo.searchWorkers(
+        category: _category, wilaya: _wilaya, query: _query)));
   }
 
   /// Pull-to-refresh. The gesture a user reaches for first on a feed that has
@@ -138,10 +193,28 @@ class _BrowseScreenState extends State<BrowseScreen> {
               child: FutureBuilder<List<WorkerProfile>>(
                 future: _future,
                 builder: (context, snap) {
-                  if (snap.connectionState != ConnectionState.done) {
-                    return const Shimmer(child: LoadingList(count: 5));
-                  }
-                  if (snap.hasError) {
+                  // One branch decides what the reader is looking at, so a
+                  // re-read cannot take a different path from a first read.
+                  //
+                  // **A failed re-read falls back to the cache, and that is the
+                  // whole fix.** It used to answer the full-screen error for
+                  // *every* failure, so on the surface that holds the supply
+                  // rather than the user's own history, a network that blinked
+                  // mid-pull replaced a warm list of contractors with a page
+                  // claiming it could not load them — at the moment the user is
+                  // most likely to be on one bar, standing in the shop. A
+                  // *first* read has nothing to fall back on and keeps the
+                  // error, which is the only state where the error is the
+                  // truth. See `stale_directory_copy.dart`.
+                  final waiting = snap.connectionState != ConnectionState.done;
+                  final failed = snap.hasError && !waiting;
+                  final shown = (waiting || failed) && _cache != null
+                      ? _cache!
+                      : (failed ? null : (snap.data ?? const <WorkerProfile>[]));
+                  if (shown == null) {
+                    if (waiting) {
+                      return const Shimmer(child: LoadingList(count: 5));
+                    }
                     return RefreshIndicator(
                       onRefresh: _refresh,
                       color: AppTheme.navy,
@@ -162,10 +235,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       ),
                     );
                   }
-                  final workers =
-                      (snap.data ?? const <WorkerProfile>[])
-                          .where(_matchesQuery)
-                          .toList();
+                  final workers = shown.where(_matchesQuery).toList();
                   if (workers.isEmpty) {
                     final hasFilter = _category != null ||
                         _wilaya != null ||
@@ -223,6 +293,10 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       ),
                     );
                   }
+                  // The doubt is an annotation *on* the list, so the band
+                  // scrolls with it as a header rather than sitting above a
+                  // list that is pretending nothing happened.
+                  final stale = failed && _staleReason != null;
                   return RefreshIndicator(
                     onRefresh: _refresh,
                     color: AppTheme.navy,
@@ -233,10 +307,18 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       // the pull, so a feed of four contractors would be the
                       // one feed in the app that could not be refreshed.
                       physics: const AlwaysScrollableScrollPhysics(),
-                      itemCount: workers.length,
+                      // +1 for the band. `estimatedChildCount` is the estimate
+                      // the scroll view is allowed to use, NOT the item count,
+                      // so the band is asserted on in the tests as a descendant
+                      // of the list rather than as a count.
+                      itemCount: workers.length + (stale ? 1 : 0),
                       separatorBuilder: (_, __) => const SizedBox(height: 12),
                       itemBuilder: (context, i) {
-                        final w = workers[i];
+                        if (stale && i == 0) {
+                          return _StaleDirectoryBanner(
+                              line: staleDirectoryLineAr(_staleReason!));
+                        }
+                        final w = workers[stale ? i - 1 : i];
                         return WorkerCard(
                           worker: w,
                           variant: WorkerCardVariant.row,
@@ -452,6 +534,50 @@ class _FilterPill extends StatelessWidget {
           ),
         ),
       )),
+    );
+  }
+}
+
+/// The amber band above a contractor list that failed to re-read.
+///
+/// The same tone `stale_catalogue_copy.dart` and `stale_inbox_copy.dart` already
+/// age a stale list into (`AppTheme.accentDeep` on `accentWash`), so a screen
+/// that is quietly out of date looks the same wherever it is found — and here
+/// it shares a page with the amber queued pill of the inbox and the amber
+/// subscription band, which is deliberate rather than a clash: all three mean
+/// "this is not yet the server's".
+class _StaleDirectoryBanner extends StatelessWidget {
+  const _StaleDirectoryBanner({required this.line});
+
+  /// The composed sentence from [staleDirectoryLineAr].
+  final String line;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      key: const Key('stale-directory'),
+      color: AppTheme.accentWash,
+      borderColor: AppTheme.accent,
+      padding: AppTheme.cardPadRail,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.history_toggle_off_rounded,
+              size: AppTheme.s20, color: AppTheme.accentDeep),
+          const SizedBox(width: AppTheme.s8),
+          Expanded(
+            child: Text(
+              line,
+              key: const Key('stale-directory-line'),
+              style: AppTheme.body.copyWith(
+                color: AppTheme.accentDeep,
+                height: 1.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
