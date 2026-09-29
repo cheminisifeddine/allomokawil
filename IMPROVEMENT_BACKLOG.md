@@ -7759,6 +7759,9 @@ running app for defects like these rather than inventing a feature.
         account with no projects and no conversations shows the first-run
         guide, and that card pushes the contractors strip off the viewport so
         the capture photographs an empty page.
+      Commit `9649e79` -> remote `3ebdab3`. All 5 blobs **MATCH** against the
+      real remote tree (verified with the blob-hash script, not the exit
+      code).
 
 - [x] **A failed refresh on «ابحث عن مقاول» told the client the
       directory was empty — and this screen never had a cache to lose in
