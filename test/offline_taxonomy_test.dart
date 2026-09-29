@@ -139,19 +139,32 @@ void main() {
     // under the indicator, and the row stopped being last — which is how a
     // gesture improvement can quietly break an unrelated offline test.
     //
-    // A horizontal `ListView` is the row: the search field's scroll is an
-    // `EditableText`, not a list. Scrollable-by-type would be wrong twice
-    // over, since the result list under the indicator is one too.
-    final rowList = find.byWidgetPredicate((w) =>
-        w is ListView && w.scrollDirection == Axis.horizontal);
-    expect(rowList, findsOneWidget, reason: 'the trade row is the horizontal list');
-    // `scrollUntilVisible` needs the `Scrollable` itself, which the list builds
-    // as its child, so the row is identified by the list and driven by the
-    // scrollable under it.
-    final row = find.descendant(of: rowList, matching: find.byType(Scrollable));
-    expect(row, findsOneWidget);
-    final last = Taxonomy.categories.take(8).last;
-    await tester.scrollUntilVisible(find.text(last.name), 200, scrollable: row);
+    // It was then found by type — `w is ListView && horizontal` — which was
+    // one refactor away from breaking again: the strip is a
+    // `SingleChildScrollView` now (it builds all sixteen chips eagerly so the
+    // selected one can be revealed without a search for an unbuilt widget), and
+    // a finder that names a widget class is a finder that names an
+    // implementation. It is addressed by the strip's own key instead, which is
+    // what it is rather than how it is built.
+    expect(find.byKey(const Key('trade-filter-scroll')), findsOneWidget,
+        reason: 'the trade strip');
+    // **The last of all sixteen, not the eighth.**
+    //
+    // This line used to read `Taxonomy.categories.take(8).last` — trade 8 of
+    // 16 — and it passed. It was written on the same day as the `.take(8)` it
+    // was quietly agreeing with, so it certified the truncation instead of
+    // catching it: the test proved "the strip reaches the eighth trade", which
+    // is precisely what the strip was built to do and precisely the half of
+    // the marketplace it should not have been able to reach. A test that encodes
+    // the bug it is next to is worse than no test, because it reads as coverage.
+    //
+    // The row is now a horizontal `SingleChildScrollView` building all 16
+    // chips eagerly, so the last one is in the tree without scrolling at all;
+    // the assertion is on the sixteenth trade's own chip, by the same key the
+    // widget carries.
+    final last = Taxonomy.categories.last;
+    expect(find.byKey(Key('trade-${last.slug}')), findsOneWidget,
+        reason: 'chip ${last.slug} (index ${Taxonomy.categories.length - 1})');
     expect(find.text(last.name), findsOneWidget, reason: 'chip ${last.slug}');
   });
 

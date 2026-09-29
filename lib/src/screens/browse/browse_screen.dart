@@ -6,13 +6,12 @@ import '../../core/app_scope.dart';
 import '../../core/l10n/error_copy.dart';
 import '../../core/text/arabic_search.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/theme/motion.dart';
 import '../../data/repository.dart';
 import '../../data/stale_directory_copy.dart';
 import '../../data/taxonomy.dart';
 import '../../models/worker.dart';
 import '../../widgets/empty_state.dart';
-import '../../widgets/a11y.dart';
+import '../../widgets/trade_filter_bar.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
 import '../../widgets/worker_card.dart';
@@ -477,55 +476,29 @@ class _BrowseScreenState extends State<BrowseScreen> {
   }
 
   // ── Filter bar ──────────────────────────────────────────────────────────
+  /// The strip is [TradeFilterBar], extracted out of this file on 29 Sep.
+  ///
+  /// It used to be built here and it read `Taxonomy.categories.take(8)` — a
+  /// literal 8 against a 16-trade taxonomy — so eight trades were never built
+  /// at all, not merely scrolled off. This screen is where a client comes to
+  /// find a contractor, so the eight trades a plumber, an electrician doing
+  /// only `electrical`, a wallpaperer or a tiler had no route to here were
+  /// eight ways of finding no one. The customer home grid above it lists all
+  /// sixteen and the contractor-side strip in `worker_home_screen` lists all
+  /// sixteen, which is how a one-character decision made this app disagree
+  /// with itself. See `widgets/trade_filter_bar.dart`.
   Widget _filterBar(BuildContext context) {
-    final hasFilter = _wilaya != null || _category != null;
-    return SizedBox(
-      height: 60,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
-        children: [
-          _FilterPill(
-            icon: Icons.location_on_rounded,
-            label: _wilaya == null
-                ? 'كل الولايات'
-                : Taxonomy.wilayaName(_wilaya!),
-            selected: _wilaya != null,
-            tint: AppTheme.info,
-            wash: AppTheme.infoWash,
-            onTap: () => _pickWilaya(context),
-          ),
-          if (hasFilter) ...[
-            const SizedBox(width: 8),
-            _FilterPill(
-              icon: Icons.close_rounded,
-              label: 'مسح الفلاتر',
-              selected: false,
-              tint: AppTheme.danger,
-              wash: AppTheme.dangerWash,
-              onTap: _clearFilters,
-            ),
-          ],
-          for (final c in Taxonomy.categories.take(8)) ...[
-            const SizedBox(width: 8),
-            _FilterPill(
-              icon: c.icon,
-              label: c.name,
-              selected: _category == c.slug,
-              tint: c.tint,
-              wash: c.wash,
-              onTap: () {
-                // Same toggle semantics as the previous chip (tap again =
-                // deselect) and the same reload call.
-                setState(() {
-                  _category = _category == c.slug ? null : c.slug;
-                });
-                _reload();
-              },
-            ),
-          ],
-        ],
-      ),
+    return TradeFilterBar(
+      wilaya: _wilaya,
+      category: _category,
+      onWilayaTap: () => _pickWilaya(context),
+      onCategoryTap: (slug) => setState(() {
+        // Same toggle semantics as the chip it replaced (tap again =
+        // deselect) and the same reload call.
+        _category = _category == slug ? null : slug;
+        _reload();
+      }),
+      onClear: _clearFilters,
     );
   }
 
@@ -554,77 +527,6 @@ class _BrowseScreenState extends State<BrowseScreen> {
       _wilaya = picked;
       _reload();
     }
-  }
-}
-
-/// Rounded, fully-coloured filter chip. Deliberately NOT a Material
-/// `ChoiceChip`/`FilterChip`: those inherit colours and rendered illegible
-/// white-on-white labels before. Selected = navy fill with white label.
-class _FilterPill extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final Color tint;
-  final Color wash;
-  final VoidCallback onTap;
-
-  const _FilterPill({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.tint,
-    required this.wash,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: A11y.button(
-        selected: selected,
-        child: InkWell(
-        borderRadius: BorderRadius.circular(AppTheme.rPill),
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: AppMotion.fast,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: selected ? AppTheme.navy : wash,
-            borderRadius: BorderRadius.circular(AppTheme.rPill),
-            border: Border.all(
-                color: selected ? AppTheme.navy : AppTheme.line, width: 1.2),
-          ),
-          // Keeps long category names from stretching a single pill across
-          // the whole 360px viewport.
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 240),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon,
-                    size: 16,
-                    color: selected ? AppTheme.onNavy : tint),
-                const SizedBox(width: 7),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTheme.label.copyWith(
-                      fontSize: AppTheme.fsMeta,
-                      color: selected
-                          ? AppTheme.onNavy
-                          : AppTheme.textPrimary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      )),
-    );
   }
 }
 
