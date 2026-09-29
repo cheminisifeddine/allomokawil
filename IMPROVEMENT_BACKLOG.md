@@ -7651,7 +7651,8 @@ running app for defects like these rather than inventing a feature.
       *Commit* `5109e0c`; remote `f5d210a`. All five blobs — including the
       regenerated golden — **MATCH** against the real remote tree.
 
-- [ ] **BACKEND-API, not app code: `POST /api/mobile/projects/:id/review`
+- [ ] **BLOCKED, not app code — re-checked 28 Sep by the next tick, still
+      blocked, no action taken here: `POST /api/mobile/projects/:id/review`
       returns 500 whenever `worker_id` is in the body — and the app always
       sends it.** Found on production this tick, by accident, while driving the
       review above. Same project, same token, two calls:
@@ -7676,3 +7677,74 @@ running app for defects like these rather than inventing a feature.
       two reviews and a notification for each — because a freshly registered
       worker has no contractor profile row. Not filed as a defect; it is the
       onboarding gap, and it means a review-only worker is not readable.
+      *Re-checked 29 Sep by the tick that shipped the price-range collapse
+      below, because "blocked" is only worth writing down if someone goes and
+      looks again. The box was searched from scratch: `find /home/hatch
+      -maxdepth 4` for any `finili` tree returns only the Hermes profile
+      directories, and there is no `wrangler.jsonc` under `/home/hatch` at all.
+      The bug itself is not reproducible from outside a session — the endpoint
+      answers **401** to an unauthenticated POST, so the 500 needs a real
+      customer token to reach, and the one account created for this tick
+      (customer **391**, worker **392**) is a fresh pair with no finished job
+      behind it. Still BACKEND-API's, still nothing this loop can do about it
+      from the app side, and deliberately not re-filed as a new item so the
+      next tick does not walk the same dead end twice.*
+
+- [x] **A contractor who typed one price published a price *range* with equal
+      ends — «7000 - 7000 دج» — on the profile and the browse card.**
+      *Shipped:* new `lib/src/data/price_range_copy.dart`. `priceRangeAr(min,
+      max)` collapses `min == max` to a bare amount, `hasPriceRange(min, max)`
+      is the one gate both call sites read, and `_priceLabel` is deleted.
+      `worker_profile_screen` and `worker_card` both call it.
+      *The trigger is the server, and the app's own form sets it up.* Found by
+      driving the live `PATCH /api/mobile/my/profile` on a real account
+      (**worker id 124, user 392**, created this tick) and re-reading
+      `GET /api/mobile/my/profile` after each body:
+
+      | sent | stored |
+      | --- | --- |
+      | `min 5000, max 5000` | 5000 / 5000 |
+      | `min 7000, max null` | **7000 / 7000** |
+      | `min null, max 7000` | 5000 / 7000 |
+      | `min 7000, max 9000` | 7000 / 9000 |
+
+      `Repository.updateMyProfile` sends every form field **unconditionally,
+      null included** — on purpose, so a cleared box is a decision (its doc
+      comment explains the PATCH-200 lie it fixed). So filling in the «من» box
+      alone sends `max: null`, and the server answers by storing the max as the
+      min too. Both forms only ever refuse `min > max`, so this state is not a
+      user error at all — it is the ordinary path through the price fields.
+
+      *Why it survived:* the sibling rule was already right **one file over**.
+      `Project.budgetLabel` collapses `min == max` to a bare amount; the
+      worker's own range did not. Same column, same server, two widgets in two
+      screens, and a customer reading a budget and a customer reading a
+      tradesman's rates were given the same fact in two different shapes. It
+      is also the mirror image of the four unmeasured numbers
+      `worker_stats_copy` fixed on 26 Sep: those printed a **0** where a man
+      had answered nothing, this one printed a **range** where he answered one
+      number.
+
+      *The second half of the defect, found while isolating it:* the two call
+      sites **disagreed on the gate**, not just on the string.
+      `worker_profile_screen` gated on `min != null || max != null`;
+      `worker_card` gated on `min != null` alone. A contractor who typed a
+      single **maximum** therefore had the row on his profile and **no price
+      tag at all on the browse card** — the list a customer actually picks him
+      from. `hasPriceRange` is that disagreement, deleted.
+
+      *Evidence:* reverting the collapse and the shared gate fails **5** of the
+      new cases. `flutter analyze` → **No issues found!** `flutter test` →
+      **1392 passed / 3 skipped / 0 failed** (was 1383/3/0). The rendered
+      `row` card — the variant browse actually uses, and the only one with a
+      price tag; the vertical strip card has never had one — prints
+      `7000 دج` for the live collapsed pair, `7000–9000 دج` for a real band,
+      `حتى 9000 دج` for a max alone and `من 7000 دج` for a min alone.
+      Shots in `/tmp/shots/price_range_compare.png` and
+      `/tmp/shots/price_range_max_only.png`.
+      Commit `see git log`.
+
+      *Note for the next tick:* the wire probe created **customer 391** and
+      **worker 392** on production and left worker 124 holding
+      `price_range_min/max = 5000/5000`. Both are test accounts this loop
+      cannot delete (founder-gated) — ids now **385, 386, 389, 390, 391, 392**.

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
-import '../../core/format/money.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/price_range_copy.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
 import '../../data/worker_stats_copy.dart';
@@ -382,11 +382,14 @@ class _WorkFacts extends StatelessWidget {
             value: experienceYearsAr(w.experienceYears) ?? 'لم يُسجّل بعد',
             color: AppTheme.info,
           ),
-          if (w.priceRangeMin != null || w.priceRangeMax != null)
+          // Dropped whole when there is nothing true to say, and gated on the
+          // shared predicate rather than on `min != null` alone, so this row
+          // and the browse card beside it cannot disagree about the same man.
+          if (priceRangeAr(w.priceRangeMin, w.priceRangeMax) case final range?)
             InfoRow(
               icon: Icons.payments_rounded,
               label: 'نطاق الأسعار',
-              value: _priceLabel(w),
+              value: range,
               color: AppTheme.accentDeep,
             ),
           // Dropped whole when there is nothing true to say: a contractor who
@@ -411,14 +414,6 @@ class _WorkFacts extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  static String _priceLabel(WorkerProfile w) {
-    if (w.priceRangeMin != null && w.priceRangeMax != null) {
-      return '${Money.amountOnly(w.priceRangeMin!)} - ${Money.dzd(w.priceRangeMax!)}';
-    }
-    if (w.priceRangeMax != null) return 'حتى ${Money.dzd(w.priceRangeMax!)}';
-    return 'من ${Money.dzd(w.priceRangeMin!)}';
   }
 }
 

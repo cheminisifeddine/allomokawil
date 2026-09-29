@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../core/format/money.dart';
 import '../core/theme/app_theme.dart';
 import '../data/taxonomy.dart';
+import '../data/price_range_copy.dart';
 import '../data/review_count.dart';
 import '../data/specialty_label.dart';
 import '../core/text/monogram.dart';
@@ -197,12 +197,16 @@ class WorkerCard extends StatelessWidget {
                         _MiniTag(
                             icon: Icons.workspace_premium_rounded,
                             text: years),
-                      if (worker.priceRangeMin != null)
+                      // `hasPriceRange`, not `min != null`: a contractor who
+                      // typed a single maximum price had this tag on his profile
+                      // and not here, so the row a customer picks him from was
+                      // the one missing the price. Same string as the profile
+                      // row, minus the dashes the card has always used.
+                      if (hasPriceRange(worker.priceRangeMin, worker.priceRangeMax))
                         _MiniTag(
                           icon: Icons.payments_rounded,
-                          text: worker.priceRangeMax != null
-                              ? '${Money.amountOnly(worker.priceRangeMin!)}–${Money.dzd(worker.priceRangeMax!)}'
-                              : 'من ${Money.dzd(worker.priceRangeMin!)}',
+                          text: (priceRangeAr(worker.priceRangeMin, worker.priceRangeMax) ?? '')
+                              .replaceAll(' - ', '\u2013'),
                         ),
                     ],
                   ),
