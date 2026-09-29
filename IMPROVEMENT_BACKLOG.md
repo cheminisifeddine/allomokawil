@@ -9184,3 +9184,97 @@ running app for defects like these rather than inventing a feature.
       was found in a `take()` and in a test that agreed with it. The open item
       is still `POST /api/mobile/projects/:id/review` 500 — **not app code**,
       backend source is not on this box, deliberately not re-filed a fourth time.
+
+---
+
+## 2026-09-29 — a new free contractor's plan line had a hole where the count goes
+
+*Found on the first tick after the backlog ran dry: 155 items checked, the one
+unchecked item BLOCKED on BACKEND-API, so this cycle went looking rather than
+waiting. This is the third defect of one family in three weeks — a function that
+returns "nothing" for a value, dropped into a sentence instead of a branch.*
+
+**The defect.** `quotesAr(0)` returns `''` — deliberately, and correctly: a
+count of zero is an absence, not a number, and `printableReviewCount` and
+`photosAr` and `communeCountAr` all refuse it for the same reason. The
+unlimited branch of the same file **already had** the right guard, added when
+the bare-number bug was fixed:
+
+```dart
+final sent = quotesAr(used);
+if (sent.isEmpty) return 'عروض أسعار غير محدودة';
+```
+
+Twenty lines below it, `cappedQuotesUsageAr` did not:
+
+```dart
+final of = '${quotesAr(used)} من ${quotesAr(limit)}';
+return 'استعملت $of${isFree ? ' مجانية' : ''} هذا الشهر';
+```
+
+which renders, for `used = 0`:
+
+**«استعملت  من 3 عروض مجانية هذا الشهر»** — a double space where the count
+belongs, on the subscription screen, above the progress bar that says 0.
+
+**Why it is live and not an edge case.** `free_trial` is the plan every new
+registration is put on (`plan.dart:248` defaults the plan to `free_trial`, and
+`quote_limit` defaults to 3), and a new contractor has sent **zero** offers.
+`quotes_used_this_month` absent from the payload parses to `0`. So the first
+thing this screen shows a brand-new contractor — the largest cohort in the
+app, and the one the paywall is aimed at — is a sentence with a hole in it.
+`quotesLeftLineAr` had the identical hole for `left == 0`; its one caller
+happens to branch to «استنفدت عروض هذا الشهر» first, so the function was
+carrying a landmine rather than a live bug. Both are fixed.
+
+**A test that certified the bug it sat next to** — the same shape as last
+tick's `take(8)` one. The old test was:
+
+```dart
+for (final limit in [1, 2, 3, 11, 20]) {
+  final line = cappedQuotesUsageAr(0, limit, isFree: false);
+  expect(line, contains('من ${quotesAr(limit)}'));   // passes on the blank!
+}
+```
+
+It was written to prove the **limit's** noun could not disagree with its
+number, and it drove the one input value where the *usage* count was missing —
+so it asserted against the broken string and passed. It now drives used values
+of 1/7/20 so the usage count must be present, and a separate test requires the
+zero line to be the empty-state sentence with no double space.
+
+**The fix is the guard the file already had, moved one function over** — a zero
+count is the absence of a count, so the sentence stops before the number that
+is not there, on both branches:
+
+* `cappedQuotesUsageAr(0, …)` → «اشتراكك مجانية — لم تستعمل أي عرض بعد»
+* `quotesLeftLineAr(_, 0, _)` → «مجاني — استنفدت عروض هذا الشهر»
+
+*Self-inflicted and caught by my own assertion:* the first version of the fix
+wrote `'اشتراكك $free — …'` with `free = ''` on the paid branch, which
+produced the identical double space it was meant to remove («اشتراكك  مجانية»).
+The new test's `isNot(contains('  '))` failed on it, which is the only reason
+that assertion exists. It is kept because "a blank in the copy" is the actual
+defect class, not this one instance.
+
+**Evidence.**
+* Found by execution, not by reading: a scratch probe calling the real function
+  printed the blanked line for limits 1/3/20 before the change, and the clean
+  line after. (Probe deleted; `git status` clean.)
+* `flutter analyze` → **No issues found!**
+* `flutter test` → **1598 passed / 3 skipped / 0 failed** (was 1595/3/0, +3)
+* Sabotage: both zero-guards deleted → **3 red** (function-level capped, the
+  exhausted-allowance line, and the rendered screen).
+* Rendered on the real `SubscriptionScreen` at **320 / 360 / 412 dp** with no
+  overflow and no render exception — the one visual risk of a longer Arabic
+  line on a low-end phone, checked rather than assumed.
+* The screen test reads the strings `build()` produced, so a function-level fix
+  that never reaches the widget would fail it.
+
+*Next.* The "empty value dropped into a sentence" family is now closed on the
+quote side; `photosAr(0)` and `communeCountAr(0)` are the same shape and their
+call sites (`project_photo_count_copy.dart:84`, `project_edit_outcome.dart:324`,
+`worker_home_screen.dart:2252`) all branch on emptiness first — to be swept
+next. The open item is still `POST /api/mobile/projects/:id/review` 500 —
+**not app code**, backend source is not on this box, and deliberately not
+re-filed a fifth time.

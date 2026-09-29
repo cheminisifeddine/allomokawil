@@ -78,13 +78,33 @@ String unlimitedQuotesUsageAr(int used) {
 /// widget, one line apart. Both counts now come from [quotesAr] and the
 /// trailing noun is whichever form the limit itself takes, so the number after
 /// «من» and the word that follows it can no longer disagree.
+///
+/// **A contractor who has sent nothing gets the sentence without the count.**
+/// [quotesAr] returns `''` for zero on purpose — a count of zero is an absence,
+/// not a number — and this was the one place that dropped the result straight
+/// into a sentence, where a blank reads as a rendering fault rather than as
+/// «you have sent nothing». The line a new free contractor sees is therefore
+/// «اشتراكك مجانية — لم تستعمل أي عرض بعد»: same plan, same limit, and a
+/// claim the empty state can actually back.
 String cappedQuotesUsageAr(int used, int limit, {required bool isFree}) {
-  final of = '${quotesAr(used)} من ${quotesAr(limit)}';
-  return 'استعملت $of${isFree ? ' مجانية' : ''} هذا الشهر';
+  final free = isFree ? ' مجانية' : '';
+  final sent = quotesAr(used);
+  // Nothing sent yet. `quotesAr(0)` is silence by design, so interpolating it
+  // left a double space where the count belonged and read
+  // «استعملت  من 3 عروض مجانية هذا الشهر». See the note on the unlimited
+  // branch above: the zero form is not a strained «صفر عروض», it is a
+  // shorter sentence that stops before the count that is not there.
+  if (sent.isEmpty) return 'اشتراكك${isFree ? ' مجانية' : ''} — لم تستعمل أي عرض بعد';
+  return 'استعملت $sent من ${quotesAr(limit)}$free هذا الشهر';
 }
 
 /// The plan row on the worker's home: «بقي عرضان من 3 عروض هذا الشهر».
 ///
 /// Two counts, both from [quotesAr], and neither spelled by hand.
-String quotesLeftLineAr(String nameAr, int left, int limit) =>
-    '$nameAr — بقي ${quotesAr(left)} من ${quotesAr(limit)} هذا الشهر';
+String quotesLeftLineAr(String nameAr, int left, int limit) {
+  final room = quotesAr(left);
+  // Same hole as the capped branch: a zero `left` is the absence of a count,
+  // and «بقي  من 3 عروض» is worse than a sentence that stops at the plan.
+  if (room.isEmpty) return '$nameAr — استنفدت عروض هذا الشهر';
+  return '$nameAr — بقي $room من ${quotesAr(limit)} هذا الشهر';
+}

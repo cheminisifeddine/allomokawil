@@ -181,12 +181,36 @@ void main() {
           'استعملت 7 عروض من 20 عرض هذا الشهر');
     });
 
-    test('the number after «من» and its noun cannot disagree', () {
+    test('a contractor who has sent nothing reads no count, not a hole', () {
+      // The live defect, and the default state of every new registration: the
+      // free plan is what a fresh account is put on, and it has sent zero
+      // offers. `quotesAr(0)` is silence by design, and dropping it into the
+      // sentence produced «استعملت  من 3 عروض مجانية هذا الشهر» — a double
+      // space where the count belongs, on the revenue screen, for the largest
+      // group of contractors in the country.
+      for (final limit in [1, 2, 3, 11, 20]) {
+        for (final isFree in [true, false]) {
+          final line = cappedQuotesUsageAr(0, limit, isFree: isFree);
+          expect(line, isNot(contains('  ')),
+              reason: 'a blank where the count should be: "$line"');
+          expect(line, contains('لم تستعمل أي عرض بعد'),
+              reason: 'the empty state is missing: "$line"');
+        }
+      }
+    });
+
+    test('the count after «من» and its noun cannot disagree', () {
       // The old widget carried two fixed nouns one line apart: «عروض» on the
       // free branch and «عرضاً» on the paid one, for the same construction.
+      // This asserts the limit noun is present AND that a count precedes it —
+      // the previous version only checked the limit, so it passed on the very
+      // string that was missing its usage count.
       for (final limit in [1, 2, 3, 11, 20]) {
-        final line = cappedQuotesUsageAr(0, limit, isFree: false);
-        expect(line, contains('من ${quotesAr(limit)}'), reason: line);
+        for (final used in [1, 7, 20]) {
+          final line = cappedQuotesUsageAr(used, limit, isFree: false);
+          expect(line, contains('من ${quotesAr(limit)}'), reason: line);
+          expect(line, contains(quotesAr(used)), reason: line);
+        }
       }
     });
   });
@@ -204,6 +228,15 @@ void main() {
     test('a 20-quote plan takes the 11+ form', () {
       expect(quotesLeftLineAr('محترف', 8, 20),
           'محترف — بقي 8 عروض من 20 عرض هذا الشهر');
+    });
+
+    test('an exhausted allowance reads the spent sentence, not a blank', () {
+      // Same hole as the capped branch. The home-screen caller happens to guard
+      // `left == 0` before calling, so this was never seen there — but the
+      // function is the one place that owns the sentence, and a caller that
+      // stops guarding should get copy, not a blank.
+      expect(quotesLeftLineAr('مجاني', 0, 3), 'مجاني — استنفدت عروض هذا الشهر');
+      expect(quotesLeftLineAr('مجاني', 0, 3), isNot(contains('  ')));
     });
   });
 
@@ -296,6 +329,20 @@ void main() {
           texts.any((t) => t.contains('من 3 عروض') && t.contains('مجانية')),
           isTrue,
           reason: texts.toString());
+    });
+
+    testWidgets('a brand-new free contractor reads no blank in the line',
+        (tester) async {
+      // used = 0 is what every new registration arrives with, and it is the
+      // one value `_UsageLine` passed straight into the sentence. Asserted on
+      // the rendered strings because a function-level fix that never reaches
+      // build() is not a fix a user can see.
+      final texts = await rendered(tester,
+          plan: 'free_trial', nameAr: 'مجاني', limit: 3, used: 0);
+      final line = texts.where((t) => t.contains('لم تستعمل أي عرض بعد'));
+      expect(line, isNotEmpty, reason: 'the empty-state line is missing: $texts');
+      expect(texts.any((t) => t.contains('  ')), isFalse,
+          reason: 'a blank reached the screen: $texts');
     });
   });
 
