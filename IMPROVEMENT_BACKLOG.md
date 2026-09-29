@@ -8486,3 +8486,97 @@ running app for defects like these rather than inventing a feature.
       failed-read screen: several of these surfaces now keep rows and admit
       they are old, but only the header and the plan card carry a *timestamp*,
       so a feed that survived a failed refresh is honest and undated.
+
+- [x] **The market band admitted its rows were stale and never said how stale —
+      the freshness half of the failed-read family.** Taken as the *Next* of the
+      entry above, and it is the first of that suggestion: several of these
+      surfaces now keep their rows and admit they are old, but only the header
+      and the plan card carried a *timestamp*, so a feed that survived a failed
+      refresh was honest and undated. A contractor reading a market he is about
+      to bid on is asking one question — *how wrong can this be?* — and the
+      band answered it with the same sentence whether the pull failed four
+      seconds ago or forty minutes ago. Only the second is one where a project
+      somebody else has already taken is a bid he loses.
+      *What shipped.* `stale_market_copy.dart` gains `staleMarketAgeAr` and
+      `staleMarketLineWithAgeAr`; `worker_home_screen.dart` stamps
+      `_cacheReadAt` in the same `setState` that installs the rows and arms the
+      one-minute tick from the read's own success arm.
+      *Four rules, each of which is a way the obvious implementation is wrong.*
+      (1) The age is **appended, never substituted** — the failure sentence
+      names the *kind* of failure and the age says nothing about it, so a band
+      that traded one for the other would throw away the half the reader can
+      act on. It is a second **sentence**, not a clause, because Arabic wraps
+      both and a three-line band on a 360 px handset is a notice scrolled past.
+      (2) **Under a minute prints nothing.** `relativeTimeAr` answers «الآن»
+      under a minute, which is right for a message that just arrived and wrong
+      here: this line is an apology, and «قرأناها الآن» under it claims the
+      market is current when the band exists precisely because it is not. (3) An
+      **undatable read returns the old line byte for byte** — the wording eight
+      other screens are screenshotted and tested against must survive
+      unchanged, or this file quietly re-opens a defect on seven screens that
+      are already correct; the fallback is equality with `staleMarketLineAr`,
+      not an approximation. (4) **Negative ages are clock skew, not the future**
+      — a stamp ahead of the phone is a broken clock between server and handset,
+      and ageing it would print «قبل -3 دقيقة» and blame the reader's phone.
+      Routed through `relativeTimeAr` rather than re-derived: this is the
+      *fourth* surface in the app that dates a read, and the subscription card
+      already got a hand-rolled copy of the same grammar wrong («قبل 3 ساعت»).
+      *The tick arming is the load-bearing part, and it was found by not
+      trusting the test.* `_readMe` never runs for a guest
+      (`initState` reads the profile only when `!widget.guest`), and the market
+      is served with no account at all — so gating the one-minute tick on
+      `_meReadAt`, which is null forever for a visitor, meant a signed-out
+      contractor watched «قبل 12 دقيقة» sit there unchanged for as long as the
+      tab stayed open. **Reverting only that gate left the file at 20/20
+      green**, because every case in the file was a signed-in contractor. The
+      `a VISITOR with no profile read still gets a band that keeps counting`
+      case is the one assertion that catches it, and it now does: with the gate
+      reverted, the file goes **21 passed / 1 failed** on that case alone.
+      *Two baselines in this test were wrong before the band was ever wrong, and
+      both in the same direction.* The first asserted `staleMarketLineAr(
+      S.errOffline)` — the offline arm, for a fixture that breaks the feed with
+      a **500**. The replacement was a stand-in implementing only
+      `StatusCopyError`; the real 500 arrives as an `ApiException`, which is
+      **also** an `ArabicCopyError`, so `errorCopy` returns its curated
+      `S.errServer` directly and never consults the status. The stand-in skipped
+      the interface that decides the answer and the baseline read «حدث خطأ غير
+      متوقع» while the band on screen read «خلل مؤقّت في الخادم». The baseline is
+      now built by raising the fixture's own failure through the app's
+      `ApiClient` and catching what comes out. *A baseline written from a
+      failure the test never produces is a test that measures the wrong thing
+      and then fails for a reason that has nothing to do with the band.*
+      *Harness note worth keeping:* the age step pumps
+      `Duration(minutes: 1, milliseconds: 100)`, **not** a second. The age is
+      not recomputed on demand — the screen's one-minute tick is what redraws
+      it — and pumping 1 s only appeared to work because the injected clock had
+      already been advanced. Pumping a minute also proves the timer is the thing
+      firing, which is the actual claim.
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1484 passed / 3 skipped / 0 failed**, up from
+      1473/3/0 (+11). **Red before green:** reverting only
+      `worker_home_screen.dart` gives the two widget cases red with the nine
+      copy cases still green — the expected split, and the check that the tests
+      are testing the screen.
+      *Pixels* (`/tmp/shots/22_worker_market_stale.png`, 1176x2550 @3.0, real
+      Cairo via `FontLoader` — no Chrome on this box, so the capture is taken
+      in-test, as the other six stale shots are). The shot test now runs on an
+      **injected clock** aged 40 minutes, because with a real wall clock the
+      captured frame is the one a contractor sees for the first minute after a
+      failed pull and the new second sentence never appears in a picture. The
+      captured band reads, in full:
+      «لم نتمكن من تحديث القائمة — هذه آخر نتيجة قرأناها. خلل مؤقّت في الخادم.
+      أعد المحاولة بعد لحظات، وإن تكرّر الأمر جرّب لاحقاً. | قرأناها قبل 40
+      دقيقة.» Band box **y 71..212** logical, wash **y 216..632** device,
+      `darkInBand=36698`, `inkLast=2460` — still a header, the rows are still
+      drawn below it. Measured the four ink rows inside the band directly off
+      the PNG: **252..313, 326..454, 467..509, 535..589**, i.e. the first
+      sentence wraps to three lines and the age occupies its own, with the
+      project's ink well below. `contrast_audit.py token` -> **28/28 pass**.
+      Commit `de5a350`; remote `4d0685`.
+      *Next.* The freshness argument generalises to the other members of the
+      family: `browse_screen`, `projects_screen`, `home_strip`,
+      `notifications`, `inbox` and `directory` all keep rows under a band that
+      admits staleness and none of them dates them. `stats_freshnessAr` and this
+      file now agree on the under-a-minute rule, so the shared helper is
+      probably worth lifting out of `stats_freshness_copy.dart` rather than
+      imported from two directions — worth one tick to decide, not to guess.
