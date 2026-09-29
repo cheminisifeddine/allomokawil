@@ -7697,6 +7697,52 @@ running app for defects like these rather than inventing a feature.
       talks to. Still BACKEND-API's, still not reachable from the app, and
       still not re-filed, so the next tick does not walk it a fourth time.*
 
+- [x] **«الرسائل» was the last surface in the family whose band could not say
+      how old its rows were — and the only one where the band was correct about
+      the data and still unreachable.** `0f2f428` -> remote `82e384d`.
+      Nine members of the family now; this is the last surface.
+      *Shipped (two defects, one screen, one read):* `staleInboxAgeAr` +
+      `staleInboxLineWithAgeAr` routed through `readAgeAr`, an injectable
+      `clock`, `_cacheReadAt` stamped where the read **settles** and refreshed
+      on **every** success, a once-a-minute age tick cancelled in `dispose`;
+      and the empty-cache branch now keeps the retry.
+      *The second defect is the one worth remembering.* `_cache` is written on
+      success whatever the list contains, so «the read succeeded and it was
+      empty» and «the read failed and we have never had a list» are the **same
+      value** — `_cache == []` — by the time the builder looks. It answered the
+      empty-inbox CTA for both, so a refresh that failed told the user
+      «لا محادثات بعد» — a confident false statement built out of a read that
+      never returned, on the one screen whose empty state is a *true* statement
+      with a real meaning. And that view's only action is `onDiscover`, so a
+      user on a dead network got a browse button and **no way to re-read at
+      all**. The first-read-with-no-cache branch was already right and is now
+      pinned too.
+      *Three of my own assertions were wrong before the code was, and each was
+      caught by making the test fail on purpose:* (1) the "no age under a
+      minute" assertion looked for «قرأناها», a substring the base line
+      **already** contains in «آخر قائمة قرأناها» — so it passed whether or not
+      the age was appended; it now looks for the phrase the age sentence
+      starts with. (2) the failed-first-read test booted healthy and failed a
+      *later* read, which is the band's state, not the error view's, so it
+      could not reach the branch it was written for. (3) the harness handed a
+      bare future to `initial:`, which the shells never do — they attach
+      `catchError` in `_resolveUnread` — producing an unhandled `ApiException`
+      that read like the screen throwing on a failed read. Probed, not guessed:
+      attaching the handler at creation made the error vanish with no assertion
+      changed.
+      *Sabotage-checked, all three red:* reverting the empty-cache fix, stamping
+      only the first read, and removing the age tick each fail a different test.
+      The "stamp-only-the-first" one is the same sabotage that made the previous
+      tick's own test pass a broken screen, so it is now pinned in the same
+      shape.
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1552 passed / 3 skipped / 0 failed**, up from
+      1544/3/0 (+8).
+      *Pixels.* Band wash rows **279 -> 348**, dark ink **30956 -> 36624**; the 69
+      added tail rows carry real glyphs (27 inked rows, max 298 dark px/row), not
+      an empty amber bar. `/tmp/shots/18_inbox_stale_dated.png`.
+      `contrast_audit.py token` -> 28/28.
+
 - [x] **A failed refresh on the notification centre left the app claiming
       its list was current — the eighth member of the family, and the only
       one that failed *silently*.** Found 29 Sep 2026 by the same audit,
