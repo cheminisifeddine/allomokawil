@@ -9,6 +9,7 @@ import '../../data/photo_count_copy.dart';
 import '../../data/portfolio_allowance.dart';
 import '../../data/portfolio_write_outcome.dart';
 import '../../data/repository.dart';
+import '../../data/stale_gallery_copy.dart';
 import '../../models/worker.dart';
 import '../../widgets/a11y.dart';
 import '../../widgets/net_image.dart';
@@ -45,7 +46,17 @@ class MyPortfolioScreen extends StatefulWidget {
   /// production call site a single `const MyPortfolioScreen()`.
   final Repository? repo;
 
-  const MyPortfolioScreen({super.key, this.repo});
+  /// The wall clock the freshness band is measured against.
+  ///
+  /// `readAgeAr` renders «قبل 12 دقيقة» from the *difference* to now, so a
+  /// screen that always reads `DateTime.now()` labels the same band differently
+  /// as the hours pass. That is right for a person and fatal for a golden gate,
+  /// which pins pixels: the notifications baseline drifted 171 px on an hour
+  /// boundary and took the whole `flutter test` gate red with it. Tests hand in
+  /// a fixed clock; production leaves this null and reads the real time.
+  final DateTime Function()? clock;
+
+  const MyPortfolioScreen({super.key, this.repo, this.clock});
 
   @override
   State<MyPortfolioScreen> createState() => _MyPortfolioScreenState();
@@ -61,6 +72,59 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
   bool _loading = true;
   bool _busy = false;
   String? _error;
+
+  /// When the photos on screen were last read successfully.
+  ///
+  /// Written where the read **settles**, not where it is issued, and refreshed
+  /// on **every** success: a screen that stamps only its first successful read
+  /// answers the second outage with the age of the first one, and tells a
+  /// contractor his gallery was read «قبل ساعتين» when it was fetched this
+  /// very second.
+  DateTime? _readAt;
+
+  /// Whether the photos under the band are the ones the server last sent.
+  ///
+  /// **The field that was missing, and the whole reason this screen belonged
+  /// to the family.** `_error` is set by two different failures and only one of
+  /// them may keep the grid:
+  ///
+  ///  * a **first** read that failed has no photos at all, so there is nothing
+  ///    to date and the full-screen error is the whole answer;
+  ///  * a **re-read** that failed has a whole grid of finished jobs already on
+  ///    screen, and those are real — the honest state is the photos with one
+  ///    line saying they might be old.
+  ///
+  /// One nullable string cannot carry that difference, which is why this is a
+  /// separate getter rather than another `if (_error != null)`.
+  bool get _stale => _error != null && _images.isNotEmpty;
+
+  /// Whether there is anything to draw at all.
+  ///
+  /// **The defect this whole item is about, stated as one predicate.** The
+  /// builder used `_loading` for this, which asks "is a read in flight?" and
+  /// answers a different question: "is there anything to draw?". The two came
+  /// apart on the two ordinary failures of this screen:
+  ///
+  ///  * a **pending** re-read replaced twelve photographs of finished jobs with
+  ///    a shimmer for the length of a round trip, after the contractor pressed
+  ///    «تحديث» and did nothing wrong;
+  ///  * a **failed** re-read replaced them with the same shimmer **forever**,
+  ///    because `_loading` goes false and `_error` is set but the grid was
+  ///    already thrown away.
+  ///
+  /// A first read is the only state with genuinely nothing to draw, and this
+  /// screen is the family's one member where that is also the only state where
+  /// losing the pictures is survivable — they are his own work, and the one
+  /// surface in the product he is the author of.
+  ///
+  /// It is deliberately **not** `_worker != null`: that would send a *first*
+  /// read that failed back to the skeleton, because nothing landed and
+  /// `_loading` is false — the grid would be gone and the error with it, so a
+  /// man whose connection dropped on the first open would be left with grey
+  /// boxes and no way out. The screen the constructor builds is "a read is
+  /// still in flight", and the three settled states — photos, a first-read
+  /// failure, a re-read failure — all belong in the body.
+  bool get _settled => _worker != null || !_loading;
 
   /// How many photos the plan allows, once the server has answered.
   ///
@@ -86,6 +150,9 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
     _load();
   }
 
+  /// The wall clock, injectable for tests. See [MyPortfolioScreen.clock].
+  DateTime _now() => (widget.clock ?? DateTime.now)();
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -99,6 +166,9 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
         _worker = worker;
         _images = images;
         _loading = false;
+        // The clock *now*, not the moment the request was issued, so a read in
+        // flight for forty seconds is dated when it actually landed.
+        _readAt = _now();
       });
       // Read **after** the gallery is on screen, so a plan that never loads is
       // a missing progress line and not a spinner that never resolves. The two
@@ -326,13 +396,22 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
         title: const Text('معرض أعمالي'),
         actions: [
           IconButton(
+            // Still gated on the read, and that is right: a second «تحديث»
+            // while one is in flight is a second GET on a connection that has
+            // already failed once. The *grid* is no longer gated on it, which
+            // is the half that was wrong.
             onPressed: _loading ? null : _load,
             icon: const Icon(Icons.refresh_rounded),
             tooltip: 'تحديث',
           ),
         ],
       ),
-      body: _loading
+      // `_settled`, not `_loading`. See [_settled]: the skeleton was
+      // showing for a pending re-read and for a failed one, and on a gallery
+      // that is the screen throwing away the contractor's own work. A shimmer
+      // belongs to a *first* read, which is the only state with nothing to
+      // draw.
+      body: !_settled
           ? const SkeletonGrid()
           : Center(
               child: ConstrainedBox(
@@ -340,7 +419,19 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
                   children: [
-                    if (_error != null) ...[
+                    // The band **replaces** the danger card when the grid is
+                    // still on screen, and this is the half that is easy to
+                    // get wrong. `_error != null` used to mean "nothing to
+                    // draw", so the red card was the whole answer; now that a
+                    // failed re-read keeps its photos, the red card would sit
+                    // above twelve photographs saying «تعذّر…» as if the gallery
+                    // itself were the problem — loud, alarming, and about the
+                    // wrong thing. The band is the family's own colour for
+                    // exactly this state: the data is real, the read is not.
+                    //
+                    // A **first** read that failed has no photos, so `_stale`
+                    // is false and the red card with its retry is untouched.
+                    if (_error != null && !_stale) ...[
                       AppCard(
                         color: AppTheme.dangerWash,
                         borderColor: AppTheme.danger,
@@ -356,6 +447,16 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
                                       color: AppTheme.danger, height: 1.6)),
                             ),
                           ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    if (_stale) ...[
+                      _StaleGalleryBanner(
+                        line: staleGalleryLineWithAgeAr(
+                          _error!,
+                          _readAt,
+                          now: _now(),
                         ),
                       ),
                       const SizedBox(height: 14),
@@ -393,9 +494,9 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
                         onPressed: _busy ? null : _addPhoto,
                       ),
                     const SizedBox(height: 14),
-                  // The photo-tips card was removed on the founder's call — the
-                  // portfolio screen shows the gallery and the add button, and
-                  // nothing else competes with them.
+                    // The photo-tips card was removed on the founder's call — the
+                    // portfolio screen shows the gallery and the add button, and
+                    // nothing else competes with them.
                   ],
                 ),
               ),
@@ -448,14 +549,16 @@ class _Header extends StatelessWidget {
                 // text collapses — so it belongs to the line it separated.
                 CopyLine(
                   portfolioCountLineAr(count),
-                  style: AppTheme.label
-                      .copyWith(fontSize: AppTheme.fsSmall, color: AppTheme.success),
+                  style: AppTheme.label.copyWith(
+                      fontSize: AppTheme.fsSmall, color: AppTheme.success),
                 ),
                 CopyLine(
                   _subLine(),
                   gapAbove: 2,
                   style: AppTheme.caption.copyWith(
-                      color: AppTheme.success, fontSize: AppTheme.fsCaption, height: 1.5),
+                      color: AppTheme.success,
+                      fontSize: AppTheme.fsCaption,
+                      height: 1.5),
                 ),
               ],
             ),
@@ -465,25 +568,25 @@ class _Header extends StatelessWidget {
     );
   }
 
-/// The second line, in the order that answers the question he came with.
-///
-/// What he has uploaded this sitting is the least useful thing to say once the
-/// plan matters, so the room left takes that slot, and the session count moves
-/// under it. A full gallery overrides both: the limit is the whole message.
-///
-/// Null is silence by contract — a plan that never answered leaves this card
-/// saying exactly what it said before the allowance existed.
-String _subLine() {
-  final a = allowance;
-  if (a == null) {
-    return uploaded > 0
-        ? uploadedThisSessionAr(uploaded)
-        : 'هذه الصور يراها كل صاحب مشروع في ملفك.';
+  /// The second line, in the order that answers the question he came with.
+  ///
+  /// What he has uploaded this sitting is the least useful thing to say once the
+  /// plan matters, so the room left takes that slot, and the session count moves
+  /// under it. A full gallery overrides both: the limit is the whole message.
+  ///
+  /// Null is silence by contract — a plan that never answered leaves this card
+  /// saying exactly what it said before the allowance existed.
+  String _subLine() {
+    final a = allowance;
+    if (a == null) {
+      return uploaded > 0
+          ? uploadedThisSessionAr(uploaded)
+          : 'هذه الصور يراها كل صاحب مشروع في ملفك.';
+    }
+    if (a.isFull) return portfolioFullLineAr(a.limit);
+    if (a.isUnlimited) return portfolioUnlimitedLineAr();
+    return portfolioLeftLineAr(a.left!, a.limit);
   }
-  if (a.isFull) return portfolioFullLineAr(a.limit);
-  if (a.isUnlimited) return portfolioUnlimitedLineAr();
-  return portfolioLeftLineAr(a.left!, a.limit);
-}
 }
 
 /// Stands in for the add button when the plan's gallery is full.
@@ -516,7 +619,8 @@ class _FullNotice extends StatelessWidget {
               children: [
                 Text(portfolioFullLineAr(allowance.limit),
                     style: AppTheme.label.copyWith(
-                        fontSize: AppTheme.fsSmall, color: AppTheme.accentDeep)),
+                        fontSize: AppTheme.fsSmall,
+                        color: AppTheme.accentDeep)),
                 const SizedBox(height: 2),
                 Text('رقّي خطتك لتضيف صوراً أكثر إلى معرض أعمالك.',
                     style: AppTheme.caption.copyWith(
@@ -534,6 +638,55 @@ class _FullNotice extends StatelessWidget {
 
 /// The gallery grid, with its own "add" tile as the first cell — the natural
 /// place to put a missing picture.
+/// The band above a gallery that failed to re-read.
+///
+/// Deliberately the **accent** card and not the danger card, and that is the
+/// whole argument of this class. Every other member of the family draws its
+/// stale band in `accentWash` with the history icon: the rows underneath are
+/// real, so the screen is not reporting a failure of the data, it is reporting
+/// a failure of the *last update* to a real thing. Painting this one red would
+/// say «the photos are broken» on a gallery whose photographs are fine.
+///
+/// The `Key`s are load-bearing, not decoration: every sibling pins its band by
+/// key so a test can ask "is this band on screen?" without matching Arabic, and
+/// a copy change in `stale_gallery_copy.dart` cannot quietly make the assertion
+/// vacuous.
+class _StaleGalleryBanner extends StatelessWidget {
+  const _StaleGalleryBanner({required this.line});
+
+  /// The composed sentence from [staleGalleryLineWithAgeAr].
+  final String line;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      key: const Key('stale-gallery'),
+      color: AppTheme.accentWash,
+      borderColor: AppTheme.accent,
+      padding: AppTheme.cardPadRail,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.history_toggle_off_rounded,
+              size: AppTheme.s20, color: AppTheme.accentDeep),
+          const SizedBox(width: AppTheme.s8),
+          Expanded(
+            child: Text(
+              line,
+              key: const Key('stale-gallery-line'),
+              style: AppTheme.body.copyWith(
+                color: AppTheme.accentDeep,
+                height: 1.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _Gallery extends StatelessWidget {
   final List<String> images;
   final bool busy;
@@ -578,37 +731,40 @@ class _AddTile extends StatelessWidget {
     return Material(
       color: AppTheme.accentWash,
       borderRadius: BorderRadius.circular(AppTheme.rMd),
-      child: A11y.button(enabled: !busy, child: InkWell(
-        onTap: busy ? null : onTap,
-        borderRadius: BorderRadius.circular(AppTheme.rMd),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
+      child: A11y.button(
+          enabled: !busy,
+          child: InkWell(
+            onTap: busy ? null : onTap,
             borderRadius: BorderRadius.circular(AppTheme.rMd),
-            border: Border.all(color: AppTheme.accent, width: 1.4),
-          ),
-          child: Center(
-            child: busy
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2.4),
-                  )
-                : const Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.add_rounded, size: 28, color: AppTheme.accentDeep),
-                      SizedBox(height: 2),
-                      Text('أضف',
-                          style: TextStyle(
-                              fontFamily: 'Cairo',
-                              fontSize: AppTheme.fsCaption,
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.accentDeep)),
-                    ],
-                  ),
-          ),
-        ),
-      )),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppTheme.rMd),
+                border: Border.all(color: AppTheme.accent, width: 1.4),
+              ),
+              child: Center(
+                child: busy
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2.4),
+                      )
+                    : const Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.add_rounded,
+                              size: 28, color: AppTheme.accentDeep),
+                          SizedBox(height: 2),
+                          Text('أضف',
+                              style: TextStyle(
+                                  fontFamily: 'Cairo',
+                                  fontSize: AppTheme.fsCaption,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.accentDeep)),
+                        ],
+                      ),
+              ),
+            ),
+          )),
     );
   }
 }
@@ -630,7 +786,8 @@ class _PhotoTile extends StatelessWidget {
         errorBuilder: (_, __, ___) => const ColoredBox(
           color: AppTheme.lineSoft,
           child: Center(
-            child: Icon(Icons.image_rounded, size: 26, color: AppTheme.textMuted),
+            child:
+                Icon(Icons.image_rounded, size: 26, color: AppTheme.textMuted),
           ),
         ),
         loadingBuilder: (context, child, progress) => progress == null
