@@ -9604,3 +9604,77 @@ the user is still editing. It needs its own evidence, not a guess either way.
 The single unchecked item in the backlog is the blocked backend
 `POST /api/mobile/projects/:id/review` 500 — not app code, backend source not on
 this box, re-checked again this tick, deliberately not re-filed.
+
+---
+
+## Tick 30 Sep 2026 — `profile_edit_screen.dart` write-vs-form: **audited clean**
+
+The third and last member of the class the publish form (`da876a3`) and the
+review screen (`62fe62c`) opened. Both of those were **broken**, in the same
+way: a write whose *answer* was built from state read after the first `await`.
+
+The backlog predicted this one would come out correct, and it does — but that
+was a reading of the code, and a class this quiet is the class where a wrong
+"it's fine" survives for a year. So it was measured, not assumed.
+
+**What the measurement found: the product is correct, and the prediction holds.**
+`_save` reads the entire form in one synchronous block — name, the three numeric
+fields through `DzNumber`, the specialty set, the slider, the switch — builds
+`ProfileSnapshot.form` from **locals**, and only then `await`s the PATCH. There
+is no live read after the await anywhere in the method. The repository's body
+builder is unconditional too, so the same row is built twice from one capture.
+The form also stays live while `_saving` (the button alone is disabled), and
+that is **correct by the same reasoning the publish form already established**:
+a user who cannot touch a form for the length of a request assumes it has
+frozen. The fix for that class is never to freeze the control.
+
+**Zero lines of product code changed this tick.** The test is the deliverable,
+and that is the honest outcome — a "fix" here would have been a refactor dressed
+as a repair.
+
+### The evidence, and the mutation that proves it is not vacuous
+
+`test/profile_edit_midflight_test.dart` drives the **real screen** against a
+host that stores the PATCH and holds the answer open, then types a second name
+into the still-live box while the request is in flight. It asserts the edit
+landed on a live form before drawing any conclusion from it, so the case cannot
+pass because a tap missed an off-screen widget.
+
+Mutating the app file into the defect the class describes — moving
+`ProfileSnapshot.form` from before the write to after the `await`, reading the
+live controllers — turns it **red with exactly the predicted user-visible
+symptom**, read out of the tree rather than inferred:
+
+```
+SNACKS: Text("لم يحفظ الحقل: الاسم الظاهر. افتح ملفك للتأكد وراجعه ثم ذهب")
+```
+
+«The field was not saved: **the name**.» The form had saved correctly, the
+server had stored exactly what was sent, and the screen was reporting a failure
+**about the contractor's own name** — then refusing to close, so he is left
+holding a saved profile with a red error under the button telling him it did
+not take. A verification that measures the wrong thing is worse than no
+verification, because it is believed.
+
+The app file was restored from the backup and `git diff` is empty before
+committing: the mutation is in the report, not in the commit.
+
+*One line in the test is worth keeping.* The name typed mid-flight is
+`'محمد amps'` — Latin characters inside an Arabic name. A test that only ever
+moves between two clean Arabic strings can pass on a string comparison that
+normalises the two into each other; mixing scripts is what stops that.
+
+*Gate.* `flutter analyze` -> **No issues found!**
+`flutter test` -> **1627 passed / 3 skipped / 0 failed** (was 1626/3/0, **+1**).
+The full suite takes ~9m40s on this box and **exceeds the 420 s foreground
+timeout** — it has to be run in the background, or the tick is killed by its own
+gate before the gate can report anything.
+
+*Next.* The write-vs-form class is now **closed**: three members, two fixed
+(`da876a3`, `62fe62c`), one audited clean with evidence. The single unchecked
+item in the backlog is still the blocked backend
+`POST /api/mobile/projects/:id/review` 500 — not app code, backend source not
+on this box, re-checked, deliberately not re-filed. The next class worth
+opening is the honest one: screens that call `showSnackBar` after an `await`
+without a `hideCurrentSnackBar()` first, which is the queueing defect this
+loop fixed by hand in the review screen on 30 Sep.
