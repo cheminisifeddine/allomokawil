@@ -11234,3 +11234,123 @@ items each named. Still **BACKEND-API's**, untouched: the `durations` array (the
 live catalogue publishes it and this app never parses it). Suite wall clock is
 the open founder decision — 18 min 32 s last tick, and the sharding call is
 still unmade.
+
+## Tick 30 Sep 2026 — the gallery that said "12 photographs" while drawing a shimmer
+
+**Item: a failed REFRESH on «معرض أعمالي» replaced the contractor's whole
+gallery. SHIPPED.** The tenth screen in the stale-read family and the first
+whose data is not a list of *rows* at all.
+
+**The defect, and it is the family's original mistake untouched** at
+`my_portfolio_screen.dart:335`:
+
+```dart
+body: _loading ? const SkeletonGrid() : ...
+```
+
+One nullable boolean asked two questions. `_loading` means *"is a read in
+flight?"*; the builder used it to mean *"is there anything to draw?"*. The two
+came apart on the two ordinary failures of this screen:
+
+* a **pending** re-read replaced twelve photographs of finished jobs with a
+  shimmer for the length of a round trip, after the contractor pressed «تحديث»
+  and did nothing wrong;
+* a **failed** re-read replaced them with that shimmer **forever** — `_loading`
+  goes false, `_error` is set, `_images` still holds the twelve URLs, and the
+  one thing that could have drawn them was the flag that says a read is *in
+  flight*.
+
+**Why this screen is the one where that mistake costs most.** The gallery is
+the only surface in the product the contractor is the **author** of, and the
+only one whose whole purpose is to be looked at. The file that fixed the other
+end of the same gallery spells out what a wrong gallery costs a man:
+`test/portfolio_badge_failure_test.dart` records that a contractor whose badge
+is wrong is told **«أضف صوراً»** — a *directive*, in the gold that means "you
+should do this" — and he obeys it by uploading duplicates of work that was
+never missing. Here the photos do not even get that far: they are simply not on
+the screen, so the only thing that could tell him his work is safe is the band.
+
+**Shipped** (`my_portfolio_screen.dart`, `lib/src/data/stale_gallery_copy.dart`):
+
+* `_settled` — "is a read in flight **and** has nothing landed?" — replaces
+  `_loading` as the skeleton's gate. Deliberately **not** `_worker != null`:
+  that would have sent a failed *first* read back to the shimmer and taken the
+  error card with it, which is a second defect introduced by the obvious fix.
+* `stale_gallery_copy.dart` is the family's tenth member: the failure sentence
+  plus how old the photos under the band are, **appended and never
+  substituted**, routed through the app-wide `readAgeAr` so a header, a market,
+  a projects list, a directory, the notifications, two home strips, a
+  catalogue, an inbox and now a gallery cannot each decide separately what "old
+  enough to mention" means.
+* The band **replaces** the danger card when the grid is still on screen.
+  `_error != null` used to mean "nothing to draw", so the red card was the whole
+  answer; now that a failed re-read keeps its photos, red would say «the photos
+  are broken» over photographs that are fine. A *first* read that failed has no
+  photos, so its retry button is untouched — the branch was **moved where the
+  data is**, not weakened.
+* A `clock` seam on the widget, so the age is testable and a golden shot cannot
+  drift on an hour boundary (the notifications baseline once drifted 171 px and
+  took the whole gate red with it).
+
+**Red before green — all three cases failed against the unfixed screen, each
+for the right reason:**
+
+* a failed re-read → `Found 0 widgets with key [<'stale-gallery'>]` — the
+  gallery was destroyed and nothing was said;
+* a **pending** re-read → `Found 1 widget with type "SkeletonGrid"` — the
+  photographs replaced by a shimmer for a round trip the user never asked for;
+* a failed *first* read → `Found 0 widgets with text containing …` — the old
+  code showed the shimmer there too, which is why the fix is `_settled` and not
+  `_worker != null`.
+
+**Two harness faults designed out rather than rediscovered**, both recorded by
+earlier members of this family:
+
+1. **Both reads failing.** An earlier sibling's race case failed read 1 *and*
+   read 2, so there was no cache to mislabel and nothing could be wrong. The
+   gate here answers **per request**, so a case can park one read while the
+   other lands.
+2. **The shared 200 ms timeout** fires while a parked read is still open and
+   converts it into a failed read, which is a different case. The parked case
+   runs at **20 s**.
+
+**One assertion was written wrong and caught by running it**, which is the point
+of running it: a body-less 500 is diagnosed as `S.errServer`
+(«خلل مؤقّت في الخادم…»), not `S.errUnexpected` as guessed. The copy is now
+asserted **from the app's own constant** rather than a written-out sentence, so
+a copy change cannot quietly make the assertion vacuous. A test that names words
+the app never prints is not a test.
+
+*Gate.* `flutter analyze` -> **No issues found!** (4.3 s). `flutter test` ->
+**1715 passed / 3 skipped / 0 failed**, up from 1707/3/0 (+8: four copy cases,
+three widget cases, one shot case). Wall clock **11:18**.
+
+*Proven by pixels.* `/tmp/shots/26_gallery_stale.png`, 1078x2338. The band
+measures **410 full-width rows** (y196–703) carrying **7 ink line clusters** at
+**12.6 % density** — real wrapped Arabic glyphs, not a drawn-but-empty card and
+not tofu — and the **photo tiles are still on screen beneath it at y745–1058**.
+That second number is the whole claim: a blanked gallery would have no tiles at
+all.
+
+**A hung suite cost this tick ~45 minutes and is worth recording.** The first
+full run stopped at **251 tests** and sat at **0.0 % CPU** with every thread in
+`epoll_wait`, 0 sockets open — a deadlock, not slowness, and the reporter's
+last line was buffered mid-test-name so the file could not be named from the
+output. Bisecting all **201** files one at a time found **zero hangs and zero
+failures** (31 min of isolated runtime), which proved the hang was a
+whole-suite interaction rather than any single file. The immediate re-run
+passed **1715/3/0 in 11:18** and the hang did not reproduce. So: it is
+**transient, not fixed** — the suite is still a single process with no
+per-file timeout, and a hang will take the next tick down with it. That is the
+same sharding decision the last three ticks left open, and this is the evidence
+for making it: **the failure mode is a silent 45-minute stall, not a red
+build.**
+
+*Commit:* local `8b70331` -> remote `62e519c`. **3/3 blobs MATCH** against the
+real remote tree, fetched through GitHub's contents API rather than trusting the
+helper's exit code. No APK, no release, no tag.
+
+**This was found with 0 unchecked items** (170 checked, 0 unchecked), by reading
+the family the last four items each named. Still **BACKEND-API's**, untouched:
+the `durations` array — the live catalogue publishes it and this app never
+parses it.
