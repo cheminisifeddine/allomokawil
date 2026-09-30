@@ -111,8 +111,26 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
   ///
   /// See `stale_home_strip_copy.dart` — the seventh screen in this family, and
   /// the first where the two halves need different words.
-  List<WorkerProfile>? _workersCache;
-  String? _workersStaleReason;
+  ///
+  /// The contractors half is one [ContractorStripRead] **record** rather than
+  /// three parallel nullables, and that is the whole fix. `_onPlaceChanged`
+  /// re-arms this read with the phone's wilaya, so the strip's answer depends on
+  /// a value the screen does not own: a bare `List?` cannot say which wilaya its
+  /// rows belong to, so a *failed* switch fell back to the previous fix's
+  /// contractors and drew them under a header naming a different city. The
+  /// projects half stays three fields on purpose — `myProjects()` asks the same
+  /// question every time, so there is nothing to key it with, and one read
+  /// without a dimension is not a reason to invent one.
+  ContractorStripRead? _workersRead;
+
+  /// Bumped by every [_armWorkers] call, so a read that settles after a later
+  /// one was issued is dropped instead of overwriting it.
+  ///
+  /// See the note on the generation inside that method: the wilaya stamped on
+  /// the record catches a read that was *filed* wrongly, and cannot catch one
+  /// that was *answered* late.
+  int _workersToken = 0;
+
   List<Project>? _projectsCache;
   String? _projectsStaleReason;
 
@@ -128,7 +146,6 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
   /// are one fact: a stamp from a *different* read than the one on screen is
   /// worse than no stamp, because it is then confidently wrong. Null for a
   /// signed-out visitor, who has no strips to read at all.
-  DateTime? _workersReadAt;
   DateTime? _projectsReadAt;
 
   /// Ticks once a minute so an honest band ages without a re-read.
@@ -151,23 +168,76 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
   /// `setState` in [_reloadWorkers], [_reloadStrips] and [_refresh], and the
   /// answer to a future is a microtask later than all three, so the rebuild is
   /// scheduled here and lands after the caller's own.
-  void _armWorkers(Future<List<WorkerProfile>> read) {
+  ///
+  /// The wilaya is a **parameter**, decided by the caller at the instant the
+  /// request is issued and travelling out with it. Reading `_place?.wilayaId`
+  /// inside the `then` is this app's ninth recurrence of the same defect, in
+  /// the one place where it is not a hypothetical: the GPS answer lands late by
+  /// construction, so a read issued before it and a read issued after it are
+  /// both in flight at once, and the rows get filed under whichever wilaya the
+  /// phone happens to be holding when the answer arrives.
+  void _armWorkers(Future<List<WorkerProfile>> read, {required String? wilaya}) {
     _topWorkers = read;
+    // Every arming is a new **generation**, and a read that settles after a
+    // later one was issued is ignored outright. Same rule [_readFirstRunGuide]
+    // already applies to the guide, and the same reason it needs one there:
+    // two reads for this strip are routinely in flight at once, because the
+    // GPS answer lands late by construction and every pull re-arms the read.
+    //
+    // Without it a **late success overwrites newer state**: read 1 (Oran) is
+    // parked on a slow connection, the fix moves back to Algiers, read 2 is
+    // issued and fails — and then read 1 lands and replaces the honest record
+    // with another question's rows. The wilaya stamped on the record cannot
+    // catch that, because read 1's *own* stamp is correct: it was asked for
+    // Oran and it answered Oran. What is wrong is that it answered at all.
+    final token = ++_workersToken;
     read.then((list) {
-      if (!mounted) return;
+      if (!mounted || token != _workersToken) return;
       setState(() {
-        _workersCache = list;
-        _workersStaleReason = null;
-        // The clock *now*, not the moment the request was issued, so a read
-        // in flight for forty seconds is dated when it actually landed.
-        // Stamping at issue time would under-report the age on a slow
-        // connection — the exact case where the number matters most.
-        _workersReadAt = _now();
+        _workersRead = ContractorStripRead(
+          rows: list,
+          rowsAsked: wilaya,
+          asked: wilaya,
+          reason: null,
+          // The clock *now*, not the moment the request was issued, so a read
+          // in flight for forty seconds is dated when it actually landed.
+          // Stamping at issue time would under-report the age on a slow
+          // connection — the exact case where the number matters most.
+          readAt: _now(),
+        );
       });
       _armAgeTick();
     }, onError: (Object e, StackTrace _) {
-      if (!mounted) return;
-      setState(() => _workersStaleReason = errorCopy(e));
+      if (!mounted || token != _workersToken) return;
+      setState(() {
+        // **Kept, not replaced.** This is the half a record can get wrong in
+        // the other direction: writing a fresh record with `rows: null` throws
+        // away the contractors the last good read returned, so a blink during
+        // a pull — the gesture this screen's whole stale-read family exists
+        // for — blanks the strip and tells a client on the first screen he
+        // opens that the marketplace is empty.
+        //
+        // The stamp is carried over untouched, because it is the age of *those
+        // rows* and nothing that has happened since has made them newer.
+        final prev = _workersRead;
+        _workersRead = ContractorStripRead(
+          rows: prev?.rows,
+          // **Carried, never re-derived.** The rows that survive belong to the
+          // question `prev` asked, which is not this read's question — that is
+          // the whole difference between a pull and a switch, and it is the one
+          // thing a single `asked` field cannot hold: a failed read that keeps
+          // another question's rows is describing **two** facts at once, and
+          // folding them into one field is how the switch half of this fix
+          // came back broken when it was first written.
+          rowsAsked: prev?.rowsAsked,
+          // The failed read answers the question it was **issued** for. A pull
+          // inside one fix is the same question and keeps its rows; a switch is
+          // a different one and has nothing of its own.
+          asked: wilaya,
+          reason: errorCopy(e),
+          readAt: prev?.readAt,
+        );
+      });
     });
   }
 
@@ -266,7 +336,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
     _guest = AuthGate.isGuest(context);
     _place = AppScope.maybeOf(context)?.place;
     _place?.addListener(_onPlaceChanged);
-    _armWorkers(_repo.topWorkers(limit: 12, preferWilaya: _place?.wilayaId));
+    _armWorkers(_repo.topWorkers(limit: 12, preferWilaya: _place?.wilayaId),
+        wilaya: _place?.wilayaId);
     if (_guest) {
       // Nothing to read without an account, and nothing to decide either: the
       // two session-only strips stay empty and the tab shows the way in.
@@ -293,7 +364,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
     // Future-returning callback in debug. A GPS answer landing after boot is an
     // everyday event on this screen, so this was throwing on the main path.
     setState(() {
-      _armWorkers(_repo.topWorkers(limit: 12, preferWilaya: id));
+      _armWorkers(_repo.topWorkers(limit: 12, preferWilaya: id), wilaya: id);
     });
   }
 
@@ -323,7 +394,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
       if (!mounted) return;
       // Nothing to age yet: a first read that has not landed has no rows, and
       // a band only ever appears over rows that do.
-      if (_workersReadAt == null && _projectsReadAt == null) return;
+      if (_workersRead?.readAt == null && _projectsReadAt == null) return;
       setState(() {});
     });
   }
@@ -377,8 +448,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
   /// the strip still updated, so the button worked; it was throwing underneath
   /// itself on every tap, and the pull gesture drove the same handler.
   void _reloadWorkers() => setState(() {
-        _armWorkers(
-            _repo.topWorkers(limit: 12, preferWilaya: _place?.wilayaId));
+        _armWorkers(_repo.topWorkers(limit: 12, preferWilaya: _place?.wilayaId),
+            wilaya: _place?.wilayaId);
       });
   void _reloadProjects() => setState(_reloadStrips);
 
@@ -444,9 +515,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
         _ExploreView(
           firstRun: _firstRun,
           topWorkers: _topWorkers,
-          workersCache: _workersCache,
-          workersStaleReason: _workersStaleReason,
-          workersReadAt: _workersReadAt,
+          workersRead: _workersRead,
+          workersQuestion: _place?.wilayaId,
           projectsReadAt: _projectsReadAt,
           now: _now(),
           recentProjects: _recentProjects,
@@ -560,14 +630,25 @@ class _ExploreView extends StatelessWidget {
   /// The last settled answer for each strip, and the sentence for the last read
   /// that failed. Held by the parent so the doubt survives the strip's own
   /// re-read; see the state fields on `_CustomerHomeScreenState`.
-  final List<WorkerProfile>? workersCache;
-  final String? workersStaleReason;
+  /// The last contractors read this screen settled, and the doubt attached to
+  /// it. One record rather than three arguments — see
+  /// [_CustomerHomeScreenState._workersRead].
+  final ContractorStripRead? workersRead;
+
+  /// The wilaya the strip is currently asking about.
+  ///
+  /// Read at **build** time, not captured with the read: this is the question
+  /// *now*, and the cache records the question it answered. The fallback is
+  /// gated on the two being the same question, which is what makes a failed
+  /// *switch* answer with an honest «تعذّر جلب المقاولين» instead of the previous
+  /// city's contractors under a header naming a different one.
+  final String? workersQuestion;
   final List<Project>? projectsCache;
   final String? projectsStaleReason;
 
-  /// When each strip last read cleanly, so its band can say how old the rows
-  /// under it are. Separate per strip because the two reads fail on their own.
-  final DateTime? workersReadAt;
+  /// When the projects strip last read cleanly, so its band can say how old the
+  /// rows under it are. The contractors half carries its own stamp inside
+  /// [workersRead] — one read, one record.
   final DateTime? projectsReadAt;
 
   /// The instant the age is measured against, taken **once per build** so both
@@ -598,12 +679,11 @@ class _ExploreView extends StatelessWidget {
   const _ExploreView({
     required this.firstRun,
     required this.topWorkers,
-    required this.workersCache,
-    required this.workersStaleReason,
+    required this.workersRead,
+    required this.workersQuestion,
     required this.recentProjects,
     required this.projectsCache,
     required this.projectsStaleReason,
-    required this.workersReadAt,
     required this.projectsReadAt,
     required this.now,
     required this.guest,
@@ -727,9 +807,34 @@ class _ExploreView extends StatelessWidget {
               // before the phone has even asked.
               final waiting = snap.connectionState != ConnectionState.done;
               final failed = snap.hasError && !waiting;
-              final stale = failed && workersStaleReason != null;
+              // **The gate.** A read that settled for a *different* wilaya is
+              // not a fallback for this one — it is another question's answer,
+              // and drawing it here is how «مقاولو وهران» ends up under a
+              // header that says «موقعك: الجزائر». Same fix the directory and the
+              // projects list shipped, one layer down: the rows are real and they
+              // are not the answer.
+              //
+              // A **pull** inside one fix is the same question asked twice, so
+              // it keeps its rows; only a *switch* has nothing of its own and
+              // says so.
+              // **Two** gates, and they answer different questions, which is
+              // the half a single `asked` comparison gets wrong.
+              //
+              // `mine` — did the read that just settled ask what the screen is
+              // asking? It decides whether there is a *doubt* about this
+              // question: a failure for Oran is not a doubt about Algiers.
+              //
+              // `rowsMine` — do the rows on hand answer this question? It
+              // decides whether they may be *drawn*. A failed read inside one
+              // fix keeps its rows and both are true; a failed **switch** keeps
+              // the previous fix's rows and only the first is true, so those
+              // rows are not an answer to anything on screen and the honest
+              // screen is the error, not another city's contractors.
+              final mine = workersRead?.asked == workersQuestion;
+              final rowsMine = workersRead?.rowsAsked == workersQuestion;
+              final stale = failed && mine && workersRead?.reason != null;
               final shown = (waiting || failed)
-                  ? workersCache
+                  ? (rowsMine ? workersRead?.rows : null)
                   : (snap.data ?? const <WorkerProfile>[]);
               if (shown == null) {
                 if (waiting) {
@@ -776,8 +881,8 @@ class _ExploreView extends StatelessWidget {
                         child: _StaleHomeStripBand(
                           key: const Key('stale-workers'),
                           line: staleHomeStripLineWithAgeAr(
-                              workersStaleReason!,
-                              workersReadAt,
+                              workersRead!.reason!,
+                              workersRead!.readAt,
                               StaleHomeStrip.contractors,
                               now: now),
                         ),
@@ -1384,4 +1489,62 @@ class _ProjectStripSkeleton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// What the contractors strip last settled to, and the doubt attached to it.
+///
+/// One record — rows, the wilaya they answer, why the last read failed and
+/// when — because those four are **one fact** about one read. Split across
+/// parallel fields they can disagree: a stamp from a different read than the
+/// rows is worse than no stamp, because it is then confidently wrong, and that
+/// is not hypothetical here, it is what the split permitted.
+///
+/// See `_CustomerHomeScreenState._workersRead` for the defect this replaces.
+class ContractorStripRead {
+  const ContractorStripRead({
+    required this.rows,
+    required this.rowsAsked,
+    required this.asked,
+    required this.reason,
+    required this.readAt,
+  });
+
+  /// What the server answered, or null when the read failed and there is
+  /// nothing of its own to draw.
+  final List<WorkerProfile>? rows;
+
+  /// The wilaya the read was **issued** for, or null when the strip is
+  /// unfiltered («كل الولايات»).
+  ///
+  /// Carried out rather than read back out of the state inside the `then`
+  /// callback, which is the load-bearing half. The GPS answer lands late by
+  /// construction — `PlaceState` fires its listener once the fix resolves, which
+  /// is after the screen has already armed a read with no wilaya — so a read
+  /// issued before the fix and one issued after it are both in flight at once.
+  /// Tagging the rows with the *current* wilaya files the unfiltered answer
+  /// under a filter chip that says otherwise, which is the identical defect one
+  /// layer down, and the app has now shipped against it nine times.
+  final String? asked;
+
+  /// The question [rows] actually answer.
+  ///
+  /// **Separate from [asked] on purpose.** A failed read keeps the rows the
+  /// last good read returned, and those rows answer *that* read's question —
+  /// so a record that has only one of the two fields has to either lie about
+  /// which city the rows are from, or throw them away. The second is what
+  /// happened: the switch half of this fix shipped with a single `asked` and
+  /// kept the previous fix's contractors under the new header, and the fix's
+  /// own pull half shipped with `rows: null` and blanked the strip instead.
+  /// One field could not tell those two failures apart, and both were live.
+  final String? rowsAsked;
+
+  /// The already-curated Arabic sentence for a failure, or null on success.
+  ///
+  /// A *sentence* rather than a flag, because the two strips behind one gesture
+  /// can fail independently and a band about «the screen» would be a claim
+  /// about a strip that answered.
+  final String? reason;
+
+  /// When these rows landed. Null on a failure, because nothing landed.
+  final DateTime? readAt;
 }

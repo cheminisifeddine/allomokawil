@@ -30,6 +30,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:allomokawil/src/core/app_scope.dart';
 import 'package:allomokawil/src/core/l10n/strings.dart';
+import 'package:allomokawil/src/core/location/locator.dart';
+import 'package:allomokawil/src/core/location/place_state.dart';
 import 'package:allomokawil/src/core/network/api_client.dart';
 import 'package:allomokawil/src/core/security/auth_state.dart';
 import 'package:allomokawil/src/core/theme/app_theme.dart';
@@ -70,6 +72,17 @@ Map<String, Object?> _worker(int id, String name) => {
       'completed_jobs': 40,
       'avatar_url': null,
     };
+
+/// A contractor in a named wilaya.
+///
+/// The wilaya matters for the cases that move the phone's fix: the strip's
+/// rows have to be visibly *somewhere else* for «the other city's contractors
+/// are drawn under this city's header» to be a claim a screenshot can settle.
+Map<String, Object?> _workerIn(int id, String name, String wilaya) {
+  final w = _worker(id, name);
+  w['wilaya'] = wilaya;
+  return w;
+}
 
 Map<String, Object?> _project(String id, String title) => {
       'id': id,
@@ -133,7 +146,20 @@ class _Platform {
   // session-only strips, and `customer_home_pull_to_refresh_test.dart` already
   // asserts that on the real screen. Carrying a second, unexercised copy of
   // that knob here is how a harness starts lying about a path it never walks.
-  _Platform();
+  _Platform({this.timeout = const Duration(milliseconds: 200)});
+
+  /// The client timeout.
+  ///
+  /// **Not a constant, and the reason is a case that passed green while
+  /// testing nothing.** A read that is MEANT to hang open cannot use a timeout
+  /// short enough for a 503 to settle inside `_settle`, because the timeout
+  /// fires while the read is parked and converts it into a failed read — which
+  /// is a perfectly ordinary frame the screen already handles. The race case
+  /// below was written with a 200 ms client, so its parked read died on the
+  /// clock instead of landing late, and the screen under test never saw the
+  /// defect it was written for. It passed against the unfixed screen, which is
+  /// the only reliable proof a case is vacuous.
+  final Duration timeout;
 
   /// Flipped by a test *after* the first read has been seen on screen, which is
   /// the shape of the real event: the phone rendered fine, then the network
@@ -155,6 +181,19 @@ class _Platform {
   int workerReads = 0;
   int projectReads = 0;
 
+  /// Steers every contractors read **after** the first, by its index.
+  ///
+  /// A threshold cannot express what the wilaya-switch cases need, and that is
+  /// the third time this file has been bitten by the same shape: a
+  /// "fail from attempt N onward" gate has to be told which attempt 1 is, and
+  /// the two strips do not agree (`/my/projects` is read twice at rest, because
+  /// the shell is an `IndexedStack`). So the callback is handed the index and
+  /// the case decides.
+  ///
+  /// Returning **null** falls through to the `workersDead` threshold, so a case
+  /// that only needs "the second read dies" can ignore this entirely.
+  Future<http.Response?> Function(int read)? workersRespond;
+
   static Future<http.Response> _okWorkers(int _) async =>
       _json(<Object?>[_worker(1, 'مقاول قديم')]);
 
@@ -173,8 +212,13 @@ class _Platform {
           }
           if (p.contains('/api/unread')) return _json(<String, Object?>{'unread': 0});
           if (p.contains('/workers/top')) {
-            workerReads++;
-            return workersDead ? _dead(workerReads) : _okWorkers(workerReads);
+            final n = workerReads++;
+            final steer = workersRespond;
+            if (n > 0 && steer != null) {
+              final custom = await steer(n);
+              if (custom != null) return custom;
+            }
+            return workersDead ? _dead(n) : _okWorkers(n);
           }
           if (p.contains('/my/projects')) {
             projectReads++;
@@ -185,7 +229,7 @@ class _Platform {
           }
           return _json(<String, Object?>{});
         }),
-        timeout: const Duration(milliseconds: 200),
+        timeout: timeout,
       );
 }
 
@@ -239,6 +283,7 @@ Future<void> _pump(
   ApiClient api,
   AuthState auth, {
   DateTime Function()? clock,
+  PlaceState? place,
 }) async {
   tester.view.physicalSize = const Size(1080, 2280);
   tester.view.devicePixelRatio = 2.75;
@@ -246,6 +291,10 @@ Future<void> _pump(
   await tester.pumpWidget(AppScope(
     api: api,
     auth: auth,
+    // Passed through so the wilaya-switch cases below can seed a fix and move
+    // it. `null` keeps `AppScope`'s own default, so every existing case is
+    // byte-for-byte unchanged.
+    place: place,
     child: MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
@@ -730,6 +779,203 @@ void main() {
       // pending timer.
       await tester.pump(const Duration(seconds: 21));
       await tester.pump(const Duration(milliseconds: 200));
+    });
+  });
+
+  group('CustomerHomeScreen — a failed WILAYA switch is not answered by the '
+      'last fix', () {
+    // The eighth screen in the stale-read family, and the only one whose
+    // question is a value the screen does not own. Every sibling keys its
+    // fallback on something the user tapped — a status pill, a trade chip, a
+    // directory filter. Here the key is the phone's own GPS answer, which
+    // arrives late *by construction*: `PlaceState` fires its listener once the
+    // fix resolves, which is long after the screen armed its first read with
+    // no wilaya at all.
+    //
+    // So there are two reads in flight at once for a second or two on every
+    // cold start, and a bare `List?` cannot tell which one it is holding. A
+    // *failed* re-read therefore drew the previous fix's contractors under a
+    // header naming the new one: «مقاولو وهران» listed to a client whose phone
+    // had just said «الجزائر».
+
+    /// Seeds a store that already knows [wilayaId].
+    PlaceState seeded(String wilayaId) => PlaceState.detached()
+      ..seed(DetectedPlace(
+        wilayaId: wilayaId,
+        wilayaName: wilayaId == '31' ? 'وهران' : 'الجزائر',
+        lat: 36.7,
+        lng: 3.0,
+        seatKm: 4,
+      ));
+
+    testWidgets('a failed fix switch does not answer with the last fix\'s rows',
+        (tester) async {
+      // The phone answered Algiers and the strip shows its contractors; the
+      // fix then lands on Oran, and the re-read that follows dies.
+      final place = seeded('16');
+      final platform = _Platform()..workersRespond =
+          (read) async => null; // falls through to `workersDead`
+      final b = await _boot(platform);
+      await _pump(tester, b.api, b.auth, place: place);
+
+      // Seeded **before** the first read, so read 1 is genuinely the Algiers
+      // read and the contractor on screen belongs to it. Without this the
+      // strip starts unfiltered and the case would be testing the switch from
+      // «كل الولايات» rather than from a fix.
+      expect(platform.workerReads, 1);
+      expect(find.text('مقاول قديم'), findsOneWidget);
+      // `textContaining`, not `text`: the header prints «الجزائر • موقعك»,
+      // so an exact match on the wilaya alone never matches and the case
+      // would have "failed red" for a reason that has nothing to do with the
+      // defect. «موقعك» is the marker the header adds for a phone answer, so it
+      // is the load-bearing part to assert on and the wilaya is asserted as
+      // part of the same line.
+      expect(find.textContaining('موقعك'), findsWidgets,
+          reason: 'the header must name the fix the strip was read for');
+      expect(find.textContaining('الجزائر • موقعك'), findsWidgets);
+
+      final before = platform.workerReads;
+      platform.workersDead = true;
+      // The fix moves. `PlaceState.seed` notifies, the screen re-arms the read
+      // with Oran, and that read is the one that fails.
+      place.seed(DetectedPlace(
+        wilayaId: '31',
+        wilayaName: 'وهران',
+        lat: 35.7,
+        lng: -0.6,
+        seatKm: 2,
+      ));
+      await _settle(tester);
+
+      expect(platform.workerReads, greaterThan(before),
+          reason: 'a new fix must re-read the strip that answers «near me»');
+      // The screen has moved on: the header now names the NEW fix, which is
+      // what makes the rows under it wrong.
+      expect(find.textContaining('وهران • موقعك'), findsWidgets,
+          reason: 'the header must have followed the fix, or this case is '
+              'testing nothing');
+      expect(find.textContaining('الجزائر • موقعك'), findsNothing);
+
+      // **The defect, stated the way the user meets it.** A failed read for
+      // Oran has nothing of its own, so it must say so. Drawing Algiers'
+      // contractor here is the same false answer the directory shipped against
+      // a trade chip, one layer down, and the app has now been bitten by it
+      // eight times.
+      expect(find.text('تعذّر جلب المقاولين'), findsOneWidget,
+          reason: 'a failed switch with nothing of its own must say so rather '
+              'than borrow another wilaya\'s contractors');
+      expect(find.text('مقاول قديم'), findsNothing,
+          reason: 'Algiers\'s contractor is not the answer to an Oran read');
+    });
+
+    testWidgets('a pull inside one fix still keeps its rows', (tester) async {
+      // The half that was already right, pinned so the cross-wilaya half
+      // cannot take it away. The same question asked twice is not a different
+      // question, and on this screen the pull is the gesture a client reaches
+      // for first — so a fix of the fix's own making must not blank the strip
+      // he was looking at.
+      final place = seeded('16');
+      final platform = _Platform();
+      final b = await _boot(platform);
+      await _pump(tester, b.api, b.auth, place: place);
+
+      expect(find.text('مقاول قديم'), findsOneWidget);
+
+      platform.workersDead = true;
+      await _pull(tester);
+      await _settle(tester, frames: 2);
+
+      expect(find.text('مقاول قديم'), findsOneWidget,
+          reason: 'a pull changes nothing about the question, so the rows stay');
+      expect(find.byKey(const Key('stale-workers')), findsOneWidget,
+          reason: 'and the doubt is stated on top of them');
+      expect(find.text('تعذّر جلب المقاولين'), findsNothing,
+          reason: 'this is a qualification, not a blanked strip');
+    });
+
+    testWidgets('two fixes in a row: neither read is filed under the wrong '
+        'wilaya', (tester) async {
+      // The race the wilaya **parameter** on `_armWorkers` exists for. Tagging
+      // the rows with `_place?.wilayaId` inside the `then` callback is the
+      // naive fix and reproduces the defect one layer down: read Oran while the
+      // phone still says Algiers, and the Oran rows land filed under Algiers.
+      //
+      // Read 1 must **succeed** or there is no cache to mislabel and the case
+      // is vacuous — the same fault that made the directory's version of this
+      // case pass green on its first run.
+      //
+      // 20 s client timeout, not the shared 200 ms: a read that is MEANT to
+      // hang cannot use a timeout short enough for a 503 to settle inside
+      // `_settle`, because it fires while the read is parked and turns this
+      // into the failed-read case it is not.
+      final place = seeded('16');
+      final parked = Completer<void>();
+      final released = Completer<void>();
+      final platform = _Platform(timeout: const Duration(seconds: 20))
+        ..workersRespond = (read) async {
+        if (read != 1) return null; // read 2 fails: 503
+        // Read 1 (the Oran fix) is held open until read 2 has been issued,
+        // which is the overlap the defect needs.
+        parked.complete();
+        await released.future;
+        return _json(<Object?>[_workerIn(1, 'مقاول وهران', '31')]);
+      };
+      final b = await _boot(platform);
+      await _pump(tester, b.api, b.auth, place: place);
+
+      expect(find.text('مقاول قديم'), findsOneWidget,
+          reason: 'read 1 is the Algiers read and it is on screen');
+      platform.workersDead = true;
+
+      // Fix 1 → Oran. Parked mid-flight.
+      place.seed(DetectedPlace(
+        wilayaId: '31',
+        wilayaName: 'وهران',
+        lat: 35.7,
+        lng: -0.6,
+        seatKm: 2,
+      ));
+      await _settle(tester);
+      await parked.future;
+
+      // Fix 2 → Algiers again, while the Oran read is still open. The screen
+      // is now asking a third question; read 2 is issued for it and dies.
+      place.seed(DetectedPlace(
+        wilayaId: '16',
+        wilayaName: 'الجزائر',
+        lat: 36.7,
+        lng: 3.0,
+        seatKm: 4,
+      ));
+      await _settle(tester, frames: 2);
+      released.complete();
+      await _settle(tester);
+
+      // **The screen is asking about Algiers again and it has Algiers' rows.**
+      // That is the honest frame, and the assertion is written from the
+      // question rather than from the fix, because the first draft of this case
+      // got it wrong in the instructive direction.
+      //
+      // The surviving rows are the *boot* read's — the one that answered for
+      // Algiers before the phone had a second fix — and the second read
+      // (Algiers again) is the one that failed. Read 1 is Oran, and it lands
+      // late: a screen that files it by the wilaya the phone holds *now* paints
+      // «مقاول وهران» to a client whose header says «الجزائر», which is the
+      // identical defect the directory shipped against a trade chip.
+      expect(find.text('مقاول وهران'), findsNothing,
+          reason: 'read 1 landed while the screen was asking about Algiers '
+              'again — those rows are not the answer to that question');
+      expect(find.text('مقاول قديم'), findsOneWidget,
+          reason: 'and the rows that DO answer the current question survive a '
+              'failed re-read, with the doubt stated on top of them');
+      expect(find.byKey(const Key('stale-workers')), findsOneWidget,
+          reason: 'the doubt is a band on the rows, not a blanked strip');
+      expect(find.text('تعذّر جلب المقاولين'), findsNothing,
+          reason: 'this is a qualification, not an error: the strip has rows '
+              'for the question on screen');
+      expect(find.textContaining('الجزائر • موقعك'), findsWidgets,
+          reason: 'the header follows the second fix, or this case is not '
+              'testing a switch at all');
     });
   });
 }

@@ -37,6 +37,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:allomokawil/src/core/app_scope.dart';
 import 'package:allomokawil/src/core/network/api_client.dart';
+import 'package:allomokawil/src/core/location/locator.dart';
+import 'package:allomokawil/src/core/location/place_state.dart';
 import 'package:allomokawil/src/core/security/auth_state.dart';
 import 'package:allomokawil/src/core/theme/app_theme.dart';
 import 'package:allomokawil/src/screens/customer/customer_home_screen.dart';
@@ -82,6 +84,24 @@ Future<(int rows, int dark)> _scanBand(GlobalKey key) async {
   return (bandRows, dark);
 }
 
+/// Every dark pixel in the frame, whatever row it is on.
+///
+/// The counterpart to [_scanBand], for a frame that must have **no** band on
+/// it: there is no wash to measure against, so the claim is that the strip's
+/// cards are not drawn, and the count is taken over the whole frame.
+Future<int> _countInk(GlobalKey key) async {
+  final boundary =
+      key.currentContext!.findRenderObject() as RenderRepaintBoundary;
+  final img = await boundary.toImage(pixelRatio: 3.0);
+  final data = await img.toByteData(format: ui.ImageByteFormat.rawRgba);
+  final bytes = data!.buffer.asUint8List();
+  var dark = 0;
+  for (var i = 0; i + 3 < bytes.length; i += 4) {
+    if (bytes[i] < 0xC0 && bytes[i + 1] < 0xA0 && bytes[i + 2] < 0x60) dark++;
+  }
+  return dark;
+}
+
 Map<String, Object?> _worker(int id, String name) => {
       'id': id,
       'user_id': 1000 + id,
@@ -117,7 +137,9 @@ Map<String, Object?> _worker(int id, String name) => {
 /// [deadWorkers] is a callback rather than a bool so a test can kill the read
 /// *after* the first load has been seen on screen, which is the shape of the
 /// real event: the phone rendered fine, then the network died under it.
-ApiClient _client({required bool Function() deadWorkers}) {
+ApiClient _client(
+    {required bool Function() deadWorkers,
+    Duration timeout = const Duration(milliseconds: 200)}) {
   return ApiClient(
       baseUrls: const ['https://x.test'],
       httpClient: MockClient((req) async {
@@ -203,7 +225,7 @@ ApiClient _client({required bool Function() deadWorkers}) {
         return http.Response('{}', 200,
             headers: {'content-type': 'application/json'});
       }),
-      timeout: const Duration(milliseconds: 200));
+      timeout: timeout);
 }
 
 void main() {
@@ -412,6 +434,112 @@ void main() {
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
       Directory(_out).createSync(recursive: true);
       File('$_out/20_home_workers_stale_dated.png')
+          .writeAsBytesSync(bytes!.buffer.asUint8List());
+    });
+  });
+
+  testWidgets('a failed WILAYA switch draws the error, not the old city\'s '
+      'contractors', (tester) async {
+    // The picture the two new widget cases only argue for.
+    //
+    // The shot exists because «the error card is on screen» and «the other
+    // city's contractor is NOT on screen» are different claims and only one of
+    // them is visible in a frame. The ink measurement settles the rest: the
+    // strip behind the band is a horizontal row of contractor cards carrying
+    // its own ink, so a global dark count would pass on the cards alone with
+    // the error drawing nothing. So the contractor **names** are asserted as
+    // widgets in the same frame, and the frame is captured for the record.
+    tester.view.physicalSize = const Size(1080, 2280);
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+
+    // Read 1 (the boot read, Algiers) succeeds; every read after it dies.
+    var reads = 0;
+    final api = _client(deadWorkers: () => reads++ > 0);
+
+    // The phone already knows where it is — the stored fix from the last
+    // launch, which is what makes the first read a *filtered* read at all.
+    final place = PlaceState.detached()
+      ..seed(const DetectedPlace(
+        wilayaId: '16',
+        wilayaName: 'الجزائر',
+        lat: 36.7,
+        lng: 3.0,
+        seatKm: 4,
+      ));
+
+    final auth = AuthState(api);
+    await auth.restore();
+    await auth.login(
+        phone: '0773000000', password: 'secret123', rememberMe: true);
+
+    final key = GlobalKey();
+    await tester.pumpWidget(AppScope(
+      api: api,
+      auth: auth,
+      place: place,
+      child: RepaintBoundary(
+        key: key,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          locale: const Locale('ar'),
+          supportedLocales: const [Locale('ar'), Locale('en')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: const CustomerHomeScreen(),
+        ),
+      ),
+    ));
+    for (var i = 0; i < 16; i++) {
+      await tester.pump(const Duration(milliseconds: 80));
+    }
+    expect(find.text('مقاول قديم'), findsOneWidget,
+        reason: 'the first read worked, so the strip has cards on it');
+
+    // The phone moves. The strip re-reads for Oran and that read dies — the
+    // everyday event on a train, and the one the two widget cases pin.
+    place.seed(const DetectedPlace(
+      wilayaId: '31',
+      wilayaName: 'وهران',
+      lat: 35.7,
+      lng: -0.6,
+      seatKm: 2,
+    ));
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 80));
+    }
+
+    // The header followed the fix, so the rows under it would be wrong.
+    expect(find.textContaining('وهران • موقعك'), findsWidgets);
+    expect(find.byKey(const Key('stale-workers')), findsNothing,
+        reason: 'the band qualifies rows; with no rows for THIS wilaya there '
+            'is nothing to qualify');
+
+    // **The frame.** A failed switch has nothing of its own to draw, so the
+    // strip is gone — not a quiet blank: the error, with the button that is
+    // the only action left.
+    expect(find.text('تعذّر جلب المقاولين'), findsOneWidget);
+    expect(find.text('مقاول قديم'), findsNothing,
+        reason: 'Algiers\'s contractor must not be listed to a client in Oran');
+    expect(find.text('إعادة المحاولة'), findsOneWidget,
+        reason: 'the honest screen offers the retry the failed read deserves');
+
+    final total = (await tester.runAsync(() => _countInk(key)))!;
+    // ignore: avoid_print
+    print('SWITCH total dark=$total');
+
+    await tester.runAsync(() async {
+      final boundary =
+          key.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      final img = await boundary.toImage(pixelRatio: 3.0);
+      final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+      Directory(_out).createSync(recursive: true);
+      File('$_out/25_home_wilaya_switch_failed.png')
           .writeAsBytesSync(bytes!.buffer.asUint8List());
     });
   });

@@ -11141,3 +11141,96 @@ pricing decision second.
       **Suite wall clock: 18 min 32 s**, back under the 20-minute cliff from
       21:14 on the previous tick — which is luck, not a fix, and the sharding
       call from that tick is still the founder's.
+
+## Tick 30 Sep 2026 — the strip that says «مقاولو [city]» was answered with the last fix's rows
+
+**Item: a failed WILAYA switch on the customer home drew the previous fix's
+contractors. SHIPPED.** The ninth screen in the stale-read family and the first
+whose question is a value the screen does not own.
+
+**The defect.** `customer_home_screen.dart` held the contractors strip as three
+parallel nullables — `_workersCache` / `_workersStaleReason` /
+`_workersReadAt` — with no record of *which* wilaya they answered, so the
+fallback (a failed *or* waiting read) drew the last good rows under whatever
+header the screen was currently printing. `_onPlaceChanged` re-arms the read with
+the phone's fix, and the GPS answer lands late **by construction**: `PlaceState`
+fires its listener once the fix resolves, long after the screen armed a read with
+no wilaya at all. So two reads are in flight at once on every cold start, and a
+*failed* re-read told a client in Oran that Algiers' contractors were «مقاولو
+وهران». `_matchesQuery` had nothing to catch it — the rows are real, they are
+just not the answer.
+
+**Shipped** (`customer_home_screen.dart`): one `ContractorStripRead` record —
+rows, the wilaya they answer, the wilaya the settled read asked for, why it
+failed, when. Fallback gated on **two** comparisons, because one field cannot
+tell the two failures apart: `mine` (`asked == workersQuestion`) decides whether
+there is a *doubt* about this question, `rowsMine` (`rowsAsked == workersQuestion`)
+decides whether the rows may be *drawn*. A failed read inside one fix keeps its
+rows and both are true; a failed **switch** keeps the previous fix's rows, only
+the first is true, and those rows are not an answer to anything on screen.
+
+Three further defects found while writing it, all of the same shape as the last
+four items:
+
+- **The late-success overwrite.** Read 1 (Oran) parks on a slow connection, the
+  fix moves back to Algiers, read 2 is issued and fails — then read 1 lands and
+  replaces the honest record with another question's rows. A wilaya stamped on
+  the record cannot catch this, because read 1's *own* stamp is correct. `_arm`
+  now takes a **generation** token and drops a read that settles after a later
+  one was issued (same rule the first-run guide already used).
+- **The `then`-tagged row.** `_armWorkers` now takes the wilaya as a
+  **parameter**, decided by the caller at the instant the request is issued.
+  Reading `_place?.wilayaId` inside the `then` is this app's ninth recurrence of
+  the same defect, and the one place where it is not hypothetical.
+- **The `rows: null` refresh.** A failed read must **keep** the rows the last
+  good read returned — writing a fresh record with `rows: null` blanks the strip
+  and tells a client on the first screen he opens that the marketplace is empty.
+  The stamp is carried over untouched, because it is the age of *those* rows.
+
+**Three harness faults, none visible in the output** (the count went up and
+everything stayed green):
+
+1. `PlaceState` had to be threaded through the test's `AppScope`; the case that
+   seeds a fix is the only thing that can make the boot read a *filtered* read,
+   so without it the strip starts unfiltered and the case tests the switch from
+   «كل الولايات» instead of from a fix.
+2. The race case **failed both reads**, so no cache existed to mislabel. The
+   harness now takes a `workersRespond` callback keyed by read index rather than
+   a single `workersDead` gate — the same fix the directory's version of this
+   case needed yesterday, and the same reason (a threshold has to be told which
+   attempt 1 is).
+3. It ran at the shared **200 ms** timeout, which fires while the parked read is
+   open and converts it into the failed-read case it is not. It runs at 20 s,
+   and the parameter's doc now records the fault so the next case does not
+   re-invent it.
+
+**Red-before-green, both new cases**, against the unfixed screen:
+`Found 0 widgets with text "تعذّر جلب المقاولين"` (the switch draws no error at
+all) and `Found 1 widget with text "مقاول وهران"` under a header naming Algiers
+(the race files a late read under the wrong wilaya). The pull case passed against
+the unfixed screen too — correctly, it is the half that was already right.
+
+*Gate.* `flutter analyze` -> **No issues found!** (15.5 s). `flutter test` ->
+**1707 passed / 3 skipped / 0 failed**, up from 1703/3/0 (+4: three widget
+cases + the shot case).
+
+*Proven by pixels.* `/tmp/shots/25_home_wilaya_switch_failed.png`, 1179x2488.
+Dark ink is confined to y<1000 (app bar, «مقاولو وهران» header, error card) and
+y2200+ (nav); **y1000-2200 measures 0 dark px**, which is what "no borrowed
+rows" looks like — the strip is gone rather than quietly blank. The stale band's
+own wash (`accentWash` = `FDF3E3`) measures **5,661 px** against **92,013 px**
+in the unchanged pull case (`20_home_workers_stale.png`) — 6%, and **0**
+full-width rows in both, so it is not a band. The residue is trade-tile swatches:
+`taxonomy.dart:91` paints a `FDF3E3` tile and `:126` a `FDF6E3` one, and the
+neighbouring pastel blocks in that same 200 px band are `E7F5EE` / `F3E3FD` /
+`F5EEE7`, i.e. five tints of the same family. `pngscan.py` did not survive the
+26 Sep host rebuild; the in-repo `tool/png_read.py` decoder did the work.
+
+*Files:* `lib/src/screens/customer/customer_home_screen.dart`,
+`test/stale_home_strip_test.dart`, `test/stale_home_strip_shot_test.dart`.
+
+**This was found with 0 unchecked items**, by reading the family the last four
+items each named. Still **BACKEND-API's**, untouched: the `durations` array (the
+live catalogue publishes it and this app never parses it). Suite wall clock is
+the open founder decision — 18 min 32 s last tick, and the sharding call is
+still unmade.
