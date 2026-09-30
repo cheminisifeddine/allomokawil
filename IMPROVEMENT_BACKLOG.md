@@ -10208,3 +10208,128 @@ fix). After that: the sheet marks the price for a dispute found **before** it
 opened, but a dispute found *during* the sheet's own submit cannot mark a sheet
 that has already been popped, and whether the band alone is the right answer
 there is a real question, not a bug to file.
+
+- [x] **The banner that settles every unconfirmed message at once answered once
+      per message — so the user read the same question three times, four seconds
+      apart, and was left holding the answer to whichever message was last.**
+      local `eb059fc` -> remote `d0390b8` + `aa26a75`.
+
+      The previous tick named this as the next item: the `_showCommitResult`
+      rule written **nine** ways, one shared helper the way `A11y.tap` is. It was
+      worth taking, and taking it found the one screen where the rule had never
+      been applied at all.
+
+      **The rule, and why nine copies of a correct rule are a defect.** A line
+      that is about to be *replaced* must be removed first, because
+      `ScaffoldMessenger` **queues**: a second `showSnackBar` while one is
+      visible waits for the first to time out, four seconds by default. Four
+      ticks in a row added a private `_showCommitResult` / `_verdict` / `_say`
+      to one screen each — project, bid sheet, notification centre,
+      verification, review, portfolio, profile, subscription, project-new. Every
+      copy was right, every copy carried a comment explaining that the hide is
+      load-bearing, and **not one of them was reachable by a test**. This is the
+      wilaya-sheet shape again (the guard existed; nobody looked for the second
+      copy) and the `Monogram` shape (three lines, two files, both wrong): a
+      rule small enough to hold in your head is not evidence you are holding
+      it.
+
+      *Shipped.* `core/l10n/snack.dart` owns it — `showNote` (covers nothing),
+      `showVerdict` (replaces a line), `showNoteWithAction` (the one that needs
+      a button), and `recheckNote({notifications})` so the two spellings of the
+      note cannot drift. **34 call sites across 10 files** migrated, 118
+      insertions against 122 deletions.
+
+      **The user-visible part, and it is not a refactor.** The chat banner's
+      «تحقّق» button reads the thread once and can answer for *every*
+      outstanding message — that is what the re-read is, and it is why the button
+      exists. It toasted **once per message inside the loop**. So a man with
+      three unconfirmed messages pressed one button and read three sentences,
+      twelve seconds apart, none of them a summary, and the one still on screen
+      when he looked away was the verdict for whichever message happened to be
+      last in the list. `_toast` was a bare `showSnackBar` — the one screen in
+      the app where the rule had never been applied. Now: one read, one
+      sentence, through `showVerdict`.
+
+      **A defect the first version of my own fix would have shipped, caught by
+      re-reading `WriteOutcome` after the tests were already green.** I wrote
+      the summary with **two** tallies — landed and unclear — where
+      `WriteOutcome` has **three**. `missing` is a *proven* absence: the thread
+      came back and the words are not in it, so re-sending is safe and is what
+      the app should be inviting. `unknown` is no proof at all. Counting them
+      together produces a man on a dead connection being told his messages are
+      missing, and him re-sending them — **the duplicate that the whole of
+      Phase 5 exists to prevent, restated in a toast**. The three are now
+      counted apart and, when two classes are present, named apart:
+      `وصلت رسالتان، ولم نجد رسالة، ورسالة لم يتأكّد وصولها`. Five unit cases
+      hold the distinction, including the one that asserts the summary never
+      says «وجدناهم» while a message is provably absent.
+
+      *Red before green, by restoration.* The same file, written against the
+      widget tree only — no `chatRecheckVerdict`, no new keys, no new strings —
+      run against the screen restored from `git show HEAD:`:
+      `Expected: contains '3'` /
+      `Actual: 'تعذّر الاتصال للتحقّق — تحقّق من القائمة قبل إعادة المحاولة'`.
+
+      *Two more failures in my own harness, both of which looked like product
+      bugs.* (1) The widget test's first version asserted `contains('2')` and
+      failed on `وصلت رسالتان` — the **dual**, which correctly carries the noun
+      with *no number*. Asserting the digit would have been asserting a
+      grammatical error, so the case now asserts `رسالتان`. (2) The shot test
+      sat until the 10-minute timeout **after** writing its PNG, because
+      `_countNear` awaits `RenderRepaintBoundary.toImage`, which resolves on
+      the raster thread and is not pumped inside the fake-async zone. It needs
+      `tester.runAsync`; the sibling plan-card shot already does this and the
+      wrapper is not optional decoration. 10:00 hang -> **6 s**.
+
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1669 passed / 3 skipped / 0 failed**, up from
+      1656/3/0 (**+13**).
+
+      *The picture.* `/tmp/shots/19_chat_recheck_one_line.png`, the bar's rect
+      taken from the widget rather than hard-coded: `Rect.fromLTRB(0.0, 1149.4,
+      392.7, 1236.4)` on a 392 dp phone. The probe's colour is **sampled, not
+      chosen** — the first version asked for `0x333333` at tolerance 90 because
+      "a bar is dark", which passes for any input on a non-white page, the same
+      false green the plan-card shot hit last tick. Read off the written file
+      with `tool/png_read.py`: the modal colour of the 170 px band is
+      **`#E7E7E9`**, **208 568** wash px, and **1 466** ink px inside it spanning
+      x 87..1048 of 1179 — the sentence is laid out inside the bar, not clipped.
+      In-test the same probe reads **80 608**; the two differ because the test
+      counts inside the widget's rect and the file read scans the band, which is
+      the point of doing both.
+
+      *The sweep is the mechanism, not the migration.* `test/snack_rule_sweep_test.dart`
+      proves no screen reaches `ScaffoldMessenger` outside the helper, so a tenth
+      copy cannot be born quietly, and proves `showNote` and `showVerdict` are
+      genuinely different — a verdict removes the line it replaces, a note does
+      not, because hiding on a form complaint would blank a message nobody was
+      covering. Source sweep, not a widget test, for `no_empty_text_site_test`'s
+      reason: a screen nobody thought of has no test.
+
+      *A non-change made on purpose, and recorded because the next tick will
+      read it backwards.* `subscription_screen`'s validation lines
+      («أدخل رمز التفعيل») went through `_note` in the first draft, because a
+      form complaint looks like `showNote`. It is not, on that screen: the man
+      reaches it from a form that also carries the previous attempt's answer,
+      and leaving that verdict queued behind a form complaint reads as the state
+      of his *code*. Reverted to `showVerdict` with the reason in the file.
+
+      *Commits.* local `397e8e0` (previous tick) + `eb059fc`; remote `d0390b8`
+      and `aa26a75`. **15/15 blobs MATCH** the real remote tree, read off the
+      git-data API.
+
+      *** The push helper drops untracked files, and the exit code says
+      nothing.*** The first push printed `Pushed 10 changed, 0 deleted` and
+      exited 0 while **all five new files stayed on disk** — the helper filters
+      against *tracked* files, so a file that has never been committed cannot be
+      uploaded at all, and the green line described a commit that did not
+      contain the work. The blob check caught it: `0/15 MATCH`, five `MISSING`.
+      Second attempt with the paths alone printed
+      `REFUSING to push: the path filter selected 0 of 439 tracked files` and
+      named the real cause. **Commit locally first, then push, then check the
+      blobs** — in that order, every time.
+
+      *Next.* The sheet marks the price for a dispute found **before** it opened,
+      but a dispute found *during* the sheet's own submit cannot mark a sheet
+      that has already been popped, and whether the band alone is the right
+      answer there is a real question, not a bug to file.
