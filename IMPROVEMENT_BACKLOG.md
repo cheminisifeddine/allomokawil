@@ -11044,3 +11044,92 @@ pricing decision second.
 
       *Still BACKEND-API's, untouched:* the `durations` array (`basic` publishes
       1/3/6/12 months; the app can only order `month` and `year`).
+
+- [x] **A failed FILTER switch on «ابحث عن مقاول» answered with the previous
+      filter's contractors — the seventh screen in this family, and the last
+      one still holding a bare cache.** Shipped 30 Sep.
+
+      **What was false.** `_cache` was a bare `List<WorkerProfile>?` with **no
+      record of which filters it was read for**, so the builder's `shown`
+      expression — a failed *or* waiting read falls back to the cache —
+      answered *any* question with the rows of the last one. Tap «السباكة»
+      on one bar of signal and the all-trades directory is drawn under the chip
+      that says plumbing. On the directory that is **contractors in the wrong
+      trade, under a filter claiming otherwise**, on the one read a client
+      makes who is not here to chat.
+
+      **`_matchesQuery` cannot catch it**, which is why it survived: it narrows
+      on the typed word and the taxonomy name only. A painter in a plumbing
+      filter is not a near-miss, he is simply drawn — correctly formatted, in
+      the wrong row of the wrong list.
+
+      **Shipped.** `_cache` is one `DirectoryRead` record (rows + the question
+      asked + stamp, written in a single `setState`). The fallback is gated on
+      `_cache!.asked == _question`, so a pull inside one filter still keeps its
+      rows — the same question asked twice — while a failed *switch* has nothing
+      of its own and says so. **`_cacheReadAt` was deleted rather than carried**:
+      it was a second nullable that could date rows the record had already
+      replaced, and a stamp from a different read than the one on screen is
+      worse than no stamp because it is then confidently wrong.
+
+      **The naive fix is this app's ninth recurrence, and it is written down in
+      the record's doc so it cannot be re-introduced.** Tagging the rows with
+      the *current* filters inside the `then` callback files a read under
+      whatever the screen has moved on to: tap painting, tap plumbing while
+      painting is in flight, and the painting rows land filed under plumbing.
+      `_arm` therefore takes the question as a **parameter**, decided when the
+      request is issued and travelling out with it. `DirectoryQuestion` is
+      value-equal so the two screens that key a cache cannot spell it
+      differently.
+
+      **Red before green — and the new cases were vacuous twice first.**
+      Both filter cases now fail against the unfixed screen, each for the
+      *right* reason:
+
+        * «a failed trade switch does not answer with ALL trades»
+          → `Found 1 widget with text "مقاول السباكة"` under a lit plumbing chip.
+        * «two taps in a row: neither read is filed under the wrong filter»
+          → no `تعذّر جلب المقاولين`, because read 1's rows were answering for
+          read 2's question.
+
+      Three harness faults were fixed first, none of them visible in the
+      output (`+1` and green each time):
+
+      1. **Both taps landed off-screen.** The strip is a horizontal
+         `SingleChildScrollView` over sixteen pills; `painting` and `plumbing`
+         are past the fold at 1080 px. `tester.tap` on a chip outside the root
+         derives an offset off-canvas, prints a *warning*, and changes nothing.
+         The first version of these cases therefore never changed a filter and
+         asserted things about the **unfiltered** list — one of them "failed
+         red" for a reason that had nothing to do with the defect. `tapChip()`
+         now `ensureVisible`s first and asserts the centre is on-screen.
+         `warnIfMissed: false` is deliberately not used.
+      2. The race case **failed both reads**, so no cache existed to mislabel
+         and nothing could be wrong. Read 1 must *succeed*; the harness now
+         takes a `respond` callback per read index rather than a single gate.
+      3. The race case then ran at the shared **200 ms** timeout, which fires
+         while the parked read is open and converts it into the failed-read
+         case it is not. It runs at 20 s — the same fault the sibling race
+         case recorded yesterday, now written down in the harness parameter's
+         doc so the next case does not re-invent it.
+
+      *Gate.* `flutter analyze` -> **No issues found!**. `flutter test` ->
+      **1703 passed / 3 skipped / 0 failed**, up from 1699/3/0 (+4).
+
+      *Proven by pixels.* `/tmp/shots/24_directory_filter_switch_failed.png`,
+      1179x2763. The band's own wash (`accentWash` = `FDF3E3`) measures
+      **0 rows / 0 dark px** in the cross-filter case against
+      **343 rows / 33,323 dark px** in the pull case
+      (`18_directory_stale.png`, unchanged — the pull half did not regress).
+      `pngscan` -> `0 box(es)` on the new shot, `45 box(es)` on the old.
+      Dark ink is confined to y<1500 (app bar, chip strip, error card) with
+      every band below 1500 blank, which is what "no borrowed rows" looks like.
+      The one wash-coloured region in that range is `#FDF6E3` — the *plumbing
+      chip's own* tint from `taxonomy.dart:126`, i.e. the lit chip, **not** a
+      stale band, and the two are close enough in colour that counting "any
+      cream" instead of `FDF3E3` would have reported a defect that is not
+      there.
+
+      **This was found with 0 unchecked items**, by reading the family the last
+      four items each named rather than by inventing new work. The remaining
+      `durations` array is still BACKEND-API's.

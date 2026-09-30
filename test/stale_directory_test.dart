@@ -16,6 +16,7 @@
 // The pure half is the wording; the widget half is the screen obeying it,
 // because a correct helper wired to an unchanged screen passes the first half
 // clean.
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -43,6 +44,38 @@ Map<String, dynamic> _me() => {
       'full_name': 'سمية',
       'type': 'customer',
     };
+
+/// [wilaya] is a parameter so a filter case can put a contractor in a
+/// different wilaya from [mainWorker], which is what makes "the wrong city's
+/// contractors under this chip" something a test can see rather than argue
+/// about.
+Map<String, dynamic> _workerIn(
+        int id, String name, String wilaya, String specialty) =>
+    _worker(id, name)
+      ..['wilaya'] = wilaya
+      ..['specialties'] = <String>[specialty];
+
+/// Taps a trade chip, **scrolling it into the strip first**.
+///
+/// The strip is a horizontal [SingleChildScrollView] over sixteen pills, so a
+/// chip past the fold is built but not hittable. `tap` on it derives an offset
+/// outside the root and prints a warning instead of failing, so a case that
+/// taps one without this **passes for the wrong reason**: the filter never
+/// changed, and the assertion then proves something about the unfiltered list.
+/// The first version of the two filter cases did exactly that and one of them
+/// failed against the unfixed screen for a reason that had nothing to do with
+/// the defect. `warnIfMissed: false` is deliberately NOT used: this returns
+/// only once the chip is genuinely on screen.
+Future<void> tapChip(WidgetTester tester, String slug) async {
+  final chip = find.byKey(ValueKey('trade-$slug'));
+  await tester.ensureVisible(chip);
+  await tester.pumpAndSettle();
+  expect(tester.getCenter(chip).dx,
+      lessThan(tester.view.physicalSize.width / tester.view.devicePixelRatio),
+      reason: 'the chip must be on screen for the tap to mean anything');
+  await tester.tap(chip);
+  await tester.pumpAndSettle(const Duration(seconds: 2));
+}
 
 Map<String, dynamic> _worker(int id, String name) => {
       'id': id,
@@ -77,6 +110,29 @@ Map<String, dynamic> _worker(int id, String name) => {
     /// The clock the band is dated against, when a test needs to move time.
     /// Defaults to the real one, so every existing case is unchanged.
     DateTime Function()? clock,
+
+    /// The rows the FIRST read answers with. The default list is the one the
+    /// pull cases have always asserted on; a filter case passes a second
+    /// contractor in another wilaya so "the other filter's rows" means
+    /// something that could be seen on screen.
+    List<Map<String, dynamic>>? firstRead,
+
+    /// Decides what every read **after the first** answers, which is the only
+    /// part of this screen a case needs to steer: read 1 is the first filter
+    /// tap, read 2 the second.
+    ///
+    /// Returning null is the default 503. A case that returns a future it
+    /// does not complete **parks** that read, which is the only way to
+    /// reproduce a tap-tap-tap with the second read still open — a screen that
+    /// cannot be observed in that state cannot be tested in it.
+    Future<http.Response?> Function(int read)? respond,
+
+    /// The client timeout. The default 200 ms is there so a 503 settles
+    /// inside `pumpAndSettle`; a case that parks a read on purpose cannot use
+    /// it, because it fires while the read is parked and converts the case
+    /// into a failed-read case it is not. See the race case for what that
+    /// did the first time this case was written.
+    Duration timeout = const Duration(milliseconds: 200),
   }) async {
     tester.view.physicalSize = const Size(1080, 2532);
     tester.view.devicePixelRatio = 2.75;
@@ -95,20 +151,26 @@ Map<String, dynamic> _worker(int id, String name) => {
               headers: {'content-type': 'application/json'});
         }
         if (path.endsWith('/api/mobile/workers/search')) {
-          reads++;
-          if (reads == 1) {
+          final index = reads++;
+          if (index == 0) {
             return http.Response(
-                jsonEncode(<dynamic>[_worker(1, 'مقاول أول')]),
+                jsonEncode(<dynamic>[
+                  ...firstRead ?? <Map<String, dynamic>>[
+                    _worker(1, 'مقاول أول')
+                  ],
+                ]),
                 200,
                 headers: {'content-type': 'application/json'});
           }
-          return http.Response('', 503,
-              headers: {'content-type': 'application/json'});
+          final custom = respond == null ? null : await respond(index);
+          return custom ??
+              http.Response('', 503,
+                  headers: {'content-type': 'application/json'});
         }
         return http.Response(jsonEncode(<String, Object?>{}), 200,
             headers: {'content-type': 'application/json'});
       }),
-      timeout: const Duration(milliseconds: 200),
+      timeout: timeout,
     );
 
     final auth = AuthState(api);
@@ -458,4 +520,116 @@ void main() {
     });
   });
 
+  // ── The cross-filter half ──────────────────────────────────────────────
+  //
+  // Added 30 Sep, after the sibling defect in `projects_screen` shipped the
+  // day before. The directory was the seventh screen in this family and the
+  // only one still holding a **bare** `List<WorkerProfile>?`: it has no record
+  // of which filters it was read for, so `shown` — a failed *or* waiting read
+  // falls back to the cache — answered any question with the last one's rows.
+  // Tap «البليدة» on one bar of signal and the all-wilaya directory is drawn
+  // under the chip that says Blida.
+  //
+  // `_matchesQuery` cannot catch it: it narrows on the typed word and the
+  // taxonomy name, and a contractor in the wrong city with the wrong trade
+  // matches neither — he is simply drawn, correctly formatted, in the wrong
+  // row of the wrong list.
+  group('BrowseScreen — a failed FILTER switch is not answered by the last '
+      'filter', () {
+    testWidgets('a failed trade switch does not answer with ALL trades',
+        (tester) async {
+      await loadThenFailRefresh(
+        tester,
+        firstRead: <Map<String, dynamic>>[
+          _workerIn(1, 'مقاول أول', '16', 'painting'),
+          // A second contractor who is NOT a painter. Under the fix this row is
+          // on screen only while no trade filter is lit, so drawing him under
+          // a lit «السباكة» chip is the defect made visible.
+          _workerIn(2, 'مقاول السباكة', '16', 'plumbing'),
+        ],
+        afterLoad: (t) async {
+          await tapChip(t, 'plumbing');
+        },
+      );
+
+      // The defect, stated as the user meets it: the chip he just tapped is
+      // answering with rows that are not that chip's rows.
+      expect(find.text('مقاول السباكة'), findsNothing,
+          reason: 'the plumber must not be drawn as the answer to a plumbing '
+              'read that failed — that is precisely what he is');
+      expect(find.text('تعذّر جلب المقاولين'), findsOneWidget,
+          reason: 'a failed switch with nothing of its own must say so rather '
+              'than borrow another filter\'s rows');
+      expect(find.byKey(const Key('stale-directory')), findsNothing,
+          reason: 'the band qualifies rows; with no rows for THIS question '
+              'there is nothing to qualify');
+    });
+
+    testWidgets('a pull inside one filter still keeps its rows', (tester) async {
+      // The half that was already right, pinned so the fix cannot take it away
+      // with the cross-filter half. The same question asked twice is not the
+      // same as a different question, and on this screen the pull is the gesture
+      // a client reaches for first.
+      await loadThenFailRefresh(tester, afterLoad: (t) async {
+        await t.drag(find.text('مقاول أول'), const Offset(0, 340));
+        await t.pumpAndSettle(const Duration(seconds: 3));
+      });
+
+      expect(find.text('مقاول أول'), findsOneWidget,
+          reason: 'a pull changes nothing about the question, so the rows stay');
+      expect(find.byKey(const Key('stale-directory')), findsOneWidget);
+    });
+
+    testWidgets('two taps in a row: neither read is filed under the wrong '
+        'filter', (tester) async {
+      // The race the parameter-passing in `_arm` exists for. Tagging the rows
+      // inside the `then` callback with the *current* filters is the naive fix
+      // for the defect above and reproduces it one layer down: tap painting,
+      // tap plumbing while painting is still in flight, and the painting rows
+      // land filed under plumbing.
+      //
+      // Read 1 must SUCCEED or there is no cache to mislabel and the case is
+      // vacuous — which is the first fault in this case's history, recorded
+      // because the output looked identical (`+1` and green) either way.
+      //
+      // 20 s client timeout, not the shared 200 ms: a read that is MEANT to
+      // hang cannot use a timeout short enough for a 503 to settle inside
+      // `pumpAndSettle`, because it fires while the read is parked and turns
+      // this into the failed-read case it is not. That is the second fault.
+      final parked = Completer<void>();
+      final released = Completer<void>();
+      await loadThenFailRefresh(
+        tester,
+        timeout: const Duration(seconds: 20),
+        respond: (index) async {
+          if (index != 1) return null; // read 2 fails: 503
+          // Read 1 (the painting tap) is held open until read 2 has been
+          // issued, which is the overlap the defect needs.
+          parked.complete();
+          await released.future;
+          return http.Response(
+              jsonEncode(<dynamic>[_worker(1, 'مقاول الصباغ')]),
+              200,
+              headers: {'content-type': 'application/json'});
+        },
+        afterLoad: (t) async {
+          await tapChip(t, 'painting');
+          await parked.future;
+          // The screen has moved on while read 1 is still open.
+          await tapChip(t, 'plumbing');
+          released.complete();
+          await t.pumpAndSettle(const Duration(seconds: 3));
+        },
+      );
+
+      // Read 1 succeeded and read 2 failed, so the honest screen is: plumbing
+      // could not be read. The painter's row is not the answer to the plumbing
+      // question, and the record must not let it be.
+      expect(find.text('تعذّر جلب المقاولين'), findsOneWidget,
+          reason: 'the second read failed and had no rows of its own');
+      expect(find.text('مقاول الصباغ'), findsNothing,
+          reason: 'read 1 landed while the screen was asking for plumbing — '
+              'those rows are not the plumbing answer');
+    });
+  });
 }

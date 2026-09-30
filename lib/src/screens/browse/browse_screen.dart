@@ -77,7 +77,22 @@ class _BrowseScreenState extends State<BrowseScreen> {
   /// writes nothing here, so the previous list survives it and the reader is
   /// never shown a shimmer for work he did not ask for. See the builder for
   /// where the doubt is drawn.
-  List<WorkerProfile>? _cache;
+  ///
+  /// As a **bare** `List<WorkerProfile>?` it was wrong on this screen, and this
+  /// is the seventh member of the family to have this argument with itself.
+  /// `worker_home_screen` keeps the same list for the same reason and keys it
+  /// with `_cacheKey`; `projects_screen` keys its record with the status pill.
+  /// Bare, the builder's `shown` expression — a failed *or* waiting read falls
+  /// back to the cache — answered **any** question with the rows of the last
+  /// one. Tap «البليدة» on a dropped connection and the all-wilaya directory is
+  /// drawn under the chip that says Blida: contractors in the **wrong city**,
+  /// under a filter that claims otherwise, for the one read in this app a
+  /// client makes who is not here to chat.
+  ///
+  /// One record, not three parallel nullable fields, because fields that can
+  /// disagree produce states no test notices. See [_arm] for why the key is
+  /// taken as a parameter rather than read inside the callback.
+  DirectoryRead? _cache;
 
   /// The sentence for the last failed read, or null when there is nothing to
   /// doubt — a read that has not failed yet, and a first read that failed
@@ -100,7 +115,11 @@ class _BrowseScreenState extends State<BrowseScreen> {
   /// than no stamp, because it is now confidently wrong. [Future] cannot carry
   /// a completion time, and `then` would have to race the [FutureBuilder]
   /// already listening to the same object.
-  DateTime? _cacheReadAt;
+  ///
+  /// There is no `_cacheReadAt` field any more: it was a second nullable that
+  /// could date rows the record had already replaced, and a stamp from a
+  /// different read than the one on screen is worse than no stamp, because it
+  /// is then confidently wrong. `DirectoryRead.readAt` is the only stamp.
 
   /// Ticks once a minute so an honest band does not need a re-read to become an
   /// honest band.
@@ -124,8 +143,16 @@ class _BrowseScreenState extends State<BrowseScreen> {
     _repo = Repository(AppScope.of(context).api);
     _category = widget.initialCategory;
     _arm(_repo.searchWorkers(
-        category: _category, wilaya: _wilaya, query: _query));
+        category: _category, wilaya: _wilaya, query: _query), _question);
   }
+
+  /// The question the directory is currently asking, as one comparable value.
+  ///
+  /// Built from the same three fields the request is built from, at the same
+  /// moment, so it cannot drift from it. Typed and not a bare record literal so
+  /// the two screens that key a cache cannot spell it differently.
+  DirectoryQuestion get _question => DirectoryQuestion(
+      category: _category, wilaya: _wilaya, query: _query);
 
   /// Points the directory at a read, and records what that read settled to.
   ///
@@ -139,18 +166,18 @@ class _BrowseScreenState extends State<BrowseScreen> {
   /// `setState` in [_reload] and from `didChangeDependencies`, and the answer
   /// to a future is a microtask later than both, so the rebuild is scheduled
   /// here and lands after the caller's own.
-  void _arm(Future<List<WorkerProfile>> read) {
+  void _arm(Future<List<WorkerProfile>> read, DirectoryQuestion q) {
     _future = read;
     read.then((list) {
       if (!mounted) return;
       setState(() {
-        _cache = list;
+        _cache = DirectoryRead(rows: list, asked: q, readAt: _now());
         _staleReason = null;
         // The clock *now*, not the moment the request was issued, so a read
         // that was in flight for forty seconds is dated when it actually
         // landed. Stamping at issue time would under-report the age on a slow
-        // connection — the exact case where the number matters most.
-        _cacheReadAt = _now();
+        // connection — the exact case where the number matters most. It rides
+        // in the record so the rows and the date cannot come apart.
       });
       _armAgeTick();
     }, onError: (Object e, StackTrace _) {
@@ -161,7 +188,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
 
   void _reload() {
     setState(() => _arm(_repo.searchWorkers(
-        category: _category, wilaya: _wilaya, query: _query)));
+        category: _category, wilaya: _wilaya, query: _query), _question));
   }
 
   /// Pull-to-refresh. The gesture a user reaches for first on a feed that has
@@ -252,7 +279,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
       if (!mounted) return;
       // Nothing to age yet: a first read that has not landed has no rows, and
       // a band only ever appears over rows that do.
-      if (_cacheReadAt == null) return;
+      if (_cache == null) return;
       setState(() {});
     });
   }
@@ -293,8 +320,20 @@ class _BrowseScreenState extends State<BrowseScreen> {
                   // mid-request, on one bar, that the marketplace is empty.
                   // Found 29 Sep while fixing the sibling in `projects_screen`,
                   // which had the same expression and the same latent bug.
-                  final shown = _cache != null && (waiting || failed)
-                      ? _cache!
+                  // Only rows read **for this question** may answer it. A
+                  // failed filter switch has nothing of its own and says so,
+                  // which is the truth — and the retry button in the error card
+                  // is already wired to the filters that are on screen.
+                  //
+                  // A pull inside one filter keeps its rows: that is the same
+                  // question asked twice, and keeping them there is the entire
+                  // point of the field.
+                  final fallback = _cache != null &&
+                          _cache!.asked == _question
+                      ? _cache!.rows
+                      : null;
+                  final shown = fallback != null && (waiting || failed)
+                      ? fallback
                       : (waiting || failed
                           ? null
                           : (snap.data ?? const <WorkerProfile>[]));
@@ -404,7 +443,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                         if (stale && i == 0) {
                           return _StaleDirectoryBanner(
                               line: staleDirectoryLineWithAgeAr(
-                                  _staleReason!, _cacheReadAt,
+                                  _staleReason!, _cache!.readAt,
                                   now: _now()));
                         }
                         final w = workers[stale ? i - 1 : i];
@@ -528,6 +567,73 @@ class _BrowseScreenState extends State<BrowseScreen> {
       _reload();
     }
   }
+}
+
+/// The filters and the word «ابحث عن مقاول» was asked for.
+///
+/// Two reads with the same key are the same question, and only the second one
+/// may answer the first one's failure. Value equality is the whole contract,
+/// so this is a record and not a string somebody builds by hand.
+class DirectoryQuestion {
+  const DirectoryQuestion({
+    this.category,
+    this.wilaya,
+    this.query = '',
+  });
+
+  /// The trade chip, or null when the strip is dark.
+  final String? category;
+
+  /// The wilaya code as the taxonomy spells it (`'16'`), not its name.
+  final String? wilaya;
+
+  /// The submitted search text, already trimmed.
+  final String query;
+
+  @override
+  bool operator ==(Object other) =>
+      other is DirectoryQuestion &&
+      other.category == category &&
+      other.wilaya == wilaya &&
+      other.query == query;
+
+  @override
+  int get hashCode => Object.hash(category, wilaya, query);
+
+  @override
+  String toString() =>
+      'DirectoryQuestion(category: $category, wilaya: $wilaya, query: $query)';
+}
+
+/// One settled read of the contractor directory, and the question it answered.
+///
+/// [rows] without [asked] cannot be told from the rows of another filter, and
+/// [readAt] without [rows] dates nothing. All three are written in one
+/// `setState`, which is the only way to keep them from disagreeing.
+class DirectoryRead {
+  const DirectoryRead({
+    required this.rows,
+    required this.asked,
+    required this.readAt,
+  });
+
+  /// What the server answered.
+  final List<WorkerProfile> rows;
+
+  /// The filters the read was issued from, carried out of
+  /// [_BrowseScreenState._arm] as it stood when the **request was issued**.
+  ///
+  /// Carried out rather than read back out of the state inside the `then`
+  /// callback, and that is the load-bearing half of this record: tagging the
+  /// rows with the *current* filters files a read under whatever the screen
+  /// has moved on to. Tap «البليدة» and then tap a trade chip while the first
+  /// read is still in flight and the Blida rows land filed under both — the
+  /// identical defect one layer down, which this app has now shipped against
+  /// eight times.
+  final DirectoryQuestion asked;
+
+  /// When these rows landed.
+  final DateTime readAt;
 }
 
 /// The amber band above a contractor list that failed to re-read.
