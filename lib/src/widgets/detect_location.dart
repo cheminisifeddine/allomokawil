@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/l10n/snack.dart';
 import '../core/location/locator.dart';
 import '../core/theme/app_theme.dart';
 import 'ui.dart';
@@ -50,19 +51,21 @@ class _DetectLocationButtonState extends State<DetectLocationButton> {
   }
 
   void _say(String message, {bool settings = false}) {
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(message),
-        action: settings
-            ? SnackBarAction(
-                label: 'الإعدادات',
-                onPressed: () => Locator.openSettings(),
-              )
-            : null,
-      ),
-    );
+    // The one caller that needs a button. `showNoteWithAction` is the shared
+    // entry rather than a third spelling of the hide-then-show chain, and the
+    // action stays «الإعدادات» because the fix here is a settings trip and
+    // never a retry — a retry-shaped button on this line would re-run a
+    // permission request that already failed.
+    if (settings) {
+      showNoteWithAction(
+        context,
+        message,
+        actionLabel: 'الإعدادات',
+        onAction: Locator.openSettings,
+      );
+      return;
+    }
+    showNote(context, message);
   }
 
   @override

@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_scope.dart';
+import '../../core/l10n/snack.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/l10n/write_outcome.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/chat_outbox.dart';
+import '../../data/chat_recheck_copy.dart';
 import '../../data/chat_time.dart';
 import '../../data/thread_match.dart';
 import '../../data/thread_open_outcome.dart';
@@ -769,6 +771,22 @@ class _ChatScreenState extends State<ChatScreen> {
     // thread — which threw "This widget has been unmounted" from the button
     // that exists to tell him whether his message arrived.
     final me = _me;
+    // The re-read settles **every** outstanding message, so it gets **one**
+    // answer. It used to raise a toast per message inside this loop, and
+    // `ScaffoldMessenger` **queues**: three unconfirmed messages meant three
+    // sentences, four seconds apart, and the one still on screen when the user
+    // looked away was the verdict for whichever message happened to be last.
+    // One tap, one button, one sentence that covers the whole outbox — the
+    // only version of this that answers the question the user actually asked.
+    // Three tallies, not two. `missing` is a **proven** absence — the thread
+    // came back without the words, so sending them again is safe — and `unknown`
+    // is no answer at all. Counting them together is how a summary would tell a
+    // man on a dead connection that his messages are missing, and he would
+    // re-send them.
+    var landed = 0;
+    var absent = 0;
+    var unclear = 0;
+    var last = WriteOutcome.unknown;
     for (final m in _messages
         .where((m) => m.sendState == SendState.unconfirmed)) {
       final fresh = await resolveWriteOutcome(recheck: () async {
@@ -776,16 +794,34 @@ class _ChatScreenState extends State<ChatScreen> {
         return rows.any((r) => threadHolds(r, _identity(m), me: me));
       });
       if (!mounted) return;
-      if (fresh == WriteOutcome.landed) {
-        await _forget(m);
-        if (!mounted) return;
-        setState(
-            () => _replace(m.id, m.copyWith(sendState: SendState.sent)));
-        _toast(S.writeUnconfirmedLanded);
-      } else {
-        _toast(writeOutcomeCopy(fresh));
+      last = fresh;
+      switch (fresh) {
+        case WriteOutcome.landed:
+          await _forget(m);
+          if (!mounted) return;
+          setState(
+              () => _replace(m.id, m.copyWith(sendState: SendState.sent)));
+          landed++;
+        case WriteOutcome.missing:
+          absent++;
+        case WriteOutcome.unknown:
+          unclear++;
       }
     }
+    final checked = landed + absent + unclear;
+    if (!mounted || checked == 0) return;
+    // One message keeps the per-outcome sentence it always had: it names *that*
+    // message's own reason, which a count cannot. The plural case is the one a
+    // summary improves on rather than loses.
+    if (checked == 1) {
+      showVerdict(context, writeOutcomeCopy(last));
+      return;
+    }
+    showVerdict(context, chatRecheckVerdict(
+      landed: landed,
+      absent: absent,
+      unclear: unclear,
+    ));
   }
 
   /// Puts [next] where the bubble with [localId] was, keeping the clock already
@@ -845,10 +881,7 @@ class _ChatScreenState extends State<ChatScreen> {
     await _deliver(local);
   }
 
-  void _toast(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
+  void _toast(String msg) => showNote(context, msg);
 
   /// Tap-to-view fullscreen preview for an image message.
   void _openImage(String url) {

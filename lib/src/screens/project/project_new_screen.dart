@@ -25,6 +25,7 @@ import '../../widgets/a11y.dart';
 import '../../widgets/net_image.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
+import '../../core/l10n/snack.dart';
 import '../../core/l10n/error_copy.dart';
 import '../../core/l10n/write_outcome.dart';
 import '../../core/l10n/strings.dart';
@@ -387,8 +388,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
         );
         if (mounted) {
           Navigator.of(context).pop(true);
-          ScaffoldMessenger.of(context)
-              .showSnackBar(const SnackBar(content: Text('تم حفظ التعديل')));
+          _toast('تم حفظ التعديل');
         }
         return;
       }
@@ -406,15 +406,14 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
       );
       if (mounted) {
         Navigator.of(context).pop(true);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('تم نشر مشروعك بنجاح')));
+        _toast('تم نشر مشروعك بنجاح');
       }
     } catch (e) {
       if (isWriteUnconfirmed(e)) {
         // The app refused to guess, and told the user to check the list. So
         // check it — right now, from this screen — and answer with what the
         // server actually holds.
-        _toast(S.writeUnconfirmedRecheck);
+        _toast(recheckNote(notifications: false));
         if (editing != null && sent != null) {
           // The edit half, and it must not reuse the create path's question.
           // `myProjects().any(title)` is *true before the PATCH is sent* — the
@@ -503,10 +502,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
   /// answers a form the user is still filling in. Those are drawn before
   /// anything is in flight, so they have nothing above them to replace and
   /// hiding here would blank a message nobody is covering.
-  void _toast(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
+  void _toast(String msg) => showNote(context, msg);
 
   /// The answer to «did my write land?», drawn **in place of** the recheck line.
   ///
@@ -529,12 +525,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
   /// pasted at each call site, because the reason the two halves drifted is
   /// that they were two call sites. The rule is load-bearing on every write on
   /// this form, so it is written once and the next one inherits it.
-  void _verdict(String copy) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(copy)));
-  }
+  void _verdict(String copy) => showVerdict(context, copy);
 
   Future<void> _pickWilaya() async {
     final picked = await _detour(() => showModalBottomSheet<String>(
@@ -556,9 +547,7 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
 
   Future<void> _pickCommune() async {
     if (_wilaya == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اختر الولاية أولاً')),
-      );
+      _toast('اختر الولاية أولاً');
       return;
     }
     final wilaya = _wilaya!;

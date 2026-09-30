@@ -10,8 +10,8 @@ import '../../models/enums.dart';
 import '../../models/worker.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
+import '../../core/l10n/snack.dart';
 import '../../core/l10n/error_copy.dart';
-import '../../core/l10n/strings.dart';
 import '../../core/l10n/write_outcome.dart';
 import '../../data/verification_write_outcome.dart';
 
@@ -177,10 +177,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
     }
   }
 
-  void _$toast(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
+  void _$toast(String msg) => showNote(context, msg);
 
   /// «نتحقّق الآن من القائمة…» — the line that replaces the one sentence it is
   /// about to contradict.
@@ -188,7 +185,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
   /// It is a recheck line, not an error line, because the failure has not been
   /// classified yet and the user is owed an answer rather than an apology.
   void _showRechecking() {
-    _$toast(S.writeUnconfirmedRecheck);
+    _$toast(recheckNote(notifications: false));
   }
 
   /// The classified answer, drawn in place of the recheck line.
@@ -209,12 +206,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
   /// «أرفق كل المستندات المطلوبة» line in [_submit], drawn before anything is
   /// in flight, has nothing above it to replace, and hiding there would blank a
   /// message nobody is covering.
-  void _showCommitResult(String copy) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(copy)));
-  }
+  void _showCommitResult(String copy) => showVerdict(context, copy);
 
   @override
   Widget build(BuildContext context) {

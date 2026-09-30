@@ -24,6 +24,7 @@ import '../chat/chat_screen.dart';
 import '../review/review_screen.dart';
 import '../worker/subscription_screen.dart';
 import 'project_new_screen.dart';
+import '../../core/l10n/snack.dart';
 import '../../core/l10n/error_copy.dart';
 import '../../core/l10n/write_outcome.dart';
 import '../../core/l10n/strings.dart';
@@ -188,16 +189,14 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
         _reload();
         _showCommitResult(projectCommitCopy(r, ProjectCommit.accept));
       } else if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(errorCopy(e))));
+        showNote(context, errorCopy(e));
       }
       return;
     } finally {
       if (mounted) setState(() => _acceptingQuoteId = null);
     }
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم قبول العرض، سيتم رفض باقي العروض')));
+    showNote(context, 'تم قبول العرض، سيتم رفض باقي العروض');
     // Re-read after confirming. If this read fails the screen now shows its
     // failed-read state, which is the honest answer: the quotes still listed
     // below belong to a project the server has already reassigned, and their
@@ -228,8 +227,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
         _reload();
         _showCommitResult(projectCommitCopy(r, ProjectCommit.complete));
       } else if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(errorCopy(e))));
+        showNote(context, errorCopy(e));
       }
       return;
     }
@@ -244,8 +242,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
   /// It is a recheck line, not an error line, because the failure has not been
   /// classified yet and the user is owed an answer rather than an apology.
   void _showRechecking() {
-    ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text(S.writeUnconfirmedRecheck)));
+    showNote(context, recheckNote(notifications: false));
   }
 
   /// The classified answer, drawn in place of the recheck line.
@@ -256,11 +253,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
   /// this screen the stale line is not a harmless placeholder — it is a
   /// contract he may have already signed — so the queue is removed first and
   /// only the answer is left on screen.
-  void _showCommitResult(String copy) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(copy)));
-  }
+  void _showCommitResult(String copy) => showVerdict(context, copy);
 
   /// Re-reads the project after a commit whose answer never arrived, and
   /// classifies what the server now holds.
@@ -331,14 +324,12 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
         _reload();
         _showCommitResult(projectCommitCopy(r, ProjectCommit.cancel));
       } else if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(errorCopy(e))));
+        showNote(context, errorCopy(e));
       }
       return;
     }
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('تم إلغاء المشروع')));
+    showNote(context, 'تم إلغاء المشروع');
     _reload();
   }
 
@@ -597,11 +588,9 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
       final rawDays = submitted.days.trim();
       final dayCount = DzNumber.tryParse(rawDays, min: 1);
       if (amt == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('المبلغ يجب أن يكون 1000 دج على الأقل')));
+        showNote(context, 'المبلغ يجب أن يكون 1000 دج على الأقل');
       } else if (rawDays.isNotEmpty && dayCount == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('مدة الإنجاز يجب أن تكون عدداً من الأيام')));
+        showNote(context, 'مدة الإنجاز يجب أن تكون عدداً من الأيام');
       } else {
         try {
           await widget.repo.submitQuote(
@@ -613,8 +602,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
             estimatedDays: dayCount,
           );
           if (mounted) {
-            ScaffoldMessenger.of(context)
-                .showSnackBar(const SnackBar(content: Text('تم إرسال عرضك')));
+            showNote(context, 'تم إرسال عرضك');
             _reload();
           }
         } catch (e) {
@@ -668,8 +656,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
             _showCommitResult(writeOutcomeCopy(outcome));
             return;
           }
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text(errorCopy(e))));
+          showNote(context, errorCopy(e));
         }
       }
     }

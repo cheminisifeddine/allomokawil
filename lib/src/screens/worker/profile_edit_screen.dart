@@ -9,6 +9,7 @@ import '../../widgets/category_grid.dart';
 import '../../widgets/number_field.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
+import '../../core/l10n/snack.dart';
 import '../../core/l10n/error_copy.dart';
 import '../../core/l10n/write_outcome.dart';
 import '../../data/profile_write_outcome.dart';
@@ -203,9 +204,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       // the server's own copy is what stops the caller from drawing a profile
       // that the database does not hold. `unknown` still pops — the PATCH did
       // answer, so this screen is done — it just refuses to claim it verified.
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(profileWriteOutcomeCopy(result))));
+      showVerdict(context, profileWriteOutcomeCopy(result));
       // Only a **verified** save closes the form. The other two keep the
       // contractor on the page with his own values still in the boxes, which is
       // the only way either sentence can be read: a toast on a route that has

@@ -14,6 +14,7 @@ import '../../widgets/a11y.dart';
 import '../../widgets/net_image.dart';
 import '../../widgets/ui.dart';
 import '../../widgets/skeletons.dart';
+import '../../core/l10n/snack.dart';
 import '../../core/l10n/error_copy.dart';
 import '../../core/l10n/write_outcome.dart';
 import '../../core/l10n/strings.dart';
@@ -223,9 +224,7 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
           _allowance = PortfolioAllowance(limit: a.limit, used: _images.length);
         }
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تمت إضافة الصورة إلى معرض أعمالك')),
-      );
+      showNote(context, 'تمت إضافة الصورة إلى معرض أعمالك');
     } catch (e) {
       if (!mounted) return;
       // Two different failures share one `catch`, and the old code called both
@@ -281,8 +280,7 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
   /// looking at a screen that appears to be doing nothing, and a check that
   /// takes two seconds needs to be visible before it takes them.
   Future<void> _settleUnconfirmed(String uploadedUrl) async {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text(S.writeUnconfirmedRecheck)));
+    showNote(context, recheckNote(notifications: false));
     final workerId = _worker!.id;
     final result = await resolvePortfolioWriteOutcome(
       uploadedUrl: uploadedUrl,
@@ -318,9 +316,7 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
     // sit behind «checking the list now…» for its full duration and the user
     // would have already looked away. The subscription screen already does it
     // this way for the same two-sentence pattern.
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(writeOutcomeCopy(result.outcome))));
+    showVerdict(context, writeOutcomeCopy(result.outcome));
   }
 
   @override

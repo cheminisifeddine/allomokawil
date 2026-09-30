@@ -4,8 +4,8 @@ import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
 import '../../widgets/a11y.dart';
 import '../../widgets/ui.dart';
+import '../../core/l10n/snack.dart';
 import '../../core/l10n/error_copy.dart';
-import '../../core/l10n/strings.dart';
 import '../../core/l10n/write_outcome.dart';
 
 /// Post-project review: 1-5 stars + optional comment.
@@ -42,8 +42,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
 
   Future<void> _submit() async {
     if (_rating == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('اختر عدد النجوم أولاً')));
+      showNote(context, 'اختر عدد النجوم أولاً');
       return;
     }
     // The value this form was pressed with, captured **before** the first
@@ -75,8 +74,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         comment: comment.isEmpty ? null : comment,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('شكراً لك، تم إرسال التقييم')));
+        showNote(context, 'شكراً لك، تم إرسال التقييم');
         Navigator.of(context).popUntil((r) => r.isFirst);
       }
     } catch (e) {
@@ -85,8 +83,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         // A review is the one write a client cannot redo safely — a second tap
         // would rate twice. The app is told to check the list, so check it: the
         // worker's own review list is the only place the answer exists.
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text(S.writeUnconfirmedRecheck)));
+        showNote(context, recheckNote(notifications: false));
         final outcome = await resolveWriteOutcome(
           recheck: () async {
             final fresh = widget.repo.workerReviews(widget.workerId);
@@ -107,9 +104,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         // `landed` path the screen pops immediately, taking the queue with it.
         // The profile form's own save has done this since it learned to verify
         // its writes.
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text(writeOutcomeCopy(outcome))));
+        showVerdict(context, writeOutcomeCopy(outcome));
         // Landed or not, the screen has shown its answer. If the row is on the
         // server the user is done here; if it is not, they stay and retry.
         if (outcome == WriteOutcome.landed) {
@@ -117,8 +112,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         }
         return;
       }
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(errorCopy(e))));
+      showNote(context, errorCopy(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/format/money.dart';
+import '../../core/l10n/snack.dart';
 import '../../core/l10n/error_copy.dart';
 import '../../core/l10n/write_outcome.dart';
 import '../../core/l10n/strings.dart';
@@ -178,12 +179,21 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     }
   }
 
-  void _say(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
-  }
+  /// Every line on this screen replaces one, **including** the validation
+  /// ones.
+  ///
+  /// That is a deliberate non-change: «أدخل رمز التفعيل» is a bare form
+  /// complaint, so the obvious reading is [showNote] — but the man reaches it
+  /// by tapping «تفعيل» on a form that also carries the previous attempt's
+  /// answer («وجدناه في القائمة — الطلب وصل بنجاح»), and leaving that verdict
+  /// in the queue behind a form complaint is a line he reads as the state of
+  /// his *code*. Hiding it is the same rule the recheck path uses for the same
+  /// reason: a stale answer is worse than no answer.
+  ///
+  /// It is recorded here because the next tick will read
+  /// `showNote`/`showVerdict` and assume `_note` is the correct entry for these
+  /// four lines. It is not, on this screen, and the reason is above.
+  void _say(String message) => showVerdict(context, message);
 
   /// Declares a payment for [plan] after the contractor picked how to pay.
   ///
@@ -242,7 +252,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         // arrive» who then sees nothing change cannot tell a dropped request
         // from one the server filed, and the next thing he thinks of is
         // paying twice for the same plan.
-        _say(S.writeUnconfirmedRecheck);
+        _say(recheckNote(notifications: false));
         final outcome = await resolveSubscriptionWriteOutcome(
           before: before,
           fetch: _repo.subscription,
@@ -292,7 +302,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         // burned — and the only safe next step is for the app to find out
         // rather than for the man to type it again into a box that will
         // refuse it.
-        _say(S.writeUnconfirmedRecheck);
+        _say(recheckNote(notifications: false));
         final outcome = await resolveRedeemWriteOutcome(
           codePlan: null,
           before: before,

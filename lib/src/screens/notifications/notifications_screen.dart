@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
+import '../../core/l10n/snack.dart';
 import '../../core/l10n/error_copy.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/l10n/write_outcome.dart';
@@ -256,9 +257,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   /// A recheck line, not an error line, because the failure has not been
   /// classified yet and the user is owed an answer rather than an apology.
   void _showRechecking() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text(S.notifReadUnconfirmedRecheck)),
-    );
+    showNote(context, recheckNote(notifications: true));
   }
 
   /// The classified answer, drawn in place of the recheck line.
@@ -275,11 +274,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   /// Unlike the third `showSnackBar` in [_open] (the «no action» line, which
   /// has nothing above it to replace) this one is the answer to the line it is
   /// hiding, so the queue is removed first and only the answer is left.
-  void _showCommitResult(String copy) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(copy)));
-  }
+  void _showCommitResult(String copy) => showVerdict(context, copy);
 
   /// Opens whatever the row is about, and never lets a tap die in silence.
   ///
@@ -300,9 +295,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (screen == null) {
       // An informational row with nothing behind it. Saying so beats a tap that
       // does nothing at all — the reason this screen was reported broken.
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.notificationNoAction)),
-      );
+      showNote(context, S.notificationNoAction);
       return;
     }
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen));
