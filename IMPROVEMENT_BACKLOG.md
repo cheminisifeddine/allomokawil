@@ -10041,3 +10041,73 @@ re-filed. Fresh ground for the next tick: `test/` has no coverage of the
 five stars, the empty-start rule and the 0-star guard are not), and
 `project_new_screen.dart` now has a `_verdict` helper that `MyPortfolioScreen`
 and the other write screens do not share.
+
+## Tick 30 Sep 2026 — the price warning outlived nothing, on the money screen
+
+*Item:* the seventh member of the SnackBar family, and the first one that was
+**not** about a verdict. The class is closed; this is the mirror of it.
+
+*What the backlog claimed, checked before acting.* The last tick's «next» note
+said the rating picker on `review_screen.dart` was untested. **It is not.**
+`rating_integrity_test.dart` holds 3 cases (opens empty, the 0-star guard, a
+2-of-5 pick), `a11y_semantics_test.dart` holds 3 more (five named stars, the
+`selected` flags, no unnamed tap target) and `tap_target_test.dart` holds 2 at
+both phone widths with an edge-tap probe. Six cases, and the note would have
+sent a tick to write a seventh. Recorded here because a wrong note costs a
+tick every time it is read.
+
+*What actually shipped.* `subscription_screen.dart` routes **every** line it
+draws through one `_say`, and `_say` always calls `hideCurrentSnackBar` first.
+That is the right rule for a verdict replacing the line it contradicts and the
+wrong rule for a warning, which has nothing above it to replace.
+
+`subscriptionAmountMismatchAr` is the sentence the house wrote to stop a man
+transferring the wrong figure: the price on the payment sheet is the app's
+arithmetic over a catalogue fetched earlier, the amount in the answer is D1's,
+and when they disagree it names **both**. It was drawn with `_say`. So it
+replaced the acknowledgement carrying «حوّل 4500 دج» — the figure D1 says to
+send — and was then replaced by nothing at all.
+
+*Measured on the real screen, real write, fake clock.* Present at **500 ms**,
+gone by **5500 ms** — the full SnackBar default. After it went, the screen drew
+`3000 دج`, the quoted price, alone, with nothing on it saying that number had
+just been contradicted. The one number a contractor acts on was left standing
+and the sentence challenging it had the shortest life of anything in the view.
+
+*Shipped.* The warning is state (`_priceMismatch`), not a toast, and is drawn
+as a band above the plan card — above it, because the figure it disputes is
+the one on the card, so it has to be read before the number and not after.
+`_StaleBanner` grew an `icon` argument so the new band and the existing failed-
+re-read band are one shape rather than two cards that can drift apart. The
+acknowledgement stays a toast; it is a receipt, it is transient by nature. The
+band is cleared by a fresh purchase, which is the only thing that can change
+the terms.
+
+*Red before green.* Against the **original** screen: 2 of 6 fail — the warning
+is absent at 8 s (0 widgets), and the warning is found inside the snackbar
+queue where it replaced the transfer figure. Reverted from a byte-for-byte
+backup and re-verified by restoring, not by reasoning. A counter-probe asserts
+an agreeing purchase shows no band, so the three screen tests cannot pass by
+the screen shouting everything at once.
+
+*Gate.* `flutter analyze` -> **No issues found!**
+`flutter test` -> **1645 passed / 3 skipped / 0 failed**, up from 1638/3/0 (+7).
+
+*The picture.* `test/price_mismatch_band_shot_test.dart`, the real rasterizer
+with Cairo loaded, because a widget test finds a band that drew as an empty
+amber bar just as happily. Scoped to the band's own rows and counting **dark**
+pixels on its wash, the polarity `stale_catalogue_shot_test.dart` uses and the
+reason it uses it: the page behind is white, so a global ink count passes for
+any input at all. **rows=205, dark=20986** at 8 s, i.e. after the toast would
+have expired. The band is a 210 px amber card at y 231-440, measured off the
+capture with `tool/png_read.py`. `/tmp/shots/17_subscription_price_mismatch.png`.
+
+*Next.* Fresh ground, none of it a repeat: the ack band and the stale band are
+now two instances of one shape, so a **third** is due — the checkout figure on
+`subscription_screen` is drawn from the catalogue and is not marked when the
+band above it says that figure is wrong, so the card and the band can disagree
+on screen at the same moment. Also open: `_showCommitResult` is still written
+**seven** times under three names (`_showCommitResult` x3, `_verdict`, `_say`,
+plus the two inline `hideCurrentSnackBar` chains), which is the drift
+mechanism that caused this class; the same rule is a candidate for one shared
+helper the way `A11y.tap` is. Neither is filed — one item per tick.

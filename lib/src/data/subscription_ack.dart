@@ -134,6 +134,15 @@ String? subscriptionAckAr(SubscriptionAck? ack) {
 /// confirm with support, because the app cannot tell whether the catalogue is
 /// stale or the request was mis-priced, and guessing wrong on this screen
 /// costs a man real money.
+/// The test key on the band that carries [subscriptionAmountMismatchAr].
+///
+/// The sentence used to be a toast, which put a price disagreement behind the
+/// acknowledgement that named the transfer figure and then behind four seconds
+/// of nothing. The warning is now a band, and it needs a name a test can hold
+/// it by: the money text also appears inside the acknowledgement, so counting
+/// occurrences of the figures cannot tell the two apart.
+const String planPriceMismatchKey = 'plan-price-mismatch';
+
 String? subscriptionAmountMismatchAr(int? quotedDzd, int? chargedDzd) {
   if (quotedDzd == null || chargedDzd == null) return null;
   if (quotedDzd <= 0 || chargedDzd <= 0) return null;

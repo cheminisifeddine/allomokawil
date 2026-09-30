@@ -83,6 +83,20 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   bool _busy = false;
   final _codeController = TextEditingController();
 
+  /// The sentence that says the price on this screen and the price D1 just
+  /// charged are not the same number.
+  ///
+  /// It used to be a [SnackBar], which made it the shortest-lived sentence on
+  /// the one screen where a man is about to move money: four seconds, and then
+  /// the screen reverts to drawing **only** the quoted figure, so the last
+  /// thing left standing is the price the app got wrong. See
+  /// `subscription_ack.dart` and [planPriceMismatchKey].
+  ///
+  /// Held as state rather than drawn from the snackbar queue, so it survives
+  /// the write, the reload and the four seconds. Cleared only by a fresh
+  /// purchase or a re-read that changes the terms.
+  String? _priceMismatch;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -186,7 +200,18 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         plan.priceFor(_period),
         ack?.amountDzd,
       );
-      if (mismatch != null) _say(mismatch);
+      // A banner, **not** a `_say`. `_say` hides whatever is on screen first,
+      // which is the right rule for a verdict replacing the line it contradicts
+      // and the wrong one here: this warning is the *second* sentence of the
+      // same write, drawn on purpose, and it has nothing above it to replace.
+      // As a toast it replaced the acknowledgement carrying the transfer
+      // figure and was then replaced by nothing at all, four seconds later,
+      // leaving the quoted price alone on the screen as if it were the one to
+      // pay. The acknowledgement is kept as a toast; the disagreement is a fact
+      // about the account and is held until it changes.
+      if (mounted) {
+        setState(() => _priceMismatch = mismatch);
+      }
       await _load();
     } catch (e) {
       if (isWriteUnconfirmed(e)) {
@@ -332,6 +357,20 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                             line: staleCatalogueLineWithAgeAr(
                                 _error!, _catalogueReadAt,
                                 now: _now())),
+                        const SizedBox(height: AppTheme.gap),
+                      ],
+                      // Above the plan card, not below it: the figure this
+                      // disputes is the one drawn on the card, so the warning
+                      // has to be read before the number, not after. Same
+                      // shape as the stale band above it, and for the same
+                      // reason — both are statements about the figures
+                      // underneath, not about the account.
+                      if (_priceMismatch != null) ...[
+                        _StaleBanner(
+                          line: _priceMismatch!,
+                          key: const Key(planPriceMismatchKey),
+                          icon: Icons.price_check_rounded,
+                        ),
                         const SizedBox(height: AppTheme.gap),
                       ],
                       _CurrentPlanCard(status: catalogue.current),
@@ -982,10 +1021,18 @@ class _PendingCard extends StatelessWidget {
 /// (`AppTheme.accentDeep` over `accentWash`), so a figure that went quiet
 /// looks the same wherever it is found.
 class _StaleBanner extends StatelessWidget {
-  const _StaleBanner({required this.line});
+  const _StaleBanner({
+    required this.line,
+    super.key,
+    this.icon = Icons.history_toggle_off_rounded,
+  });
 
   /// The composed sentence from [staleCatalogueLineAr].
   final String line;
+
+  /// What the band is about. One shape for both bands so a new one cannot
+  /// arrive as a different-looking card by accident.
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
@@ -997,8 +1044,7 @@ class _StaleBanner extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.history_toggle_off_rounded,
-              size: AppTheme.s20, color: AppTheme.accentDeep),
+          Icon(icon, size: AppTheme.s20, color: AppTheme.accentDeep),
           const SizedBox(width: AppTheme.s8),
           Expanded(
             child: Text(
