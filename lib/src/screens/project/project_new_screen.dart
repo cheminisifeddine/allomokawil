@@ -1042,19 +1042,65 @@ class _CommuneSheet extends StatefulWidget {
 
 class _CommuneSheetState extends State<_CommuneSheet> {
   String _q = '';
-  bool _loading = true;
-  int _total = 0;
+
+  /// The one answer this sheet has, once it has one — null while the read is
+  /// in flight.
+  ///
+  /// This replaces a `bool _loading`, and the single boolean is the defect: it
+  /// was asked two different questions and could only answer "is a read in
+  /// flight?", while the builder used it to mean "is there anything to draw?".
+  ///
+  /// What the old code did with a failure is the other half. The read was
+  /// written as `.then(...)` with **no error arm at all** — not a
+  /// `catchError`, not a `try` — so when the dataset could not be read there
+  /// was no branch to run. `CommuneIndex.load()` deliberately *rethrows*, and
+  /// the doc on it says so in as many words: «the caller still sees the
+  /// original error — it is rethrown, never swallowed — so the sheet that
+  /// asked for the list still knows the dataset is unavailable». This sheet was
+  /// the one caller that never listened.
+  ///
+  /// The consequences were both of them silent, which is why it survived:
+  ///
+  ///   * `_loading` stayed `true` for the life of the State, so a failed asset
+  ///     read left the user on a **permanent shimmer** — no sentence, no
+  ///     button, nothing to tap. The dataset can be unreadable for reasons
+  ///     that have nothing to do with the network (a corrupt build, a
+  ///     half-written asset, a decode failure), which is exactly the failure
+  ///     `commune_reload_test.dart` built its three cases around.
+  ///   * the rejected future had **no listener**, so it went to
+  ///     `Zone.unhandledError`, which in this app is the crash reporter. Every
+  ///     unreadable asset wrote a phantom crash naming nothing, in the same
+  ///     shape `worker_profile_screen.dart` already fixed for its two section
+  ///     reads by calling `.ignore()`.
+  ///
+  /// Both arms now write through the same record, so there is no path on this
+  /// sheet that can leave a read unanswered.
+  _CommuneSheetRead? _landed;
 
   @override
   void initState() {
     super.initState();
-    CommuneIndex.instance.forWilaya(widget.wilayaId).then((list) {
+    _load();
+  }
+
+  /// Reads the dataset for this sheet's wilaya.
+  ///
+  /// The two arms write the *same* field with the same shape, which is the
+  /// property the old code did not have: a failure is a value the builder can
+  /// draw, not an exception that leaves the flag where it was.
+  Future<void> _load() async {
+    try {
+      final list = await CommuneIndex.instance.forWilaya(widget.wilayaId);
       if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _total = list.length;
-      });
-    });
+      setState(() => _landed = _CommuneSheetRead.ok(list.length));
+    } catch (e) {
+      if (!mounted) return;
+      // Read through the app-wide rule rather than printing a sentence of its
+      // own, so this copy cannot drift from the one every other failed read in
+      // the app shows, and so the assertion in the test can be written against
+      // the app's own constant instead of a transcribed sentence.
+      setState(() => _landed = _CommuneSheetRead.failed(errorCopy(e)));
+    }
   }
 
   @override
@@ -1087,11 +1133,16 @@ class _CommuneSheetState extends State<_CommuneSheet> {
                 // wilaya whose dataset came back empty, and in a `Row` that
                 // costs nothing — but the next caller will put this in a Column
                 // and the guard is already written.
-                if (!_loading)
-                  CopyLine(
-                    communeCountAr(_total),
-                    style: AppTheme.caption.copyWith(color: AppTheme.textMuted),
-                  ),
+                // `CopyLine` collapses an empty string to nothing, and
+                // `communeCountAr(0)` is exactly that by design («Zero is
+                // silence»), so the count line needs no flag of its own any
+                // more: a failed read and an unread dataset both answer 0 and
+                // both print nothing. The guard that used to sit here was
+                // reading a boolean that meant something else.
+                CopyLine(
+                  communeCountAr(_landed?.total ?? 0),
+                  style: AppTheme.caption.copyWith(color: AppTheme.textMuted),
+                ),
               ],
             ),
           ),
@@ -1118,9 +1169,18 @@ class _CommuneSheetState extends State<_CommuneSheet> {
             ),
           ),
           Expanded(
-            child: _loading
+            // Three states, and the old code could only name two of them:
+            // pending (the shimmer) and "settled". A failure used to be
+            // reported as *still pending*, so the shimmer was the sentence.
+            child: _landed == null
                 ? const SkeletonRowList()
-                : shown.isEmpty
+                : _landed!.error != null
+                    // Before this branch existed, this state was unreachable —
+                    // a failed read could not clear `_loading` — so a
+                    // permanent shimmer was the only thing this sheet could
+                    // draw for it.
+                    ? _communeReadFailed(context, _landed!.error!)
+                    : shown.isEmpty
                     ? Column(
                         children: [
                           const Expanded(
@@ -1206,6 +1266,83 @@ class _CommuneSheetState extends State<_CommuneSheet> {
       ),
     );
   }
+}
+
+/// What the commune sheet knows about its dataset, as one value.
+///
+/// Two questions, and the old code had one boolean between them: *is the read
+/// settled* (the shimmer's question) and *is there anything to draw* (the
+/// list's question). Keeping the failure inside the record is what lets the
+/// sheet say "the list did not load" **without** also having to claim the
+/// wilaya is empty, which is a different sentence about a different fact.
+class _CommuneSheetRead {
+  /// How many communes this wilaya holds.
+  ///
+  /// 0 on a failure — deliberately, and safely: [communeCountAr] answers `''`
+  /// for 0 by design, so a failed read can never print «0 بلدية» and cannot be
+  /// mistaken for an empty wilaya in the header either.
+  final int total;
+
+  /// The Arabic sentence for a failure, or null when the read succeeded.
+  final String? error;
+
+  bool get failed => error != null;
+
+  const _CommuneSheetRead.ok(this.total) : error = null;
+
+  const _CommuneSheetRead.failed(String this.error) : total = 0;
+}
+
+/// What the sheet draws when the dataset could not be read.
+///
+/// **Deliberately not a danger card, and deliberately without a retry button.**
+/// Both are argued, not defaulted:
+///
+/// * the commune is **optional** to a project — the field behind this sheet
+///   reads «اختر البلدية (اختياري)» and the submit path sends `null` when it is
+///   empty — so a missing list of 1,541 communes does not stop a client from
+///   posting the renovation they need. A red «تعذّر» card with «إعادة المحاولة»
+///   teaches the opposite lesson: that the thing cannot be done without it.
+///   Every sibling that loads a body *does* offer that retry, and every one of
+///   them is a screen whose whole purpose is the data it failed to load. This
+///   sheet is not; it is one optional field's convenience.
+///
+/// * the user is **not stuck**, so the sheet must not imply he is. He can drag
+///   it down, and the form accepts a commune typed by hand — the same escape
+///   the empty-search branch already offers as «استعمل "…" كما كتبتها». The copy
+///   below names that path instead of offering a button for something that is
+///   not broken.
+///
+/// The message is the app's own [errorCopy] sentence, passed in by [_load], so
+/// a 5xx here reads exactly as it reads on the other nine screens of the family.
+Widget _communeReadFailed(BuildContext context, String message) {
+  return Center(
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+      child: EmptyView(
+        icon: Icons.wifi_off_rounded,
+        title: 'تعذّر تحميل قائمة البلديات',
+        message: message,
+        actionLabel: 'اكتب اسم البلدية يدوياً',
+        // **The icon is the argument, so it has to be the right one.**
+        // `EmptyView` defaults `actionIcon` to `Icons.refresh_rounded` and its
+        // own doc says a state whose action is not a retry must pass its own,
+        // "so the button does not lie" (ui.dart:624). Left at the default this
+        // button would carry a refresh glyph on a screen whose whole position
+        // is that there is nothing to refresh — a button that promises a retry
+        // the sheet deliberately does not offer, sitting inside a card that
+        // says the data is gone for good. `Icons.edit_rounded` is the glyph the
+        // empty-search branch's own escape already uses three lines below, for
+        // the same meaning: the way out is to write the name, not to reload.
+        actionIcon: Icons.edit_rounded,
+        // Closes the sheet and hands the text back exactly as the empty-search
+        // branch does, so the one affordance this screen needs when the list is
+        // missing is the affordance it already had when the list was merely
+        // incomplete.
+        onAction: () => Navigator.of(context).maybePop(),
+      ),
+    ),
+  );
 }
 
 /// Urgency picker — explicit colours, wraps instead of overflowing.

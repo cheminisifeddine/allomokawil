@@ -11626,3 +11626,113 @@ trusting the helper's green line. No APK, no release, no tag.
       unmade: the `sharding` call. Still **BACKEND-API's**: the `durations`
       array — the live catalogue publishes 1/3/6/12 months per plan and this app
       can only order `month` and `year`.
+
+- [x] **The commune sheet had no error arm at all — it showed a permanent
+      shimmer on a failed dataset read, and wrote a phantom crash every time.**
+      Found 30 Sep 2026 with 0 unchecked items, by sweeping the family the
+      last items each named: every `.then(` in `lib/` writes state on the
+      success arm with a guarded failure. `project_new_screen.dart:1051` was
+      the one site in the app with **no error arm whatsoever**:
+
+          CommuneIndex.instance.forWilaya(widget.wilayaId).then((list) {
+            if (!mounted) return;
+            setState(() { _loading = false; _total = list.length; });
+          });
+
+      *Two failures, neither of them a colour bug.*
+
+      **The user got a shimmer with no way out, forever.**
+      `CommuneIndex.load()` deliberately rethrows — its own doc says «the
+      caller still sees the original error — it is rethrown, never swallowed —
+      so the sheet that asked for the list still knows the dataset is
+      unavailable». This sheet was the caller that never listened, so a failed
+      read had no branch to run, `_loading` stayed `true` for the life of the
+      State, and the bottom sheet sat on a grey skeleton with no sentence, no
+      button and nothing to tap. The dataset reads from the **asset bundle**,
+      not the network, so the only causes are a corrupt build, a half-written
+      asset or a decode failure — precisely the three
+      `commune_reload_test.dart` exists for.
+
+      **And every one of them wrote a phantom crash.** The rejected future had
+      no listener, so it went to `Zone.unhandledError`, which in this app is
+      the crash reporter — an unreadable asset wrote a crash naming nothing, in
+      the same shape `worker_profile_screen.dart` already fixed for its two
+      section reads.
+
+      *What survived it:* the **common** path is a green one. The dataset almost
+      always loads, so every ordinary run draws a working sheet and the missing
+      arm is only ever seen on a broken build.
+
+      **Shipped.** `bool _loading` becomes `_CommuneSheetRead?` — one value
+      (`total` + nullable `error`) that both arms write, so a failure is a
+      value the builder can draw rather than an exception that leaves a flag
+      where it was. The count line loses its boolean guard for free:
+      `communeCountAr(0)` is silence by design, so a failed read cannot print
+      «0 بلدية» or be mistaken for an empty wilaya in the header.
+
+      **No red card and no retry button, argued rather than defaulted.** The
+      commune is **optional** — the field behind the sheet reads «اختر البلدية
+      (اختياري)» and the submit path sends `null` — so a missing list of 1,541
+      communes does not stop a client posting the renovation he needs. Every
+      sibling that loads a *body* does offer «إعادة المحاولة»; this sheet
+      loads one optional field's convenience. It says the one true thing and
+      names the escape that already exists — the same «اكتب اسم البلدية
+      يدوياً» affordance the empty-search branch offers.
+
+      **A real defect found in my own change, by reading the widget.** The first
+      version passed no `actionIcon`, so `EmptyView`'s **default
+      `Icons.refresh_rounded`** put a refresh glyph on the one button — inside a
+      card whose entire argument is that there is nothing to refresh. `ui.dart`
+      line 624 says it in as many words: a state whose action is not a retry
+      must pass its own icon "so the button does not lie". Now
+      `actionIcon: Icons.edit_rounded`, the glyph the empty-search branch's own
+      escape already uses for the same meaning. The case asserts the
+      **absence** of the refresh glyph as well as the presence of the edit one,
+      because a test that only checks the edit icon stays green until someone
+      reverts the property and the default returns.
+
+      **Red before green, and it proved both halves.** Reverting *only* the fix
+      → **4 of 5 cases fail**. One of them fails through the unhandled-error
+      path (`Zone.unhandledError` → test framework, stack through
+      `CommuneIndex._parse` → `_CommuneSheetState.initState`), which is the
+      phantom crash itself, caught directly rather than inferred. The fifth is
+      the good-dataset regression guard and correctly passes both ways.
+      Removing *only* `actionIcon: Icons.edit_rounded` fails the icon case with
+      `Found 0 widgets with icon IconData(U+0F6FB)`.
+
+      **A harness fault worth filing.** `EmptyView` draws its action through
+      `PrimaryButton`, which builds an **`ElevatedButton`** — not the
+      `OutlinedButton` a first reading suggests. Asserting the wrong button type
+      fails in the harness with a finder error and reads as a regression.
+      Second, in a full-suite run the file compiled **before** a mid-run edit
+      landed, so a correct assertion failed against correct code; re-running
+      the file alone was green. Do not edit the tree while a suite is running.
+
+      *Files:* `lib/src/screens/project/project_new_screen.dart`,
+      `test/commune_sheet_failed_read_test.dart` (new, 6 cases).
+
+      **Rendered, and measured.** Real `_CommuneSheet` on the real
+      `ProjectNewScreen`, 1179x2488 @3.0, Cairo + MaterialIcons registered:
+      `/tmp/shots/commune_failed.png`, `/tmp/shots/commune_good.png`. The first
+      capture attempt returned **byte-identical** MD5s for both states — the
+      boundary was inside `MaterialApp` and so did **not** contain the
+      Navigator overlay the sheet paints into. Moving the boundary **outside**
+      `MaterialApp` is what makes the two states differ; a screenshot harness
+      that shoots the wrong subtree produces two identical "different" states
+      and every pixel check after it is measuring nothing.
+
+      Pixels, both states: title band darkest `#101828` = **17.75:1** against
+      white, body band `#475065` = **8.07:1** (AA needs 4.5). The escape button
+      is `818x168` = the accent `#E8A33D` with `#16213E` glyphs, 126 014 fill
+      pixels against 7 385 glyph pixels, and the glyph columns show the icon at
+      287–346, a real gap, then the Arabic label. Good state still draws its
+      list rows (bands at 992–1082 / 1252–1346 / 1520–1610).
+
+      **Gate** — `flutter analyze` → **No issues found!** (7.5 s). Full suite
+      through `tool/run_tests.py` → see the commit message; file alone 6/6.
+
+      **Next:** backlog at **0 unchecked**. The read family is now closed on
+      every `.then(` in `lib/`, and this last one was the only site with no
+      error arm at all. Still yours and unmade: the `sharding` call. Still
+      **BACKEND-API's**: the `durations` array — the live catalogue publishes
+      1/3/6/12 months per plan and this app can only order `month` and `year`.
