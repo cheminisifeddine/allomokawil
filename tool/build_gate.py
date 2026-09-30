@@ -35,6 +35,11 @@ The distinction, and it is the whole file:
     mirror case — it exists forever and must be ignored when idle.
   * **leaked** — a `flutter_tester` whose parent tool is gone, which is
     exactly what PPID 1 means for a process that was never a daemon.
+  * **no room** — no build is running, and the box cannot host one. This is
+    a *different* answer from busy, and it is why this file is not only a
+    process survey. Busy means "someone else started first"; no-room means
+    "the box is starved and a second build gets OOM-killed", which is the
+    failure the loop's own build-safety rule exists to prevent.
   * **clear** — anything else, including this script's own shell.
 
 A leak is reported, not silently ignored: `--quiet` still fails, so the
@@ -44,6 +49,22 @@ import argparse
 import os
 import sys
 import time
+
+# How much reclaimable memory a build must find before it is worth starting.
+#
+# MEASURED on this box, 30 Sep, not guessed. With one test file running,
+# MemAvailable fell 1715 MB -> 1177 MB; with three test files running
+# concurrently (which is what a full `flutter test` does) it fell to
+# 1278 MB. So a real run of this suite needs roughly 700-800 MB of headroom
+# and bottoms out above 1.1 GB.
+#
+# 900 MB is deliberately *below* the 1177 MB floor a healthy run was
+# measured at. That is the whole design constraint: this gate has already
+# lied to the loop in both directions, so an arm that cries "no room" on a
+# box that just finished a successful run is the same bug wearing new
+# clothes. It may only fire when the box is worse than a run that is known
+# to have worked.
+MIN_AVAILABLE_MB = 900
 
 # The heavy compilers. `java` alone is not the signal — a Gradle *daemon*
 # idles at 0% CPU between builds and is not a reason to skip a test run.
@@ -145,6 +166,48 @@ def _is_leaked_tester(pid):
     return _ppid(pid) == 1
 
 
+def available_mb():
+    """MemAvailable in MB -- memory a build could actually claim.
+
+    MemFree is the wrong field and the difference is the point. MemFree
+    excludes page cache, and this box runs a 3-hour-old headless Chrome on
+    ~1.4 GB of it, so MemFree sits under 1 GB while there is genuinely
+    ~2 GB reclaimable. A build is refused by the kernel against
+    *available*, not free, so that is the number this reads.
+    """
+    raw = _read('/proc/meminfo')
+    for line in raw.split('\n'):
+        if line.startswith('MemAvailable:'):
+            try:
+                return int(line.split()[1]) / 1024.0
+            except (IndexError, ValueError):
+                return None
+    return None
+
+
+def _total_mb():
+    raw = _read('/proc/meminfo')
+    for line in raw.split('\n'):
+        if line.startswith('MemTotal:'):
+            try:
+                return int(line.split()[1]) / 1024.0
+            except (IndexError, ValueError):
+                return None
+    return None
+
+
+def no_room():
+    """True when the box is too starved to host a build.
+
+    Only consulted when no build is already running, so it can never turn a
+    real busy box into anything other than busy.
+    """
+    avail = available_mb()
+    if avail is None:
+        return False          # cannot measure -> never block on a guess
+    return avail < MIN_AVAILABLE_MB
+
+
 def survey():
     mine = _self_and_ancestors()
     tck = _tick_seconds()
@@ -208,25 +271,48 @@ def main(argv=None):
 
     jvms, tools, leaked = survey()
     busy_jvms = [j for j in jvms if j[2]]
+    busy = bool(tools or busy_jvms or leaked)
+    avail = available_mb()
 
     if not args.quiet:
+        if avail is not None:
+            print('Memory: %.0f MB available of %.0f MB, no swap; '
+                  'a build needs >= %d MB'
+                  % (avail, _total_mb() or 0.0, MIN_AVAILABLE_MB))
         for label, group in (('BUSY (build tool present)', tools + busy_jvms),
                              ('LEAKED flutter_tester', leaked),
                              ('IDLE java/gradle (ignored)', [j for j in jvms if not j[2]])):
             if group:
                 print('%s:' % label)
-                for pid, cmd, busy in group:
-                    print('  %-7d %-6s %s' % (pid, 'busy' if busy else 'idle', cmd))
-        if not (tools or busy_jvms or leaked):
-            print('CLEAR — no flutter/dart tool, no busy JVM, no leaked tester.')
-        elif not busy_jvms and jvms:
+                for pid, cmd, busy_flag in group:
+                    print('  %-7d %-6s %s' % (pid, 'busy' if busy_flag else 'idle', cmd))
+        if busy:
+            if avail is not None and avail < MIN_AVAILABLE_MB:
+                print('BUSY and starved: another build holds the box while only '
+                      '%.0f MB is reclaimable.' % avail)
+        elif avail is not None and avail < MIN_AVAILABLE_MB:
+            print('NO ROOM — nothing is building, but only %.0f MB is reclaimable '
+                  'and a run of this suite was measured to bottom out at 1177 MB. '
+                  'Do not start a build here.' % avail)
+        else:
+            print('CLEAR — no flutter/dart tool, no busy JVM, no leaked tester, '
+                  'and enough memory to run a build.')
+        if not busy and not busy_jvms and jvms:
             idle = [j for j in jvms if not j[2]]
             if idle:
                 print('(%d idle daemon(s) ignored — not consuming CPU.)' % len(idle))
 
     # Busy is busy. A leak also counts: the caller must not start a build on
     # top of it, and must not read a clean run as proof the box was free.
-    return 1 if (tools or busy_jvms or leaked) else 0
+    #
+    # No-room is folded into the same exit code on purpose. The loop's rule
+    # is "if this is non-zero, do not build, take a non-build item instead",
+    # and that is exactly the right advice whether the box is busy or just
+    # too small. Two exit codes would force the caller to learn a second
+    # rule, and a second rule is a second thing to get wrong.
+    if busy:
+        return 1
+    return 1 if no_room() else 0
 
 
 if __name__ == '__main__':

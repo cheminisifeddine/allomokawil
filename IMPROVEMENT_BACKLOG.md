@@ -10887,3 +10887,74 @@ pricing decision second.
       compares 1696 against 1983 reads a false regression on a healthy tree.)*
       *Commit* `c97fea4`; remote `41f3a72`. All three blobs **MATCH** the real
       remote tree. No APK, no release, no tag.
+
+---
+
+- [x] **The build gate asked "is another build running?" and never "does this
+      box have room to run one?" — the second question is the one the OOM
+      turns on.**
+      `build_gate.py` was written on 28 Sep to replace two `pgrep`s that had
+      lied in both directions, and it fixed exactly that. It surveys
+      **processes**: a real build tool, a CPU-consuming JVM, a leaked
+      `flutter_tester`. It never opens `/proc/meminfo`. On this box that is
+      not a small gap. Measured 30 Sep: **2 cores, 7936 MB total, 0 MB
+      swap**, and a 3-hour-old headless Chrome belonging to an unrelated
+      `node server.js` — not the loop's, and not killed here — holding ~1.4 GB
+      across ~18 processes and burning 47% + 31% CPU. **MemAvailable was
+      1.6 GB** while the load average sat at 3.06. The gate answered
+      **CLEAR**, correctly by its own rules, on a box that is a real
+      candidate for the "two concurrent builds guarantee one is OOM-killed"
+      failure the loop's build-safety rule is written to prevent.
+
+      *The threshold is measured, not guessed.* With one test file running,
+      MemAvailable fell **1715 MB -> 1177 MB**; with three test files running
+      concurrently — which is what a full `flutter test` actually does — it
+      fell to **1278 MB**. So a real run of this suite needs ~700-800 MB of
+      headroom and bottoms out above 1.1 GB. `MIN_AVAILABLE_MB = 900` sits
+      deliberately **below** the 1177 MB floor a healthy run was measured at,
+      and that placement is the design constraint: this gate has already lied
+      to the loop in both directions, so an arm that cries "no room" on a box
+      that just finished a successful run is the same bug wearing new
+      clothes. It may only fire when the box is worse than a run known to
+      have worked.
+
+      *Shipped:* `tool/build_gate.py` reads `MemAvailable` and gains a fourth
+      state, **NO ROOM**, distinct from busy and from leaked. Two details are
+      load-bearing. **MemAvailable, not MemFree** — MemFree excludes page
+      cache, and with 2 GB of it under that Chrome, MemFree sits under 1 GB
+      while there is genuinely ~2 GB reclaimable; the kernel refuses an
+      allocation against *available*, so that is the number that decides
+      anything. And **the arm only runs when nothing else is busy**, so it can
+      never downgrade a genuinely busy box into anything but busy. An
+      unreadable `/proc/meminfo` returns "no room = false" rather than a
+      guess: a gate that blocks on a measurement it could not take is the
+      original bug with a new trigger. The threshold **folds into the same
+      exit code as busy** on purpose — the loop's rule is already "non-zero
+      means do not build, take a non-build item", and that advice is right
+      whether the box is busy or merely too small. A second exit code would
+      mean a second rule to get wrong.
+
+      *Tested, not assumed:* `test/build_gate_test.py` is now **7/7** (was
+      5/5), the five original cases still green so the arm regresses nothing.
+      The starved box is faked with a **real injected `/proc/meminfo`**, not
+      by monkeypatching `no_room` — a test that replaces the function it
+      tests proves arithmetic and nothing else, and this way the parse path,
+      the units and the comparison are all in the loop. **Case 7 exists
+      because case 6's fixture was wrong on the first run**: it said
+      "512 MB" where `/proc/meminfo` is in **kB**, so it parsed as 512 kB and
+      the gate honestly printed "0 MB available". The assertion still passed
+      — exit 1, "NO ROOM" in stdout — which is exactly how a test proves
+      nothing while looking like it proves something. 6b was split out to
+      fail on that, and it is why the fixture now writes 524288 kB.
+
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1696 passed / 3 skipped / 0 failed**, exactly the
+      baseline, in **19 min 43 s** wall clock.
+
+      *Unchanged, and still the founder's call.* Sharding the suite is not
+      touched here. It is now measured at 19:43, under the 20 min cliff the
+      last tick warned about, on a box whose cores are shared with a foreign
+      Chrome — and this arm now **sees** that contention instead of reporting
+      CLEAR over it, which is the part of the risk this loop can own.
+      Whether to split 200 files across ticks, or give the box more room, is
+      a resource decision, not an app change. No APK, no release, no tag.

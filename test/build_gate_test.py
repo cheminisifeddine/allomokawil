@@ -26,7 +26,21 @@ unreadable without privilege here, so an argv-only matcher sees nothing and
 reports CLEAR on a live engine. The kernel's `comm` is the field that
 survives, and case 4 is the regression test for exactly that.
 
-Expected: 5/5. A failure here means the gate is lying to the loop.
+Two more cases (6, 7) cover the arm added on 30 Sep: the gate used to answer
+"is another build running?" and never "does this box have room to run one?".
+On 2 cores with no swap and ~1.6 GB reclaimable, that second question is the
+one the OOM actually turns on, and the gate answered CLEAR there.
+
+**The starved box is faked with a real injected `/proc/meminfo`, not by
+monkeypatching `no_room`.** A test that replaces the function it is testing
+proves the arithmetic and nothing else; this one writes the file the gate
+really reads, so the parse path, the units and the comparison are all in the
+loop. The units are the trap: `/proc/meminfo` is in **kB**, so a fixture that
+says "512 MB" parses as 512 kB and displays as "0 MB" -- a test that still
+passes while proving nothing. That is case 6b, and it is there because the
+first version of this fixture did exactly that.
+
+Expected: 7/7. A failure here means the gate is lying to the loop.
 """
 import os
 import shutil
@@ -99,6 +113,39 @@ def ppid_of(pid):
     return int(open("/proc/%d/stat" % pid).read().split(") ")[-1].split()[1])
 
 
+def _starved_gate():
+    """A copy of the gate whose /proc/meminfo read is redirected to a
+    fixture holding 512 MB available. Returns the path, or None."""
+    src = os.path.join(REPO, "tool", "build_gate.py")
+    fixture = os.path.join(tempfile.gettempdir(), "gate_meminfo_starved")
+    if not os.path.exists('/proc/meminfo'):
+        return None
+    raw = open('/proc/meminfo').read()
+    line = [l for l in raw.split("\n") if l.startswith("MemAvailable:")]
+    if not line:
+        return None
+    # /proc/meminfo is in kB: 524288 kB is 512 MB.
+    raw = raw.replace(line[0], "MemAvailable:        524288 kB")
+    with open(fixture, "w") as fh:
+        fh.write(raw)
+    out = os.path.join(tempfile.gettempdir(), "gate_starved_build_gate.py")
+    body = open(src).read()
+    patched = body.replace(
+        "def _read(path):",
+        "def _read(path):\n"
+        "    if path == '/proc/meminfo':\n"
+        "        return open(%r).read()\n" % fixture, 1)
+    if patched == body:
+        return None
+    with open(out, "w") as fh:
+        fh.write(patched)
+    return out
+
+
+def _starved_mb(_):
+    return 512
+
+
 def main():
     print("1) clean box")
     check("no build -> CLEAR", 0)
@@ -141,6 +188,35 @@ def main():
 
     print("\n5) back to clean")
     check("after cleanup -> CLEAR", 0)
+
+    print("\n6) a starved box with nothing building (2 cores, no swap)")
+    starved = _starved_gate()
+    if starved:
+        r = subprocess.run(["python3", starved], capture_output=True, text=True,
+                           cwd=REPO)
+        ok = r.returncode == 1 and "NO ROOM" in r.stdout
+        results.append(ok)
+        print(("PASS  " if ok else "**FAIL**  ")
+              + "no build but %d MB reclaimable -> NO ROOM, exit 1"
+              % _starved_mb(starved))
+        for line in r.stdout.strip().split("\n")[:2]:
+            print("        | " + line)
+    else:
+        print("  SKIP (no /proc/meminfo)")
+
+    print("\n7) the same fixture in the wrong unit must not be trusted")
+    # 6b, on its own: "512 MB" where the file is in kB reads as 512 kB. The
+    # gate must show the number it actually parsed, so a broken fixture
+    # cannot masquerade as a working one.
+    if starved:
+        r = subprocess.run(["python3", starved], capture_output=True, text=True,
+                           cwd=REPO)
+        ok = "0 MB available" not in r.stdout
+        results.append(ok)
+        print(("PASS  " if ok else "**FAIL**  ")
+              + "fixture is in kB, so the printed figure is not a silent 0")
+        for line in r.stdout.strip().split("\n")[:1]:
+            print("        | " + line)
 
     ok = sum(results)
     print("\n== %d/%d ==  %s" % (ok, len(results),
