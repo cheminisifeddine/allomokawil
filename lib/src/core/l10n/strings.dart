@@ -452,6 +452,11 @@ class S {
   // cannot reach for the constant and reintroduce the claim.
   static const planUpgrade = 'ترقية الاشتراك';
   static const planRenew = 'تجديد الاشتراك';
+  // The label on a plan card whose payment request is already filed. Not
+  // «ترقية» and not a greyed-out upgrade: the card is the same product at the
+  // same price, and what is missing is a *second* transfer for a request that
+  // is already with support. The sentence under it names the request number.
+  static const planRequestedAwaiting = 'بانتظار تأكيد الدفع';
   static const planPendingTitle = 'طلبك قيد المراجعة';
   static const planPendingBody =
       'استلمنا طلبك. يُفعَّل الاشتراك بعد تأكيد الدفع، وسيصلك إشعار عند التفعيل.';

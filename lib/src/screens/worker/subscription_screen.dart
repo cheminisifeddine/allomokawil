@@ -386,6 +386,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     // any write happening, and the band has to follow the screen rather than
     // the event that created it.
     final bandDispute = _bandDispute;
+    // The purchase the pending receipt has already claimed, if any. Read here,
+    // in `build`, for the same reason the band is: the term changes with no
+    // write happening at all, and the cards have to follow the screen rather
+    // than the event that created the receipt.
+    final claimed = pendingClaimFor(catalogue?.pendingRequest);
     return Scaffold(
       appBar: AppBar(
         title: const Text(S.planTitle),
@@ -477,6 +482,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           dispute: _disputeFor(plan.id, _period),
                           current: catalogue.current.plan == plan.id,
                           busy: _busy,
+                          claimed: claimed,
+                          requestId: catalogue.pendingRequest?.id,
                           onChoose: () => _openPaymentSheet(plan),
                         ),
                         const SizedBox(height: AppTheme.s12),
@@ -770,6 +777,8 @@ class _PlanCard extends StatelessWidget {
     required this.dispute,
     required this.current,
     required this.busy,
+    required this.claimed,
+    required this.requestId,
     required this.onChoose,
   });
 
@@ -787,10 +796,45 @@ class _PlanCard extends StatelessWidget {
 
   final bool current;
   final bool busy;
+
+  /// The purchase a request awaiting payment has already claimed, or null.
+  ///
+  /// The reason this card is not the place to ask about a pending payment: it
+  /// **is** the pending payment's own card, and it used to still offer a live
+  /// «ترقية» on it. The receipt is drawn four lines above in the info colour,
+  /// saying his request is being reviewed, and the amber button underneath
+  /// asks for the same plan and the same term again. D1 files that as a
+  /// second request — it has no reason to know they are the same purchase —
+  /// and the app is the only thing on this screen that does know.
+  ///
+  /// [PendingClaim.covers] decides, so the scope is the plan **and** the term:
+  /// a monthly request leaves the yearly card of the same plan buyable, because
+  /// those are two products and the man filing the month may be deciding on
+  /// the year. A term the server filed as something this app cannot name
+  /// covers nothing, and the card is left live rather than guessed at.
+  final PendingClaim? claimed;
+
+  /// The id of the request that made the claim, so the sentence under the
+  /// button can name the same number the receipt names. Null when the row
+  /// carries none, which drops the clause rather than printing «رقم الطلب 0».
+  final int? requestId;
+
   final VoidCallback onChoose;
 
   @override
   Widget build(BuildContext context) {
+    // A pending request for exactly this plan at exactly this term. Named once
+    // so the button and the sentence under it cannot be derived separately and
+    // drift apart — the two would then say different things about one card.
+    final alreadyRequested = claimed?.covers(plan.id, period.wire) ?? false;
+    // The sentence is optional even when the button is dead: a row whose id
+    // did not parse has nothing quotable to say, and an absent sentence is
+    // better than a placeholder number a man would read out to support. The
+    // **button is dead either way** — `alreadyRequested` above does not depend
+    // on this line, so a missing id can never re-open the payment path.
+    final requestedNote = alreadyRequested
+        ? planAlreadyRequestedAr(requestId)
+        : null;
     final saving = plan.savingFor(period);
     // The yearly discount sentence, read once and dropped when the server's
     // two prices do not divide into a whole number of months. See
@@ -963,11 +1007,36 @@ class _PlanCard extends StatelessWidget {
           const SizedBox(height: AppTheme.s8),
           PrimaryButton(
             key: Key('plan-${plan.id}-${period.wire}'),
-            label: current ? S.planRenew : '${S.planUpgrade} — ${plan.nameAr}',
-            icon: Icons.arrow_upward_rounded,
+            label: alreadyRequested
+                ? S.planRequestedAwaiting
+                : current
+                    ? S.planRenew
+                    : '${S.planUpgrade} — ${plan.nameAr}',
+            icon: alreadyRequested
+                ? Icons.hourglass_top_rounded
+                : Icons.arrow_upward_rounded,
             loading: busy,
-            onPressed: busy ? null : onChoose,
+            // Dead, not hidden. The card is still on screen with the price on
+            // it, and the price is still true — what is not available is a
+            // *second* payment for a request the man has already filed. Hiding
+            // the card would hide the price he is comparing, and grey lines
+            // everywhere is what a blocked screen looks like when nothing is.
+            onPressed: busy || alreadyRequested ? null : onChoose,
           ),
+          // Said on the card, not only on the receipt four lines above: the
+          // receipt is the small caption-coloured line, and a disabled amber
+          // button with no explanation reads as a broken app. One sentence,
+          // in the words the receipt uses, naming the number he would quote.
+          if (requestedNote != null) ...[
+            const SizedBox(height: AppTheme.s4),
+            Text(
+              requestedNote,
+              key: const Key('plan-already-requested'),
+              textAlign: TextAlign.center,
+              style: AppTheme.caption
+                  .copyWith(color: AppTheme.textSecondary, height: 1.5),
+            ),
+          ],
         ],
       ),
     );

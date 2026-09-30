@@ -10417,3 +10417,108 @@ The next real candidate is on the same money screen: `_PendingCard` prints
 row is the receipt a contractor forwards to support — it is the one place
 the amount D1 recorded is shown *without* the term or the plan name the
 dispute carries, so the same two-figure problem has a third home.
+
+## Tick 30 Sep 2026 — the receipt for money already sent sat above a live button for it
+
+**The previous tick's "next candidate" was wrong, and reading the screen is
+what found the real one.** Its closing note named `_PendingCard` as a likely
+third home for the two-figure problem, on the grounds that it prints the amount
+without the plan or the term. It does not: `pendingFactsAr` already joins
+`number · plan · period · amount · method · day`, and `pendingPeriodLabelAr`
+has named the term since the term-scoping tick. The note was written about the
+*function* it saw, not the card that calls it. The loop protocol's own rule —
+read the screen, not the note — is the only reason this defect was found.
+
+**What was actually wrong.** The receipt for a pending payment is drawn at the
+top of the subscription screen, and the plan cards are drawn below it, from
+`catalogue.purchasable`. Nothing on a plan card had ever asked what the pending
+row was for. So after one write the screen held, simultaneously:
+
+    ┌ طلبك قيد المراجعة ────────────────────────┐
+    │ رقم الطلب 49 · محترف · اشتراك شهري · …     │   ← info-blue, small caption
+    └────────────────────────────────────────────┘
+    …
+    ┌ محترف ────────────────────────────────┐
+    │ 3000 دج   تدفع شهرياً                  │
+    │ [ ترقية الاشتراك — محترف ]             │   ← live, amber, enabled
+    └────────────────────────────────────────┘
+
+Same plan, same term, one screen. The first request is `pending` and nobody
+has confirmed it, so from D1's point of view tapping that button files a
+**second, perfectly legal request** for the same purchase — and the app is the
+only thing on the screen that knows they are the same one. This is the worst
+class of bug on this surface and it is one missing condition: it is the exact
+sibling of the bid-accept defect shipped earlier, where a card kept a live
+button for a decision the server had already made.
+
+*Shipped.* `pendingClaimFor(PendingRequest?)` in `data/pending_request_copy.dart`
+answers one question — *has a payment request already claimed this plan at this
+term?* — as a `PendingClaim` value rather than a bool, so the scope cannot be
+re-derived differently by a second caller. The card reads it once in `build`
+(next to `_bandDispute`, for the same reason: the term changes with no write
+happening) and hands it to every `_PlanCard`. A claimed card gets
+`onPressed: null`, the label «بانتظار تأكيد الدفع» with an hourglass instead of
+«ترقية الاشتراك — محترف», and one caption line naming the request number
+support will ask him for.
+
+**Scoped to plan AND term, and the scope is the whole argument.** A monthly
+request does **not** block the yearly card of the same plan: those are two
+products and the man filing the month may be deciding on the year. A term the
+server filed as something this app cannot name — the live Worker answers
+`quarter`/`6month` with `ok: true` and files the row as a month — blocks
+**nothing**, because guessing which term it meant and locking him out of the
+product he came for is worse than the rare duplicate this exists to prevent. The
+button is **dead, not hidden**: the price on that card is still true and still
+what he is comparing; what is unavailable is a second transfer for a request
+already with support.
+
+**Red before green, no source edited first.** Against the untouched screen:
+
+    Expected: null
+      Actual: <Closure: () => void>
+    the plan he already paid for still files a second request
+
+`+11 -1`. Two harness bugs were hit and both are worth recording because each
+looked like a defect: the yearly card is a **different widget key**, so
+`scrollUntilVisible` fails `Bad state: No element` until the toggle is moved
+first; and the toggle's label is `سنوي` (`BillingPeriod.labelAr`), not `سنوياً`.
+Counter-probes in the same file require the other plans, the other term, an
+unknown term, an absent term and an absent row all to stay **live**, so "scoped"
+cannot be implemented as "greyed the list".
+
+**The analyzer caught a bug in the fix, on the fix's own logic.** `covers()`
+was first written `plan == planId.trim() && periodWire != null && this.periodWire
+== periodWire` — the parameter shadowed the field, the null check was always
+true, and `unnecessary_null_comparison` was the only thing standing between
+that and a silent regression. The tests had passed anyway, because
+`null == 'month'` is false: the behaviour was correct **by accident**. Rewritten
+as an explicit local so the intent is the code, and the doc comment now says
+why.
+
+*Evidence.* `flutter analyze` -> **No issues found!**
+`flutter test` -> **1687 passed / 3 skipped / 0 failed**, up from 1674 (+13:
+six rule cases, six screen cases, one shot). Suite wall clock **11:29**.
+
+*Proven by pixels.* `/tmp/shots/21_already_requested_card.png`, 1179x3710.
+Scoped to the card's own rect (dp 607.4..742.4, **135 dp** — the first version
+of the rect stopped at the button's bottom and quietly excluded the one line
+this tick added). Disabled-grey `#E8E8EC` fill: **137,378 px** on the claimed
+card against **1,185 px** on a live card measured the same way, so the count
+is a measurement of the disabled state and not of grey in general. Row profile
+in dp: card ink 615..637, **dead button 655..711**, **new sentence 719..733** —
+the sentence is inside the capture and the card did not overflow, which is the
+overflow class that cost the disputed-price tick 53 px on this same card.
+
+**Commits.** see the run note at the end of this section.
+
+*Next in backlog:* no unchecked item remains that this loop can reach — the
+review-500 is BACKEND-API's and was re-searched from scratch again this tick
+(no `finili` tree under `/home/hatch`; the only `wrangler.jsonc` files belong
+to Vitestore, Vitestore-full and colisify). The next real candidate is the same
+vein on the same screen, and it is a **parsed-and-dropped field** the model
+never even parses: the live catalogue publishes a `durations` array on every
+paid plan — 1/3/6/12-month terms with their own prices — and `Plan` has no
+field for it. A contractor who wants six months of «أساسي» is quoted
+«1500 دج / تدفع شهرياً» and pays 9000, where the operator's own catalogue says
+8000. That is a pricing decision for the founder (does the app sell the other
+terms, or only print them as information), so it is written up, not built.

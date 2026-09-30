@@ -28,7 +28,7 @@
 library;
 
 import '../core/format/money.dart';
-import '../models/plan.dart' show BillingPeriod;
+import '../models/plan.dart' show BillingPeriod, PendingRequest;
 
 /// The plan a pending payment names, in the words the user sees.
 ///
@@ -205,4 +205,105 @@ String? pendingFactsAr({
     if (dayLabel != null) dayLabel,
   ];
   return parts.isEmpty ? null : parts.join(' · ');
+}
+
+/// The plan and term a **pending request** has already claimed, or null when
+/// nothing is pending.
+///
+/// The one question the subscription screen never asked, and the answer is a
+/// double payment. A contractor who taps «ترقية» on «محترف» files request 49
+/// and the reload draws the receipt for it at the top of the page — and four
+/// lines lower the very same card still offers a live «ترقية — محترف»
+/// button, because the plan list is drawn from `catalogue.purchasable` and
+/// nothing on it had ever looked at the pending row. Tapping that button
+/// files a **second** request for the same plan and the same term, and D1 has
+/// no reason to refuse it.
+///
+/// The card he is looking at is not a receipt any more. It is a receipt *and*
+/// a button that asks for the same money twice, on one screen, with the
+/// receipt drawn close enough to the button to be read as confirmation that
+/// the first one worked.
+///
+/// **The rule is scoped to plan AND term, and both are the server's.** A
+/// monthly request does not block the yearly price of the same plan: those are
+/// two different products, and the man who filed the month may well be
+/// deciding on the year. The scope is the same pair `_disputeFor` already
+/// scopes a price to, which is not a coincidence — it is the pair that makes a
+/// purchase the *same purchase*.
+///
+/// A term the server filed as something this app cannot name blocks
+/// **nothing**: guessing which term «quarter» meant and locking the man out of
+/// the one product he came for is a worse outcome than a rare double request,
+/// and an unknown term is already reported to him as a mismatch
+/// ([pendingPeriodMismatchNoteAr]).
+///
+/// The plan id is compared trimmed, because a payload that pads `plan` with a
+/// space is the same plan, and a false mismatch would leave him free to file
+/// the duplicate this function exists to prevent.
+PendingClaim? pendingClaimFor(PendingRequest? request) {
+  if (request == null) return null;
+  final plan = request.plan.trim();
+  if (plan.isEmpty) return null;
+  return PendingClaim(plan: plan, periodWire: request.period?.trim());
+}
+
+/// One plan at one term, already claimed by a request awaiting payment.
+///
+/// Immutable and comparable so the screen can ask [covers] the same question
+/// the band asks of a price, rather than re-deriving it inline a second time.
+class PendingClaim {
+  const PendingClaim({required this.plan, required this.periodWire});
+
+  /// The plan id exactly as the server filed it, trimmed. Never normalised
+  /// past that: the catalogue's own ids are the matching vocabulary.
+  final String plan;
+
+  /// The raw wire term, or null when the row carries none.
+  ///
+  /// Null is **not** month. A row with no `period` has an unknown term, and a
+  /// [PendingClaim] with a null term blocks no card — see [covers].
+  final String? periodWire;
+
+  /// True when this claim is the purchase this card is offering.
+  ///
+  /// Both halves must match, and the null check is on **this** field, not on
+  /// the argument. Written as `periodWire != null` the parameter shadows the
+  /// field, the condition is always true, and the analyzer is right to call it
+  /// dead: the intent — a claim with no term blocks nothing — then rests
+  /// entirely on the string comparison happening to fail. The test passed
+  /// anyway (`null == 'month'` is false), which is exactly why this is worth
+  /// fixing rather than silencing: the behaviour was correct by accident, and
+  /// an accidental correctness is one edit away from a wrong one.
+  ///
+  /// A null term answers false for every card rather than falling back to
+  /// `month`: the app cannot tell whether the server stored a month or lost
+  /// the field, and locking the man out of both terms on a guess is the worse
+  /// of the two errors.
+  bool covers(String planId, String term) {
+    final claim = periodWire;
+    if (claim == null) return false;
+    return plan == planId.trim() && claim == term;
+  }
+
+  @override
+  String toString() => 'PendingClaim(plan: $plan, period: $periodWire)';
+}
+
+/// The sentence under a plan card whose purchase is already pending — or null
+/// when there is no quotable number to name.
+///
+/// It exists because a disabled button with no explanation is a bad app, and
+/// «ترقية» on a card a man has already paid for is a worse one. The receipt at
+/// the top of the screen says the request is under review; this repeats the
+/// fact on the card itself, in the number support will ask him for, so the
+/// reason the button is dead is on the same card as the button.
+///
+/// Null when the id is absent or non-positive, for the same reason
+/// [pendingRequestNumberAr] refuses to invent one: a placeholder number a man
+/// reads out loud to support sends them to somebody else's row. The button
+/// stays dead either way — this is a sentence, not the guard.
+String? planAlreadyRequestedAr(int? requestId) {
+  final n = pendingRequestNumberAr(requestId);
+  if (n == null) return null;
+  return 'طلبتَ هذا الاشتراك بالفعل — $n قيد المراجعة';
 }
