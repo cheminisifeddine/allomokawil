@@ -9517,3 +9517,90 @@ The same capture-before-await question is still unanswered for
 be correct) and for `review_screen.dart` — but each of those needs its own
 evidence, not this tick's. Still open and still not app code:
 `POST /api/mobile/projects/:id/review` 500, re-checked three times, untouched.
+
+---
+
+## Tick 30 Sep 2026 — `review_screen.dart` capture-before-await (finishes the tick 29 item)
+
+The write-vs-form question is now answered for the review screen, and the answer
+was **yes, it was broken — in the place nobody looks at**.
+
+The publish form (`da876a3`) sent whatever was on screen when the upload
+finished. The review screen has the same shape of hazard and a much quieter
+version of it. The POST was *always correct*: it sent the rating the form held
+when the button was pressed, so on a healthy connection nothing here is
+observable. The defect lives entirely in the **recheck**, the closure that runs
+several seconds later on the unanswered-write path.
+
+That path is precisely the one this screen exists to handle. The row is stored
+on the Worker, no reply arrives inside the timeout, `ApiClient` refuses to guess
+and raises `errWriteUnconfirmed`, and the app goes looking for the answer. It
+re-reads the worker's review list and asks
+`r.projectId == id && r.rating == _rating`.
+
+`_rating` is read at the moment the recheck **runs**, not at the moment the
+customer pressed send. And the star picker is never disabled while `_busy` —
+only the button is (`loading: _busy` -> `onPressed: null`). So the seconds the
+recheck is running are exactly the seconds a customer fidgets with the stars.
+
+Rate 4, send, re-pick 1 while the POST is unanswered: the predicate asks «is
+there a 1-star review on this project?». The list comes back holding the real,
+stored, 4-star row. `rows.any(...)` is false. The app announces, in Arabic,
+that the rating never arrived — and, because the verdict is "missing", stays on
+the screen and invites the customer to type it in again.
+
+**The rating is on the server the whole time.** And the retry is not a retry: a
+review is the one write the client cannot redo safely, which is the entire
+reason this recheck exists. A customer who rates a man 4 and is then told
+"it didn't arrive" is being taught to rate him twice, on a profile whose whole
+product is trust. On a market where the rating is the product, the app was
+manufacturing duplicate reviews on exactly the case it was built to protect.
+
+*Fix.* Capture `rating` and `comment` **before the first `await`** and judge the
+recheck against that capture — the same rule the publish form now obeys. The
+picker stays live on purpose, exactly as the publish form's form does: an upload
+can take ten seconds and a user who cannot touch a form for ten seconds assumes
+it has frozen. The write is fixed, not the control.
+
+Second, smaller, same method: the verdict snackbar now calls
+`hideCurrentSnackBar()` first. «نتحقق الآن من القائمة…» carries its own 4 s
+duration and is still visible when the verdict is raised; `showSnackBar`
+**queues** behind a visible one, so the only sentence that answers «did my
+rating arrive?» could sit behind a progress message the user has already read
+— and on the `landed` path the screen pops immediately, taking the queue with
+it. The verdict can therefore never be seen at all. The profile form's own save
+has done this since it learned to verify its writes.
+
+*Evidence.* The test drives a **real mid-flight re-pick** (`tap` on the live
+star, not a poked state object) against a host that stores the write and loses
+the answer, and asserts the verdict is «arrived» for a row it verified is
+stored. Reverting the app file turns it red with exactly the predicted
+symptom — `Found 0 widgets with text "وجدناه في القائمة — الطلب وصل بنجاح"`,
+i.e. the app told a customer his rating was lost while it sat on the server. So
+the test is not vacuous.
+
+A note on the counter in that test: the star count is scoped to the picker's own
+`InkWell`s. A plain `find.byIcon(star_rounded)` also counts the decorative star
+in the trust line under the button, which would let the test report a rating
+the user never picked — the same class of quietly-wrong measurement as last
+tick's band-ink probe, and the reason it asserts the tapped value both before
+and after the re-pick.
+
+*Gate.* `flutter analyze` -> **No issues found!**
+`flutter test` -> **1626 passed / 3 skipped / 0 failed** (was 1625/3/0, **+1**).
+**2/2 blobs MATCH** remote `7fa4209`.
+
+*Host note.* `/home/renia` is gone — the box was rebuilt. Repo is
+`/home/hatch/allomokawil`, Flutter is `/home/hatch/tools/sdk/flutter`, and
+`git push` still has no credentials, so pushes go through
+`/home/hatch/workspace/repos/gh_push.py`. The paths in the task prompt
+(`/home/renia/allomokawil`, `/home/renia/tools/flutter`, `build_web.sh`,
+`pngscan.py`) do not exist; this change is not visual so no render was needed.
+
+*Next.* `profile_edit_screen.dart` is the last file in this class, and it may
+well be **correct**: its post-await reads sit inside the same `await` that
+*fills* the form, so they are reads of a loading form rather than of a live one
+the user is still editing. It needs its own evidence, not a guess either way.
+The single unchecked item in the backlog is the blocked backend
+`POST /api/mobile/projects/:id/review` 500 — not app code, backend source not on
+this box, re-checked again this tick, deliberately not re-filed.
