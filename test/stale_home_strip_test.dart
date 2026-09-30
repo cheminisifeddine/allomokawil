@@ -194,6 +194,17 @@ class _Platform {
   /// that only needs "the second read dies" can ignore this entirely.
   Future<http.Response?> Function(int read)? workersRespond;
 
+  /// Steers every projects read, by its index. The projects half got the same
+  /// callback as the contractors half because the late-answer case it is
+  /// needed for is a *two-read* race, and `projectsDead` is a threshold that
+  /// can only say "every read from here on is dead" — it cannot park one read
+  /// and let the next one through, which is the only way to see a late answer
+  /// at all.
+  ///
+  /// Returning **null** falls through to the `projectsDead` threshold, so the
+  /// cases that only need a failure ignore this entirely.
+  Future<http.Response?> Function(int read)? projectsRespond;
+
   static Future<http.Response> _okWorkers(int _) async =>
       _json(<Object?>[_worker(1, 'مقاول قديم')]);
 
@@ -221,8 +232,13 @@ class _Platform {
             return workersDead ? _dead(n) : _okWorkers(n);
           }
           if (p.contains('/my/projects')) {
-            projectReads++;
-            return projectsDead ? _dead(projectReads) : _okProjects(projectReads);
+            final n = projectReads++;
+            final steer = projectsRespond;
+            if (steer != null) {
+              final custom = await steer(n);
+              if (custom != null) return custom;
+            }
+            return projectsDead ? _dead(n) : _okProjects(n);
           }
           if (p.contains('/conversations')) {
             return _json(<Object?>[_conversation(1)]);
@@ -244,6 +260,21 @@ Future<void> _revealProjects(WidgetTester tester) async {
       find.byType(CustomScrollView).first, const Offset(0, -1600));
   await tester.pump(const Duration(milliseconds: 200));
   await tester.pump(const Duration(seconds: 1));
+  await tester.pump(const Duration(seconds: 1));
+}
+
+/// Back to the top of the explore page, because a `RefreshIndicator` fires at
+/// scroll offset 0 **and nowhere else**.
+///
+/// The projects strip is ~1100 logical px down on a 829 px viewport, so any
+/// assertion about it needs [_revealProjects] — and every case here has to pull
+/// as well. Pulling from halfway down is swallowed without re-issuing the read,
+/// which fails as if the screen under test were broken. The read count is
+/// asserted by the case, never assumed; this only removes the one cause of a
+/// swallowed gesture.
+Future<void> _toTop(WidgetTester tester) async {
+  await tester.drag(find.byType(CustomScrollView).first, const Offset(0, 2400));
+  await tester.pump(const Duration(milliseconds: 200));
   await tester.pump(const Duration(seconds: 1));
 }
 
@@ -976,6 +1007,109 @@ void main() {
       expect(find.textContaining('الجزائر • موقعك'), findsWidgets,
           reason: 'the header follows the second fix, or this case is not '
               'testing a switch at all');
+    });
+  });
+
+  group('CustomerHomeScreen — the projects strip, a read that answers late',
+      () {
+    // The contractors strip has a generation token and this one does not, on
+    // the same screen, in the same file, with the reason already written down
+    // in `_armWorkers`' own doc comment:
+    //
+    //   "Without it a **late success overwrites newer state** ... read 1 is
+    //   parked on a slow connection, the fix moves back, read 2 is issued and
+    //   fails — and then read 1 lands and replaces the honest record with
+    //   another read's rows."
+    //
+    // The contractors half got that token because its question can *change*
+    // (the phone's wilaya). The projects half's question cannot — `myProjects()`
+    // is the same call every time — so the earlier note says the record stays
+    // three fields and "one read without a dimension is not a reason to invent
+    // one". That reasoning is sound about the **question** and wrong about the
+    // **answer**: the question being constant is exactly why two reads compete
+    // to write one slot, and a slow first read that lands after a fast second
+    // one is still the older answer, however identical the question was.
+    //
+    // So this is not "another city's rows". It is **the older project's rows
+    // under a stamp that says they were just read** — and the stamp is the part
+    // that makes it a lie rather than a lag. The user posts «مشروع جديد»,
+    // `_push` re-arms the strip on the way back, the new read answers, and the
+    // read issued *before* the post lands a moment later and installs the list
+    // that does not contain his project. The `FutureBuilder` still draws its own
+    // answer, so nothing looks wrong yet. It goes wrong on the **next** failure,
+    // which is the one thing this screen exists to answer: the strip falls back
+    // to the cache, and the cache now holds the older rows dated «الآن».
+    testWidgets('a read that answers late cannot become the strip\'s fallback',
+        (tester) async {
+      // Read 1 must **succeed** or there is nothing for a late answer to
+      // displace, and the case is vacuous — the fault the directory's version
+      // of this case made on its first run, recorded three times in this file.
+      //
+      // 20 s client timeout, not the shared 200 ms: a read that is MEANT to
+      // hang open cannot use a timeout short enough for a 503 to settle inside
+      // `_settle`, because the clock fires while the read is parked and
+      // converts this into the failed-read case it is not. The same trap, the
+      // same reason, one screen over.
+      //
+      // Liveness is a flag rather than an index, because the projects tab of
+      // the shell issues its own `/my/projects` alongside the explore strip's
+      // and the phone cannot tell the two apart — the trap the harness doc
+      // spells out. Parking *every* read until the release is the only shape
+      // that does not have to guess which attempt is the strip's.
+      var late = false;
+      final parked = Completer<void>();
+      final released = Completer<void>();
+      final platform = _Platform(timeout: const Duration(seconds: 20))
+        ..projectsRespond = (read) async {
+        if (late) {
+          // The read issued after the post. This is what the user saw on the
+          // way back, and it is the newest answer there is.
+          return _json(<Object?>[_project('p-new', 'مشروع الأحدث')]);
+        }
+        if (!parked.isCompleted) parked.complete();
+        await released.future;
+        return _json(<Object?>[_project('p-old', 'مشروع قديم')]);
+      };
+      final b = await _boot(platform);
+      await _pump(tester, b.api, b.auth);
+      await parked.future;
+      await _revealProjects(tester);
+      expect(find.text('مشروع قديم'), findsNothing,
+          reason: 'read 1 is parked mid-flight, so nothing is on screen yet');
+
+      // The user posts a project and comes back: `_push` re-arms both strips.
+      // This read answers at once and is the newest answer the screen has.
+      late = true;
+      await _toTop(tester);
+      await _pull(tester);
+      await _revealProjects(tester);
+      expect(find.text('مشروع الأحدث'), findsOneWidget,
+          reason: 'the newest answer is on screen; if it is not, the case is '
+              'not testing what it says it is');
+
+      // Read 1 now lands — the request that was issued *before* the post, and
+      // was in flight the whole time.
+      released.complete();
+      await _settle(tester, frames: 24);
+
+      // The network dies on the next read. This is the frame that settles the
+      // question, because it is the only one where the cache is drawn: while
+      // the read succeeds the `FutureBuilder` shows its own answer and the
+      // contents of the cache are invisible.
+      late = false;
+      platform.projectsRespond = (read) async => _Platform._dead(read);
+      await _toTop(tester);
+      await _pull(tester);
+      await _revealProjects(tester);
+
+      expect(find.byKey(const Key('stale-projects-strip')), findsOneWidget,
+          reason: 'the read failed with rows on screen, so the doubt is owed');
+      expect(find.text('مشروع الأحدث'), findsOneWidget,
+          reason: 'the strip must fall back to the newest rows it has — the '
+              'ones that were on screen — not to an answer that landed late');
+      expect(find.text('مشروع قديم'), findsNothing,
+          reason: 'nothing else in the app lists his own jobs, so this is the '
+              'home screen forgetting the project he just posted');
     });
   });
 }

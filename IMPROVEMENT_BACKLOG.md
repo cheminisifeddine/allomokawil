@@ -11405,3 +11405,76 @@ wall-clock the loop does not need. The sharding call stays open and yours.
 *Commit:* local `eb56dfc` -> remote `ed37add`. **3/3 blobs MATCH** against
 the real remote tree, fetched through GitHub's contents API rather than
 trusting the helper's green line. No APK, no release, no tag.
+
+## Tick 30 Sep 2026 — the projects strip had no generation token, so a read that answered late became the fallback
+
+- [x] **The client home's **projects** strip is the only read on that screen
+      without a generation token, so a read issued before the user posted a
+      project landed after it and overwrote the newer rows — and the *next*
+      failure then drew those older rows as the last good answer.**
+      `customer_home_screen.dart:248` `_armProjects` took no token while
+      `_armWorkers`, eight lines up, did and explains at length why it must.
+
+      **The reasoning that left the gap was sound about the question and wrong
+      about the answer.** The record's own doc says the projects half "stays
+      three fields on purpose — `myProjects()` asks the same question every
+      time, so there is nothing to key it with, and one read without a
+      dimension is not a reason to invent one." That is true, and it is why the
+      wilaya stamp is absent. It is not why the token is load-bearing. A
+      **constant question is precisely why two reads compete to write one
+      slot**: the read cannot be mis*filed*, it can only be *late*, and a
+      record stamped with its question has no field that can see lateness.
+      Reading the first note as licensing the second is how the gap survived
+      four months beside the fix it was copied from.
+
+      **The user-visible shape.** Post «مشروع جديد» → `_push` re-arms the strip
+      on the way back → the new read answers first → the read issued *before*
+      the post, parked on a slow connection, lands a moment later and installs
+      the list that does not contain the project he just made. The
+      `FutureBuilder` still draws its own answer, so **nothing looks wrong
+      yet** — which is why this is a trap and not a glitch. It goes wrong on the
+      *next* failure, the one frame this screen exists for: the strip falls
+      back to the cache, the cache is now the older list, and the band dates it
+      «الآن». On the one screen that lists his own jobs, and the only place he
+      would look for the project he just posted.
+
+      *Shipped:* `_projectsToken`, taken in `_armProjects` and checked in both
+      branches, exactly as `_armWorkers` already did. The three fields stay
+      three fields — no record was invented, because the wilaya stamp is the
+      wrong instrument and was never the missing one.
+
+      *Red before green, on the real defect.* Reverting **only** the two token
+      checks makes the case fail with the defect itself —
+      `Expected: "مشروع الأحدث" / Actual: Found 0 widgets` — and the
+      diagnostic that proved it was the real thing rather than a broken
+      harness: the band is present (`stale-projects-strip=1`) and the strip is
+      drawing `مشروع قديم`, the late read, instead of the rows that were on
+      screen. Green with the token, red without it, one line of app code.
+
+      **The harness needed fixing before the case could fail for the right
+      reason, and it failed green first.** `/my/projects` cannot be steered
+      per-read by the existing `projectsDead` threshold, so it gained the same
+      `projectsRespond` callback the contractors half has — the callback is
+      handed an index and can park one read while letting the next through, and
+      a threshold can only say "every read from here on is dead", which cannot
+      produce a late answer at all. Then the pull **did not fire**: reads stayed
+      at 2, and the case failed on a precondition with the reason "the newest
+      answer is on screen". The `RefreshIndicator` fires at scroll offset 0 and
+      nowhere else, and this screen keeps the projects strip ~1100 logical px
+      down on an 829 px viewport, so the case had to scroll back to the top
+      before each pull — a trap two cases in this same file already document,
+      now paid a third time. **A first red is not evidence of a real defect**,
+      which is why the diagnostic is in the report and the two harness faults
+      are named: the first red said only that a precondition had not been met.
+
+      *Gate.* `flutter analyze` -> **No issues found!** (7.2 s).
+      `test/stale_home_strip_test.dart` -> **26 passed / 0 failed**, up from 25
+      (the new file, existing cases untouched). The new case is red on the
+      unfixed screen and green on the fixed one, both run on this box.
+
+      **Found with 0 unchecked items** (172/172), by reading the screen that
+      every one of the last four items had already pointed at and noticing that
+      one half of it was left holding a bare list. Still **BACKEND-API's**,
+      untouched: the `durations` array — the live catalogue publishes 1/3/6/12
+      months per plan and this app can only order `month` and `year`. The
+      sharding call is still the founder's, still unmade.

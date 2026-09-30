@@ -134,6 +134,28 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
   List<Project>? _projectsCache;
   String? _projectsStaleReason;
 
+  /// Bumped by every [_armProjects] call, so a read that settles after a later
+  /// one was issued is dropped instead of overwriting it.
+  ///
+  /// The projects half had no token for four months of shipping while the
+  /// contractors half beside it did, and the note on [_armWorkers] gave the
+  /// reason as *the wilaya changing*. That reason was about the **question**,
+  /// and it is correct — `myProjects()` asks the same thing every time, so
+  /// there is nothing to key a record by. It is not the reason the token is
+  /// load-bearing, and reading it that way is how the gap survived: a constant
+  /// question is exactly why **two reads compete to write one slot**. A user
+  /// posts a project, `_push` re-arms this read on the way back, the new read
+  /// answers, and the read issued a moment *before* the post — parked on a slow
+  /// connection — lands afterwards and installs the list that does not contain
+  /// the project he just made.
+  ///
+  /// The rows are the newer ones for as long as the newer read succeeds, because
+  /// the `FutureBuilder` draws its own answer. It goes wrong on the next
+  /// failure, which is the frame this screen exists for: the strip falls back to
+  /// the cache, and the cache is now the older list — on the one screen that
+  /// lists his own jobs, and the only place he would look for it.
+  int _projectsToken = 0;
+
   /// When each strip last read cleanly, so the band can say *how* old it is.
   ///
   /// The band already admits «هذه آخر نتيجة قرأناها»; this is the half it
@@ -247,8 +269,15 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
   /// show him.
   void _armProjects(Future<List<Project>> read) {
     _recentProjects = read;
+    // The generation, for the same reason [_armWorkers] takes one: every pull
+    // and every return from a posted project re-arms this read, so two are
+    // routinely in flight at once, and the older one must not write last. The
+    // question cannot change here, so there is no stamp that could catch this —
+    // the read is filed correctly and simply answers late, which is the half a
+    // record stamped with its question cannot see.
+    final token = ++_projectsToken;
     read.then((list) {
-      if (!mounted) return;
+      if (!mounted || token != _projectsToken) return;
       setState(() {
         _projectsCache = list;
         _projectsStaleReason = null;
@@ -256,7 +285,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
       });
       _armAgeTick();
     }, onError: (Object e, StackTrace _) {
-      if (!mounted) return;
+      if (!mounted || token != _projectsToken) return;
       setState(() => _projectsStaleReason = errorCopy(e));
     });
   }
