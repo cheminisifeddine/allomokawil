@@ -69,7 +69,10 @@ correctness gap — never a refactor for its own sake. One item per loop.
       everywhere. The throwaway shot harness was deleted after the capture and
       is **not** in the commit.
 
-      *Gate.* `flutter analyze` -> **No issues found!**
+      *Commit:* local `397e8e0`, remote `29ee0dc`. **6/6 blobs MATCH** the real
+remote tree, read off the git-data API rather than trusted from the push line.
+
+*Gate.* `flutter analyze` -> **No issues found!**
       `flutter test` -> **1348 passed / 3 skipped / 0 failed**, up from
       1318/3/0 (+30, the new file). All 4 blobs verified `MATCH` against the
       real remote tree at tip `4e19dd1`.
