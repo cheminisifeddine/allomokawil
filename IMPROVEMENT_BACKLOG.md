@@ -10522,3 +10522,109 @@ field for it. A contractor who wants six months of «أساسي» is quoted
 «1500 دج / تدفع شهرياً» and pays 9000, where the operator's own catalogue says
 8000. That is a pricing decision for the founder (does the app sell the other
 terms, or only print them as information), so it is written up, not built.
+
+## Tick 30 Sep 2026 — the write was filed under the term the toggle moved to
+
+**The sixth member of the write-vs-form class, and the first on the screen
+where the mistake is priced in dinars.** The class is one sentence: *a write
+that is in flight must be described by what was on screen when it was
+pressed.* Six screens shipped it — `project_new_screen` (the title),
+`review_screen` (the rating), `project_detail` and the bid sheet (the verdict),
+`chat_screen` (`_me` inside a recovery closure) — and `subscription_screen` had
+the discipline for every field **except the one the write is about**.
+
+**What was wrong.** `_openPaymentSheet` snapshots `catalogue.pendingRequest`
+where the sheet opens, one line above the call, precisely because "did it land"
+cannot be asked afterwards. That snapshot is right. Forty lines down, `_request`
+reads the **term** after the POST:
+
+```dart
+await _repo.requestSubscription(period: _period, …);   // sent
+…
+final dispute = PlanPriceDispute.between(
+  periodWire: _period.wire,          // re-read, after the await
+  quotedDzd: plan.priceFor(_period), // re-read, after the await
+  chargedDzd: ack?.amountDzd,
+);
+```
+
+`_PeriodToggle` is a `ValueChanged` over `BillingPeriod.values` and **nothing
+takes `busy`**, so both lines are reachable with one thumb while the request is
+on the wire. The man taps «ادفع» on the **monthly** card, and before the
+answer arrives moves the toggle to «سنوي» to compare the annual price. The
+write was for a month.
+
+The result is the screen the last three ticks were about, running backwards:
+the **yearly** card draws a struck-through «30000 دج» with «المبلغ المعتمد
+3000 دج» under it, the monthly card he actually paid for is drawn clean, and
+the band — the warning about *this account's* money — either names a price
+nobody disputed or, because the band is correctly term-scoped, disappears
+while the card is still lying. A man told to «تأكّد من المبلغ مع الدعم» about
+3000 دج for a plan he is buying at 30000 دج.
+
+**Shipped.** `_PaymentChoice` now carries the `BillingPeriod` **the sheet itself
+was built with**, and `_request` takes it as a parameter. The term is decided
+in the sheet, travels out with the method, and is never re-read. This is the
+stronger of the two possible fixes and the reason is not tidiness: the sheet
+quotes the price for its term under its own title, and that quote is the figure
+the POST is checked against, so *the price you were shown* and *the price D1
+computed* must be two readings of **one** decision taken at one instant. A
+parameter on `_request` that the caller filled from `_period` would have been
+one line shorter and would still have been two reads of a moving field.
+
+Not "disable the toggle": he is allowed to change his mind about what he is
+*looking at* while a write he already committed to is in the air, and locking
+the screen would take away the comparison he is in the middle of. The same rule
+`project_new_screen` shipped.
+
+**Red before green, source untouched first.** Against the unfixed screen the
+test failed on the *inversion*, not on absence:
+
+```
+Expected: no matching candidates
+  Actual: _KeyWidgetFinder:<Found 1 widget with key [<'plan-price-mismatch'>]
+the band survived a term change, so it is quoting a price that is not on screen
+```
+
+which is the defect from the other end: the band outlived the term change and
+is quoting «السعر المعروض» against a price that is not displayed. Reverting
+only the two `_period` reads — the same two lines, nothing else — reproduces
+it exactly.
+
+**Two harness traps, both of which read as passing tests.** The mocked POST
+was first parked on a `Completer` the test body completes: the handler runs in
+the **fake-async** zone, so the gate's continuation is never drained by
+`pump`, and the whole chain — handler, `MockClient`, the client's own
+`.timeout`, the repository — simply never comes back. The test then asserted
+on a screen where the write had not landed, and would have gone green on a
+completely broken fix. Replaced with a fake-async `Future.delayed` the test
+toggles inside, which is pump-driven and deterministic. Second: the band sits
+at the top of a lazy `ListView`, so a `scrollUntilVisible` down to a plan card
+**disposes it**; an earlier draft asserted the band after scrolling and read
+its absence as a missing dispute. The band is now checked before any scroll,
+and its absence on «سنوي» is asserted as **correct** — that is the
+term-scoping rule working, not a fault.
+
+*Evidence.* `flutter analyze` -> **No issues found!**.
+`flutter test` -> **1688 passed / 3 skipped / 0 failed**, up from 1687 (+1).
+The two analyzer issues that were in the tree are fixed in the same commit: two
+lints in `pending_claim_shot_test.dart` (a brace-less `if`, a `!` on a
+non-nullable receiver) that predate this tick and were confirmed present on a
+stashed tree rather than assumed.
+
+*Proven by pixels.* `/tmp/shots/22_payment_term_snapshot.png`, 786x2473.
+Danger `#C33F39` measured row by row: the **strike** on the monthly figure at
+y 1568–1592 (139 px wide, 17 rows — a rule through the digits, not a tinted
+box) and the amount line below it, with the band clear of both. The card did
+not overflow: `tester.takeException()` is asserted null before the raster,
+which is the check that cost the disputed-price tick its 53 px.
+
+**Commits.** see the run note at the end of this section.
+
+*Next in backlog:* unchanged and still founder-gated — the `durations` array.
+Live catalogue re-read this tick: `basic` publishes 1/3/6/12 months at
+1500/4250/8000/15000, `pro` at 3000/8500/16000/30000, `gold` at
+6000/17000/32000/60000. The app can only order `month` and `year`, and the
+Worker's answer to a term it does not know is `ok: true` with the row filed as
+a month, so offering the 3/6-month terms is a backend change first and a
+pricing decision second.

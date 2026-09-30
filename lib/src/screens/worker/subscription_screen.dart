@@ -223,12 +223,28 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   /// Declares a payment for [plan] after the contractor picked how to pay.
   ///
+  /// [period] is the term the write was **made under**, snapshotted where the
+  /// sheet was opened and never re-read here.
+  ///
+  /// The period toggle is live while this POST is on the wire — nothing takes
+  /// `busy` — so reading `_period` after the `await` describes the write by
+  /// whatever the form says now. A man who taps «ادفع» on the monthly card and
+  /// then moves the toggle to «سنوي» to compare the annual price, while his
+  /// transfer is being declared, got a dispute filed against the **year**: the
+  /// yearly figure drew a strike and «المبلغ المعتمد» for a purchase he never
+  /// made, and the monthly card he paid for was drawn clean. Locking the
+  /// toggle is the wrong fix — he is allowed to change his mind about what he
+  /// is *looking at* while a write he already committed to is in the air — so
+  /// the term travels with the write instead, exactly as [before] already does
+  /// for the proof.
+  ///
   /// [before] is the pending request the catalogue already held when the sheet
   /// was opened, and it is what makes an unconfirmed write answerable: see
   /// `subscription_write_outcome.dart` for why «did it land» cannot be asked by
   /// comparing the plan, and why it is asked by comparing the request id.
   Future<void> _request(
     Plan plan,
+    BillingPeriod period,
     PaymentMethod method,
     String? reference, {
     PendingRequest? before,
@@ -241,7 +257,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       // and the man was told only that his request arrived.
       final answer = await _repo.requestSubscription(
         plan: plan.id,
-        period: _period,
+        period: period,
         method: method.id,
         reference: reference,
       );
@@ -252,8 +268,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       // between, both are reported and neither is asserted.
       final dispute = PlanPriceDispute.between(
         planId: plan.id,
-        periodWire: _period.wire,
-        quotedDzd: plan.priceFor(_period),
+        periodWire: period.wire,
+        quotedDzd: plan.priceFor(period),
         chargedDzd: ack?.amountDzd,
       );
       // A banner, **not** a `_say`. `_say` hides whatever is on screen first,
@@ -374,7 +390,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     // Snapshotted when the sheet opened, not read at the moment of the POST:
     // the re-read compares this row against the fresh one, so a catalogue the
     // screen happened to re-render in between must not forge it.
-    await _request(plan, result.method, result.reference,
+    //
+    // [result.period], not `_period`. The term the sheet quoted and the term
+    // the write is filed under are the same decision, so they leave the sheet
+    // together. Reading the field again here would make them two reads of one
+    // value — and the two reads are not simultaneous.
+    await _request(plan, result.period, result.method, result.reference,
         before: catalogue.pendingRequest);
   }
 
@@ -1304,7 +1325,18 @@ class _LoadFailed extends StatelessWidget {
 // ── Payment sheet ───────────────────────────────────────────────────────────
 
 class _PaymentChoice {
-  const _PaymentChoice(this.method, this.reference);
+  const _PaymentChoice(this.period, this.method, this.reference);
+
+  /// The term **this sheet** was built with — not whatever the toggle on the
+  /// screen behind it says when the sheet closes.
+  ///
+  /// The sheet quotes the price for this term under its own title, and that
+  /// quote is the figure the POST is checked against. Returning the term
+  /// alongside the method is what makes that pairing provable: "the price you
+  /// were shown" and "the price D1 computed" become two readings of **one**
+  /// decision taken at one instant, rather than two reads of a field a thumb
+  /// can move while the write is in the air.
+  final BillingPeriod period;
 
   final PaymentMethod method;
   final String? reference;
@@ -1480,8 +1512,9 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                 icon: Icons.send_rounded,
                 onPressed: method == null
                     ? null
-                    : () => Navigator.of(context)
-                        .pop(_PaymentChoice(method, _reference.text)),
+                    : () => Navigator.of(context).pop(
+                        _PaymentChoice(
+                            widget.period, method, _reference.text)),
               ),
             ],
           ),

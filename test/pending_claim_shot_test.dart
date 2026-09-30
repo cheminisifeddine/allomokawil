@@ -59,11 +59,15 @@ Future<({int grey, int total})> _countDisabled(GlobalKey key, Rect target) async
   for (var y = y0; y <= y1; y++) {
     for (var x = x0; x <= x1; x++) {
       final i = (y * stride + x) * 4;
-      if (i + 3 > bytes.length) continue;
+      if (i + 3 > bytes.length) {
+        continue;
+      }
       count++;
       if ((bytes[i] - 0xE8).abs() <= 6 &&
           (bytes[i + 1] - 0xE8).abs() <= 6 &&
-          (bytes[i + 2 - 0] - 0xEC).abs() <= 6) grey++;
+          (bytes[i + 2] - 0xEC).abs() <= 6) {
+        grey++;
+      }
     }
   }
   return (grey: grey, total: count);
@@ -204,11 +208,12 @@ void main() {
         tester.getBottomLeft(find.byKey(const Key('plan-gold-month'))).dy;
     final liveWidth = tester.getSize(find.byKey(const Key('plan-gold-month'))).width;
     final live = Rect.fromLTRB(0, liveTop - 48, liveWidth, liveBottom + 8);
-    final liveCounted = await tester.runAsync(() => _countDisabled(key, live));
+    final liveCounted =
+        await tester.runAsync(() => _countDisabled(key, live));
     // ignore: avoid_print
     print('LIVE-CARD rect=$live h=${live.height.round()} '
         'grey=${liveCounted!.grey}/${liveCounted.total}');
-    expect(liveCounted!.grey, lessThan(grey ~/ 4),
+    expect(liveCounted.grey, lessThan(grey ~/ 4),
         reason: 'a live button painted the same grey as the dead one, so the '
             'count above is not measuring the disabled state');
 
