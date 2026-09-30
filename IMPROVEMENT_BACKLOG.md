@@ -10333,3 +10333,87 @@ there is a real question, not a bug to file.
       but a dispute found *during* the sheet's own submit cannot mark a sheet
       that has already been popped, and whether the band alone is the right
       answer there is a real question, not a bug to file.
+
+## Tick 30 Sep 2026 — the band outlived the term it was about
+
+*Item:* the next-in-backlog the previous tick wrote down, read narrowly. The
+previous tick shipped the mark on the plan card and on the payment sheet and
+named one open question: "whether the band alone is right there is a real
+question". The band is the screen's own first consumer and the only one that
+had never been checked against `_disputeFor`.
+
+*The BLOCKED review-500 is still the only unchecked box and is still
+BACKEND-API's.* Re-searched from scratch this tick: `find /home/hatch
+-maxdepth 4` for any `finili` tree still returns only Hermes profile
+directories, and the three `wrangler.jsonc` files under `/home/hatch`
+(Vitestore, Vitestore-full, colisify) are still not the API this app talks
+to. Not re-filed, deliberately, so the next tick does not walk it a fourth
+time.
+
+*The defect.* One dispute, two consumers, two different answers about how
+long it was true. Both cards asked `_disputeFor(plan, period)` and dropped
+their strike the instant the monthly/yearly toggle moved — which the
+previous tick's own test asserts as correct. The band read the raw state
+field, `_priceDispute!`, and stayed up. So on the **yearly** term the
+screen quoted «30000 دج» while the band named «3000 دج» as the figure
+under dispute and told him to confirm it with support: a number no one had
+ever disputed, on a term he was not looking at, in a sentence whose whole
+point is that one of its two figures is *the price currently displayed*.
+
+The helper's own doc comment was the tell. `_disputeFor` claims "the band
+and the two cards each ask this" — the comment described the intent and the
+code never matched it, which is how the band came to be the one consumer
+that was never exercised.
+
+*Shipped.* `PlanPriceDispute` now answers **two** questions instead of one:
+`appliesTo` for a card (plan **and** term) and `appliesToTerm` for the band
+(term only). The asymmetry is deliberate and documented, not an oversight:
+the band names no plan, so scoping it to one would take the sentence away
+the moment he scrolled to another tier — and the sentence is about his
+*account*, not about a card. But it goes away with the term, because on the
+other term a different price is the one displayed. The screen reads
+`_bandDispute` once in `build`, not in `_request`, because the term can
+change with no write happening at all.
+
+*Red before green, no source edited first.* The new test was written and
+run against the untouched screen:
+
+    _StaleBanner-[<'plan-price-mismatch'>]
+      Which: means one was found but none were expected
+
+`+10 -1`. The counter-probe in the same test also earns its place: it taps
+back to monthly and requires the band to return, so "scoped" cannot be
+implemented as "deleted".
+
+*Evidence.* `flutter analyze` -> **No issues found!**
+`flutter test` -> **1674 passed / 3 skipped / 0 failed**, up from 1669 (+5:
+two screen cases, two data cases, one shot).
+
+*Proven by pixels, and one thing this tick refused to assume.* Same
+measurement as the sibling shot file, so the two numbers are comparable: the
+full-width amber wash is **205 rows / 186,912 px** (x 58..1120, y 232..440)
+on the monthly term and **0 rows** on yearly.
+
+The yearly frame is **not** blank — it carries 953,673 non-white px and
+14,345 amber px, and the honest thing was to find out what that amber is
+before claiming the band is gone rather than after. It is a 142x142 circle
+at y 1278..1420. Connected-component analysis says it is **not** a second
+band: it appears in the monthly frame too (y 1542..1684), at exactly
+**+264px** — the height of the removed band — and it is `_PromiseCard`'s
+`IconBubble` with `wash: AppTheme.accentWash`, which is the *same token* as
+the band's own wash, so a naive "is there amber on the page" probe cannot
+tell the two apart. That is the real hazard on this screen and it is why the
+band is measured by full-width rows, not by hue. Read as a hue check this
+shot would have been a false red; read as a geometry check it is a true one.
+
+*Commits.* local `ce8d672`; remote `e561cd5`. **4/4 blobs MATCH** the real
+remote tree at tip `e561cd5`, read off the git-data API and not from the
+helper's green line.
+
+*Next in backlog:* no unchecked item remains that this loop can reach. The
+review-500 is BACKEND-API's and has been re-checked from scratch again here.
+The next real candidate is on the same money screen: `_PendingCard` prints
+`pendingAmountLabelAr(request.amountDzd)` for the pending request, and that
+row is the receipt a contractor forwards to support — it is the one place
+the amount D1 recorded is shown *without* the term or the plan name the
+dispute carries, so the same two-figure problem has a third home.
