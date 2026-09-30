@@ -10111,3 +10111,97 @@ on screen at the same moment. Also open: `_showCommitResult` is still written
 plus the two inline `hideCurrentSnackBar` chains), which is the drift
 mechanism that caused this class; the same rule is a candidate for one shared
 helper the way `A11y.tap` is. Neither is filed — one item per tick.
+
+## Tick 30 Sep 2026 — the band said the price was wrong; the card kept selling it
+
+*Item:* the previous tick's filed «next», read as a single item: the checkout
+figure on the plan card is drawn from the catalogue and is not marked when the
+band above it says that figure is wrong. The BLOCKED review-500 above is still
+the only unchecked box and it remains BACKEND-API's; it was not re-walked.
+
+*What the last tick left standing.* It made `subscriptionAmountMismatchAr` a
+band instead of a toast, and the band was right — measured present at 500 ms,
+gone by 5500 ms on the original. That fixed the **lifetime** of the sentence and
+nothing else. The other half of the same fact was untouched: the price on the
+plan card is `catalogue.priceLabel(plan, _period)`, the app's own arithmetic
+over a catalogue read earlier, drawn in the same navy at the same size with the
+same «تدفع شهرياً» under it as a price the app was sure of.
+
+So on a write where D1 charged 4500 and the app quoted 3000, both of these were
+on screen at the same instant, and both were correct about a different thing:
+the band naming two figures and telling him to confirm with support, and the
+card drawing 3000 as though it were the number to pay. The band was four lines
+up. The number a man reads at the bottom of his eye was the wrong one, and
+nothing on the figure said so. The previous tick closed a sentence that
+disappeared; this one closes a number that stayed.
+
+*Shipped.* The dispute is now held as **data** — `PlanPriceDispute`, four
+numbers plus which plan and which term — instead of a composed Arabic string,
+and both halves are derived from it. `lineAr` is the band, delegated to the
+existing sentence so it cannot be reworded apart; `amountLineAr` is the mark on
+the card. The card strikes the quoted figure, colours it `danger`, adds a
+reported-error glyph, and prints «المبلغ المعتمد 4500 دج» under the suffix. The
+**payment sheet** gets the same two marks from the same numbers: it is a modal
+route that quotes the price again under a heading with the submit button
+underneath, and it is the last screen a man reads while actually moving the
+money. The term beside the figure is *not* struck: it was never in dispute.
+
+*The term is carried on the dispute, and that is not bookkeeping.* The card list
+redraws with whatever term the toggle is on, so a monthly disagreement must not
+paint a strike through `30000 دج`, which was never the number anyone disputed.
+One helper, `_disputeFor(planId, period)`, is the only thing on the screen that
+answers "is this price under question", so a fourth consumer cannot arrive with
+its own slightly different condition.
+
+*A layout bug this tick introduced, and the measurement is the interesting
+part.* Printing the amount under the price made the plan card's `Row` **overflow
+by 53 px on a 392 dp phone** — caught by this tick's own test, not by review.
+The figure the card exists to mark was the thing that broke the layout, which is
+the kind of irony worth writing down: the fix for a wrongly-drawn number broke
+the drawing of the card. The column is now bounded by `AppTheme.priceColW` (132)
+and the amount wraps. Without the pixel step the `ConstrainedBox` would have
+been a guess.
+
+*Red before green, by restoration rather than by reasoning.* A probe written
+only against APIs that exist in **both** versions (no `PlanPriceDispute`, no new
+keys — it finds the price by its text `3000 دج`) was run against the original
+screen restored from `git show HEAD:` and failed for the real reason:
+`Expected: TextDecoration.lineThrough / Actual: TextDecoration.none`. The same
+file passes on the new screen. The three files were backed up and restored, not
+edited back and forth, so the comparison is byte-for-byte.
+
+*Two failures in this tick's own harness, recorded because both looked like app
+defects and neither was.* (1) The plan list is a lazy `ListView`, so the second
+card is not in the tree until scrolled near and the first card's button sits
+below the fold once the band pushes the page down — `ensureVisible` needs the
+widget to exist first, so it takes `scrollUntilVisible` **then**
+`ensureVisible`. (2) `AppTheme.bar` sets `decoration: TextDecoration.none`
+explicitly, so "not marked" reads `none`, not `null`; asserting `null` was my
+error and it was corrected rather than investigated away.
+
+*The picture.* `test/plan_disputed_price_shot_test.dart`, the real rasterizer
+with Cairo loaded. Scoped to the **card's own rect**, not the page: the first
+version scanned the whole page and counted 313,719 pixels of the *amber* band
+as red, because a loose "reddish" test cannot tell `#C33F39` from `#9B6415`. The
+threshold is taken from the capture, not guessed — the delta histogram inside
+the rect is `60:135076` (navy `#101828`), `120:7052` (danger `#C33F39`),
+`20:1587` and `40:1330` (antialiased edges) — so the test keys on `r-g > 100`.
+**red=7401** inside a 257 dp card band. Re-read independently off the written
+file with `tool/png_read.py` (it is RGB, 3 channels, not RGBA): **7401** again,
+and **0** in the amber band, so the count is measuring danger and not warmth.
+`/tmp/shots/18_plan_disputed_price.png`.
+
+*Gate.* `flutter analyze` -> **No issues found!**
+`flutter test` -> **1656 passed / 3 skipped / 0 failed**, up from 1645/3/0
+(**+11**), the 10 widget/unit cases and the 1 rasterized shot. Suite wall time
+10:22, which is why it is backgrounded: a foreground timeout cannot hold it.
+
+*Next.* Not filed, one item per tick, and these are the candidates in the order
+they are worth taking: the `_showCommitResult` drift the previous tick named is
+still open (`_showCommitResult` x3, `_verdict`, `_say`, plus two inline
+`hideCurrentSnackBar` chains — the same rule written seven ways is the mechanism
+that produced this whole class, and one shared helper the way `A11y.tap` is the
+fix). After that: the sheet marks the price for a dispute found **before** it
+opened, but a dispute found *during* the sheet's own submit cannot mark a sheet
+that has already been popped, and whether the band alone is the right answer
+there is a real question, not a bug to file.

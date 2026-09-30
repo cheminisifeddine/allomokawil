@@ -151,6 +151,101 @@ String? subscriptionAmountMismatchAr(int? quotedDzd, int? chargedDzd) {
       'المعروض ${Money.dzd(quotedDzd)} — تأكّد من المبلغ مع الدعم';
 }
 
+/// The figures of one price disagreement, held as **data** rather than as the
+/// sentence.
+///
+/// The band above the plan card and the price printed on the card are the same
+/// fact seen from two sides, and until now only one side knew it: the screen
+/// kept the composed Arabic string and nothing else, so the card went on
+/// drawing «3000 دج» at full weight in the same accent as a price it was
+/// correct about. The two halves of one screen could contradict each other
+/// with nothing marking which figure was in dispute.
+///
+/// Holding the figures instead of the copy is what lets the second half be
+/// marked: [lineAr] is the band, [amountLineAr] is the mark on the card, and
+/// both are derived from the same four numbers, so they cannot drift apart the
+/// way a stored sentence and a hard-coded one would.
+class PlanPriceDispute {
+  const PlanPriceDispute({
+    required this.planId,
+    required this.periodWire,
+    required this.quotedDzd,
+    required this.chargedDzd,
+  });
+
+  /// Which plan card the mark belongs on, and for which term.
+  ///
+  /// Both, because the card list re-renders with whatever term the toggle is
+  /// on: a disagreement found on the monthly term must not paint a strike
+  /// through the yearly figure, which was never the number in dispute. The
+  /// `period` is the **wire** string rather than the enum so this file keeps no
+  /// dependency on the model layer that already owns it.
+  final String planId;
+  final String periodWire;
+
+  /// The price the app quoted, off a catalogue read earlier.
+  final int quotedDzd;
+
+  /// What D1 computed at the moment of the write.
+  final int chargedDzd;
+
+  /// The dispute between the two, or null when there is none.
+  ///
+  /// The same four refusals as [subscriptionAmountMismatchAr] — an unknown or
+  /// non-positive figure on either side, or two equal figures — because a
+  /// dispute over a price nobody has heard of is not a dispute. Never built
+  /// around a zero: `0 دج` on a payment nobody made is a statement, not a
+  /// receipt.
+  static PlanPriceDispute? between({
+    required String planId,
+    required String periodWire,
+    required int? quotedDzd,
+    required int? chargedDzd,
+  }) {
+    if (subscriptionAmountMismatchAr(quotedDzd, chargedDzd) == null) return null;
+    return PlanPriceDispute(
+      planId: planId,
+      periodWire: periodWire,
+      quotedDzd: quotedDzd!,
+      chargedDzd: chargedDzd!,
+    );
+  }
+
+  /// Whether this dispute is the one to draw on [planId] at [periodWire].
+  bool appliesTo(String planId, String periodWire) =>
+      this.planId == planId && this.periodWire == periodWire;
+
+  /// The band's sentence. Delegated, never re-written, so the two copies of
+  /// this fact cannot be reworded apart by a later tick.
+  String get lineAr => subscriptionAmountMismatchAr(quotedDzd, chargedDzd)!;
+
+  /// The one line the card prints under its own price.
+  ///
+  /// It names the amount and stops. It does not say «not this one» in words,
+  /// because the strike through the figure above it already says that and
+  /// saying it twice is how a screen ends up explaining itself; and it does
+  /// not repeat the band, because the band is still on screen, four lines
+  /// above, naming both figures and telling him to confirm with support.
+  String get amountLineAr => 'المبلغ المعتمد ${Money.dzd(chargedDzd)}';
+
+  @override
+  String toString() => 'PlanPriceDispute(plan: $planId/$periodWire, '
+      'quoted: $quotedDzd, charged: $chargedDzd)';
+}
+
+/// The test key on the line a card prints under a price its own band disputes.
+String planDisputedAmountKey(String planId, String periodWire) =>
+    'plan-disputed-amount-$planId-$periodWire';
+
+/// The test key on the same line inside the payment sheet, which is a separate
+/// route and a separate instance of the same fact.
+///
+/// Distinct from [planDisputedAmountKey] on purpose: a modal sheet does not
+/// remove the screen behind it, so both instances are in the tree at once and
+/// one shared key would make `findsOneWidget` fail for the right reason and
+/// `findsNWidgets` impossible to write.
+const String planDisputedSheetAmountKey = 'plan-disputed-sheet-amount';
+
 /// An int that stays null when the field is absent, unreadable or not a number.
 ///
 /// Never `?? 0`: on this screen a zero would be printed as a price.

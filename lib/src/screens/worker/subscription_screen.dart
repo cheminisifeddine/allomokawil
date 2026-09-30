@@ -95,7 +95,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   /// Held as state rather than drawn from the snackbar queue, so it survives
   /// the write, the reload and the four seconds. Cleared only by a fresh
   /// purchase or a re-read that changes the terms.
-  String? _priceMismatch;
+  ///
+  /// The **figures**, not the sentence. The band is one consumer of them; the
+  /// other is the price on the plan card, which used to keep drawing the
+  /// disputed figure in the same accent as a price it was sure of, so the two
+  /// halves of one screen could contradict each other with nothing saying
+  /// which one was wrong. See [PlanPriceDispute].
+  PlanPriceDispute? _priceDispute;
 
   @override
   void didChangeDependencies() {
@@ -115,6 +121,18 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   /// The wall clock, injectable for tests. See [SubscriptionScreen.clock].
   DateTime _now() => (widget.clock ?? DateTime.now)();
+
+  /// The dispute that applies to one plan at one term, or null.
+  ///
+  /// The **one** place the screen decides whether a price on screen is under
+  /// question. The band and the two cards each ask this rather than testing
+  /// the state themselves, so a fourth consumer cannot come along with its own
+  /// slightly different condition.
+  PlanPriceDispute? _disputeFor(String planId, BillingPeriod period) {
+    final d = _priceDispute;
+    if (d == null) return null;
+    return d.appliesTo(planId, period.wire) ? d : null;
+  }
 
   /// Starts the once-a-minute tick that ages the band, once there is a stamp
   /// to age.
@@ -196,9 +214,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       // The sheet's price is the app's arithmetic over a catalogue fetched
       // earlier; the answer's amount is D1's, computed now. If a price moved in
       // between, both are reported and neither is asserted.
-      final mismatch = subscriptionAmountMismatchAr(
-        plan.priceFor(_period),
-        ack?.amountDzd,
+      final dispute = PlanPriceDispute.between(
+        planId: plan.id,
+        periodWire: _period.wire,
+        quotedDzd: plan.priceFor(_period),
+        chargedDzd: ack?.amountDzd,
       );
       // A banner, **not** a `_say`. `_say` hides whatever is on screen first,
       // which is the right rule for a verdict replacing the line it contradicts
@@ -210,7 +230,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       // pay. The acknowledgement is kept as a toast; the disagreement is a fact
       // about the account and is held until it changes.
       if (mounted) {
-        setState(() => _priceMismatch = mismatch);
+        setState(() => _priceDispute = dispute);
       }
       await _load();
     } catch (e) {
@@ -303,6 +323,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         plan: plan,
         period: _period,
         priceLabel: catalogue.priceLabel(plan, _period),
+        // The dispute is passed **into** the sheet rather than looked up from
+        // the screen behind it: the sheet is a separate route, it must survive
+        // the screen being rebuilt, and a widget that reaches through a modal
+        // barrier for its facts is a widget that disagrees with itself the
+        // day the two are edited separately.
+        dispute: _disputeFor(plan.id, _period),
         payment: catalogue.payment,
         renewNote: renewalNoteAr(catalogue.renewNoteAr),
         prepaid: catalogue.isPrepaid,
@@ -365,9 +391,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       // shape as the stale band above it, and for the same
                       // reason — both are statements about the figures
                       // underneath, not about the account.
-                      if (_priceMismatch != null) ...[
+                      if (_priceDispute != null) ...[
                         _StaleBanner(
-                          line: _priceMismatch!,
+                          line: _priceDispute!.lineAr,
                           key: const Key(planPriceMismatchKey),
                           icon: Icons.price_check_rounded,
                         ),
@@ -407,6 +433,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           plan: plan,
                           period: _period,
                           priceLabel: catalogue.priceLabel(plan, _period),
+                          dispute: _disputeFor(plan.id, _period),
                           current: catalogue.current.plan == plan.id,
                           busy: _busy,
                           onChoose: () => _openPaymentSheet(plan),
@@ -699,6 +726,7 @@ class _PlanCard extends StatelessWidget {
     required this.plan,
     required this.period,
     required this.priceLabel,
+    required this.dispute,
     required this.current,
     required this.busy,
     required this.onChoose,
@@ -707,6 +735,15 @@ class _PlanCard extends StatelessWidget {
   final Plan plan;
   final BillingPeriod period;
   final String priceLabel;
+
+  /// The price disagreement covering *this* plan at *this* term, or null.
+  ///
+  /// A `PlanPriceDispute?` rather than a bool, because the card does not merely
+  /// grey a number out: it also has to print the figure D1 actually used, and
+  /// the only honest source for that is the same four numbers the band is
+  /// built from.
+  final PlanPriceDispute? dispute;
+
   final bool current;
   final bool busy;
   final VoidCallback onChoose;
@@ -759,17 +796,72 @@ class _PlanCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: AppTheme.s12),
-              Column(
+              // A price under question is **marked on the figure itself**, not
+              // only in a band four lines above it. Until this, the card drew
+              // the quoted figure in the same navy as a price it was sure of,
+              // on the same screen, at the same moment, as a band saying that
+              // figure was wrong — and the number a contractor reads at the
+              // bottom of his eye was the wrong one, unmarked.
+              //
+              // Three marks, and each one earns its place:
+              //   · the strike, so the figure is never read as payable;
+              //   · the muted accent, so it is not the darkest thing on the
+              //     card and stops being what the eye lands on;
+              //   · the amount D1 actually used, under the suffix, so the
+              //     card is readable **without** the band — the band may be
+              //     scrolled off, and a man who read only the card still
+              //     learns the figure rather than the error.
+              // Bounded, and the bound is load-bearing. The amount line is the
+              // longest string that has ever been drawn in this column, and the
+              // plan name beside it is `Expanded`, so an unbounded trailing
+              // Column pushed the whole Row 53 px past the card edge on a 392 dp
+              // phone — measured, not reasoned: the first run of this tick's own
+              // test failed on `A RenderFlex overflowed by 53 pixels`. The figure
+              // the card exists to mark was the thing that broke the layout.
+              // So the column takes only what it needs, up to a share of the
+              // card, and the amount wraps onto a second line instead.
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: AppTheme.priceColW),
+                child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(priceLabel, style: AppTheme.bar),
+                  if (dispute != null)
+                    Padding(
+                      padding: const EdgeInsets.only(
+                          bottom: AppTheme.s4, right: AppTheme.s4),
+                      child: const Icon(Icons.report_gmailerrorred_rounded,
+                          size: AppTheme.s16, color: AppTheme.danger),
+                    ),
+                  Text(
+                    priceLabel,
+                    key: Key('plan-price-${plan.id}-${period.wire}'),
+                    style: dispute == null
+                        ? AppTheme.bar
+                        : AppTheme.bar.copyWith(
+                            color: AppTheme.danger,
+                            decoration: TextDecoration.lineThrough,
+                            decorationColor: AppTheme.danger,
+                          ),
+                  ),
                   Text(
                     period == BillingPeriod.year
                         ? S.planFreeSuffixYearly
                         : S.planFreeSuffixMonthly,
                     style: AppTheme.caption.copyWith(color: AppTheme.textSecondary),
                   ),
+                  if (dispute != null) ...[
+                    const SizedBox(height: AppTheme.s4),
+                    Text(
+                      dispute!.amountLineAr,
+                      key: Key(planDisputedAmountKey(plan.id, period.wire)),
+                      style: AppTheme.caption.copyWith(
+                        color: AppTheme.danger,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ],
+                ),
               ),
             ],
           ),
@@ -1116,6 +1208,7 @@ class _PaymentSheet extends StatefulWidget {
     required this.plan,
     required this.period,
     required this.priceLabel,
+    required this.dispute,
     required this.payment,
     required this.renewNote,
     required this.prepaid,
@@ -1124,6 +1217,17 @@ class _PaymentSheet extends StatefulWidget {
   final Plan plan;
   final BillingPeriod period;
   final String priceLabel;
+
+  /// The price disagreement already found for this plan and term, or null.
+  ///
+  /// The sheet is the **last** thing between a contractor and a transfer, and
+  /// it quotes the catalogue price under the title, at the size of a heading,
+  /// with the submit button underneath. A dispute discovered before the sheet
+  /// was opened has to be repeated here in the same shape, or the one screen
+  /// he reads while actually moving the money is the one screen that repeats
+  /// the wrong figure with nothing beside it.
+  final PlanPriceDispute? dispute;
+
   final PaymentOptions payment;
 
   /// Repeated here, under the price, immediately before the money moves.
@@ -1167,10 +1271,44 @@ class _PaymentSheetState extends State<_PaymentSheet> {
             children: [
               Text('${S.planUpgrade} — ${widget.plan.nameAr}', style: AppTheme.h1),
               const SizedBox(height: AppTheme.s4),
-              Text(
-                '${widget.priceLabel} · ${widget.period.labelAr}',
+              // The same two marks the plan card draws, from the same four
+              // numbers, so the two instances of this fact cannot disagree:
+              // a strike through the quoted figure and the amount D1 used,
+              // printed in the same place under the same heading.
+              Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: widget.priceLabel,
+                      style: widget.dispute == null
+                          ? null
+                          : const TextStyle(
+                              color: AppTheme.danger,
+                              decoration: TextDecoration.lineThrough,
+                              decorationColor: AppTheme.danger,
+                            ),
+                    ),
+                    TextSpan(
+                      text: ' · ${widget.period.labelAr}',
+                      // Only the figure is disputed. The term beside it is
+                      // what the man picked and what D1 filed, and striking
+                      // through half the line would impeach a fact that has
+                      // never been in question.
+                      style: const TextStyle(color: AppTheme.navy),
+                    ),
+                  ],
+                ),
+                key: const Key('sheet-price'),
                 style: AppTheme.bar.copyWith(color: AppTheme.navy),
               ),
+              if (widget.dispute != null) ...[
+                const SizedBox(height: AppTheme.s4),
+                Text(
+                  widget.dispute!.amountLineAr,
+                  key: const Key(planDisputedSheetAmountKey),
+                  style: AppTheme.bar.copyWith(color: AppTheme.danger),
+                ),
+              ],
               if (widget.renewNote != null) ...[
                 const SizedBox(height: AppTheme.s8),
                 _PrepaidBadge(note: widget.renewNote!, prepaid: widget.prepaid),

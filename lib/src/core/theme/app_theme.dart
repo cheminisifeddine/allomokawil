@@ -125,6 +125,15 @@ class AppTheme {
   /// would squeeze the label. On the grid, and still one token.
   static const EdgeInsets cardPadRail = EdgeInsets.all(s12);
 
+  /// The widest the trailing price column of a plan card may draw.
+  ///
+  /// A layout bound, not a type size, and it exists because of a measurement:
+  /// printing «المبلغ المعتمد 4500 دج» under a price made the Row overflow by
+  /// 53 px on a 392 dp phone. The marked figure is the whole point of the
+  /// card, so the column takes a fixed share of the card and the amount wraps
+  /// rather than pushing the plan name out of the view.
+  static const double priceColW = 132;
+
   /// Rows card: children are full-width rows that carry their own dividers
   /// (profile menu, verification list). Same horizontal inset as [cardPad],
   /// half the vertical, because every row already has its own breathing room.
