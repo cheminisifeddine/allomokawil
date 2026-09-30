@@ -629,8 +629,12 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
           if (isWriteUnconfirmed(e)) {
             // The bid may already be in the list. Re-read it instead of leaving
             // the contractor to wonder whether he sent two.
-            ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text(S.writeUnconfirmedRecheck)));
+            //
+            // `_showRechecking` rather than a bare `showSnackBar`: this is the
+            // same recheck line the owner-facing commits draw, and the answer
+            // that follows it is the only sentence that tells this contractor
+            // whether he sent one bid or two.
+            _showRechecking();
             final outcome = await resolveWriteOutcome(
               recheck: () async {
                 // The bid is identified by what this worker asked for on this
@@ -654,8 +658,14 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
             if (!mounted) return;
             // Either way the quotes list on screen is now the server's.
             _reload();
-            ScaffoldMessenger.of(context)
-                .showSnackBar(SnackBar(content: Text(writeOutcomeCopy(outcome))));
+            // `_showCommitResult`, not a bare `showSnackBar`. `ScaffoldMessenger`
+            // **queues** by default, so the verdict used to wait behind the
+            // recheck line's full four-second duration and reach the screen
+            // last — the one message that answers «did my bid arrive?» is the
+            // one the contractor reads after being told, for four more seconds,
+            // that the app is still checking. `_accept` and `_complete` on this
+            // same screen have always removed the line first.
+            _showCommitResult(writeOutcomeCopy(outcome));
             return;
           }
           ScaffoldMessenger.of(context)
