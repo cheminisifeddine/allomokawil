@@ -76,7 +76,7 @@ class ProjectCard extends StatelessWidget {
                 ],
                 const SizedBox(height: 9),
                 Row(
-                  children: [StatusPill.project(project.status.name)],
+                  children: [StatusPill.project(project.status.wire)],
                 ),
                 // The budget gets its own full-width strip. A range like
                 // "من 60 ألف إلى 600 ألف دج" is the first thing a contractor

@@ -286,7 +286,9 @@ class Repository {
     final q = <String>[
       if (category != null) 'category=$category',
       if (wilaya != null) 'wilaya=$wilaya',
-      if (status != null) 'status=${status.name}',
+      // `.wire`, not `.name` — see [ProjectStatus.wire]. The market's own
+      // in-progress filter asked for `inProgress` and matched nothing.
+      if (status != null) 'status=${status.wire}',
       'page=$page',
     ].join('&');
     return _rows(
@@ -299,7 +301,10 @@ class Repository {
   }
 
   Future<List<Project>> myProjects({ProjectStatus? status}) async {
-    final q = status != null ? '?status=${status.name}' : '';
+    // `.wire`, not `.name`, for the reason in [ProjectStatus.wire]: the
+    // «قيد التنفيذ» tab on «مشاريعي» answered with zero rows for a project
+    // that was in progress.
+    final q = status != null ? '?status=${status.wire}' : '';
     return _rows(
         await _api.get('/api/mobile/my/projects$q'), Project.fromJson);
   }

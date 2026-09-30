@@ -425,8 +425,23 @@ class StatusPill extends StatelessWidget {
   });
 
   factory StatusPill.project(String status) {
-    // Accept both wire style ('in_progress') and Dart enum-name ('inProgress').
-    switch (status.replaceAll('_', '').toLowerCase()) {
+    // Snake_case only, and that used to be deliberately untrue: this factory
+    // stripped `_` and lowercased, so it accepted the Dart enum-name
+    // `inProgress` as well as the wire's `in_progress`.
+    //
+    // That tolerance is what hid [ProjectStatus.wire]'s bug for a full
+    // release. The filter asked the server for `inProgress`, the server matched
+    // nothing and answered 200 with zero rows, and this factory — the one
+    // place a project status is turned into the word a user reads — drew
+    // «قيد التنفيذ» without complaint from both spellings, so the mismatch
+    // was invisible everywhere it was displayed and decisive in the one place
+    // it was sent. A display helper made forgiving of a broken write hides the
+    // write, not the symptom.
+    //
+    // Matching the stored values exactly means a status the server never sends
+    // falls to `open`, the same answer [ProjectStatus.fromWire] gives it, and
+    // the pill and the parser can no longer disagree about what a string means.
+    switch (status) {
       case 'inprogress':
         return const StatusPill(
             label: 'قيد التنفيذ',

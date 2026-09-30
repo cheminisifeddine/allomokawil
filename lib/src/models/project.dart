@@ -1,7 +1,82 @@
 import '../core/format/money.dart';
 
 /// Lifecycle of a posted project. Mirrors `ProjectStatus`.
-enum ProjectStatus { open, inProgress, completed, cancelled }
+///
+/// The Dart names are camelCase and the wire names are snake_case, and the
+/// only thing that translates between them is [wire] — the same arrangement
+/// [UrgencyLevel] uses, for the same reason, after the identical bug cost a
+/// 500 on every deadline-bearing project.
+///
+/// Found on production 30 Sep 2026. `Repository.myProjects` and
+/// `_browseProjectsPage` both sent `status.name`, so the «قيد التنفيذ» tab
+/// asked for `inProgress` against a project the server had as `in_progress`:
+///
+///   GET /api/mobile/my/projects?status=inProgress  -> 200, 0 rows
+///   GET /api/mobile/my/projects?status=in_progress -> 200, 1 row
+///
+/// **A 200 with no rows, which is why nothing anywhere reported an error.**
+/// The filter is not a write — nothing is refused, no toast fires, no retry
+/// banner appears — so the only symptom is a successful read of zero. The
+/// empty state then said «لا مشاريع في هذه الحالة» ("no projects in this
+/// state") about a project that was in that state, on the tab a client opens
+/// to see the renovation he is currently paying for.
+///
+/// Three of the four tabs were accidentally right: `open`, `completed` and
+/// `cancelled` are single words in both languages. Only the tab that names a
+/// two-word state was wrong, which is why this survived in a shipped app with
+/// five status tabs and a full test suite.
+///
+/// It was also invisible on purpose. `StatusPill.project` was widened to
+/// accept *both* spellings — it strips `_` and lowercases, so `in_progress`
+/// and `inProgress` both reach the same branch — which is a display helper
+/// made tolerant of the very mismatch that had to be fixed at the source. The
+/// pill drew «قيد التنفيذ» correctly from a value the server had never sent.
+enum ProjectStatus {
+  open,
+  inProgress,
+  completed,
+  cancelled;
+
+  /// The only string this status may be sent as.
+  ///
+  /// `name` is wrong for two of the four values. Anything that puts a status
+  /// on the wire reads this instead — the read path via [fromWire], the
+  /// filter path via the query parameter, so write and read cannot drift.
+  String get wire {
+    switch (this) {
+      case ProjectStatus.open:
+        return 'open';
+      case ProjectStatus.inProgress:
+        return 'in_progress';
+      case ProjectStatus.completed:
+        return 'completed';
+      case ProjectStatus.cancelled:
+        return 'cancelled';
+    }
+  }
+
+  /// The inverse of [wire]. Anything unrecognised — including null — is read
+  /// as [open], the column's own default, so an unknown value can never crash
+  /// a feed.
+  ///
+  /// The camelCase Dart name is deliberately *not* accepted. It was the bug:
+  /// tolerating it on the way in is what let a mismatched write look correct
+  /// in the one place it was displayed. A row still carrying `inProgress`
+  /// reads as [open] here, which is a claim the server will eventually correct
+  /// in its own snake_case, and it is the safer of the two answers.
+  static ProjectStatus fromWire(String? v) {
+    switch (v) {
+      case 'in_progress':
+        return ProjectStatus.inProgress;
+      case 'completed':
+        return ProjectStatus.completed;
+      case 'cancelled':
+        return ProjectStatus.cancelled;
+      default:
+        return ProjectStatus.open;
+    }
+  }
+}
 
 /// How urgent the client's project is. Mirrors `UrgencyLevel`.
 enum UrgencyLevel {
@@ -136,16 +211,7 @@ class Project {
   /// publish path uses the same getter.
   static UrgencyLevel _urgen(String? v) => UrgencyLevel.fromWire(v);
 
-  static ProjectStatus _status(String? v) {
-    switch (v) {
-      case 'in_progress':
-        return ProjectStatus.inProgress;
-      case 'completed':
-        return ProjectStatus.completed;
-      case 'cancelled':
-        return ProjectStatus.cancelled;
-      default:
-        return ProjectStatus.open;
-    }
-  }
+  /// Reading a status is [ProjectStatus.fromWire] and nothing else, so the
+  /// table above has exactly one copy of it.
+  static ProjectStatus _status(String? v) => ProjectStatus.fromWire(v);
 }
