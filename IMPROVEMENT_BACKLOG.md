@@ -9670,6 +9670,12 @@ The full suite takes ~9m40s on this box and **exceeds the 420 s foreground
 timeout** — it has to be run in the background, or the tick is killed by its own
 gate before the gate can report anything.
 
+*Commits.* local `a803675` / remote `5078eff`. **3/3 blobs MATCH** the real
+remote tree — and the third is `lib/src/screens/worker/profile_edit_screen.dart`
+itself, byte-identical to the pre-tick blob. That is the check that proves the
+"zero product lines changed" claim instead of asserting it: a mutation that
+survived into the commit would show up here as `DIFFER`.
+
 *Next.* The write-vs-form class is now **closed**: three members, two fixed
 (`da876a3`, `62fe62c`), one audited clean with evidence. The single unchecked
 item in the backlog is still the blocked backend
