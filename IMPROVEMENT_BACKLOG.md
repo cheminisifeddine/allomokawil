@@ -11729,7 +11729,12 @@ trusting the helper's green line. No APK, no release, no tag.
       list rows (bands at 992–1082 / 1252–1346 / 1520–1610).
 
       **Gate** — `flutter analyze` → **No issues found!** (7.5 s). Full suite
-      through `tool/run_tests.py` → see the commit message; file alone 6/6.
+      through `tool/run_tests.py` → **1730 passed / 3 skipped / 0 failed** in
+      **11:11**, up from 1724/3/0 (+6), no hang. File alone 6/6.
+
+      *Commit:* local `c5f6f89` → remote `13b33d2`, **3/3 blobs MATCH** against
+      the real remote tree via the contents API — not the helper's exit code,
+      which reads green on an empty upload set.
 
       **Next:** backlog at **0 unchecked**. The read family is now closed on
       every `.then(` in `lib/`, and this last one was the only site with no
