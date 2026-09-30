@@ -10632,3 +10632,56 @@ Live catalogue re-read this tick: `basic` publishes 1/3/6/12 months at
 Worker's answer to a term it does not know is `ok: true` with the row filed as
 a month, so offering the 3/6-month terms is a backend change first and a
 pricing decision second.
+
+- [x] **The screen told the man to retype an activation code it had just
+      deleted.** Seventh member of the write-vs-screen class, and the first one
+      where the *sentence* and the *state* disagree with each other rather than
+      one being wrong alone. In `subscription_screen.dart`'s `_redeem`,
+      `_codeController.clear()` ran unconditionally on the way out of the `try`,
+      **one line above** the branch that prints `S.planCodeNoPlan` —
+      «لم يُرجع الخادم تفاصيل التفعيل — تحقّق من اشتراكك قبل إعادة إدخال
+      الرمز». That sentence tells the contractor to re-enter the code into a
+      field the app had just emptied. Nothing held what he typed: no history, no
+      undo, no copy. An activation code is bought in cash against a paper
+      receipt and typed in by hand, so the app deleted the only recoverable copy
+      of a single-use code on exactly the branch where it was handing the
+      problem back to the user — and `redeem_outcome.dart` opens by saying a
+      code the server may already have burned must never be typed into a box
+      that will refuse it.
+      *Fix is not "never clear".* A spent code must not sit under a live
+      «تفعيل», so the rule is **confirmed-spent clears, unconfirmed keeps**,
+      applied on both routes that can prove it: the answer naming a plan, and
+      the unconfirmed write's re-read landing. `unknown` and `missing` keep the
+      code, since on both verdicts the man may need to try it again.
+      *Red before green.* Reverting the single `clear()` to its old
+      unconditional position fails on the **inversion**: `Expected:
+      'ALOMOK-2026'` / `Actual: ''` — the app asking for a code it deleted.
+      Verified in both directions by mutation, because the two halves fail
+      oppositely: "never clear" fails the two controls (`Expected: empty`,
+      `Actual: 'ALOMOK-2026'`), and "always clear" fails the first. A fix
+      applied to only one of the two clear sites passes the other two tests and
+      is invisible to them, which is why the re-read case is asserted on its
+      own rather than folded in.
+      *One harness slip, caught before it counted as evidence:* reading the
+      retained text off `tester.widget<Text>(find.byKey('plan-code'))` does not
+      compile — the key is on the `TextField`, and the controller hangs off the
+      `EditableText` inside it. It failed as a compile error, not a red
+      assertion, and that is the only reason it was noticed.
+      *One self-inflicted defect of the same class, caught by reading the diff.*
+      The patch was applied with a `str.replace` over a block that appears
+      **twice** in the file — `_request`'s unconfirmed payment branch and
+      `_redeem`'s — so the redeem-specific `clear()` landed on the payment path
+      too, which would have cleared the code field on a payment write. Removed
+      before the gate; `grep` now shows exactly two clears, both inside
+      `_redeem` (315-380). Worth recording because it is precisely the defect
+      class this file is about, committed by the act of fixing it.
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1691 passed / 3 skipped / 0 failed**, up from
+      1688/3/0 (+3).
+      *Commit* `bab525f`. No screenshot: the change is control-flow only, the
+      rendered screen is byte-identical.
+      *Still BACKEND-API's, untouched:* the `review` 500 with `worker_id` in
+      the body. Re-probed this tick — unauthenticated POST answers **401**, so
+      the 500 is still unreachable from outside a session, and
+      `/api/mobile/workers/:id/reviews` now answers **200** (it returned `[]`
+      before). No app-side action possible; deliberately not re-filed.

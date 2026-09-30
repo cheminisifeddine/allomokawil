@@ -329,11 +329,29 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       // it is now gated on the answer actually naming a plan. A null is not a
       // redemption: it is the absence of one, and it used to be printed as
       // «تم تفعيل اشتراكك» on the strength of a missing field.
-      _codeController.clear();
+      //
+      // The clear moved inside the branch that earns it. It used to run
+      // unconditionally, one line above the one sentence that tells the man to
+      // **re-enter** the code — so the app deleted the string it was asking him
+      // to retype, with nothing else holding it: no history, no undo, no copy.
+      // An activation code is bought in cash against a paper receipt and typed
+      // in by hand, and `redeem_outcome.dart` opens by saying a code the server
+      // may already have burned must never be typed into a box that will refuse
+      // it. He was left needing that receipt again, to spell a code out from
+      // memory, before he could even find out whether the first one worked.
+      //
+      // Clearing is still correct and still happens — but only where the app
+      // knows the code is spent, which is the one case the server confirmed a
+      // plan for. Keeping a burned code under a live «تفعيل» would be trading
+      // this bug for the one it is guarding against, so the rule is
+      // **confirmed-spent clears, unconfirmed keeps**, and it is applied again
+      // below to the re-read that reaches the same conclusion by another route.
       if (plan == null) {
-        // Cannot claim it worked, and must not claim it did not: ask instead.
+        // Cannot claim it worked, and must not claim it did not: ask instead —
+        // and leave the code where he can act on the answer.
         _say(S.planCodeNoPlan);
       } else {
+        _codeController.clear();
         _say('${S.planCodeOk} — ${plan.toUpperCase()}');
       }
       await _load();
@@ -352,6 +370,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         );
         if (!mounted) return;
         _say(writeOutcomeCopy(outcome));
+        // The same rule, decided by the re-read instead of by the answer: a
+        // code the server demonstrably consumed is gone for good, and leaving
+        // it in the field would invite a second «تفعيل» that can only be
+        // refused. A code the app cannot place — `unknown` or `missing` — stays,
+        // because on both of those verdicts the man may need to try it again and
+        // it is the only copy he has.
+        if (outcome == WriteOutcome.landed) _codeController.clear();
         await _load();
         return;
       }
