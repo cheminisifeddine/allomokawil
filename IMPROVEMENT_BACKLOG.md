@@ -11551,3 +11551,78 @@ trusting the helper's green line. No APK, no release, no tag.
       yours and unmade: the `sharding` call. Still **BACKEND-API's**: the
       `durations` array — the live catalogue publishes 1/3/6/12 months per plan
       and this app can only order `month` and `year`.
+
+## Tick 30 Sep 2026 — a late failure could mute the messages pip for the rest of the session
+
+- [x] **The generation-token family's fourth and last member, and the one
+      where the guard was missing entirely: a failed read the user had already
+      replaced muted the «الرسائل» badge for the rest of the session, over a
+      count the server had answered correctly seconds earlier.**
+      The two ticks before this shipped a token on the market feed and on the
+      client home's projects strip. Those were the *success* arm. This one is
+      the arm nobody had guarded anywhere.
+
+      **The defect, in three files, one family.** `chat_list_screen.dart`
+      `_arm` took no token at all, so a late answer wrote unconditionally. And
+      `worker_home_screen.dart` `_readConversations` and
+      `customer_home_screen.dart` `_resolveUnread` each checked their token on
+      the success arm and **not** on the error arm — so on all three sites the
+      one arm that could not be argued away from the state of the count was the
+      one with no guard.
+
+      **Why the cost is not a colour.** `UnreadMessageTrust.withdraw()` is
+      deliberately **one-directional**: only a *landed* read of
+      `/api/mobile/conversations` can `restore()` it, so a transient failure
+      cannot be undone by an unrelated success. That is the right design, and it
+      is exactly what makes the missing guard permanent. A failure from a read
+      the user replaced leaves the pip reading «غير مؤكّد» with **nothing left in
+      flight that can ever undo it** — for the session, not for one screen. The
+      number it qualifies is a count the server answered correctly a moment
+      earlier. A badge that is permanently untrustworthy is worse than a badge
+      that is never wrong, because the user learns to ignore it.
+
+      **Ordinary use.** The pull, the unlock (`readUnreadOnResume`) and the pop
+      out of a thread all re-arm this read, so two are in flight at once **by
+      construction** — not on a corner case, but every time a user does the one
+      thing this screen is for.
+
+      **Shipped:** `_armToken` in `chat_list_screen.dart`, checked on **both**
+      arms; the token check added to the error arms of `_readConversations` and
+      `_resolveUnread`. `test/message_tab_unread_badge_test.dart` (+3 cases).
+
+      **Reverting each guard alone is what proved the fix, and it found two
+      harness faults that would have shipped an unproven guard.** Recorded
+      because both read exactly like the app being correct:
+
+      * **The shell guard MASKS the inbox guard.** The two shell-level cases
+        both drive `chat_list_screen.dart` indirectly, and the shell's guard
+        fires first and swallows the late failure before the inbox sees it — so
+        reverting *only* the inbox token left the file 20/20 green. A case at
+        the shell level proves the inbox **nothing**. Hence the third case, which
+        drives the inbox's own read through its own pull with the real flag out
+        of a real `AppScope`.
+      * **A `Shimmer` makes `pumpAndSettle` walk into a real timeout.** The
+        inbox's first read is handed over as `widget.initial` and nothing draws
+        until it answers, so parking *that* read shows the skeleton; the shimmer
+        keeps asking for frames, `pumpAndSettle` advances the fake clock to
+        20.1 s, and `ApiClient`'s 20 s timeout fails the read **at mount**. The
+        case then measured the timeout rather than the race, and passed against
+        the unfixed code — a vacuous test, the exact fault this backlog has
+        filed twice. The parked read is now the **second** one, taken when the
+        inbox already has rows and therefore no shimmer.
+
+      **Gate** — `flutter analyze` → **No issues found!** (5.9 s). Full suite
+      through `tool/run_tests.py` → **1724 passed / 3 skipped / 0 failed** in
+      **12:13**, up from 1721/3/0 (+3), no hang. File alone: 21/21.
+
+      *Commit:* local `1d2c3d3` -> remote `75e8f9`, **4/4 blobs MATCH** against
+      the real remote tree via the contents API, not the helper's exit code.
+      No APK, no release, no tag.
+
+      **Next:** backlog at **0 unchecked**. The family is now closed on every
+      read in the app, and the lesson it earned is worth keeping: a generation
+      token is only real when **both** arms are guarded, because the unguarded
+      arm is the one that writes when nobody is looking. Still yours and
+      unmade: the `sharding` call. Still **BACKEND-API's**: the `durations`
+      array — the live catalogue publishes 1/3/6/12 months per plan and this app
+      can only order `month` and `year`.
