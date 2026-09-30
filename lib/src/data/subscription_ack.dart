@@ -215,6 +215,17 @@ class PlanPriceDispute {
   bool appliesTo(String planId, String periodWire) =>
       this.planId == planId && this.periodWire == periodWire;
 
+  /// Whether this dispute is about the term currently being drawn, whatever
+  /// card it belongs to.
+  ///
+  /// The band's question, and it is deliberately not [appliesTo]: the band
+  /// names no plan, so it must survive looking at another tier, and it must
+  /// still go away when the term changes — its sentence quotes "the price
+  /// displayed", and on the other term a different price is the one displayed.
+  /// One dispute, two questions, one answer each, both derived here so a
+  /// screen cannot come along and pick the looser one.
+  bool appliesToTerm(String periodWire) => this.periodWire == periodWire;
+
   /// The band's sentence. Delegated, never re-written, so the two copies of
   /// this fact cannot be reworded apart by a later tick.
   String get lineAr => subscriptionAmountMismatchAr(quotedDzd, chargedDzd)!;

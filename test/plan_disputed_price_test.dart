@@ -419,4 +419,84 @@ void main() {
         reason: 'the sheet for a plan that was not disputed is byte-for-byte '
             'what it always was');
   });
+
+  // ── the band, and the term it belongs to ───────────────────────────────
+  testWidgets('the band is scoped to the term it was found on',
+      (tester) async {
+    // The band and the card disagreed about what a dispute *is*. The card
+    // asked `_disputeFor(plan, _period)` and so drew its strike on the
+    // monthly card only; the band read the raw state field and so stayed up
+    // for **every** term. Switch to yearly and the band went on naming
+    // «3000 دج» as the disputed figure while the screen was quoting
+    // «30000 دج» — a figure no one had ever disputed — and the sentence told
+    // him to confirm a price that was not on screen.
+    await _pay(tester, charged: 4500);
+    await _settlePastToast(tester);
+
+    await tester.tap(find.text('سنوي'));
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    expect(find.byKey(const Key(planPriceMismatchKey)), findsNothing,
+        reason: 'the dispute is on the monthly term; the band is quoting a '
+            'yearly figure nobody disputed and telling him to confirm it');
+    // The monthly mark is still held, and returns with the term.
+    await tester.tap(find.text('شهري'));
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+    expect(find.byKey(const Key(planPriceMismatchKey)), findsOneWidget);
+    expect(find.text('المبلغ المعتمد 4500 دج'), findsOneWidget);
+  });
+
+  testWidgets('a term toggle is not a way to make the band disappear',
+      (tester) async {
+    // The other half, and the reason the first is not a cheap fix. The band
+    // is held as state, not drawn from the period toggle, so it cannot be
+    // toggled away by accident — but it must also not be reachable by
+    // accident *from* the other term: the control here proves the band's
+    // key is the one the sheet/card tests already hold, so a later tick that
+    // re-keys the band cannot quietly strand the three existing tests.
+    await _pay(tester, charged: 4500);
+    await _settlePastToast(tester);
+
+    expect(find.byKey(const Key(planPriceMismatchKey)), findsOneWidget);
+    // The band is the only holder of the whole sentence; the card prints the
+    // amount alone. So exactly one instance of the full sentence may exist.
+    expect(find.text(subscriptionAmountMismatchAr(3000, 4500)!), findsOneWidget,
+        reason: 'the sentence is held as one band; a second copy would be a '
+            'second consumer that can reword it');
+  });
+
+  group('a dispute answers two different questions', () {
+    const d = PlanPriceDispute(
+      planId: 'pro',
+      periodWire: 'month',
+      quotedDzd: 3000,
+      chargedDzd: 4500,
+    );
+
+    test('a card asks which plan at which term; the band asks only the term',
+        () {
+      // The two consumers of one fact, and why one predicate cannot answer
+      // both. The card is a specific price on a specific card, so it needs the
+      // plan. The band names no plan, so scoping it to one would take the
+      // sentence away the moment he looked at a different tier — and not
+      // scoping it at all is what left it naming a yearly figure nobody
+      // disputed.
+      expect(d.appliesTo('pro', 'month'), isTrue);
+      expect(d.appliesTo('gold', 'month'), isFalse);
+      expect(d.appliesTo('pro', 'year'), isFalse);
+      expect(d.appliesTo('gold', 'year'), isFalse);
+
+      // The band: every plan, exactly one term.
+      expect(d.appliesToTerm('month'), isTrue);
+      expect(d.appliesToTerm('year'), isFalse);
+    });
+
+    test('the band survives a different plan and the card does not', () {
+      // The asymmetry is the design, stated as data so it cannot be a widget's
+      // private idea: `gold`'s card draws `6000 دج` plainly while the band
+      // still stands, because `6000 دج` is a price nobody disputed.
+      expect(d.appliesTo('gold', 'month'), isFalse);
+      expect(d.appliesToTerm('month'), isTrue);
+    });
+  });
 }

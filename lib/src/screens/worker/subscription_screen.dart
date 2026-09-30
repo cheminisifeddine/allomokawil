@@ -126,13 +126,39 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   /// The dispute that applies to one plan at one term, or null.
   ///
   /// The **one** place the screen decides whether a price on screen is under
-  /// question. The band and the two cards each ask this rather than testing
-  /// the state themselves, so a fourth consumer cannot come along with its own
+  /// question for a given card. The two cards ask this rather than testing the
+  /// state themselves, so a third consumer cannot come along with its own
   /// slightly different condition.
   PlanPriceDispute? _disputeFor(String planId, BillingPeriod period) {
     final d = _priceDispute;
     if (d == null) return null;
     return d.appliesTo(planId, period.wire) ? d : null;
+  }
+
+  /// The dispute the **band** should draw, or null.
+  ///
+  /// Scoped by term only, not by plan, and the difference is the whole point:
+  /// the band sits above the current-plan card and names no plan, so it is a
+  /// statement about the account. But its sentence quotes two figures, and one
+  /// of them is "the price displayed" — so it is only true while the term it
+  /// was found on is the term being drawn.
+  ///
+  /// It used to read the state field directly, which made it the **only**
+  /// consumer on this screen that did not scope itself: the cards answered
+  /// through [_disputeFor] and dropped their strike the moment the toggle
+  /// moved, while the band stayed up naming «3000 دج» as the disputed figure
+  /// while the screen was quoting «30000 دج» — a number no one had ever
+  /// disputed — and telling him to confirm it with support. One fact, two
+  /// consumers, two different answers about how long it was true.
+  ///
+  /// Not scoped by plan on purpose. Hiding the band because he scrolled to
+  /// another tier's card would take away the one sentence that says a payment
+  /// he already made was for a different number than he was shown, which is
+  /// the thing he needs to read about *his account*, not about a card.
+  PlanPriceDispute? get _bandDispute {
+    final d = _priceDispute;
+    if (d == null) return null;
+    return d.appliesToTerm(_period.wire) ? d : null;
   }
 
   /// Starts the once-a-minute tick that ages the band, once there is a stamp
@@ -355,6 +381,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   @override
   Widget build(BuildContext context) {
     final catalogue = _catalogue;
+    // Read once, here, and used by the band below. Computed in `build` and not
+    // in `_request` because the term the man is looking at can change without
+    // any write happening, and the band has to follow the screen rather than
+    // the event that created it.
+    final bandDispute = _bandDispute;
     return Scaffold(
       appBar: AppBar(
         title: const Text(S.planTitle),
@@ -401,9 +432,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       // shape as the stale band above it, and for the same
                       // reason — both are statements about the figures
                       // underneath, not about the account.
-                      if (_priceDispute != null) ...[
+                      if (bandDispute != null) ...[
                         _StaleBanner(
-                          line: _priceDispute!.lineAr,
+                          line: bandDispute.lineAr,
                           key: const Key(planPriceMismatchKey),
                           icon: Icons.price_check_rounded,
                         ),
