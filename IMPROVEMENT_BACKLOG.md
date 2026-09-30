@@ -10823,3 +10823,60 @@ pricing decision second.
       polled ten times to complete one gate. It was 10 min on 12 Sep and 16 min
       on the last tick. **Shard it before it hits 20**, or this loop starts
       missing its own gate, which is the one thing the protocol forbids.
+
+---
+
+- [x] **The loop's own step-5 evidence tool was missing, and the box can do
+      step 5 after all — both had been recorded as impossible.**
+      `pngscan.py` and the web-render path were written off on 12–26 Sep as
+      "does not exist on this host" / "no Chrome is installed" / "no JDK, so
+      `build_web.sh` cannot be reconstructed". **All three were false.** The
+      cost was not one missing script: for nine recorded ticks the loop's
+      rule *"a layout claim must be backed by a real screenshot"* degraded
+      into **asserting nothing and saying so**, which reads identically to a
+      check that passed. A step that cannot run must not be allowed to look
+      like a step that ran.
+
+      *Shipped:* `tool/pngscan.py` — the probe, back in the repo where it
+      cannot vanish with a host. It reports **4-connected boxes with size and
+      origin**, because the claims it has to support are geometric: the
+      backlog's own recorded usage is `984x167 px at (96,1610)` for the CTA
+      and `x33–378 at y463` for the recipe hairlines. A bare pixel tally
+      cannot tell a 984x167 button from the same pixels scattered as dither,
+      and cannot say *where* anything is. 4-connected on purpose — 8-way
+      bridges a 1 px diagonal and merges two stacked hairline rules into one
+      tall box, which is the exact mistake the hairline check exists to
+      catch. It **exits non-zero on an unreadable file and never prints
+      `0 boxes`**, because a zero from a broken probe is indistinguishable
+      from a zero from a blank screen; `tool/px_count.py` documents that trap
+      from two earlier broken versions of this same measurement. Decoding is
+      `tool/png_read.py`, already in-repo, pure stdlib.
+
+      *Tested, not assumed:* `test/pngscan_test.py`, **9/9**, run directly
+      (`python3 test/pngscan_test.py`), writing real PNGs with a stdlib
+      encoder — same house rule as `build_gate_test.py`. Cases: true
+      size+origin; **dither is never one filled box**; two rules stay two
+      boxes; edge-sharing boxes merge; **corner-touching boxes stay two**;
+      absent colour = clean zero + exit 0; unreadable file exits non-zero;
+      `--min-box` drops specks; truncated PNG rejected. Case 4 was wrong in
+      the test first — the two boxes touched at a *corner*, and 4-connectivity
+      correctly kept them apart — so the test was corrected and the corner
+      case split out as 4b, which is the case that actually licenses
+      4-connectivity. The tool was right; my assertion was the bug.
+
+      *And the box can in fact do step 5:* Chrome **is** installed
+      (`/home/hatch/.cache/puppeteer/chrome/linux-146.0.7680.31/chrome-linux64/chrome`,
+      headless screenshot verified), JDK **17.0.20.1** at `/home/hatch/tools/jdk17`,
+      Android SDK with `android-36` + `build-tools 36.0.0`. `flutter build
+      web --release` ran here and produced `build/web`. The APK gate is still
+      founder-gated and **no APK was built**.
+
+      *The trap that made the render fail first, recorded because it will
+      bite again:* the first screenshot came back **824x1830 of pure white**,
+      8 KB, zero amber boxes. Not a layout bug — `flutter_bootstrap.js`
+      defaults CanvasKit to **fetching from `www.gstatic.com`**, which this
+      box cannot reach, so the app never painted a single pixel and the
+      capture "succeeded" anyway. The fix is `--no-web-resources-cdn`; the
+      lesson is that a blank capture and a working one are the same exit code
+      and nearly the same file size, so **only a colour probe distinguishes
+      them** — which is the argument for having `pngscan.py` back at all.
