@@ -10880,3 +10880,10 @@ pricing decision second.
       lesson is that a blank capture and a working one are the same exit code
       and nearly the same file size, so **only a colour probe distinguishes
       them** — which is the argument for having `pngscan.py` back at all.
+      *Gate:* `flutter analyze` -> **No issues found!**; `flutter test` ->
+      **1696 passed / 3 skipped / 0 failed**, identical to the baseline
+      recorded on this host. *(The `1983` figure in older entries predates
+      the rebuild; line 10816 is the real post-rebuild baseline. A tick that
+      compares 1696 against 1983 reads a false regression on a healthy tree.)*
+      *Commit* `c97fea4`; remote `41f3a72`. All three blobs **MATCH** the real
+      remote tree. No APK, no release, no tag.
