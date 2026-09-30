@@ -11478,3 +11478,76 @@ trusting the helper's green line. No APK, no release, no tag.
       untouched: the `durations` array — the live catalogue publishes 1/3/6/12
       months per plan and this app can only order `month` and `year`. The
       sharding call is still the founder's, still unmade.
+
+## Tick 30 Sep 2026 — the market's feed read had no generation token, so a late answer killed the cache outright
+
+- [x] **The marketplace's **feed** read had no generation token either, and
+      here the cost is worse than a stale list: `_cacheKey` guards on the
+      **live** filter pair, so a read that answered *after* the contractor
+      changed wilaya stamped its own key and made the cache undrawable —
+      the next failing pull then showed the error page instead of his rows.**
+      The tick before this shipped the same fix on the client home's projects
+      strip. The two screens are the tenth and eleventh members of one family,
+      and this one is the member where "stale" and "dead" come apart.
+
+      **Why the existing guard made it worse.** `_cacheKey` stops one wilaya's
+      rows being drawn under another's filter. It is checked against the pair
+      as it is *now*, so it only describes the read that installed the cache
+      **if that read is the latest one**. `_arm` issued before the filter
+      moves can still be in flight when it moves; it installs itself and
+      stamps the key with the pair it **captured at issue** — a wilaya the
+      user has already left. The comparison refuses, and refusal is the bug:
+      the cache is not stale, it is dead. Nothing can draw it. So a read that
+      **succeeded** causes the failure state a read that failed would have.
+
+      **Ordinary use, not a corner case.** Six controls re-issue this read —
+      `_reload`, the pull, the category chips, the late location fix, the
+      empty state's «تحديث», the profile-save path — and the user is expected
+      to tap through filters on a phone connection that is not answering in
+      order.
+
+      **Shipped:** `worker_home_screen.dart` — `_feedToken`, captured in
+      `_arm` and checked on **both** arms. The success arm would otherwise
+      overwrite cache *and* key with the captured pair; the error arm would
+      put a band on screen claiming the rows under it are the last ones read,
+      for a read already replaced. Neither is a colour problem, so neither is
+      what the guard is for. `test/stale_market_test.dart` (+1 case, + the
+      `feedRespond` per-read steering hook).
+
+      **The harness could not express a late answer.** `feedGate` parks
+      *every* read and `feedFails` kills *every* read from the moment it is
+      set; both are state held across reads. A late answer is two reads
+      behaving differently **from each other**, so it needs a mechanism keyed
+      on the read's ordinal. Returning `null` falls through to the old two,
+      so every existing case keeps the simple mechanism it was written
+      against.
+
+      **Red before green, on the real defect.** Reverting *only* the two token
+      checks fails with the defect itself — `تعذّر جلب المشاريع` on screen,
+      i.e. the dead cache — not on a broken harness. The case is written
+      against on-screen controls (the wilaya picker, then a pull), and it
+      counts **deliveries** rather than issues, because `feedReads` increments
+      when a request *starts* and the parked read has already been counted.
+
+      *One self-inflicted stall, recorded because the protocol demands honest
+      gates:* `git checkout -- lib/.../worker_home_screen.dart` to undo the
+      red-check edit reverted to the **committed** file, which has never had
+      the fix, silently deleting it. A copy taken before the edit was the only
+      thing that saved the work. Red-check edits to uncommitted files must be
+      undone from a copy, never from `HEAD`.
+
+      **Gate** — `flutter analyze` → **No issues found!** (6.8 s). Full suite
+      through `tool/run_tests.py` → **1721 passed / 3 skipped / 0 failed** in
+      **13:45**, up from 1720/3/0 (+1), no hang. File alone: 22/22.
+
+      *Commit:* local `4fadaba` -> remote `308059d`, **2/2 blobs MATCH** against
+      the real remote tree via the contents API, not the helper's exit code.
+      No APK, no release, no tag.
+
+      **Next, unchanged:** backlog at **0 unchecked** again; this was found by
+      reading the screen the last two items each pointed at, so the next tick
+      should keep auditing *that family* — a generation token is only real if
+      the arm it guards cannot be re-entered after the token is taken. Still
+      yours and unmade: the `sharding` call. Still **BACKEND-API's**: the
+      `durations` array — the live catalogue publishes 1/3/6/12 months per plan
+      and this app can only order `month` and `year`.
