@@ -214,4 +214,109 @@ void main() {
           .writeAsBytesSync(bytes!.buffer.asUint8List());
     });
   });
+
+  // The other tab's answer, which is the one this tick changed.
+  //
+  // The shot above proves the band survived a failed *pull inside one tab*,
+  // which is the half of the rule that was already right. This one proves the
+  // half that was wrong: after a failed **tab switch** the screen must not be
+  // drawing the previous tab's project cards under the new tab's name, and
+  // must not be claiming it can still show you «the last result we read» when
+  // that result was for a different question.
+  //
+  // **This is the picture that the unfixed screen cannot produce.** Before the
+  // fix it rendered four «مفتوح» cards beneath the «الكل» pill with the amber
+  // band over them — two confident claims, both false, about which projects
+  // were on screen. Rendered here because the widget assertions in
+  // `stale_projects_test.dart` prove the *tree* and this proves the *pixels*.
+  testWidgets('a failed tab switch draws the error, never the other tab',
+      (tester) async {
+    tester.view.physicalSize = const Size(1080, 2532);
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+
+    String job(String id, String title) => '{"id":"$id","customer_id":391,'
+        '"title":"$title","description":"دهان غرفة","category":"painting",'
+        '"categories":["painting"],"images":[],"wilaya":"16",'
+        '"commune":"باب الزوار","budget_min":20000,"budget_max":40000,'
+        '"urgency":"within_week","status":"open","selected_worker_id":null,'
+        '"created_at":"2026-09-19 20:39:41","updated_at":"2026-09-19 20:39:41"}';
+
+    var reads = 0;
+    final api = ApiClient(
+      baseUrls: const ['https://x.test'],
+      httpClient: MockClient((req) async {
+        final path = req.url.path;
+        if (path.endsWith('/api/login') || path.endsWith('/api/register')) {
+          return http.Response(
+              '{"token":"tok","user":{"id":391,"phone":"0773000000",'
+              '"email":null,"full_name":"سمية","type":"customer"}}',
+              200,
+              headers: {'content-type': 'application/json'});
+        }
+        if (path.contains('/api/mobile/my/projects')) {
+          reads++;
+          if (reads == 1) {
+            return http.Response(
+                '[${job("p1", "دهان فيلا")},${job("p2", "سباكة حمام")}]',
+                200,
+                headers: {'content-type': 'application/json'});
+          }
+          return http.Response('', 503,
+              headers: {'content-type': 'application/json'});
+        }
+        return http.Response('{}', 200,
+            headers: {'content-type': 'application/json'});
+      }),
+      timeout: const Duration(milliseconds: 200),
+    );
+
+    final auth = AuthState(api);
+    await auth.restore();
+    await auth.login(phone: '0773000000', password: 'secret123',
+        rememberMe: true);
+
+    final key = GlobalKey();
+    await tester.pumpWidget(AppScope(
+      api: api,
+      auth: auth,
+      child: RepaintBoundary(
+        key: key,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          locale: const Locale('ar'),
+          supportedLocales: const [Locale('ar'), Locale('en')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: ProjectsScreen(repo: Repository(api)),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+    expect(find.text('دهان فيلا'), findsOneWidget);
+
+    // The switch that used to answer with these very rows.
+    await tester.tap(find.text('الكل'));
+    await tester.pumpAndSettle(const Duration(seconds: 3));
+
+    expect(find.text('دهان فيلا'), findsNothing);
+    expect(find.byKey(const Key('stale-projects')), findsNothing,
+        reason: 'there are no rows on this tab to date');
+    expect(find.text('تعذّر جلب المشاريع'), findsOneWidget);
+
+    await tester.runAsync(() async {
+      final boundary =
+          key.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      final img = await boundary.toImage(pixelRatio: 3.0);
+      final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+      Directory(_out).createSync(recursive: true);
+      File('$_out/23_projects_tab_switch_failed.png')
+          .writeAsBytesSync(bytes!.buffer.asUint8List());
+    });
+  });
 }

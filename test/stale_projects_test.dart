@@ -291,9 +291,25 @@ void main() {
       expect(find.byKey(const Key('stale-projects-line')), findsOneWidget);
     });
 
-    testWidgets('a failed tab switch keeps the rows too', (tester) async {
+    testWidgets('a failed tab switch does not answer with the OTHER tab',
+        (tester) async {
       // The tab strip is this screen's *primary* interaction, so this is the
       // path a real customer takes, not the pull.
+      //
+      // **This case used to assert the defect.** It required
+      // `find.text('تعذّر جلب المشاريع')` to be **absent** after a failed tab
+      // switch — i.e. it passed precisely because the «مفتوح» rows were being
+      // drawn under the «الكل» pill. A test written to prove "don't erase the
+      // list" was welded to "don't ever say you could not read it", and the
+      // second is the false half: those are four *other* projects, not a stale
+      // copy of these. A customer tapping «قيد التنفيذ» to see whether his
+      // renovation has started was shown four open projects as though they
+      // were the running one, and the band above them said the rows were
+      // *old* — which is true, and useless, because they are not his question.
+      //
+      // Cross-tab rows are not a fallback at all. A failed switch has nothing
+      // of its own to draw, and the screen says so, because the retry is
+      // already wired to *this* tab.
       await _pumpProjects(tester, succeedingReads: 1, afterLoad: (t) async {
         // «الكل» is the first pill and therefore in bounds; «قيد التنفيذ»
         // needs a horizontal drag on the strip first, since the strip is a
@@ -302,9 +318,127 @@ void main() {
         await t.pumpAndSettle(const Duration(seconds: 3));
       });
 
-      expect(find.text('تعذّر جلب المشاريع'), findsNothing,
-          reason: 'a failed tab read must not erase the other tab\'s rows');
+      expect(find.text('دهان فيلا'), findsNothing,
+          reason: 'another tab\'s rows must not be drawn under this tab');
+      expect(find.byKey(const Key('stale-projects')), findsNothing,
+          reason: 'the band dates the rows below it, and there are none here');
+      expect(find.text('تعذّر جلب المشاريع'), findsOneWidget,
+          reason: 'a failed switch must say it could not read THIS tab');
+    });
+
+    testWidgets('a pull inside one tab still keeps the rows (unchanged tab)',
+        (tester) async {
+      // The half of the rule that must not move: the same question asked twice
+      // still falls back, because there the rows genuinely are a stale copy of
+      // what is on screen. The cross-tab fix is scoped to the tab, not to "any
+      // failed read", and this is what stops a future tick from widening it.
+      await _pumpProjects(tester, succeedingReads: 1, afterLoad: (t) async {
+        await t.drag(find.text('دهان فيلا'), const Offset(0, 340));
+        await t.pumpAndSettle(const Duration(seconds: 3));
+      });
+
+      expect(find.text('دهان فيلا'), findsOneWidget);
       expect(find.byKey(const Key('stale-projects')), findsOneWidget);
+    });
+
+    testWidgets('two taps in a row: neither read is filed under the wrong tab',
+        (tester) async {
+      // The race the parameterised [_arm] exists for. Both reads are issued
+      // before either answers, so the callback that settles second is running
+      // while `_status` already names the third thing the user tapped. Reading
+      // `_status` inside the callback — the one-line version of this fix — tags
+      // the *first* read's rows with the *second* tab, which is the identical
+      // mislabelling one level down.
+      tester.view.physicalSize = const Size(1080, 2532);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+
+      // Opened up front so the handler can park on it; closed by the test.
+      final gates = <int, Completer<void>>{1: Completer<void>()};
+      var reads = 0;
+      final api = ApiClient(
+        baseUrls: const ['https://x.test'],
+        httpClient: MockClient((req) async {
+          final path = req.url.path;
+          if (path.endsWith('/api/login') || path.endsWith('/api/register')) {
+            return http.Response(
+                jsonEncode(<String, Object?>{'token': 't', 'user': _me()}),
+                200,
+                headers: {'content-type': 'application/json'});
+          }
+          if (path.contains('/api/mobile/my/projects')) {
+            reads++;
+            // **Read 1 is parked and then SUCCEEDS; read 2 fails.**
+            //
+            // Both halves matter, and the first version of this case got the
+            // second one wrong in a way that made the whole test vacuous: it
+            // failed *both* reads, so no cache was ever written, the screen had
+            // nothing to mislabel, and the test passed against the unfixed
+            // source. A case that cannot fail is not evidence.
+            //
+            // Read 1 succeeds, so the «مفتوح» rows reach the cache — and they
+            // reach it *after* the tap has moved `_status` to «الكل». Read 2
+            // (issued by that tap, answering immediately) fails. So the cache
+            // holds one tab's rows while the other tab is on screen, which is
+            // the only state in which the mislabelling can happen at all.
+            if (reads == 1) {
+              await gates[1]!.future;
+              return http.Response(
+                  jsonEncode(<dynamic>[_job('p1', 'دهان فيلا')]),
+                  200,
+                  headers: {'content-type': 'application/json'});
+            }
+            return http.Response('', 503,
+                headers: {'content-type': 'application/json'});
+          }
+          return http.Response(jsonEncode(<String, Object?>{}), 200,
+              headers: {'content-type': 'application/json'});
+        }),
+        // **Long, deliberately.** The other cases here use 200 ms so a 503
+        // settles inside a `pumpAndSettle`, but this one parks a read on
+        // purpose, and at 200 ms the client's own `.timeout` fired while the
+        // test was still arranging the race — the read became a *failure*, no
+        // cache was ever written, and the case passed against the unfixed
+        // screen. A test that passes on the bug it was written to catch is
+        // worse than no test, because the next tick reads it as coverage.
+        timeout: const Duration(seconds: 20),
+      );
+
+      final auth = AuthState(api);
+      await auth.restore();
+      await auth.login(
+          phone: '0773000000', password: 'secret123', rememberMe: true);
+      await tester.pumpWidget(AppScope(
+        api: api,
+        auth: auth,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          locale: const Locale('ar'),
+          home: ProjectsScreen(repo: Repository(api)),
+        ),
+      ));
+      // Bounded pumps, not `pumpAndSettle`: the waiting read draws a Shimmer,
+      // which animates forever, so settling never returns.
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+
+      // Tap «الكل» while the first read is still open, then release read 1 so
+      // it lands *after* the tab has already moved.
+      await tester.tap(find.text('الكل'));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(reads, 2, reason: 'the tap must issue its own read');
+      gates[1]!.complete();
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      // Read 1 succeeded for «مفتوح» and landed under the «الكل» tab; read 2
+      // failed for «الكل». Those rows belong to another tab, so nothing of them
+      // may answer this one.
+      expect(find.text('دهان فيلا'), findsNothing,
+          reason: 'the «مفتوح» rows must not answer the «الكل» tab');
+      expect(find.text('تعذّر جلب المشاريع'), findsOneWidget);
     });
 
     testWidgets('the band is a header, not a replacement for the list',

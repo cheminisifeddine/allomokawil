@@ -89,7 +89,22 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   /// nothing here, so the previous list survives it and the reader is never
   /// shown a shimmer for work he did not ask for. See the builder for where
   /// the doubt is drawn.
-  List<Project>? _cache;
+  ///
+  /// **It carries the tab it was read for, and that is the fix this field
+  /// needed.** It used to be a bare `List<Project>?`, which meant the fallback
+  /// above answered *any* question with the rows of the last one: tap
+  /// «قيد التنفيذ», the read fails, and the «مفتوح» projects are drawn under
+  /// the tab that names running jobs. A customer asking whether his renovation
+  /// started was shown four open projects as though they were the running one
+  /// — and the band above them cannot repair it, because the band says those
+  /// rows are *old*, not that they are *from somewhere else*.
+  ///
+  /// One record rather than three parallel fields, because rows, tab and stamp
+  /// are **one fact**: a stamp from a different read than the rows is worse
+  /// than no stamp, and three nullable fields can disagree in ways no test
+  /// would notice. The tab is written in the same `setState` that writes the
+  /// rows, so it cannot drift.
+  ProjectsRead? _cache;
 
   /// The sentence for the last failed read, or null when there is nothing to
   /// doubt — a read that has not failed yet, and a first read that failed
@@ -111,7 +126,6 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   /// than no stamp, because it is now confidently wrong. [Future] cannot carry
   /// a completion time, and `then` would have to race the [FutureBuilder] that
   /// is already listening to the same object.
-  DateTime? _cacheReadAt;
 
   /// Ticks once a minute so an honest band does not need a re-read to become an
   /// honest band.
@@ -135,7 +149,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   @override
   void initState() {
     super.initState();
-    _arm(widget.repo.myProjects(status: _status));
+    _arm(widget.repo.myProjects(status: _status), _status);
   }
 
   /// Points the list at a read, and records what that read settled to.
@@ -150,18 +164,27 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   /// `setState` in [_reload] and [_refresh], and the answer to a future is a
   /// microtask later than both, so the rebuild is scheduled here and lands
   /// after the caller's own.
-  void _arm(Future<List<Project>> read) {
+  ///
+  /// **The tab is a parameter, not a read of `_status` after the `then`.**
+  /// That is the whole write-vs-form rule this app has shipped eight times
+  /// elsewhere, and the naive fix for this bug is to write
+  /// `status: _status` inside the callback — which reintroduces it here: tap
+  /// «مفتوح», tap «قيد التنفيذ» before the first read lands, and the first
+  /// read's rows are filed under the *second* tab, which is the same
+  /// cross-tab mislabelling this change exists to remove, one layer down. The
+  /// tab is decided at the moment the request is issued and travels out with
+  /// it, so the read and its label cannot come apart.
+  void _arm(Future<List<Project>> read, ProjectStatus? status) {
     _future = read;
     read.then((list) {
       if (!mounted) return;
       setState(() {
-        _cache = list;
-        _staleReason = null;
         // The clock *now*, not the moment the request was issued, so a read
         // that was in flight for forty seconds is dated when it actually
         // landed. Stamping at issue time would under-report the age on a slow
         // connection — the exact case where the number matters most.
-        _cacheReadAt = _now();
+        _cache = ProjectsRead(rows: list, status: status, readAt: _now());
+        _staleReason = null;
       });
       _armAgeTick();
     }, onError: (Object e, StackTrace _) {
@@ -173,7 +196,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   void _reload(ProjectStatus? s) {
     setState(() {
       _status = s;
-      _arm(widget.repo.myProjects(status: s));
+      _arm(widget.repo.myProjects(status: s), s);
     });
   }
 
@@ -186,7 +209,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   /// replace.
   Future<void> _refresh() async {
     final read = widget.repo.myProjects(status: _status);
-    setState(() => _arm(read));
+    setState(() => _arm(read, _status));
     try {
       await read;
     } catch (_) {
@@ -228,7 +251,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       if (!mounted) return;
       // Nothing to age yet: a first read that has not landed has no rows, and
       // a band only ever appears over rows that do.
-      if (_cacheReadAt == null) return;
+      if (_cache == null) return;
       setState(() {});
     });
   }
@@ -298,8 +321,22 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                   // list is what sends an unanswered feed to `_emptyList` —
                   // which is how a customer on a slow connection is told he
                   // has no projects, before the request has even answered.
-                  final shown = _cache != null && (waiting || failed)
-                      ? _cache!
+                  // The fallback is answered **only for the tab it was read
+                  // for.** Rows from another tab are not a stale version of
+                  // this one, they are a different list, and drawing them under
+                  // this tab's name is the app answering a question nobody
+                  // asked. A failed tab switch therefore has nothing to fall
+                  // back on and says so — which is the truth, and the retry
+                  // button is already wired to *this* tab.
+                  //
+                  // A pull-to-refresh inside one tab is untouched: that is the
+                  // same question asked twice, and keeping the rows there is
+                  // the entire point of the field.
+                  final fallback = _cache != null && _cache!.status == _status
+                      ? _cache!.rows
+                      : null;
+                  final shown = fallback != null && (waiting || failed)
+                      ? fallback
                       : (waiting || failed
                           ? null
                           : (snap.data ?? const <Project>[]));
@@ -346,7 +383,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                       if (stale && i == 0) {
                         return _StaleProjectsBanner(
                             line: staleProjectsLineWithAgeAr(
-                                _staleReason!, _cacheReadAt,
+                                _staleReason!, _cache!.readAt,
                                 now: _now()));
                       }
                       final p = projects[stale ? i - 1 : i];
@@ -589,4 +626,31 @@ class _ProjectsSkeleton extends StatelessWidget {
       ),
     );
   }
+}
+
+
+/// One settled read of «مشاريعي», and the tab it was asked for.
+///
+/// The three fields are written together and are meaningless apart: [rows]
+/// without [status] cannot be told from the rows of another tab, and [readAt]
+/// without [rows] dates nothing. See `_ProjectsScreenState._cache`.
+class ProjectsRead {
+  const ProjectsRead({
+    required this.rows,
+    required this.status,
+    required this.readAt,
+  });
+
+  /// What the server answered, already narrowed to the tab that asked.
+  final List<Project> rows;
+
+  /// The status pill the read was issued from — `null` is «الكل».
+  ///
+  /// Carried out of the tab as it stood when the **request was issued**, so a
+  /// second tap while the first is in flight cannot file the first read's rows
+  /// under the second tab. See [_ProjectsScreenState._arm].
+  final ProjectStatus? status;
+
+  /// When these rows landed.
+  final DateTime readAt;
 }
