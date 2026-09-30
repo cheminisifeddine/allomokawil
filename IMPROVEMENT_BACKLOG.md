@@ -9748,6 +9748,115 @@ remote tree.
 *Next.* `showSnackBar`-after-`await` is now closed on the detail screen. The
 same class remains in `review_screen.dart` (6/2) and `project_new_screen.dart`
 (6/2) — both already hide somewhere, so they need the same measurement before
-anyone claims them fixed. `notifications_screen.dart` (3/0) and
-`verification_screen.dart` (2/0) hide **nowhere** and are the honest next
-target. The blocked backend review 500 is unchanged and still not re-filed.
+anyone claims them fixed. `verification_screen.dart` (2/0) is the last one that
+hides nowhere. The blocked backend review 500 is unchanged and still not
+re-filed.
+
+---
+
+*Status 30 Sep — SHIPPED.* The class opened on the review screen reached the
+notification centre next, and this one was the **worst member of the family so
+far**, because the queued sentence is the entire payload of the screen it sits
+on. `_settleRead` showed «نتحقّق من الإشعارات…», awaited the re-read, then
+queued «تم تعليم الإشعار كمقروء.» behind it — so a user whose tap reached the Worker
+and lost its answer was told a check was running for four seconds *after it had
+finished*, and the only sentence that answers «is this notification still
+counted as new?» arrived last and alone. On a screen whose whole job is the
+unread pip.
+
+The cause was the same hand-rolling as the bid sheet: `ScaffoldMessenger.of` was
+captured into a local `messenger` and both calls were written by hand. The
+project screen had already grown `_showRechecking` / `_showCommitResult` for
+`_accept` and `_complete`, and the bid sheet was fixed onto them the previous
+tick; neither was applied here. `_settleRead` now routes through both.
+
+**The third `showSnackBar` on this screen is deliberately untouched** — the
+«لا يوجد إجراء لهذا الإشعار.» line in `_open`. It has nothing above it, so it
+has no line to replace; hiding there would blank a message nobody is covering.
+Left as-is, with the reason written into the code so a later tick does not
+"fix" it.
+
+*Measured.* Pumping the fake clock at 1 ms on the real screen, the verdict is
+the line on screen at **289 ms**. Against the un-fixed screen the same probe
+returns **4700 ms** — the four-second queue. The bound is a number rather than
+"no queue" because a queue cannot be seen in the widget tree: only one `SnackBar`
+is ever *built*, the rest are pending requests inside the messenger.
+
+*Red before green.* Reverting only the `_showCommitResult` call turns the first
+case red at **3000 ms** against the 2000 ms bound. Restored from backup; `git
+diff` shows the fix and only the fix.
+
+**Three existing tests went red, and all three were the harness, not the app.**
+This is the part worth more than the fix, because the first instinct on all
+three was to assume a regression and the measurement said otherwise every time.
+Each was checked the same way: stash the `lib/` change, re-run, and see whether
+the file passes on the original code. **All three passed on original code** — so
+the app change caused them, and the question became *what were they actually
+asserting*.
+
+1. **`notification_read_outcome_test.dart` — two cases, and the queue was
+   load-bearing.** `_collectBars` called `pumpAndSettle` after each 250 ms step,
+   and `pumpAndSettle` advances until nothing is scheduled — which drained the
+   still-animating recheck bar before the next sample. At that rate the recheck
+   line was observable **only because the queue held it up**. Remove the queue
+   and the user-visible line the two cases exist to prove the app draws became
+   invisible to the sampler, so the cases failed with the app behaving better.
+   Now 10 ms steps, no `pumpAndSettle`, and an **8 s** budget rather than 3.5 s.
+   The 8 s is chosen so the assertions still hold against the *unfixed* screen
+   (four-second queue included) — so the file cannot be made green by speeding
+   the app up. It asserts *which* sentences appear, never *when*.
+2. **The same file's fixture, and it was a second, independent bug.** The re-read
+   GET answered **instantly** — while the write that precedes it only reaches
+   the unconfirmed branch after the client's own 30 ms timeout. The screen draws
+   the recheck line *before* it awaits, so a synchronous re-read resolved the
+   whole exchange inside a few fake milliseconds, faster than the bar's entrance
+   animation: the bar was built and removed without ever being painted. Probed at
+   1 ms: the recheck line was never in the tree at all. A real phone's re-read is
+   a network round trip, so the fixture now takes one — **300 ms, and only the
+   first read after the write**, because `_settleRead` runs *two* GETs and
+   delaying the repaint as well pushed it past the assertions and made the pip
+   counts read a half-loaded screen (5 failures where there had been 2).
+   `[forbidden]` is excluded: a 403 is a stated refusal and never rechecks.
+3. **`header_trust_wiring_test.dart` — a pending timer, which is not a
+   regression either.** `_until` returned the instant the sentence was found,
+   which used to be safe: the recheck line was still up holding the slot, and a
+   *visible* bar keeps its `Timer` counted, so `!timersPending` was satisfied. With
+   the queue gone the tree can be disposed while the **new** bar's four-second
+   timer runs, and the case fails on that with every assertion above it green. The
+   bar is now closed through the messenger, the way a user closes it, and the
+   tree pumped until the overlay is empty.
+
+**The generalisable lesson, and it is the fourth time this class has been
+measured.** Two of those three "regressions" were tests that had the *bug*
+baked into their timing, which is the failure mode a loop is most likely to
+misread: the screen improves, the test goes red, and the cheapest-looking
+response — weaken the assertion — is the wrong one. The check that caught it
+both times is cheap and must not be skipped: **stash the `lib/` change and run
+the failing file against the original code.** A test that only passes with the
+bug present is not a test of the contract; it is a test of the delay.
+
+Both files now pass **against the un-fixed screen and the fixed one** (24/24
+each way), which is the property that makes them honest. Only
+`notif_read_queued_test.dart` asserts a number, because only it is about when.
+
+*Gate.* `flutter analyze` -> **No issues found!**
+`flutter test` -> **1632 passed / 3 skipped / 0 failed** (was 1629/3/0, **+3**).
+Suite ran 9m58s, so backgrounded again.
+
+*Commits.* local `41c9e6f` / remote `8268d83`. **4/4 blobs MATCH** the real
+remote tree, including the new test file.
+
+*Housekeeping the loop did itself.* Two orphaned `flutter_tester` processes
+(PPID 1, idle) were found and killed at the start and middle of this tick — both
+were leaked by the loop's *own* probe runs, not by another writer. The repo's
+`tool/build_gate.py` reports them as `LEAKED flutter_tester` and exits 1, which
+is the gate working: it is right to refuse a second build. Worth knowing the
+symptom is self-inflicted, because a tick that finds one must kill it before
+running anything, not treat it as another session's build.
+
+*Next.* `verification_screen.dart` (2 `showSnackBar` / **0** hide) is the last
+screen in the app that hides nowhere, and the sibling screens show it is the
+same class: it answers a picker's result with a SnackBar after an `await`.
+`review_screen.dart` (6/2) and `project_new_screen.dart` (6/2) both hide
+somewhere, so they need the same measurement before anyone claims them fixed.
+The blocked backend review 500 is unchanged and still not re-filed.
