@@ -11402,4 +11402,6 @@ does not shard the suite. Sharding would also *prevent* the bug from
 reproducing, which is not the same as fixing it, and on a 2-core box it buys
 wall-clock the loop does not need. The sharding call stays open and yours.
 
-*Commit:* pending — filled in below after the push.
+*Commit:* local `eb56dfc` -> remote `ed37add`. **3/3 blobs MATCH** against
+the real remote tree, fetched through GitHub's contents API rather than
+trusting the helper's green line. No APK, no release, no tag.
