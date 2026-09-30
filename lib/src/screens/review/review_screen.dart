@@ -46,13 +46,33 @@ class _ReviewScreenState extends State<ReviewScreen> {
           content: Text('اختر عدد النجوم أولاً')));
       return;
     }
+    // The value this form was pressed with, captured **before** the first
+    // `await`. Not a tidiness fix: the recheck below is a closure that runs
+    // seconds later, and it used to read the picker's live `_rating` — the same
+    // defect the publish form had (see `project_new_screen.dart`).
+    //
+    // The POST was always right, so nothing here is visible on a healthy
+    // connection. The recheck is the write that is wrong: the star picker stays
+    // live while `_busy` (only the *button* is disabled), so a customer who
+    // changes his mind during the seconds the unanswered POST takes — exactly
+    // the case this path exists for — had the predicate compare the server's
+    // stored row against his later pick. Rate 4, re-pick 1 mid-flight, and the
+    // recheck asks «is there a 1-star review here?», does not find the real
+    // 4-star row, and announces in Arabic that the rating never arrived.
+    //
+    // The row is on the server the whole time. Worse, the app then invites him
+    // to type it again, and a customer told twice to rate the same job produces
+    // two reviews for one piece of work on a profile whose whole product is
+    // trust.
+    final rating = _rating;
+    final comment = _comment.text.trim();
     setState(() => _busy = true);
     try {
       await widget.repo.createReview(
         projectId: widget.projectId,
         workerId: widget.workerId,
-        rating: _rating,
-        comment: _comment.text.trim().isEmpty ? null : _comment.text.trim(),
+        rating: rating,
+        comment: comment.isEmpty ? null : comment,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -71,13 +91,25 @@ class _ReviewScreenState extends State<ReviewScreen> {
           recheck: () async {
             final fresh = widget.repo.workerReviews(widget.workerId);
             final rows = await fresh;
+            // Judged against the **sent** rating, never the picker's current
+            // one: this answer is about the row the POST was carrying, and only
+            // the captured value describes it.
             return rows.any((r) =>
-                r.projectId == widget.projectId && r.rating == _rating);
+                r.projectId == widget.projectId && r.rating == rating);
           },
         );
         if (!mounted) return;
+        // `hideCurrentSnackBar` first, and for a real reason: «نتحقّق الآن من
+        // القائمة…» is still on screen with its own 4 s duration, and
+        // `showSnackBar` **queues** behind a visible one. The verdict — the
+        // only sentence that answers «did my rating arrive?» — would then sit
+        // behind a progress message the user has already read, and on the
+        // `landed` path the screen pops immediately, taking the queue with it.
+        // The profile form's own save has done this since it learned to verify
+        // its writes.
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(writeOutcomeCopy(outcome))));
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(writeOutcomeCopy(outcome))));
         // Landed or not, the screen has shown its answer. If the row is on the
         // server the user is done here; if it is not, they stay and retry.
         if (outcome == WriteOutcome.landed) {
