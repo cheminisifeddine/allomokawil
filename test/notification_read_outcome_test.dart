@@ -400,6 +400,35 @@ class _Centre {
           final path = req.url.path;
           log.add('${req.method} $path');
           if (path == '/api/notifications') {
+            // **Added 30 Sep, and it is a fixture bug the queue fix exposed.**
+            //
+            // This is the GET the verdict is built from, and it used to answer
+            // instantly — while the write that precedes it only reaches the
+            // unconfirmed branch after the client's own 30 ms timeout. The
+            // screen draws «نتحقّق من الإشعارات…» *before* it awaits, so with a
+            // synchronous re-read the whole recheck resolved within a few fake
+            // milliseconds: the bar was built and removed without ever being
+            // painted, and the two cases asserting the user is told a check is
+            // running read as **app regression** the moment the screen stopped
+            // queueing. The queue was what had been holding that line on
+            // screen long enough to be seen.
+            //
+            // A real phone's re-read is a network round trip. This is now as
+            // slow as one, so «نتحقّق من الإشعارات…» is on screen for the
+            // stretch a user actually sees it for — and the two cases assert
+            // the same two sentences they asserted before the fix, from a
+            // fixture that is honest about the network instead of one that
+            // depended on a four-second SnackBar to be observable.
+            //
+            // **Only the first read after the write.** `_settleRead` runs *two*
+            // GETs — the recheck it classifies from, then `_load()` to repaint —
+            // and delaying both pushed the repaint past `_collectBars`' budget
+            // and made the pip counts read a half-loaded screen. `[forbidden]`
+            // is excluded because a 403 is a stated refusal: it never rechecks.
+            if (_wrote && !_rechecked && onRead != _ReadMode.forbidden) {
+              _rechecked = true;
+              await Future<void>.delayed(const Duration(milliseconds: 300));
+            }
             if (onRead == _ReadMode.offline && _wrote) {
               // The re-read fails: the phone is still down.
               throw const _Offline();
@@ -446,6 +475,9 @@ class _Centre {
       );
 
   bool _wrote = false;
+
+  /// The re-read has been served once. See the delay in the handler.
+  bool _rechecked = false;
 }
 
 http.Response _json(Object body) => http.Response(
@@ -497,16 +529,33 @@ Future<void> _pump(WidgetTester tester, _Centre h) async {
 
 /// Every sentence the screen painted, sampled as it went.
 ///
-/// A `SnackBar` leaves the tree when it times out, and the verdict lands
-/// behind the «نتحقّق من الإشعارات…» line — so reading the tree once at the end
-/// returns an empty list and the test passes against a screen that said nothing.
-/// That is not hypothetical: the last two write-audit files both shipped a first
-/// draft that measured the queue instead of the verdict.
+/// A `SnackBar` leaves the tree when it times out, so reading the tree once at
+/// the end returns an empty list and the test passes against a screen that said
+/// nothing. That is not hypothetical: the last two write-audit files both
+/// shipped a first draft that measured the queue instead of the verdict.
+///
+/// **The `pumpAndSettle` came out on 30 Sep, and it was hiding a sentence from
+/// two cases that had been passing for the wrong reason.** The centre now calls
+/// `hideCurrentSnackBar()` before drawing the verdict, so «نتحقّق من
+/// الإشعارات…» and the answer are separated by a hide-and-show rather than by
+/// the recheck line's full four-second duration. `pumpAndSettle` advances until
+/// nothing is scheduled, which drained the still-animating recheck bar before
+/// the next sample — so at the old 250 ms step the sampler only ever saw the
+/// verdict, and the two cases asserting the user is told a check is running
+/// failed the moment the screen stopped queueing. The queue was the only reason
+/// that line was observable at this sampling rate.
+///
+/// The step is 10 ms and the budget is 8 s, and both are chosen so the
+/// assertions hold **regardless of how fast the screen answers**: an 8 s window
+/// still covers the four-second queue an unfixed screen takes, so this file
+/// cannot be made to pass by speeding the app up. Whether the verdict arrives in
+/// 300 ms or 4.3 s, both sentences are on record. *When* it arrives is not this
+/// file's business — that is `notif_read_queued_test.dart`'s job, and it is the
+/// only place a number is asserted.
 Future<List<String>> _collectBars(WidgetTester tester, {required int taps}) async {
   final said = <String>[];
-  for (var i = 0; i < 14; i++) {
-    await tester.pump(const Duration(milliseconds: 250));
-    await tester.pumpAndSettle();
+  for (var i = 0; i < 800; i++) {
+    await tester.pump(const Duration(milliseconds: 10));
     for (final bar in tester.widgetList<SnackBar>(find.byType(SnackBar))) {
       final text = (bar.content as Text).data;
       if (text != null && !said.contains(text)) said.add(text);

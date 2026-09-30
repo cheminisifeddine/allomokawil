@@ -361,6 +361,31 @@ void main() {
         reason: 'the centre withdraws the flag the header watches even when it '
             'was not handed one — a deep link cannot leave a red pip standing '
             'behind a sentence that says the app does not know');
+
+    // **Added 30 Sep, and it is a teardown the app change made necessary, not
+    // a test that got stricter.** `_until` returns the instant the sentence is
+    // found, and it used to be safe to stop there: the recheck line was still
+    // up holding the slot, and a visible bar keeps its `Timer` counted, so the
+    // framework's `!timersPending` check at teardown was satisfied. The centre
+    // now calls `hideCurrentSnackBar()` before drawing the verdict, so the
+    // outgoing bar is taken down and the answer is drawn in its place — and
+    // the tree can be disposed while the *new* bar's four-second timer is
+    // still running. The case then fails on a pending timer with every
+    // assertion above it already green, which reads like an app bug and is not
+    // one: the sentence is correct, and the bar is simply still up.
+    //
+    // The bar is closed the way a user closes it, through the messenger, and
+    // then the tree is pumped until the overlay is actually empty.
+    // `pumpAndSettle` alone is not enough — the same lesson as
+    // `notification_read_outcome_test.dart`'s capture helper, where it drains
+    // the very bar the assertions are about.
+    final messenger = tester
+        .state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger).first);
+    messenger.hideCurrentSnackBar();
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      if (find.byType(SnackBar).evaluate().isEmpty) break;
+    }
   });
 
   testWidgets('a real read of the count restores the claim on the real header',

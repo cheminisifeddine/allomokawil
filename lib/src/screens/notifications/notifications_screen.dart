@@ -221,10 +221,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   /// where the previous rows are left in place and the user is told that
   /// proves nothing rather than left staring at an optimistic flip.
   Future<void> _settleRead(List<int> ids) async {
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(
-      const SnackBar(content: Text(S.notifReadUnconfirmedRecheck)),
-    );
+    _showRechecking();
     final outcome = await resolveNotificationReadOutcome(
       recheck: () => _repo.notifications(),
       ids: ids,
@@ -249,10 +246,39 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       _trust.withdraw();
     }
     if (mounted) {
-      messenger.showSnackBar(
-        SnackBar(content: Text(notificationReadOutcomeCopy(outcome))),
-      );
+      _showCommitResult(notificationReadOutcomeCopy(outcome));
     }
+  }
+
+  /// «نتحقّق من الإشعارات…» — the line that replaces the one sentence it is
+  /// about to contradict.
+  ///
+  /// A recheck line, not an error line, because the failure has not been
+  /// classified yet and the user is owed an answer rather than an apology.
+  void _showRechecking() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text(S.notifReadUnconfirmedRecheck)),
+    );
+  }
+
+  /// The classified answer, drawn in place of the recheck line.
+  ///
+  /// `ScaffoldMessenger` **queues** by default: a second `showSnackBar` while
+  /// one is visible waits for the first to time out, so the user would read
+  /// «نتحقّق من الإشعارات…» for its full four seconds after the check had
+  /// already finished, and the verdict — the only sentence that answers «is
+  /// this notification still counted as new?» — would arrive last and behind
+  /// it.
+  ///
+  /// The project screen reached the same conclusion for [_accept] and
+  /// [_complete] and the bid sheet; this is that discipline, applied here.
+  /// Unlike the third `showSnackBar` in [_open] (the «no action» line, which
+  /// has nothing above it to replace) this one is the answer to the line it is
+  /// hiding, so the queue is removed first and only the answer is left.
+  void _showCommitResult(String copy) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(copy)));
   }
 
   /// Opens whatever the row is about, and never lets a tap die in silence.
