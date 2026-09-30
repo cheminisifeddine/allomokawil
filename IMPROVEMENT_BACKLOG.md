@@ -9860,3 +9860,94 @@ same class: it answers a picker's result with a SnackBar after an `await`.
 `review_screen.dart` (6/2) and `project_new_screen.dart` (6/2) both hide
 somewhere, so they need the same measurement before anyone claims them fixed.
 The blocked backend review 500 is unchanged and still not re-filed.
+
+---
+
+## Tick 30 Sep 2026 — the dossier verdict was queued behind the recheck line
+
+**Item SHIPPED.** The class four ticks have now measured, taken on the **last
+screen in the app that hid nowhere**: `verification_screen.dart` held
+**2 `showSnackBar` / 0 `hideCurrentSnackBar`**. The sibling screens all reached
+the conclusion on 30 Sep — `project_detail_screen` grew
+`_showRechecking`/`_showCommitResult`, and the bid sheet and the notification
+centre were put onto them the same day — and none of it was applied here.
+
+`ScaffoldMessenger` **queues**: a second `showSnackBar` while one is visible
+waits for the first to time out, four seconds by default. `_submit` shows
+«نتحقّق الآن من القائمة…», awaits the re-read, then queued the verdict behind
+it. And this is the worst member of the family by weight rather than by class:
+the queued line is the only answer to the question a contractor who has just
+picked three photos of his ID card out of his gallery is actually asking —
+**«did my papers reach you?»** This is the trust gate of the whole
+marketplace. He is told a check is running, he waits; four seconds later he is
+told it arrived, having already given up on the alternative. Measured on the
+real screen over a stalled POST: verdict on screen at **1060 ms** against
+**5020 ms** un-fixed — the ~3.9 s is the queue.
+
+Both sentences that can cover another now route through the helpers: the filing
+receipt «تم إرسال مستنداتك، بانتظار المراجعة» and the classified verdict.
+
+**The one line deliberately left alone** is the «أرفق كل المستندات المطلوبة»
+validation toast at the top of `_submit`. It is drawn before anything is in
+flight, so it has nothing above it to replace, and hiding there would blank a
+message nobody is covering — the same reasoning that left the third
+`showSnackBar` in the notification centre's `_open` alone yesterday. The reason
+is written into the code so a later tick does not "fix" it.
+
+*Gate.* `flutter analyze` -> **No issues found!**
+`flutter test` -> **1635 passed / 3 skipped / 0 failed** (was 1632/3/0, **+3**).
+Suite ran 12m58s, so backgrounded again.
+
+*Red before green.* `test/verification_dossier_queued_test.dart` returns
+**4520 ms** against the 2000 ms bound against the original screen, and passes
+against this one. The bound is a number rather than "no queue" because a queue
+cannot be seen in the widget tree: exactly one `SnackBar` is ever *built*, the
+rest are pending requests inside the messenger. Counting SnackBars in the tree
+cannot see a queue at all.
+
+**Two harness bugs, both mine, both recorded because the loop keeps paying
+this tax and the pattern is now recognisable.**
+
+1. **A tap is not a run.** The first draft tapped «إرسال المستندات» and sampled
+   immediately. `_submit` is async — three stubbed uploads, then a POST that has
+   to outlast the client's own patience before the transport gives up — and a
+   pending timer schedules no frame, so nothing advances the clock. Every
+   assertion read `-1` and the file was red with "the verdict never appears",
+   which is a **wrong** reading: the verdict was fine, the test had never got
+   there. `_boot` now pumps until the recheck line is actually on screen — the
+   branch under test, and no further, since the timing the cases care about is
+   the wait *after* it.
+2. **The timeout decided which sentence the user sees.** The client timeout was
+   copied from the sibling file at 25 ms while the re-read took a real 300 ms
+   round trip. The re-read therefore **timed out too**, and the probe reported
+   «تعذّر الاتصال للتحقّق» — the `unknown` copy — for a re-read that had in fact
+   succeeded. Now 500 ms, with the filing POST stalling 700 ms to outrun it.
+   A timeout on this screen is not a test detail: `resolveVerificationWriteOutcome`
+   turns a failed re-read into `unknown`, so the number *is* the verdict the
+   contractor is shown.
+
+*Third member of the `!timersPending` family, and now it is a known cost rather
+than a surprise.* With the fix, `_millisUntilVisible` returns the instant the
+verdict is on screen and the tree is disposed while the **new** bar's
+four-second timer is live, so teardown fails with every assertion above it
+already green — which reads like an app bug and is not one. The bar is closed
+the way a user closes it, through the messenger, then the overlay is pumped
+until empty (`pumpAndSettle` alone drains the very bar under assertion — the
+lesson from `notification_read_outcome_test.dart`, and from
+`header_trust_wiring_test.dart` yesterday, which paid this exact cost).
+
+*Commits.* local `96378d9`.
+
+*Housekeeping.* `pgrep -fc "[f]lutter"` reported **1** on entry while
+`pgrep -af "[f]lutter"` showed **zero** actual processes — it self-matches its
+own shell wrapper, on the prompt's own command. This is now the fourth tick
+that has reported it and the box has not changed; `tool/build_gate.py` is what
+this loop uses instead, and `java` was **0** throughout.
+
+*Next.* Every screen that can draw a second line over a first one is now
+closed: the project detail screen, the bid sheet, the notification centre and
+this one. Two remain in the family that **hide somewhere already** and so were
+never measured — `review_screen.dart` (6 `showSnackBar` / 2 hide) and
+`project_new_screen.dart` (6/2). Neither can be claimed fixed on the strength
+of the sibling fixes; they need the same measurement. The blocked backend
+review 500 is unchanged and still not re-filed.

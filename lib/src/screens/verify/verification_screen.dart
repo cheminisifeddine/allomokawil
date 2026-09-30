@@ -147,8 +147,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
       // Stay put and re-read the profile. The point is that he SEES the
       // dossier turn into "under review" — popping straight back home was how
       // a successful upload came to look like nothing had happened.
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('تم إرسال مستنداتك، بانتظار المراجعة')));
+      _showCommitResult('تم إرسال مستنداتك، بانتظار المراجعة');
       setState(() {
         _busy = false;
         _profile = _repo.myProfile();
@@ -160,7 +159,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
         // of it. Re-read and compare the two, so the verdict is about *what
         // moved* rather than about a value every contractor in the product
         // already carries.
-        _$toast(S.writeUnconfirmedRecheck);
+        _showRechecking();
         final outcome = await resolveVerificationWriteOutcome(
           before: before,
           fetch: _repo.myProfile,
@@ -169,7 +168,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
         // A dossier sentence, not `writeOutcomeCopy`: the shared line claims
         // «وجدناه في القائمة», which is meaningless here — the profile was on
         // screen the whole time. What changed is the document queue.
-        _$toast(dossierOutcomeCopy(outcome));
+        _showCommitResult(dossierOutcomeCopy(outcome));
         return;
       }
       _$toast(errorCopy(e));
@@ -181,6 +180,40 @@ class _VerificationScreenState extends State<VerificationScreen> {
   void _$toast(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  /// «نتحقّق الآن من القائمة…» — the line that replaces the one sentence it is
+  /// about to contradict.
+  ///
+  /// It is a recheck line, not an error line, because the failure has not been
+  /// classified yet and the user is owed an answer rather than an apology.
+  void _showRechecking() {
+    _$toast(S.writeUnconfirmedRecheck);
+  }
+
+  /// The classified answer, drawn in place of the recheck line.
+  ///
+  /// `ScaffoldMessenger` **queues** by default: a second `showSnackBar` while
+  /// one is visible waits for the first to time out, so the contractor would
+  /// read «نتحقّق الآن من القائمة…» for its full four seconds *after* the check
+  /// had already finished, and the verdict — the only answer to «did my ID card
+  /// reach you?» — would arrive last and behind it.
+  ///
+  /// That question is the trust gate of the whole marketplace: a man who is told
+  /// a check is running stops and waits, and a man told four seconds later that
+  /// his papers arrived has already given up on the alternative. So the queue is
+  /// removed first and only the answer is left on screen.
+  ///
+  /// Both sentences on this screen that can cover another now route through
+  /// here. The one that **cannot** cover another is deliberately left alone: the
+  /// «أرفق كل المستندات المطلوبة» line in [_submit], drawn before anything is
+  /// in flight, has nothing above it to replace, and hiding there would blank a
+  /// message nobody is covering.
+  void _showCommitResult(String copy) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(copy)));
   }
 
   @override
