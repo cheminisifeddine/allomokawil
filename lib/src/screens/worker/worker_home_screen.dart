@@ -142,6 +142,16 @@ class _WorkerHomeScreenState extends State<WorkerHomeScreen>
       // number presented as fresh — but say out loud that it is the latter.
       // Muting the pip is what stops "better than a stale number presented as
       // fresh" from quietly meaning "presented as fresh".
+      // **The generation is checked here too, and that is the fix.** This arm
+      // used to withdraw the pip unconditionally, while the success arm above
+      // checks its token — so the one arm that could not be argued away from
+      // the count's state was the one that had no guard. A read that parked on
+      // a slow connection and failed *after* the next unlock's read had landed
+      // muted the pip for the rest of the session, over a count the server had
+      // answered correctly seconds earlier, with nothing left in flight able to
+      // restore it. The withdrawal is a claim about the current count, so it is
+      // only true for a read that is still the current one.
+      if (!mounted || token != _conversationToken) return;
       _messages.withdraw();
     });
   }

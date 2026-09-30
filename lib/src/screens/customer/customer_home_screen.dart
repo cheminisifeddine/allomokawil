@@ -331,6 +331,16 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen>
       // A failed conversations read is the badge's own read, so it is the most
       // direct way for the count to stop being a fact. Mute the pip; do not
       // zero it — see `unread_message_trust.dart`.
+      //
+      // **Checked against the generation, like the success arm above.** It was
+      // not, and that made this the third site of one defect: the shell's
+      // resume read and the pull both re-arm [_conversations], so a read that
+      // parked on a slow connection and failed *after* a newer one had landed
+      // muted the pip for the rest of the session — over a count the server
+      // had answered correctly seconds earlier, with nothing left in flight to
+      // restore it. The flag is a claim about the number *now* on the tab, and
+      // a read the user has already replaced knows nothing about it.
+      if (!mounted || token != _unreadToken) return;
       _messages.withdraw();
     });
   }

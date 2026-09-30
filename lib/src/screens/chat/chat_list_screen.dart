@@ -118,6 +118,11 @@ class _ChatListScreenState extends State<ChatListScreen> {
   /// conversation list is «قبل ساعتين» when it was fetched this very second.
   DateTime? _cacheReadAt;
 
+  /// Bumped per read so a slow answer from an abandoned read cannot land after
+  /// a newer one. See [_arm] — this screen is the third member of the
+  /// generation-token family and the only one that shipped without one.
+  int _armToken = 0;
+
   /// Ages the band once a minute, so «قبل 12 دقيقة» is a live claim rather
   /// than whatever the clock said on the frame the failure landed.
   ///
@@ -187,8 +192,33 @@ class _ChatListScreenState extends State<ChatListScreen> {
   void _arm(Future<List<Conversation>> read) {
     _future = read;
     final onRead = widget.onRead;
+    // The generation, for the reason [_feedToken] gives in the market tab. This
+    // is the **third** screen of the family, and the only one of the three
+    // that had no token at all — so it is the one where a late answer writes
+    // unconditionally, where nothing anywhere had to be right for the read to
+    // be the wrong one to believe.
+    //
+    // Both arms were reachable from one gesture. The pull and the pop out of a
+    // thread both call [_reload], which arms a second read while the first is
+    // still on the wire, and [didUpdateWidget] arms a third from the shell's
+    // own re-read. So:
+    //
+    //   * a late **success** installs `_cache` and `_cacheReadAt` for a read
+    //     the user replaced, then calls `onRead` — which is the *tab badge's*
+    //     only source, so the pip goes back to gold over a count from a read
+    //     that is no longer on screen, and the count is drawn for the list the
+    //     screen is no longer showing; and
+    //   * a late **failure** calls `withdraw()` for a read already replaced by
+    //     a live one, so the pip goes muted for ever with nothing in flight
+    //     that can ever restore it. That is the worse half, and it is the
+    //     exact shape this family keeps producing: an answer nobody asked for
+    //     again decides a visible state forever.
+    //
+    // Both are worse for being quiet. The inbox is the one screen whose whole
+    // job is unread mail; the badge it feeds is drawn one tap away.
+    final token = ++_armToken;
     read.then((list) {
-      if (!mounted) return;
+      if (!mounted || token != _armToken) return;
       _messages?.restore();
       setState(() {
         _cache = list;
@@ -205,6 +235,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
       // the badge losing its source rather than something adjacent to it. The
       // inbox already tells the truth on screen («تعذّر جلب الرسائل»); this
       // makes the tab stop contradicting it one tap earlier.
+      if (!mounted || token != _armToken) return;
       _messages?.withdraw();
     });
   }

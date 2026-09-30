@@ -32,6 +32,7 @@
 // same thing on one screen: a tab claiming «3» above a list with no unread
 // row. So the badge sums the **same `unread_count` the list beneath it
 // draws**, which is what makes them agree by construction instead of by luck.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -51,10 +52,12 @@ import 'package:allomokawil/src/core/security/auth_state.dart';
 import 'package:allomokawil/src/core/l10n/strings.dart';
 import 'package:allomokawil/src/core/theme/app_theme.dart';
 import 'package:allomokawil/src/models/chat.dart';
+import 'package:allomokawil/src/screens/chat/chat_list_screen.dart';
 import 'package:allomokawil/src/screens/customer/customer_home_screen.dart';
 import 'package:allomokawil/src/screens/worker/worker_home_screen.dart';
 import 'package:allomokawil/src/widgets/notifications_bell.dart';
 import 'package:allomokawil/src/data/unread_message_count.dart';
+import 'package:allomokawil/src/data/repository.dart';
 import 'package:allomokawil/src/data/unread_message_trust.dart';
 
 const _user = {
@@ -496,6 +499,8 @@ void main() {
     });
   });
 
+  _lateInboxAnswer();
+  _lateInboxOwnRead();
   _unreadBadgeOnResume();
 }
 
@@ -770,3 +775,232 @@ void _unreadBadgeOnResume() {
     });
   });
 }
+
+// The inbox had **no generation token at all**, so a late answer decided the
+// badge's state for the rest of the session.
+//
+// The two home shells took a token for this read on the tick that fixed the
+// market feed (`_workersToken`, `_projectsToken`, `_unreadToken`), and the
+// inbox \u2014 whose `_arm` is the *source* the tab badge is summed from \u2014 did
+// not. So this is the third screen of the family and the only one where
+// nothing had to go wrong anywhere else for a late answer to be believed:
+//
+//   1. the contractor pulls the inbox; read 1 is issued and parks on a slow
+//      connection;
+//   2. he opens a thread and comes back \u2014 or pulls again \u2014 and read 2 is
+//      issued. It **lands first** and answers «nothing to read»;
+//   3. read 1 lands afterwards.
+//
+// What the shipped code does with read 1 is the defect, and both halves are
+// visible on screen:
+//
+//   * on **success** it installs `_cache`/`_cacheReadAt` and calls `onRead`,
+//     which is the shell's `setState(_unreadMessages = ...)`. So the pip goes
+//     back to gold for a list the screen has already replaced, and the count
+//     drawn over «الرسائل» belongs to a read the user never asked to keep;
+//   * on **failure** it calls `_messages.withdraw()` for a read that was
+//     already replaced by a live one. Nothing in flight can ever restore the
+//     flag, so the pip stays «غير مؤكّد» for the rest of the session, over a
+//     count the server answered correctly two seconds earlier. The half that
+//     ships is a permanent visible lie told by a request nobody asked about.
+//
+// Both are written here because a guard that covers only the success arm is the
+// same bug one arm later.
+//
+// **Steered per read, not by state.** The harness keeps a counter and a hook
+// keyed on it. A plain `bool fail` held across reads cannot express this: it
+// kills every read from the moment it is set, and here the two reads have to
+// behave differently *from each other* \u2014 read 2 lands while read 1 is still
+// parked. Returning null falls through to the list's own fixture, so every
+// other case keeps the mechanism it was written against.
+void _lateInboxAnswer() {
+  group('a late answer from a read the user already replaced', () {
+    // Two cases, one per shell, because the fix spans three files and the two
+    // shells guard the same read in two different ways: the contractor's
+    // `_readConversations` attaches the handlers to the future it issues, the
+    // client's `_resolveUnread` attaches them to whatever `_conversations` is
+    // holding. Same defect, two shapes, and a case that only drove one of them
+    // would leave the other's guard untested — which is exactly what the
+    // first version of this file did: with the client's guard reverted the
+    // contractor case still passed, so each case now runs against its own shell
+    // and each shell's guard is reverted alone to prove it is load-bearing.
+    for (final client in <bool>[false, true]) {
+      testWidgets(
+          client
+              ? 'a failed replaced read cannot mute the client pip'
+              : 'a failed replaced read cannot mute the pip for the session',
+          (t) async {
+        // **Why the parked read is not the one from mount.** The inbox's first
+        // read is handed to it as `widget.initial` and nothing is drawn until
+        // it answers, so holding it back shows the skeleton — and a `Shimmer`
+        // keeps asking for frames, so `pumpAndSettle` walks the fake clock
+        // forward until `ApiClient`'s 20 s timeout fires. The read then fails at
+        // mount and the case measures the timeout instead of the race. That is
+        // a harness fault which reads exactly like the app being correct, so
+        // the held-back read is the **second** one, taken after the inbox
+        // already has rows and therefore no shimmer and no pending timeout.
+        var reads = 0;
+        final Completer<http.Response> parked = Completer<http.Response>();
+        final api = ApiClient(
+          baseUrls: const ['https://x.test'],
+          httpClient: MockClient((req) async {
+            final p = req.url.path;
+            if (p.endsWith('/api/login') || p.endsWith('/api/register')) {
+              return _json({'token': 'tok', 'user': _user});
+            }
+            if (p.endsWith('/api/unread')) return _json(9);
+            if (p.endsWith('/api/mobile/conversations')) {
+              reads++;
+              if (reads == 2) return parked.future;
+              return _json([_conv(1, unread: reads <= 1 ? 4 : 2)]);
+            }
+            return _json(<Object>[]);
+          }),
+        );
+        SharedPreferences.setMockInitialValues({});
+        final auth = AuthState(api);
+        await auth.restore();
+        await auth.login(
+            phone: '0773000000', password: 'secret123', rememberMe: true);
+        await t.pumpWidget(MaterialApp(
+          home: AppScope(
+            api: api,
+            auth: auth,
+            child: client
+                ? const CustomerHomeScreen()
+                : const WorkerHomeScreen(),
+          ),
+        ));
+        await t.pumpAndSettle();
+        expect(_badgeWith(4), findsOneWidget,
+            reason: 'the read from mount landed and the pip is gold');
+        expect(reads, 1);
+
+        await _openTab(t, _messagesTab);
+
+        // He locks the phone and comes back. Read 2 is issued and parks on the
+        // slow connection the user is actually on.
+        await t.background();
+        await t.resume();
+        await t.pumpAndSettle();
+        expect(reads, 2,
+            reason: 'the unlock issued the read that will answer late');
+
+        // He locks it again and comes back. Read 3 is issued **after** read 2,
+        // and this one answers: the 4 unread became 2, because he opened a
+        // thread meanwhile and the server cleared two.
+        await t.background();
+        await t.resume();
+        await t.pumpAndSettle();
+
+        expect(reads, greaterThanOrEqualTo(3));
+        expect(_badgeWith(2), findsOneWidget,
+            reason: 'the newest read is the count on screen');
+        expect(_badgeSemantics(2), isNull,
+            reason: 'and it landed, so the pip is confirmed');
+
+        // Read 2 now fails. It was issued before any of this was on screen, the
+        // user replaced it two unlocks ago, and nothing is left in flight to
+        // restore what it is about to take away.
+        parked.completeError(Exception('offline'));
+        await t.pumpAndSettle();
+
+        // **The shipped bug:** the pip reads «غير مؤكّد» here and stays that way
+        // for the rest of the session, over a count the server answered
+        // correctly one unlock earlier. A badge muted by a request nobody asked
+        // about is a badge the user can never trust again.
+        expect(_badgeSemantics(2), isNull,
+            reason: 'a replaced read has nothing to say about the current count');
+        expect(_badgeWith(2), findsOneWidget,
+            reason: 'the digits are the phone\'s best estimate and do not move');
+      });
+    }
+  });
+}
+
+// The inbox's **own** read, with no shell re-reading behind it.
+//
+// The two cases above could not reach `chat_list_screen.dart`'s own guard: both
+// of them go through a home shell, and the shell's guard fires first and
+// swallows the late failure before the inbox ever sees it. That is worth
+// recording rather than hiding — it means the shell guard **masks** the inbox
+// guard, so a case written only at the shell level proves the inbox nothing and
+// would have shipped that file's fix untested.
+//
+// So this one drives the inbox's own read, through its own pull, with the real
+// `UnreadMessageTrust` taken out of a real `AppScope` (never a locally built
+// one, for the reason written on `liveMessages`). No `onRead`: the shell is what
+// is absent, and `_arm` writes the cache and the flag either way.
+void _lateInboxOwnRead() {
+  group('the inbox read itself, with no shell behind it', () {
+    testWidgets('a failed replaced read cannot mute the pip', (t) async {
+      var reads = 0;
+      final Completer<http.Response> parked = Completer<http.Response>();
+      final api = ApiClient(
+        baseUrls: const ['https://x.test'],
+        httpClient: MockClient((req) async {
+          final p = req.url.path;
+          if (p.endsWith('/api/login') || p.endsWith('/api/register')) {
+            return _json({'token': 'tok', 'user': _user});
+          }
+          if (p.endsWith('/api/unread')) return _json(9);
+          if (p.endsWith('/api/mobile/conversations')) {
+            reads++;
+            if (reads == 2) return parked.future;
+            return _json([_conv(1, unread: reads <= 1 ? 4 : 2)]);
+          }
+          return _json(<Object>[]);
+        }),
+      );
+      SharedPreferences.setMockInitialValues({});
+      final auth = AuthState(api);
+      await auth.restore();
+      await auth.login(
+          phone: '0773000000', password: 'secret123', rememberMe: true);
+      late UnreadMessageTrust trust;
+      await t.pumpWidget(MaterialApp(
+        home: AppScope(
+          api: api,
+          auth: auth,
+          child: Builder(builder: (context) {
+            trust = AppScope.of(context).messages;
+            return ChatListScreen(repo: Repository(api));
+          }),
+        ),
+      ));
+      await t.pumpAndSettle();
+      expect(reads, 1);
+      expect(trust.unconfirmed, isFalse,
+          reason: 'the read from mount landed');
+
+      // His pull arms read 2, which parks on the slow connection.
+      await t.fling(
+          find.byType(ListView).last, const Offset(0, 340), 1200);
+      await t.pump(const Duration(milliseconds: 400));
+      await t.pump(const Duration(seconds: 1));
+      await t.pump(const Duration(seconds: 1));
+      expect(reads, 2, reason: 'the pull issued the read that will answer late');
+
+      // He pulls again. Read 3 answers 2 \u2014 the 4 became 2 because he read two
+      // of them \u2014 and restores the flag.
+      await t.fling(
+          find.byType(ListView).last, const Offset(0, 340), 1200);
+      await t.pump(const Duration(milliseconds: 400));
+      await t.pump(const Duration(seconds: 1));
+      await t.pump(const Duration(seconds: 1));
+      expect(reads, greaterThanOrEqualTo(3));
+      expect(find.text('عميل 1'), findsOneWidget,
+          reason: 'the newest read is the list on screen');
+      expect(trust.unconfirmed, isFalse,
+          reason: 'and it landed, so the flag is the server\'s again');
+
+      // Read 2 now fails, for a list nobody is looking at any more.
+      parked.completeError(Exception('offline'));
+      await t.pumpAndSettle();
+
+      expect(trust.unconfirmed, isFalse,
+          reason: 'a replaced read has nothing to say about the current count');
+    });
+  });
+}
+
