@@ -162,6 +162,18 @@ class _Platform {
   /// fixture has to be able to serve a *different city* on demand.
   String marketWilaya = '16';
 
+  /// Per-read steering for the market, keyed on the read's ordinal.
+  ///
+  /// **[feedGate] cannot express this race and neither can [feedFails].** Both
+  /// are *state* held across reads: the gate parks every read at once, and the
+  /// flag kills every read from the moment it is set. A late answer needs a
+  /// third thing — read #1 issued and parked while read #2 issues and answers
+  /// — which is two reads behaving differently from each other, so the
+  /// mechanism has to be per-read. Returning **null** falls through to
+  /// [feedGate] then [feedFails], so every other case keeps the simple
+  /// mechanism it was written against.
+  Future<http.Response?> Function(int read)? feedRespond;
+
   ApiClient build() => ApiClient(
         baseUrls: const ['https://x.test'],
         httpClient: MockClient((req) async {
@@ -199,6 +211,11 @@ class _Platform {
           // reads `my/projects`, which *contains* `/mobile/projects`.
           if (p == '/api/mobile/projects') {
             feedReads++;
+            final steer = feedRespond;
+            if (steer != null) {
+              final answer = await steer(feedReads);
+              if (answer != null) return answer;
+            }
             final held = feedGate;
             if (held != null) await held.future;
             if (feedFails) return _boom();
@@ -523,6 +540,106 @@ void main() {
           reason: 'rows read for another wilaya are jobs in another city');
       expect(find.byKey(const Key('stale-market')), findsNothing,
           reason: 'the band would be claiming rows the filter excludes');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a read that answers LATE leaves the market unable to keep '
+        'its own rows on the next failure', (tester) async {
+      // The half of [_cacheKey] nothing tested, and the half that is the real
+      // defect. The sibling case above proves a read of the *new* wilaya that
+      // fails does not show the old city's jobs — it only ever kills a read.
+      // It says nothing about the read that was **already in flight** when the
+      // filter moved, which is the one that answers, and answering is what
+      // costs.
+      //
+      // The shape, driven through on-screen controls: the market is read for
+      // one wilaya, the contractor picks another while that read is parked on
+      // a slow connection, the new read answers and is what he sees, and then
+      // the first one lands.
+      //
+      // `_arm` takes no generation token, so the late answer installs itself
+      // over the good one — and installs **its own** `_cacheKey`, the filter
+      // pair captured when it was *issued*, which is now a wilaya the user has
+      // moved off. `_fallback` compares that against the live pair, refuses,
+      // and returns null. So the cache did not merely go stale, it went
+      // **dead**, and the deadness costs him the screen on the next blip: a
+      // pull that fails finds no fallback and draws «تعذّر جلب المشاريع»,
+      // losing Blida's own rows and the band that is supposed to qualify them.
+      // Every guarantee this screen's family is built on — a failed re-read
+      // keeps the projects — is undone by one read that answered too late.
+      final p = _Platform();
+      final release = Completer<void>();
+      var moved = false;
+      // Counts **deliveries**, not issues: [feedReads] is incremented when a
+      // request *starts*, so a parked read has already been counted and
+      // asserting on it after the release measures the wrong moment. The first
+      // attempt asserted `feedReads > 2` here and failed on a precondition,
+      // which proved nothing about the screen.
+      var lateDelivered = 0;
+      // Installed **before** the screen is pumped, so it can hold the very
+      // first read. The first attempt installed it after the market was
+      // already at rest, by which point the read it meant to park was long
+      // settled and the case passed green — a harness that measured itself.
+      p.feedRespond = (read) async {
+        if (moved) return null; // the read of the wilaya he chose
+        await release.future; // every pre-move read, parked
+        lateDelivered++;
+        return _json(<Object>[
+          _project('p1', 'مشروع بومرداس المتأخر', '16'),
+        ]);
+      };
+      final b = await boot(p);
+      await pump(tester, b.api, b.auth);
+      await _revealMarket(tester);
+
+      // The filter moves: the picker is the control that changes it, since a
+      // category chip re-reads the same market and would prove nothing.
+      await tester.tap(find.text('كل الولايات'));
+      await _settle(tester, frames: 8);
+      expect(find.byType(ListTile), findsWidgets,
+          reason: 'the wilaya picker must be open before it can be driven');
+      await tester.scrollUntilVisible(find.text('البليدة'), 120,
+          scrollable: find.byType(Scrollable).last);
+      moved = true;
+      await tester.tap(find.text('البليدة'));
+      await _settle(tester, frames: 8);
+      await tester.pump(const Duration(seconds: 1));
+      expect(p.feedReads, greaterThan(1),
+          reason: 'picking a wilaya must really re-read the market');
+      expect(find.text('سباكة حمام'), findsOneWidget,
+          reason: 'the new wilaya must be served before the old read lands');
+
+      // The parked read lands, and it lands **after** the answer that replaced
+      // it — the ordering that is the whole defect.
+      release.complete();
+      await _settle(tester, frames: 10);
+      await _revealMarket(tester);
+      expect(lateDelivered, greaterThan(0),
+          reason: 'the parked read must really have answered after the move');
+
+      // Now the network blinks, which is ordinary on a phone.
+      p.feedRespond = null;
+      p.feedFails = true;
+      await _backToTop(tester);
+      await tester.fling(
+          find.byType(CustomScrollView).first, const Offset(0, 340), 1200);
+      await _settle(tester, frames: 12);
+      await _revealMarket(tester);
+
+      // The sibling case's contract, in the one state it never reached: a Blida
+      // filter must never be showing Boumerdès jobs, and must never *claim*
+      // them as «the last results we read».
+      expect(find.text('مشروع بومرداس المتأخر'), findsNothing,
+          reason: 'a read that settled after the filter moved is another city');
+      // And the guarantee the whole family is built on, which the late read
+      // silently disarmed: the rows still on screen survive the next failure,
+      // with the doubt stated rather than an error page drawn.
+      expect(find.text('تعذّر جلب المشاريع'), findsNothing,
+          reason: 'the late answer must not have left the cache dead');
+      expect(find.text('سباكة حمام'), findsOneWidget,
+          reason: 'a failed pull must not cost him the rows he was reading');
+      expect(find.byKey(const Key('stale-market')), findsOneWidget,
+          reason: 'the doubt must still be stated out loud');
       expect(tester.takeException(), isNull);
     });
 

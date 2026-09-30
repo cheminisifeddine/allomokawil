@@ -375,6 +375,27 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   /// Keyed on the pair the request is built from, so it cannot drift from it.
   (String?, String?)? _cacheKey;
 
+  /// The generation [_arm] is on, and the guard that makes [_cacheKey] mean
+  /// anything at all.
+  ///
+  /// [_cacheKey] was supposed to stop one wilaya's rows being drawn under
+  /// another's filter, and it does — but it is checked against the **live**
+  /// filter pair, so it only describes the read that installed the cache *if
+  /// that read is the latest one*. `_arm` issued before a filter change can
+  /// still be in flight when the filter moves, and if it is, it installs
+  /// itself and stamps [_cacheKey] with the pair it **captured at issue** —
+  /// the wilaya the user has already moved off. The comparison then refuses,
+  /// and the refusal is worse than the bug the key was added for: the cache
+  /// is not stale, it is dead. Nothing can draw it, so the next pull that fails
+  /// finds no fallback and answers «تعذّر جلب المشاريع» — the exact loss of
+  /// screen this whole family exists to prevent, caused by a read that
+  /// *succeeded*.
+  ///
+  /// Six controls re-issue this read ([_reload]) and the user is expected to
+  /// tap through filters on a phone connection that is not answering in order,
+  /// so the two reads racing here is ordinary use, not a corner case.
+  int _feedToken = 0;
+
   /// When the rows in [_cache] were read, so the band can say how old they
   /// are rather than only that they are old.
   ///
@@ -566,9 +587,16 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   /// is the thing that reports it to the reader.
   Future<List<Project>> _arm(Future<List<Project>> read) {
     final key = (_category, _wilaya);
+    // The generation, for the reason [_feedToken] gives. Checked on **both**
+    // arms: a success arm that ran would overwrite the cache and its key with
+    // the pair it captured, and an error arm that ran would put a band on
+    // screen claiming the rows underneath it are the last ones read — for a
+    // read the user has already replaced. Neither is a colour problem, so
+    // neither is what the guard is for.
+    final token = ++_feedToken;
     _projects = read;
     read.then((list) {
-      if (!mounted) return;
+      if (!mounted || token != _feedToken) return;
       setState(() {
         _cache = list;
         _cacheKey = key;
@@ -586,7 +614,7 @@ class _MarketplaceViewState extends State<MarketplaceView> {
       // rather than started, so two live timers cannot survive a filter change.
       _armFreshnessTick();
     }, onError: (Object e, StackTrace _) {
-      if (!mounted) return;
+      if (!mounted || token != _feedToken) return;
       setState(() => _staleReason = errorCopy(e));
     });
     return read;
