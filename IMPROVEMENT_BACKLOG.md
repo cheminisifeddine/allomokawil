@@ -9951,3 +9951,93 @@ never measured — `review_screen.dart` (6 `showSnackBar` / 2 hide) and
 `project_new_screen.dart` (6/2). Neither can be claimed fixed on the strength
 of the sibling fixes; they need the same measurement. The blocked backend
 review 500 is unchanged and still not re-filed.
+
+## Tick 30 Sep 2026 — the publish verdict was queued behind the line it replaced
+
+**Item SHIPPED.** Sixth and last member of a class the loop has now measured
+on **every** screen that can draw a second line over a first one. This one is
+the odd one out, and that is the whole reason it survived four ticks of
+sweeping: **its own screen was already half fixed.**
+
+`ScaffoldMessenger` **queues** — a second `showSnackBar` while one is visible
+does not replace it, it waits for the first to time out, four seconds by
+default.
+
+`project_new_screen.dart` learned the `hideCurrentSnackBar` rule on the **edit**
+half of `_submit`, and the comment there says so in as many words. The
+**create** half sits thirty lines below it, in the same `catch`, and calls
+`_toast(writeOutcomeCopy(outcome))` — a bare `showSnackBar`. One screen, one
+`catch`, two answers to the same question, and only one of them reachable in
+time. The identical stall on the edit half of the same form is answered
+immediately.
+
+A customer who publishes a project, loses the answer on a slow network, and then
+finds it in «مشاريعي» is told «نتحقّق الآن من القائمة…» — a note about a check
+that has already finished — and waits out that note's full four seconds before
+the one sentence that says his project is on the server arrives.
+
+**The cost is the sharpest this class has ever paid.** Publishing is the most
+consequential write a customer makes: every call and every quote depends on the
+row existing. Four seconds of «نتحقّق الآن من القائمة…» *after the app already
+knows* is not a cosmetic delay on that row — it is four seconds in which the
+obvious next move is to press publish again, and `ApiClient.post` is declared
+`idempotent: false` precisely because a re-send **creates a second project**.
+The delay invites exactly the duplicate the flag exists to prevent. Measured
+over a real stalled POST on the real screen: verdict on screen at **560 ms**
+against **4520 ms** un-fixed — the ~4.0 s is the queue, and it is the whole
+SnackBar default duration.
+
+**Shipped as one helper, not two call sites.** `_verdict(String)` sits next to
+`_toast` and is what both halves now use. The reason the two halves drifted is
+that they *were* two call sites, and a comment praising the correct half is not
+a mechanism that keeps the other one correct — the edit half's comment has been
+sitting there explaining a rule the create half was breaking. `_toast` keeps its
+own doc comment naming what it is for (a line that covers nothing: validation,
+the photo cap, «اختر الولاية أولاً») so a later tick does not "fix" it into a
+hiding call and blank a message nobody is covering.
+
+*Red before green.* `test/project_publish_verdict_queued_test.dart` returns
+**4520 ms** against the 2000 ms bound against the original screen, passes
+against this one, and the **fixed** number was read out by lowering the bound to
+1 ms rather than by reasoning. The bound is a number rather than "no queue"
+because a queue cannot be seen in the widget tree: exactly one `SnackBar` is
+ever *built*, the rest are pending requests inside the messenger.
+
+**The harness tax, fourth member.** The `_boot` loop pumps until the recheck
+line is actually on screen before sampling, because **a tap is not a run** —
+`_submit` is async and a pending timer schedules no frame, so sampling right
+after the tap reads `-1` and the file goes red with "the verdict never appears",
+which is a *wrong* reading: the verdict was fine, the test had never got there.
+Three files in this class have now paid that. The client timeout is 500 ms with
+the publishing POST stalling 700 ms and the re-read taking a real 300 ms round
+trip that must **survive** — a sibling copied 25 ms here and then reported the
+`unknown` copy for a re-read that had succeeded, because on this class of screen
+the timeout *is* the verdict the user is shown. Teardown closes the bar through
+the messenger (`pumpAndSettle` alone drains the very bar under assertion) — the
+fifth `!timersPending` sighting of this class.
+
+**A fixture note worth carrying.** The recheck asks
+`myProjects().any((p) => p.title.trim() == sentTitle)` against the title
+captured *before* the first `await`, so the fixture's row is put in the list
+under that exact string. The `missing` case is therefore a real classification
+and not a test that cannot tell the two verdicts apart — it drives the same
+stall with the row absent and gets the retry sentence, which is the one a
+customer told to resend a project the app already finished checking is waiting
+four seconds for.
+
+*Commits.* local `7495fc8`.
+
+*Housekeeping.* `pgrep -fc "[f]lutter"` reported **1** on entry again while
+`pgrep -af "[f]lutter"` showed **zero** real processes — the fifth tick to
+report the same self-match, on the prompt's own command. `java` was **0**
+throughout and `tool/build_gate.py` was the gate used.
+
+*Next.* The SnackBar-queue class is **closed** — every screen in the app that
+can cover a line with a line is now measured and fixed: project detail, the bid
+sheet, the notification centre, the verification dossier, and both halves of
+the publish form. The blocked backend review 500 is unchanged and still not
+re-filed. Fresh ground for the next tick: `test/` has no coverage of the
+**rating picker itself** on `review_screen.dart` (the write path is tested; the
+five stars, the empty-start rule and the 0-star guard are not), and
+`project_new_screen.dart` now has a `_verdict` helper that `MyPortfolioScreen`
+and the other write screens do not share.

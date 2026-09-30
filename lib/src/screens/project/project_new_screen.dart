@@ -427,15 +427,10 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
             fetch: () => _repo.getProject(editing.id),
           );
           if (!mounted) return;
-          // `hideCurrentSnackBar` first, and load-bearing rather than
-          // cosmetic: two `showSnackBar` calls in a row **queue**, so the answer
-          // to «did my edit save?» would sit behind «نتحقّق الآن من القائمة…» for
-          // that sentence's full duration, by which time the user has looked
-          // away. The recheck banner is a progress note; this is the result.
-          // The portfolio screen does the same thing for the same reason.
-          ScaffoldMessenger.of(context)
-            ..hideCurrentSnackBar()
-            ..showSnackBar(SnackBar(content: Text(editOutcomeCopy(result))));
+          // The same helper the create half below now uses, for the same
+          // reason it was written: the recheck banner is a progress note and
+          // this is the result, so the note must go first. See [_verdict].
+          _verdict(editOutcomeCopy(result));
           return;
         }
         final outcome = await resolveWriteOutcome(
@@ -445,7 +440,33 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
           },
         );
         if (!mounted) return;
-        _toast(writeOutcomeCopy(outcome));
+        // `_verdict`, **not** `_toast`. This is the line the whole tick is
+        // about, and the two calls are not interchangeable.
+        //
+        // `_toast(S.writeUnconfirmedRecheck)` went up a few lines above, and
+        // `ScaffoldMessenger` **queues** rather than replaces: a second
+        // `showSnackBar` while one is visible waits for that one to time out,
+        // four seconds by default. So the verdict — the only sentence that
+        // answers «did my project reach the server?» — sat behind a progress
+        // note about a check that had already finished, and the customer read
+        // the stale line for its full duration first.
+        //
+        // The **edit** half of this same `catch` already got this right, twelve
+        // lines up, which is what made this a defect rather than a pattern: one
+        // screen, one `catch`, two answers to the same question, and only one
+        // of them reachable in time. A file is not fixed by the parts of it
+        // that happen to be right, and a comment praising the correct half is
+        // not the mechanism that keeps the other one correct.
+        //
+        // The cost is the sharpest this class has. Publishing is the most
+        // consequential write a customer makes — every call and every quote
+        // depends on the row existing — and four seconds of «نتحقّق الآن من
+        // القائمة…» after the app already knows the answer is four seconds in
+        // which the obvious next move is to press publish again. That POST is
+        // `idempotent: false` (`ApiClient.post`, deliberately, because a
+        // re-send creates a second row), so the delay invites exactly the
+        // duplicate the flag exists to prevent.
+        _verdict(writeOutcomeCopy(outcome));
         return;
       }
       _toast(errorCopy(e));
@@ -476,9 +497,43 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
     return null;
   }
 
+  /// A line that is **not** covering anything, and must not cover anything.
+  ///
+  /// Validation messages, the photo cap, «اختر الولاية أولاً» — everything that
+  /// answers a form the user is still filling in. Those are drawn before
+  /// anything is in flight, so they have nothing above them to replace and
+  /// hiding here would blank a message nobody is covering.
   void _toast(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  /// The answer to «did my write land?», drawn **in place of** the recheck line.
+  ///
+  /// `ScaffoldMessenger` **queues** by default: a second `showSnackBar` while
+  /// one is visible does not replace it, it waits for the first to time out —
+  /// four seconds by default. So the recheck note this screen raises when a
+  /// write's answer never arrives would still be on screen when the app *does*
+  /// know the answer, and the verdict would sit behind it for that note's full
+  /// duration.
+  ///
+  /// That is a progress line on top of a result, which is backwards: the note
+  /// is about a check that has already finished, and the verdict is the only
+  /// sentence on the screen that says anything at all. `project_detail_screen`
+  /// grew `_showRechecking`/`_showCommitResult` for this, the bid sheet and the
+  /// notification centre were put onto them, and this screen applied the rule
+  /// to its edit half only — which is exactly how the create half kept
+  /// shipping the queue.
+  ///
+  /// One helper for both halves rather than the `hideCurrentSnackBar` idiom
+  /// pasted at each call site, because the reason the two halves drifted is
+  /// that they were two call sites. The rule is load-bearing on every write on
+  /// this form, so it is written once and the next one inherits it.
+  void _verdict(String copy) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(copy)));
   }
 
   Future<void> _pickWilaya() async {
