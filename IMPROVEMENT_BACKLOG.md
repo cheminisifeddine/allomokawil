@@ -10685,3 +10685,75 @@ pricing decision second.
       the 500 is still unreachable from outside a session, and
       `/api/mobile/workers/:id/reviews` now answers **200** (it returned `[]`
       before). No app-side action possible; deliberately not re-filed.
+
+- [x] **The «قيد التنفيذ» tab asked the server a question it had never been
+      asked — and was told, with a 200, that the running job did not exist.**
+      `f15b480` -> remote `4de9ef9`. Found on production this tick by
+      registering a customer (405), posting a project, and driving a real bid +
+      accept so the job genuinely reached `in_progress` — then asking the two
+      endpoints the app itself calls, with the two spellings.
+
+      `Repository.myProjects` and `_browseProjectsPage` both sent
+      `status.name`, so the filter asked for `inProgress` against a column that
+      stores `in_progress`. Measured on production, the same moment:
+
+      ```
+      GET /api/mobile/my/projects?status=inProgress   -> 200, 0 rows
+      GET /api/mobile/my/projects?status=in_progress  -> 200, 1 row
+      GET /api/mobile/projects?status=inProgress      -> 200, 0 rows
+      GET /api/mobile/projects?status=in_progress     -> 200, 4 rows
+      ```
+
+      **A filter is not a write, and that is what made it invisible.** Nothing
+      is refused, no error is raised, no retry banner appears, no 4xx is
+      logged — the only symptom is a *successful* read of zero rows. The empty
+      state then says «لا مشاريع في هذه الحالة» — "no projects in this state" —
+      about a project in that state, on the tab a client opens to watch the
+      renovation he is currently paying for. Three of the five tabs were
+      accidentally correct: `open`, `completed` and `cancelled` are single
+      words in both languages, so **only the tab naming a two-word state was
+      wrong** — which is how this survives a shipped app with five status tabs,
+      a full suite, and every one of those other three verified by a human.
+
+      *The display helper had been made tolerant of the bug, on purpose.* The
+      `StatusPill.project` factory stripped `_` and lowercased, so it accepted
+      **both** spellings and drew «قيد التنفيذ» correctly from a value the
+      server had never sent. The one place a status becomes a word a user reads
+      was made forgiving of a broken write, which hides the write rather than
+      the symptom. Two call sites fed it `project.status.name` to match. The
+      pill now matches the stored values exactly, which puts it in step with
+      the parser, and those two call sites pass `status.wire`.
+
+      *Same bug, same file, already paid for once.* `UrgencyLevel.name` sent
+      `withinWeek` into a CHECK constraint and 500'd **every deadline-bearing
+      project** — fixed with a `wire` getter in `project.dart` on 13 Sep, and
+      `status` was left two functions below it on two call sites, sending
+      `name` the same way. So `ProjectStatus` now has the arrangement
+      `UrgencyLevel` has: `wire`, a public `fromWire`, and **one** private copy
+      of the parse table. Reading and filtering can no longer drift, because
+      there is only one table for both.
+
+      *Red before green, the bug quoted back.* Reverting only the two `wire`
+      call sites to `name` fails on the exact value:
+      `Expected: ['in_progress']` / `Actual: ['inProgress']` — on **both** tests,
+      independently, because a fix applied to one call site passes the other.
+
+      *One harness trap worth the record.* `dart analyze` reported the missing
+      `wire` getter as a compile error and then emitted four **bogus** syntax
+      errors on a line 60 lines later (`Can't find ']' to match '['`). The real
+      fault on that line was a dropped bracket in
+      `queryParameters['status']` — a typo, not the mojibake the cascade made
+      it look like. A parse error after a semantic one is nearly always
+      collateral; find the first error, not the last.
+
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1696 passed / 3 skipped / 0 failed**, up from
+      1691/3/0 (**+5**).
+      *Commit* `f15b480`; remote `4de9ef9`. All six blobs — including the new
+      test file — **MATCH** against the real remote tree. No screenshot: the
+      change is a query parameter and a switch arm, no pixel moves.
+
+      *For the next tick.* The suite is now **~19 min** wall clock and had to be
+      polled ten times to complete one gate. It was 10 min on 12 Sep and 16 min
+      on the last tick. **Shard it before it hits 20**, or this loop starts
+      missing its own gate, which is the one thing the protocol forbids.
