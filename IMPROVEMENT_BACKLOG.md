@@ -11354,3 +11354,52 @@ helper's exit code. No APK, no release, no tag.
 the family the last four items each named. Still **BACKEND-API's**, untouched:
 the `durations` array — the live catalogue publishes it and this app never
 parses it.
+
+## Tick 30 Sep 2026 — the suite had no deadline, so a stall cost 45 minutes silently
+
+- [x] **A whole-suite hang cannot be interrupted, cannot be diagnosed, and is
+      not even reported as a failure.** The previous tick's full run stopped at
+      251 tests and sat at 0.0% CPU with every thread in `epoll_wait` and zero
+      sockets — a deadlock, not slowness — and burned ~45 minutes of a
+      10-minute tick before anything noticed. The reporter's last line was
+      buffered mid-test-name, so the file could not be named from the output.
+      Bisecting all 201 files one at a time found nothing (31 min, zero hangs),
+      which proved the hang is an *interaction between files* — exactly what a
+      single process produces and exactly what per-file isolation would hide.
+      The re-run passed 1715/3/0 and did not reproduce, so this is a harness
+      that cannot survive the next occurrence, not a bug that is fixed.
+      *Shipped:* `tool/run_tests.py` runs the suite under a wall-clock
+      deadline (**1200 s**, ~1.5x the 13:13 green time), kills the whole
+      **process group** on expiry, and returns a distinct **HUNG (2)** exit
+      code so a stall can never be misread as a red build to be "fixed". It
+      keeps a bounded 400-line reporter tail, so `culprit()` names the file in
+      flight — recovered from a line the reporter never finished writing,
+      which is the exact detail the 30 Sep hang lost.
+
+**Red before green, and the red was real.** Removing the timeout
+(`proc.wait(timeout=deadline)` -> `proc.wait()`) makes both hang cases sit
+30 s each and fail — the test catches the exact regression it exists for.
+All four cases spawn a **real** child process; a stubbed `subprocess` would
+have passed while the real runner leaked a `flutter_tester` at PPID 1.
+
+**One design fault the test caught, not the reasoning.** The first version
+failed all three cases, and not for a typo: `tool/build_gate.py` — correctly —
+refused to start a second suite while the `flutter test` running the test was
+itself in flight. Testing the deadline behind a gate that always says busy
+tests nothing, and bypassing the gate inside the runner would have deleted the
+safety property. So the gate became an injectable seam (`RUN_TESTS_GATE`) and
+the refusing case is now **a test of its own** that asserts nothing is spawned
+at all (`SPAWNED` marker file absent) — the 7.8 GB no-swap box is the reason
+that matters.
+
+*Gate.* `flutter analyze` -> **No issues found!** (8.7 s). Full suite through
+the new runner -> **1719 passed / 3 skipped / 0 failed** in **13:13**, up from
+1715/3/0 (+4). The runner dogfooding itself on the real suite is the evidence
+the deadline is compatible with a green run.
+
+**What this does not do, deliberately.** It does not find the deadlock, and it
+does not shard the suite. Sharding would also *prevent* the bug from
+reproducing, which is not the same as fixing it, and on a 2-core box it buys
+wall-clock the loop does not need. The sharding call stays open and yours.
+
+*Commit:* pending — filled in below after the push.
