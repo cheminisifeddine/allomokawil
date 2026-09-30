@@ -10619,7 +10619,11 @@ box) and the amount line below it, with the band clear of both. The card did
 not overflow: `tester.takeException()` is asserted null before the raster,
 which is the check that cost the disputed-price tick its 53 px.
 
-**Commits.** see the run note at the end of this section.
+**Commits.** local `84d24c6`, remote `cac24bb`. **4/4 blobs MATCH** against
+the real remote tree at tip `cac24bb`, checked the only way that means
+anything — `git hash-object` against GitHub's tree, never the helper's green
+line, which is the check the 26 Sep `--allow-deletes` incident made
+mandatory.
 
 *Next in backlog:* unchanged and still founder-gated — the `durations` array.
 Live catalogue re-read this tick: `basic` publishes 1/3/6/12 months at
