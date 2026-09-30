@@ -9684,3 +9684,70 @@ on this box, re-checked, deliberately not re-filed. The next class worth
 opening is the honest one: screens that call `showSnackBar` after an `await`
 without a `hideCurrentSnackBar()` first, which is the queueing defect this
 loop fixed by hand in the review screen on 30 Sep.
+
+## Tick 30 Sep 2026 — the bid's verdict was queued behind the line it replaced
+
+The class the 30 Sep `profile_edit` tick named as next, taken on its worst
+member. `ScaffoldMessenger` **queues**: a second `showSnackBar` while one is
+visible does not replace it, it waits for the first to time out. The class is
+"a screen calls `showSnackBar` after an `await` without `hideCurrentSnackBar()`
+first", and the worst member is the only one where the queued line is *the
+answer*.
+
+**`project_detail_screen.dart` held two disciplines in one file.** `_accept`,
+`_complete` and `_cancel` all route through `_showRechecking()` and
+`_showCommitResult()` — which hides first, and has since the commit-outcome
+work. Twenty lines below them, `_showBidSheet` hand-rolled the identical pair
+with bare `ScaffoldMessenger.of(context).showSnackBar` and never hid. Same
+screen, same failure mode, two answers: the loop hand-fixed exactly this in the
+review screen yesterday and it was never applied here.
+
+**What the contractor read**, on the one path that exists only when the POST
+reaches the Worker and the answer does not come back:
+
+```
+نتحقّق الآن من القائمة…                     we are checking (4 s)
+وجدناه في القائمة — الطلب وصل بنجاح   the verdict, four seconds later
+```
+
+The recheck line is not a harmless placeholder. It is a note about a check that
+**has already finished** by the time the verdict is drawn, and the verdict is
+the only sentence that answers «did my bid arrive?» — the question a contractor
+who cannot see his own row in the list is actually asking.
+
+**Measured, not asserted.** `test/bid_unconfirmed_queued_test.dart` drives the
+real screen against a Worker that stores the bid and never answers, and pumps
+the fake clock to find the first instant the verdict is the line on screen.
+Unchanged app: **4200 ms** — 400 ms of recheck plus the 4000 ms default
+duration the verdict spent queued. With the fix: under 2000 ms. The bound is a
+number rather than "no queue" because a queue cannot be seen in the widget tree:
+only one `SnackBar` is ever *built*, the rest are pending requests inside the
+messenger. Two earlier versions of this test asserted on SnackBar counts in the
+tree and read as "no bug" while the 4-second wait was real.
+
+*Two fixture bugs, recorded because both made the app look broken in a way it
+was not.* (1) The recheck list was built as `['70000'].map(_json)` — a list of
+`http.Response` encoded as JSON — so the predicate could never match and every
+verdict came back `unknown`. (2) `pumpAndSettle` returns while the POST is still
+awaiting an answer, because a pending timer schedules no frame, so the branch
+under test had not been reached yet. The test was measuring a screen that had
+not run. Both are the reason the first two runs were red for the wrong reason
+and the note is worth more than the fix.
+
+*Red before green.* Reverting only the `_showCommitResult` call turns the first
+case red at **2900 ms** against the 2000 ms bound. Restored from backup; `git
+diff` shows the fix, and only the fix.
+
+*Gate.* `flutter analyze` -> **No issues found!**
+`flutter test` -> **1629 passed / 3 skipped / 0 failed** (was 1627/3/0, **+2**).
+Suite took 9m50s, again over the 420 s foreground timeout, so run in background.
+
+*Commits.* local `78cd087` / remote `587a122`. **2/2 blobs MATCH** the real
+remote tree.
+
+*Next.* `showSnackBar`-after-`await` is now closed on the detail screen. The
+same class remains in `review_screen.dart` (6/2) and `project_new_screen.dart`
+(6/2) — both already hide somewhere, so they need the same measurement before
+anyone claims them fixed. `notifications_screen.dart` (3/0) and
+`verification_screen.dart` (2/0) hide **nowhere** and are the honest next
+target. The blocked backend review 500 is unchanged and still not re-filed.
