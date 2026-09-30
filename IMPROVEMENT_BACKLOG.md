@@ -7656,8 +7656,9 @@ running app for defects like these rather than inventing a feature.
 
 - [x] **UNBLOCKED 30 Sep — the 500 is GONE, and the app's own review test
       now passes end to end. Ticked by the tick that proved it.**
-      `PENDING` -> hash below. The item below is kept verbatim as the record of
-      what was true on 28-29 Sep; read it as history, not as the current state.
+      `811dc88` -> remote `e2cd42c`; both blobs **MATCH** the real remote tree
+      at tip. The item below is kept verbatim as the record of what was true
+      on 28-29 Sep; read it as history, not as the current state.
       Re-probed on production this tick with the app's exact body
       (`worker_id` + `rating` + `comment`) and the endpoint now answers
       **200 `{"ok":true}`** — and, the part that matters, the rating is really
@@ -7680,14 +7681,49 @@ running app for defects like these rather than inventing a feature.
       `completeProject`, sends the same `worker_id` in its body and was never
       reported broken — it answers 200 today. Nobody is claiming to know why one
       of two identical shapes was fixed and the other was not.
+      *Gate.* `flutter analyze` -> **No issues found!**
+      `flutter test` -> **1983 passed / 3 skipped / 0 failed**, identical to the
+      baseline measured at the top of this tick (the live file is tagged, so it
+      is not in that number — it is the separate run above).
       *Not a claim about the backend source* — the `finili` tree is still not on
       this box, so this is the observed behaviour of the live Worker and nothing
       more. **Do not re-file this item.**
 
-- [ ] **BLOCKED, not app code — re-checked 28 Sep by the next tick, still
+- [x] **Every backlog item is now closed — 164/164, nothing parked, nothing
+      blocked.** Recorded 30 Sep by the tick that un-blocked the last one. Worth
+      stating plainly for the next tick: there is no "first unchecked item" left
+      to take, so **the loop needs new work from the founder**, not another pass
+      down this list. Do not invent items to look busy — the standing order says
+      a cycle that ships nothing user-visible should reply `[SILENT]`.
+      *What this tick's own audit found, given the list is empty, which is the
+      only honest use of a tick with no item:* every other wire path the app
+      writes was re-probed on production and found **correct** —
+      `POST /projects` (multi-trade `categories` round-trips all three trades and
+      stays findable under each; the founder's explicit ask holds),
+      `POST /quotes`, `POST /quotes/:id/accept` (a body is not sent and not
+      needed; `selected_worker_id` and the losing bid's `rejected` both land),
+      `POST /complete` **with** the same `worker_id` the review endpoint used to
+      choke on, `urgency: within_week`, and the whole subscription surface.
+      Three probe failures during this audit were **my** errors, not the app's,
+      and are recorded because the next tick will otherwise repeat them: a
+      10-digit Algerian phone is mandatory (`05/06/07` + 8 digits) or the
+      register is a 400; Cloudflare answers a default Python user-agent with
+      **1010**; the app's slug is `electrical`, not `electric`, and the Worker
+      silently collapses an unknown second trade rather than rejecting the post.
+      That last one is the only residual risk found and it is a **server** one:
+      a category the Worker does not know is dropped from `categories` with no
+      error, so a project filed under trades it has no row for would be
+      advertised under fewer trades than the owner chose. It needs BACKEND-API;
+      nothing in the app can detect it, because the app never learns a trade was
+      dropped. Filed below rather than left in prose.
+
+- [x] ~~BLOCKED, not app code — re-checked 28 Sep by the next tick, still
       blocked, no action taken here: `POST /api/mobile/projects/:id/review`
       returns 500 whenever `worker_id` is in the body — and the app always
-      sends it.** Found on production this tick, by accident, while driving the
+      sends it.~~ **RESOLVED 30 Sep — no longer true; see the unblock entry
+      above. The box is ticked so the next tick does not walk this a fourth
+      time. The 500 was fixed on the API side and the app's own E2E now
+      passes.** Found on production this tick, by accident, while driving the
       review above. Same project, same token, two calls:
       `{"rating":5,"comment":"…","worker_id":390}` -> **500**
       `{"rating":5,"comment":"…"}`                 -> **200 `{"ok":true}`**
