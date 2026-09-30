@@ -7654,6 +7654,36 @@ running app for defects like these rather than inventing a feature.
       *Commit* `5109e0c`; remote `f5d210a`. All five blobs — including the
       regenerated golden — **MATCH** against the real remote tree.
 
+- [x] **UNBLOCKED 30 Sep — the 500 is GONE, and the app's own review test
+      now passes end to end. Ticked by the tick that proved it.**
+      `PENDING` -> hash below. The item below is kept verbatim as the record of
+      what was true on 28-29 Sep; read it as history, not as the current state.
+      Re-probed on production this tick with the app's exact body
+      (`worker_id` + `rating` + `comment`) and the endpoint now answers
+      **200 `{"ok":true}`** — and, the part that matters, the rating is really
+      stored: `GET /api/mobile/workers/:id/reviews` comes back with the row
+      (`rating: 5, comment: "احترافي"`) and the profile reads
+      `avg_rating: 5, total_reviews: 1`. Confirmed twice, independently, on two
+      separate accounts. Then the decisive proof: `live_review_e2e_test.dart`,
+      parked for three ticks as un-runnable, **passes** —
+      `after first rating avg=4.0 count=1 jobs=1`, `after re-rating avg=2.0
+      count=1`. That file drives `createReview` through the app's own
+      `Repository` rather than a hand-rolled request, so it proves the shipped
+      code path, not my probe.
+      *What actually had to change in this repo: nothing in `lib/`.* The fix was
+      on the API side. The only edit is the one stale assertion — the test was
+      written on 26 Sep against the pre-null `avgRating` and still expected
+      `0` where `WorkerProfile._rating` now answers `null` for an unrated
+      contractor. Left as-is, the test would have failed **forever** on a
+      correct backend, which is the same trap the other parked items kept
+      walking into. Also worth recording: the sibling write,
+      `completeProject`, sends the same `worker_id` in its body and was never
+      reported broken — it answers 200 today. Nobody is claiming to know why one
+      of two identical shapes was fixed and the other was not.
+      *Not a claim about the backend source* — the `finili` tree is still not on
+      this box, so this is the observed behaviour of the live Worker and nothing
+      more. **Do not re-file this item.**
+
 - [ ] **BLOCKED, not app code — re-checked 28 Sep by the next tick, still
       blocked, no action taken here: `POST /api/mobile/projects/:id/review`
       returns 500 whenever `worker_id` is in the body — and the app always

@@ -24,6 +24,21 @@
 //
 // Run with:  flutter test test/live_review_e2e_test.dart
 //
+// RE-OPENED 30 Sep 2026. This file was parked as un-runnable for three ticks
+// because `POST /api/mobile/projects/:id/review` answered **500** whenever
+// `worker_id` was in the body — and `Repository.createReview` always sends it,
+// so every review a real customer left in the shipped app failed. That was
+// filed as BACKEND-API's and correctly left alone here.
+//
+// The 500 is gone. Re-probed on production this tick, twice and independently:
+// the app's exact body (`worker_id` + `rating` + `comment`) now answers
+// **200 `{"ok":true}`** and the review is genuinely stored — the worker's
+// `GET /workers/:id/reviews` comes back with the row and the profile reads
+// `avg_rating: 5, total_reviews: 1`. So this file is runnable again, and it is
+// the only proof that covers it: it drives `createReview` through the app's own
+// `Repository`, not through a hand-rolled request, and then asks the API what
+// the rating did to the contractor.
+//
 // It needs the network. A network-level failure here is not a code regression —
 // the file names the call that failed and the loop reports it as such. Each run
 // creates two real accounts, one project, one quote and one review, the same way
@@ -124,7 +139,12 @@ void main() {
     final before = await repo.getWorker(workerId);
     expect(before.totalReviews, 0,
         reason: 'a fresh contractor must start with no reviews at all');
-    expect(before.avgRating, 0);
+    // `null`, not 0: the server's "no reviews yet" sentinel is folded to null
+    // by `WorkerProfile._rating` so no screen can print «0.0» about a man
+    // nobody has worked with. The test is asserting the model the app ships,
+    // not the model the test was written against on 26 Sep.
+    expect(before.avgRating, isNull,
+        reason: 'an unrated contractor has no score, not a score of zero');
 
     await repo.acceptQuote(project.id, quote.id);
     await repo.completeProject(project.id, workerId: workerId);
