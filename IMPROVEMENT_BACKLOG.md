@@ -10958,3 +10958,89 @@ pricing decision second.
       CLEAR over it, which is the part of the risk this loop can own.
       Whether to split 200 files across ticks, or give the box more room, is
       a resource decision, not an app change. No APK, no release, no tag.
+
+- [x] **A failed tab switch on «مشاريعي» answered with another tab's projects —
+      and the test that covered it was pinning that as the requirement.**
+      `0ca3f0e` -> remote `40c95a3`.
+
+      **What was wrong.** The stale-fallback field was a bare
+      `List<Project>? _cache` with **no record of which status pill it was read
+      for**, so the builder's `shown` expression — a failed *or* waiting read
+      falls back to the cache — answered **any** question with the rows of the
+      last one. Tap «قيد التنفيذ» on a dropped connection and the «مفتوح»
+      projects were drawn under the tab that names running jobs.
+
+      **Why the band could not rescue it, which is the part worth keeping:**
+      «لم نتمكن من تحديث مشاريعك — هذه آخر نتيجة قرأناها» says those rows are
+      *old*. That is true and useless, because they are not the question that
+      was asked. A customer checking whether his renovation has started was
+      reading four **open** projects, correctly dated, correctly framed as a
+      stale copy — of a different list. This screen was already the sixth
+      member of the stale-read family and the only one whose fallback was not
+      about its own rows.
+
+      **Shipped.** `_cache` is one `ProjectsRead` record — rows, tab and stamp
+      written in a single `setState`, because three parallel nullable fields
+      can disagree in ways no test notices. The fallback is gated on
+      `_cache!.status == _status`, so it is scoped to **the tab**: a pull inside
+      one tab still keeps its rows (that half was already right and is pinned by
+      its own case), and a failed switch has nothing of its own to fall back on
+      and says so. The retry button is already wired to *this* tab, so nothing
+      was lost by taking the fallback away.
+
+      **The naive fix is the one this app has already shipped against eight
+      times, and I wrote it before catching it.** Tagging the cache with
+      `_status` *inside* the `then` callback reintroduces the identical defect
+      one layer down: tap two pills while the first read is in flight and the
+      first read's rows are filed under the second tab. `_arm` therefore takes
+      the tab as a **parameter**, decided when the request is issued and
+      travelling out with it, so the read and its label cannot come apart.
+      The `ProjectsRead.status` doc says this rather than claiming the
+      callback read is safe.
+
+      **An existing test was asserting the defect, and that is the finding.**
+      `stale_projects_test.dart`'s «a failed tab switch keeps the rows too»
+      required `find.text('تعذّر جلب المشاريع')` to be **absent** after a
+      failed switch — it passed *precisely because* the «مفتوح» rows were on
+      screen under the «الكل» pill. A test written to prove "don't erase the
+      list" had been welded to "don't ever say you could not read it", and the
+      second half is the false one. It now asserts the opposite, and its
+      history is recorded in the file so a future tick does not restore it as
+      a "regression fix".
+
+      **Red before green — and the new race case was vacuous twice.**
+      Both new cases now fail against the unfixed screen:
+
+        * «a failed tab switch does not answer with the OTHER tab»
+        * «two taps in a row: neither read is filed under the wrong tab»
+
+      The second one passed against the unfixed source on its first run, which
+      made it worthless, and both faults were in the **harness**, not the
+      screen:
+
+      1. It failed *both* reads, so no cache was ever written and there was
+         nothing to mislabel. A case that cannot fail is worse than no case,
+         because the next tick reads it as coverage.
+      2. It then parked read 1 on a `Completer` to overlap the two requests,
+         and **the shared 200 ms client timeout fired while the read was
+         parked** — turning it into a failure for the same reason as (1). The
+         200 ms is there so a 503 settles inside `pumpAndSettle`; a read that
+         is *meant* to hang cannot use it. That case now runs at 20 s.
+
+      Neither fault was visible in the output: it was `+1` and green both times.
+
+      *Gate.* `flutter analyze` -> **No issues found!** (12.4 s).
+      `flutter test` -> **1699 passed / 3 skipped / 0 failed**, up from
+      1696/3/0 (+3). **21 min 14 s.**
+
+      *Proven by pixels.* `/tmp/shots/23_projects_tab_switch_failed.png`,
+      1179x2763. The band's own wash (`accentWash` = `FDF3E3`) measures
+      **118,463 px** in the pull case (`19_projects_stale.png`, unchanged) and
+      **exactly 0** in the cross-tab case — the band is gone because there are
+      no rows for it to date, which is the whole point. `pngscan` reports
+      `0 box(es)` for `FDF3E3` on the new shot, and the dark ink is confined to
+      y<1500 (app bar, tabs, error card) with rows below 1500 blank, which is
+      what "no other tab's cards are on screen" looks like in pixels.
+
+      *Still BACKEND-API's, untouched:* the `durations` array (`basic` publishes
+      1/3/6/12 months; the app can only order `month` and `year`).
