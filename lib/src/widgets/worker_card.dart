@@ -109,6 +109,12 @@ class WorkerCard extends StatelessWidget {
 
   // ── Full-width row (browse) ───────────────────────────────────────────
   Widget _row() {
+    // Read once, used by the row gate and by both tags. Before this, the gate
+    // recomputed the question from the columns while the tags asked the copy
+    // helpers, which is how the two surfaces of one man came to disagree about
+    // whether he has a price.
+    final hasYearsToPrint = experienceYearsAr(worker.experienceYears) != null;
+    final hasPriceToPrint = hasPriceRange(worker.priceRangeMin, worker.priceRangeMax);
     return _Pressable(
       onTap: onTap,
       child: Row(
@@ -185,8 +191,18 @@ class WorkerCard extends StatelessWidget {
                     ],
                   ],
                 ),
-                if (worker.experienceYears > 0 ||
-                    worker.priceRangeMin != null) ...[
+                // One question, asked once. This gate and the two inside it
+                // have to agree, and for a day they did not: this one asked
+                // `years > 0 || min != null` while the tags it wraps were
+                // already asking [hasPriceRange]. A contractor who typed a
+                // single maximum -- `min` empty, `max` real -- therefore got
+                // NO price tag at all, on the row a customer picks him from,
+                // one line above the fix that shipped for exactly that man.
+                // Both arms are read off the function that decides what gets
+                // printed rather than off the raw column, so the row cannot be
+                // dropped around a tag that exists (the empty-Wrap defect) nor
+                // built around a tag that does not.
+                if (hasYearsToPrint || hasPriceToPrint) ...[
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 6,

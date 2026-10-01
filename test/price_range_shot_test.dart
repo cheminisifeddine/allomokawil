@@ -17,6 +17,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:allomokawil/src/core/theme/app_theme.dart';
+import 'package:allomokawil/src/data/price_range_copy.dart';
 import 'package:allomokawil/src/models/worker.dart';
 import 'package:allomokawil/src/widgets/worker_card.dart';
 
@@ -59,9 +60,19 @@ Map<String, dynamic> _band() => {
       'price_range_max': 9000,
     };
 
+/// `experience_years: 0` on purpose, and it was the bug in this fixture.
+///
+/// This map inherited `5` from [_collapsed], which kept the outer gate's
+/// `experienceYears > 0` arm true — so the tag appeared for the WRONG REASON.
+/// The screenshot the founder was shown for this defect proved nothing: it
+/// would have rendered identically with the price gate deleted. A brand-new
+/// free contractor is the worse case and the more common one (nobody has
+/// years on the day they register), and he is exactly the man with nothing but
+/// a maximum typed, so he is what the fixture now carries.
 Map<String, dynamic> _maxOnly() => {
       ..._collapsed(),
       'full_name': 'نبيل شريف',
+      'experience_years': 0,
       'price_range_min': null,
       'price_range_max': 9000,
     };
@@ -166,6 +177,64 @@ void main() {
           variant: WorkerCardVariant.row,
         ),
         logical: const Size(392, 300));
+  });
+
+  testWidgets('a max-only contractor with no years still shows his price',
+      (tester) async {
+    // The regression, and it is the whole defect: the outer gate decided
+    // whether this tag row was built at all, and it asked
+    // `years > 0 || min != null`. With `min` empty and no years, it said no,
+    // so a real, current, typed price was nowhere on the browse card — while
+    // the profile page, gated the other way, showed it. Two surfaces of one
+    // man, disagreeing, for a day.
+    final card = WorkerCard(
+        worker: WorkerProfile.fromJson(_maxOnly()),
+        variant: WorkerCardVariant.row,
+      );
+    await tester.pumpWidget(MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light,
+      locale: const Locale('ar'),
+      home: Scaffold(body: card),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('9000'), findsOneWidget,
+        reason: 'a typed maximum must be on the row he is chosen from');
+    // And the gate is not merely true by accident of the years arm: the
+    // fixture has none, which is asserted here rather than in a comment.
+    final w = WorkerProfile.fromJson(_maxOnly());
+    expect(w.experienceYears, 0);
+    expect(hasPriceRange(w.priceRangeMin, w.priceRangeMax), isTrue);
+    expect(find.textContaining('سنوات خبرة'), findsNothing);
+  });
+
+  testWidgets('a contractor with neither a price nor years has no tag row',
+      (tester) async {
+    // The other direction, and the reason the gate is not simply `true`: an
+    // empty Wrap is a hole with padding in it. Zero on both price columns is
+    // reachable from our own form (see price_range_zero_test.dart), so this
+    // row must come out clean rather than holding an 8px gap.
+    final empty = {
+      ..._maxOnly(),
+      'full_name': 'مقاول جديد',
+      'price_range_min': 0,
+      'price_range_max': 0,
+    };
+    final card = WorkerCard(
+        worker: WorkerProfile.fromJson(empty),
+        variant: WorkerCardVariant.row,
+      );
+    await tester.pumpWidget(MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light,
+      locale: const Locale('ar'),
+      home: Scaffold(body: card),
+    ));
+    await tester.pumpAndSettle();
+    // No money on the row at all: not the tag, not the number, not the unit.
+    expect(find.textContaining('9000'), findsNothing);
+    expect(find.textContaining('دج'), findsNothing);
+    expect(find.textContaining('خبرة'), findsNothing);
   });
 
   testWidgets('the collapsed card is not painted as a band with itself',

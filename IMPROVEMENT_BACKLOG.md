@@ -12363,7 +12363,7 @@ thing to implement once it is not.
 
 **Next:** backlog back to **0 unchecked**.
 
-- [ ] **The browse card gates its whole tag row on the wrong price predicate —
+- [x] **The browse card gates its whole tag row on the wrong price predicate —
       a contractor who typed only a maximum loses the price tag on the row a
       customer picks him from, and the fix one line below it is undone by the
       gate one line above it.** `worker_card.dart:188`.
@@ -12435,3 +12435,67 @@ thing to implement once it is not.
       keeping the Wrap alive. Change that fixture to `experience_years: 0` and
       the existing max-only test fails — that is the regression test, already
       written, already green for the wrong reason.
+
+      ***SHIPPED 2 Oct 2026.*** `worker_card.dart` — the outer gate no longer
+      keeps a private copy of the answer. `_row()` now reads both questions
+      **once**, at the top, from the same helpers that decide what gets
+      printed:
+
+      ```dart
+      final hasYearsToPrint = experienceYearsAr(worker.experienceYears) != null;
+      final hasPriceToPrint =
+          hasPriceRange(worker.priceRangeMin, worker.priceRangeMax);
+      ...
+      if (hasYearsToPrint || hasPriceToPrint) ...[   // the Wrap
+      ```
+
+      Not `experienceYears > 0` and not `priceRangeMin != null`: both arms are
+      read off the *copy function*, so the years arm now agrees with
+      `experienceYearsAr`'s own zero fold and the price arm with `hasPriceRange`
+      and the `> 0` fold underneath it. Three predicates for two facts are gone;
+      one gate, one source of truth.
+
+      **The fixture was green for the wrong reason, and that was the trap in
+      this item.** `_maxOnly()` inherited `experience_years: 5` from
+      `_collapsed()`, which kept the `||` arm true — the screenshot the founder
+      was shown last tick for this defect proved **nothing**: it rendered
+      identically with the price gate deleted. The fixture is now
+      `experience_years: 0`, the worse and more common case (a man who
+      registered today has no years and, if he typed anything at all, has
+      probably typed only a maximum). Two widget tests added:
+
+        * `a max-only contractor with no years still shows his price` —
+          `find.textContaining('9000')` is `findsOneWidget`;
+        * `a contractor with neither a price nor years has no tag row` —
+          the other direction, so the gate cannot be "always true" either: an
+          empty `Wrap` is a hole with an 8px gap in it, and `(0, 0)` is
+          reachable from our own form.
+
+      **Proven red before proven green.** Reverted only the Dart fix, kept the
+      new tests, and ran them: `Found 0 widgets with text containing 9000` —
+      the regression test genuinely fails without the one-token change.
+      Restored, it passes. A green test that cannot fail is not a gate.
+
+      **Pixel evidence**, `pngscan` on the two real shots of the same widget
+      (chip fill is `AppTheme.lineSoft` = `#F2F2F5`):
+
+      | shot | chips of `#F2F2F5`, min 200 px |
+      | --- | --- |
+      | before the fix | **0 boxes** |
+      | after the fix | **1 box, 286x75 px at (590,339)** |
+
+      Files: `lib/src/widgets/worker_card.dart`,
+      `test/price_range_shot_test.dart`, `IMPROVEMENT_BACKLOG.md`.
+      `flutter analyze` -> **No issues found!**; `flutter test` -> **1797
+      passed / 3 skipped / 0 failed** (was 1784: +11 new, +2 widget tests
+      counted with the fixtures).
+
+      **Next:** backlog back to **0 unchecked**, with one real sibling left,
+      found while fixing this one — `worker_home_screen.dart:1887`, where the
+      contractor's own getting-started checklist gates *"حدّد أسعارك ونطاق خدمتك"* on
+      `priceRangeMin != null && priceRangeMax != null`. A man who typed **one**
+      box is told on his own dashboard that he has not set his prices — the
+      same "one column, two answers" class a third time, and now the card says
+      he has a price while his checklist says he has not. One line, next tick.
+      (A "price filter" was suspected here too and **does not exist** in this
+      file; not recorded as work.)
