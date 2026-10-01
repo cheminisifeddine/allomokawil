@@ -21,14 +21,28 @@ import 'locator.dart';
 /// The value lives here rather than in each screen because two tabs asking for
 /// the same fix would be two permission dialogs and two GPS reads.
 class PlaceState extends ChangeNotifier {
-  PlaceState() : _detached = false;
+  /// The detector, injectable for tests — the same convention as the screens'
+  /// `clock` and [AuthState]'s outbox.
+  ///
+  /// Defaults to the real [Locator.detect], which is a GPS fix plus a platform
+  /// permission prompt: neither exists in a widget test, and the branch this
+  /// class exists to get right is the failure arm, so a test has to be able to
+  /// hand it each of the four failures on purpose.
+  final Future<DetectedPlace> Function() detect;
+
+  PlaceState({Future<DetectedPlace> Function()? detect})
+      : _detached = false,
+        detect = detect ?? Locator.detect;
 
   /// A store with no storage behind it.
   ///
   /// Widget tests and any tree pumped without an [AppScope] get the same API
   /// without touching a platform channel, which is also why every method here
   /// tolerates a failure instead of throwing.
-  PlaceState.detached() : _detached = true;
+  PlaceState.detached() : _detached = true, detect = _neverDetect;
+
+  static Future<DetectedPlace> _neverDetect() async =>
+      throw StateError('a detached PlaceState has no detector');
 
   static const _key = 'place.v1';
   static const _askedKey = 'place.asked.v1';
@@ -39,6 +53,16 @@ class PlaceState extends ChangeNotifier {
   DetectedPlace? _place;
   bool _asked = false;
   bool _busy = false;
+
+  /// The last failure the app can name a cure for, if the last attempt failed
+  /// for a reason the user can act on.
+  ///
+  /// Null after a success and null after a refusal, because neither of those has
+  /// anything to report — a refusal is an answer. A [LocationFailure] with
+  /// `opensSettings` set lands here, so a screen that wants to offer the system
+  /// Settings can, and one that only wants to know "did it work" is not obliged
+  /// to read a sentence.
+  LocationFailure? lastFailure;
 
   /// The last fix, or null while nothing is known.
   DetectedPlace? get place => _place;
@@ -113,16 +137,39 @@ class PlaceState extends ChangeNotifier {
       return true;
     }
     _busy = true;
+    lastFailure = null;
     notifyListeners();
     try {
-      _place = await Locator.detect();
+      _place = await detect();
       await _save();
       await _markAsked();
       return true;
+    } on LocationFailure catch (failure) {
+      // Only a real refusal spends the one-shot.
+      //
+      // This arm used to be `catch (_)` and to mark the question asked for every
+      // failure alike, which quietly contradicted `Locator.detect`'s own doc: it
+      // throws four ways and only one of them is a decision the user made. A
+      // phone with the location toggle off, or one whose permission was blocked
+      // in Settings, or one indoors with no fix — none of those is a refusal,
+      // and none of them is answerable by never asking again. Marking them asked
+      // made `PlaceWarmup`'s `if (!place.asked)` false for the rest of the
+      // install (the flag is persisted), so the founder's brief — «ask for gps
+      // fird thing when the user open the app» — could never run again even after
+      // the user fixed the setting that blocked it. The three now keep the
+      // question, and say what to do about it.
+      if (!failure.userRefused) {
+        lastFailure = failure;
+      }
+      // A refusal is recorded so the dialog never comes back unprompted. So is
+      // a successful detection (the branch above). Nothing else is recorded,
+      // because "not asked" is exactly what lets the next launch try again.
+      if (failure.userRefused) await _markAsked();
+      return false;
     } catch (_) {
-      // The refusal is the user's; it is not an error to report. Only the
-      // attempt is recorded, so the dialog never comes back unprompted.
-      await _markAsked();
+      // Anything outside [Locator.detect]'s own vocabulary — a platform channel
+      // throwing something it was never asked for. Also not a refusal, and also
+      // not worth spending the question on.
       return false;
     } finally {
       _busy = false;
@@ -144,6 +191,7 @@ class PlaceState extends ChangeNotifier {
 
   /// Forgets the fix — used when a user says the detected wilaya is wrong.
   Future<void> clear() async {
+    lastFailure = null;
     if (_place == null) return;
     _place = null;
     notifyListeners();

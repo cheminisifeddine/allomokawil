@@ -39,7 +39,23 @@ class LocationFailure implements Exception {
   /// button that opens them.
   final bool opensSettings;
 
-  const LocationFailure(this.messageAr, {this.opensSettings = false});
+  /// True when the user was asked and said no — the only failure that ends the
+  /// story.
+  ///
+  /// [Locator.detect] can fail four ways and exactly one of them is a decision
+  /// the user made: a permission prompt they dismissed. The other three are the
+  /// phone's state — the location toggle off, a permission blocked in Settings
+  /// from an *earlier* prompt, or no fix indoors — and every one of those is
+  /// cured by changing something and coming back. A caller that treats them as
+  /// refusals burns its one-shot on a question the user never refused, so this
+  /// flag is what separates "asked and declined" from "told us nothing".
+  final bool userRefused;
+
+  const LocationFailure(
+    this.messageAr, {
+    this.opensSettings = false,
+    this.userRefused = false,
+  });
 
   @override
   String toString() => 'LocationFailure($messageAr)';
@@ -68,14 +84,20 @@ class Locator {
       permission = await Geolocator.requestPermission();
     }
     if (permission == LocationPermission.deniedForever) {
+      // `deniedForever` is NOT a refusal of this launch's prompt: the phone
+      // never shows one, so it was answered somewhere the user cannot see from
+      // here — in the system Settings. Cured by unblocking and coming back.
       throw const LocationFailure(
         'الوصول إلى الموقع ممنوع لهذا التطبيق. اسمح به من الإعدادات ثم أعد المحاولة.',
         opensSettings: true,
       );
     }
     if (permission == LocationPermission.denied) {
+      // The one genuine refusal: the prompt was shown and dismissed. This is
+      // the only failure that spends the app's single question.
       throw const LocationFailure(
         'لم تسمح بالوصول إلى موقعك. يمكنك اختيار الولاية يدوياً.',
+        userRefused: true,
       );
     }
 
