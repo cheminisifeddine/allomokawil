@@ -125,7 +125,17 @@ void main() {
     }
     // Normalisation helpers in core/text are allowed to answer '' too; they
     // are not copy and are never drawn.
-    const notCopy = {'normalize', 'fold', 'digits'};
+    //
+    // `_wireText` (plan.dart, added 1 Oct 2026) earns its place here for the
+    // same reason `normalize` does: it is a wire reader, not copy. It answers
+    // '' for an absent id so an id column never prints the literal «null» — and
+    // nothing draws it directly. The one place an id reaches a label, `labelAr`,
+    // goes through `_text` and then falls back to this, and `PaymentOptions`
+    // drops any method whose id comes back empty precisely so that fallback can
+    // never produce a nameless pay button. That chain is pinned in
+    // `billing_json_shape_test.dart`, so an empty answer here is not copy
+    // reaching a `Text()`.
+    const notCopy = {'normalize', 'fold', 'digits', '_wireText'};
     final missing = declared.difference(_emptyReturning).difference(notCopy);
     expect(missing, isEmpty,
         reason: 'a copy function can now answer "" and this guard has never '

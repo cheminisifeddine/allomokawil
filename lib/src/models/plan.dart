@@ -96,7 +96,7 @@ class Plan {
         id: '${json['id']}',
         nameAr: '${json['name_ar'] ?? json['id']}',
         nameFr: '${json['name_fr'] ?? ''}',
-        taglineAr: json['tagline_ar'] as String?,
+        taglineAr: _text(json['tagline_ar']),
         priceMonth: _int(json['price_month']),
         priceYear: _int(json['price_year']),
         quoteLimit: json['quote_limit'] == null ? 3 : _int(json['quote_limit']),
@@ -104,7 +104,7 @@ class Plan {
         searchBoost: _int(json['search_boost']),
         wilayaSpan: json['wilaya_span'] == null ? 1 : _int(json['wilaya_span']),
         features: [
-          for (final f in (json['features'] as List? ?? const [])) '$f',
+          for (final f in _list(json['features'])) '$f',
         ],
       );
 }
@@ -290,8 +290,12 @@ class SubscriptionStatus {
         plan: '${json['plan'] ?? 'free_trial'}',
         nameAr: '${json['name_ar'] ?? ''}',
         status: '${json['status'] ?? 'active'}',
-        startsAt: json['starts_at'] as String?,
-        expiresAt: json['expires_at'] as String?,
+        // An epoch integer is a shape D1 can perfectly well answer with, and
+        // `expires_at` is the field the renewal card is built from. Read as
+        // null, it degrades to "no end date to print" — which is true of a
+        // date the app cannot read — rather than taking the screen down.
+        startsAt: _text(json['starts_at']),
+        expiresAt: _text(json['expires_at']),
         quoteLimit: json['quote_limit'] == null ? 3 : _int(json['quote_limit']),
         portfolioLimit: _int(json['portfolio_limit']),
         quotesUsedThisMonth: _int(json['quotes_used_this_month']),
@@ -369,11 +373,21 @@ class PaymentMethod {
   final String? instructions;
 
   factory PaymentMethod.fromJson(Map<String, dynamic> json) => PaymentMethod(
-        id: '${json['id']}',
-        labelAr: '${json['label_ar'] ?? json['id']}',
-        instructions: (json['instructions'] as String?)?.trim().isEmpty ?? true
-            ? null
-            : (json['instructions'] as String).trim(),
+        // Read, not cast. A nullable cast throws a TypeError on anything that
+        // is not a String, and every one of these three fields is one the
+        // payload may legitimately re-type: a CCP number is the obvious one,
+        // because a number is the obvious way to send one. The cost of the cast
+        // is the whole subscription screen, not the account number.
+        //
+        // The id was `'${json['id']}'`, which prints the literal «null» for an
+        // absent id — and that string is what the write path POSTs back as the
+        // payment method. `_wireText` keeps it empty instead.
+        id: _wireText(json['id']),
+        // `_text` and not `_wireText` on the left: the label is *copy*, and an
+        // absent one must fall back to the id. `_wireText` returns '' rather
+        // than null, so `?? _wireText(json['id'])` beside it would never fire.
+        labelAr: _text(json['label_ar']) ?? _wireText(json['id']),
+        instructions: _text(json['instructions']),
       );
 }
 
@@ -401,11 +415,24 @@ class PaymentOptions {
   factory PaymentOptions.fromJson(Map<String, dynamic>? json) {
     final raw = json ?? const <String, dynamic>{};
     return PaymentOptions(
+      // `m as Map` took the whole sheet down when one entry was not a map. A
+      // malformed row now costs that row alone: the list comprehension skips
+      // what it cannot read, so the methods the operator did publish are still
+      // on screen and still payable.
+      // A row that is not a map is a payload we cannot read, so that row is
+      // skipped and the methods the operator did publish stay on screen — the
+      // malformed one used to take the whole sheet with it.
+      //
+      // An id that is empty is skipped for a different reason: `labelAr`
+      // falls back to the id, so a row with neither leaves the sheet offering
+      // a pay button labelled with **nothing**, and posting that row sends an
+      // empty `method` to the server. A payment option the app cannot name is
+      // not a payment option.
       methods: [
-        for (final m in (raw['methods'] as List? ?? const []))
-          PaymentMethod.fromJson(Map<String, dynamic>.from(m as Map)),
+        for (final m in _list(raw['methods']))
+          if (_payable(m)) PaymentMethod.fromJson(Map<String, dynamic>.from(m)),
       ],
-      supportPhone: raw['support_phone'] as String?,
+      supportPhone: _text(raw['support_phone']),
     );
   }
 }
@@ -534,11 +561,11 @@ class BillingCatalogue {
 
   factory BillingCatalogue.fromJson(Map<String, dynamic> json) {
     final plans = [
-      for (final p in (json['plans'] as List? ?? const []))
-        Plan.fromJson(Map<String, dynamic>.from(p as Map)),
+      for (final p in _list(json['plans']))
+        if (p is Map) Plan.fromJson(Map<String, dynamic>.from(p)),
     ];
     final current = Map<String, dynamic>.from(
-        (json['current'] as Map?) ?? const <String, dynamic>{});
+        json['current'] is Map ? json['current'] as Map : const {});
     final pending = json['pending_request'];
     return BillingCatalogue(
       currency: '${json['currency'] ?? 'DZD'}',
@@ -552,7 +579,8 @@ class BillingCatalogue {
       pendingRequest: pending is Map
           ? PendingRequest.fromJson(Map<String, dynamic>.from(pending))
           : null,
-      payment: PaymentOptions.fromJson(json['payment'] as Map<String, dynamic>?),
+      payment: PaymentOptions.fromJson(
+          json['payment'] is Map ? json['payment'] as Map<String, dynamic> : null),
     );
   }
 }
@@ -567,8 +595,8 @@ class PlanCatalogue {
 
   factory PlanCatalogue.fromJson(Map<String, dynamic> json) => PlanCatalogue(
         plans: [
-          for (final p in (json['plans'] as List? ?? const []))
-            Plan.fromJson(Map<String, dynamic>.from(p as Map)),
+          for (final p in _list(json['plans']))
+            if (p is Map) Plan.fromJson(Map<String, dynamic>.from(p)),
         ],
         noteAr: '${json['note_ar'] ?? ''}',
       );
@@ -599,6 +627,45 @@ String? _text(Object? value) {
   final v = value.trim();
   return v.isEmpty ? null : v;
 }
+
+/// A wire id as text, for a column the API is obliged to send.
+///
+/// [json['id']`'${}'`] prints the literal «null» for an absent id and throws
+/// for nothing, because interpolation accepts any object. But an id is a
+/// *key*, not prose: the write path POSTs it back, `labelFor` compares against
+/// it, and «null» is neither the operator's id nor an id at all — it is a
+/// string that will be sent to the server as though a man had chosen it.
+///
+/// So the value is read as a string and anything else is flattened by its own
+/// text, which is exactly what interpolation did, minus the null. `null` and an
+/// absent key both give ''.
+String _wireText(Object? value) {
+  if (value == null) return '';
+  if (value is String) return value;
+  return '$value';
+}
+
+/// Whether a `methods` entry is a payment row worth drawing.
+///
+/// Two rejections, each for a reason the sheet would otherwise show. An entry
+/// that is not a map is unreadable — it used to throw and take the whole sheet
+/// with it. An entry with no id is nameless: `labelAr` falls back to that id, so
+/// the button would carry an empty label and the write would POST an empty
+/// `method`. Neither is a payment option the app can offer.
+bool _payable(Object? entry) {
+  if (entry is! Map) return false;
+  return _wireText(entry['id']).trim().isNotEmpty;
+}
+
+/// The entries of a JSON list, or nothing when the field is absent or is not a
+/// list.
+///
+/// `json['x'] as List?` is safe against a missing key and unsafe against a
+/// string — and D1 answering `"methods": "baridimob"` costs the app the payment
+/// sheet rather than one bad row. This is the same "?" the cast was reaching
+/// for, written so the wrong type returns empty instead of throwing.
+Iterable<dynamic> _list(Object? value) =>
+    value is List ? value : const <dynamic>[];
 
 int _int(Object? value) {
   if (value is int) return value;
