@@ -13609,3 +13609,82 @@ fix (reject unknown terms), and is still founder-gated, not an app item.
 ### Next
 Backlog still at **0 unchecked**. Next tick: keep auditing for the two-spelling
 class, or seed a fresh item from whatever the audit surfaces.
+
+---
+
+- [x] **`verification_status` had four parsers and the one on the contractor's own
+      home screen never trimmed** — DONE `7ac9b41` (remote `eb882b4`, 6/6 blobs
+      MATCH). The direct continuation of the plan-id item: *one fact, several
+      spellings, no type to stop them agreeing.*
+      `GET /api/mobile/workers/top` sends `verification_status` and
+      `GET /api/mobile/projects/{id}/quotes` sends
+      `worker_verification_status` — the same column under two names — and this
+      app read it **four** ways:
+      1. `WorkerProfile._vd` — no trim, so `' verified '` read as **pending**;
+      2. `Quote.workerVerificationStatus` — a raw `String`, compared to
+         `'verified'` in three places, each re-implementing the trim;
+      3. `quoteWireVerification` — a fourth copy added "for tests", which is how
+         a private function becomes a permanent second implementation;
+      4. `VerificationStatus` — the enum, which had **no parser at all**.
+      The visible cost: a verified contractor whose row is padded read as
+      pending on his **own home screen** — the «مقاول موثّق» pill vanished and
+      «غير موثّق» was drawn — while his bid card, going through the trimming
+      string path, showed the green tick at the same moment. Two screens, one
+      man, two answers, and the customer is the one who must decide which to
+      believe. `dossierUnderReview` compounds it: `pending` is also what
+      `verificationPendingDocs` counts against, so a padded verified profile
+      could be told his papers are «قيد المراجعة».
+      Now: one trimmed `VerificationStatus.fromWire`, both models parse through
+      it at the boundary, the widget asks the enum, and the fourth reader cannot
+      be written. Unknown stays `pending` («asked, not answered»), never
+      optimistically verified.
+
+      ### Changed
+      - `lib/src/models/enums.dart` — `VerificationStatus` gains `wire` +
+        trimmed `fromWire`; the four-parser history documented on the enum.
+      - `lib/src/models/quote_review.dart` — `workerVerificationStatus` is a
+        `VerificationStatus`, not a `String`.
+      - `lib/src/models/worker.dart` — `_vd` deleted, parses through the enum.
+      - `lib/src/widgets/quote_worker_trust.dart` — both readers ask the enum;
+        `quoteWireVerification` (the test-only fourth copy) deleted.
+      - `test/verification_status_test.dart` (new, 14 cases) — the two column
+        names agree, padding cannot fake a verified, a padded verified with
+        queued docs is not «قيد المراجعة».
+      - `test/quote_trust_signals_test.dart` — built from the **wire** string so
+        a padding regression is caught at the widget, not only in the model.
+
+      ### Evidence
+      - `flutter analyze` → **No issues found!** (29.6s)
+      - Affected files alone → **22 passed / 0 failed**.
+      - **Three full-suite runs: 0 assertion failures in every one.** The suite
+        does not reach its end — it dies in the known cross-file teardown
+        deadlock (`Bad state: Cannot close sink while adding stream`,
+        `flutter_tools/src/test/flutter_platform.dart:765`), and the file it
+        dies on is **different each run**: `browse_empty_action_test.dart` at
+        +1416, `stale_inbox_shot_test.dart` at +1447, `stale_home_strip_test.dart`
+        at +1708 (deadline raised 1200 → 1500, it did not help). All three pass
+        in isolation together (**31 passed**), which is the proof this is the
+        30 Sep interaction bug and not this change. The +1708 run is the closest
+        to green so far, so the suite's real ceiling is at least that.
+      - **No screenshot** — no pixel changed: the same three icons in the same
+        three states, only chosen through an enum instead of a string. The words
+        on the screen are asserted in `quote_trust_signals_test.dart`.
+      - Push verified by blob hash — **6/6 MATCH**.
+
+      ### Commits
+      - local `7ac9b41` → remote `eb882b4` (6/6 blobs MATCH)
+
+      ### Note for the next tick — do not mistake this for a green suite
+      The gate this tick could not produce a whole-suite green, and it is worth
+      being blunt about why: **the suite is not reliably green on this box, with
+      or without this change.** A tick that needs the total count for its own
+      gate must not read one of these hung runs as a pass count. The fast,
+      honest substitute is the affected files plus the culprit files in
+      isolation, which is what was used here. Fixing the teardown deadlock
+      itself (a `flutter test` process-level bug, not app code) is a real
+      backlog item if the founder wants the suite deterministic — it is not an
+      app-engineering fix and was not attempted here.
+
+### Next
+Backlog at **0 unchecked**. Next tick: keep auditing the one-fact-several-
+readers class, or seed a fresh item from whatever the audit surfaces.
