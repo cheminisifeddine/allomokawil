@@ -79,7 +79,8 @@ http.Response _json(Object body) => http.Response(
 /// Boots a signed-in client whose `/reviews` answers [rows], in **exactly the
 /// order given** — deliberately unsorted, which is what the Worker does and
 /// what the screen used to draw verbatim.
-Future<({ApiClient api, AuthState auth})> _boot(List<Object> rows) async {
+Future<({ApiClient api, AuthState auth})> _boot(List<Object> rows,
+    {bool unrated = false}) async {
   SharedPreferences.setMockInitialValues({});
   final api = ApiClient(
     baseUrls: ['https://x.test'],
@@ -104,7 +105,11 @@ Future<({ApiClient api, AuthState auth})> _boot(List<Object> rows) async {
       if (p.endsWith('/api/unread')) return _json(0);
       if (p.endsWith('/portfolio')) return _json(<Object>[]);
       if (p.endsWith('/reviews')) return _json(rows);
-      if (p == '/api/mobile/workers/16') return _json(_worker);
+      if (p == '/api/mobile/workers/16') {
+        return _json(unrated
+            ? <String, Object?>{..._worker, 'avg_rating': 0, 'total_reviews': 0}
+            : _worker);
+      }
       return _json(<Object>[]);
     }),
   );
@@ -296,7 +301,16 @@ void main() {
     testWidgets('a genuinely empty list still says so', (tester) async {
       // The date must not make the empty state look like a failure, and must
       // not make «لا تقييمات بعد» appear over reviews that exist.
-      await _pump(tester, await _boot(<Object>[]), DateTime.utc(2026, 9, 11, 21, 0).toLocal());
+      //
+      // **The profile is unrated for this case, and has to be.** `_worker`
+      // carries `avg_rating: 4.8, total_reviews: 2`, so this fixture paired a
+      // contractor rated twice with an empty list — the contradiction
+      // `reviews_section_copy.dart` exists for. It passed on the old screen
+      // because the screen drew the lie; the screen is right and the fixture
+      // was not.
+      await _pump(tester,
+          await _boot(<Object>[], unrated: true),
+          DateTime.utc(2026, 9, 11, 21, 0).toLocal());
       expect(find.byKey(const Key('profile-reviews-empty')), findsOneWidget);
       expect(find.byKey(const Key('review-when')), findsNothing);
     });

@@ -8,6 +8,7 @@ import '../../data/repository.dart';
 import '../../data/review_order.dart';
 import '../../data/taxonomy.dart';
 import '../../data/worker_stats_copy.dart';
+import '../../data/reviews_section_copy.dart';
 import '../../models/enums.dart';
 import '../../models/quote_review.dart';
 import '../../models/worker.dart';
@@ -205,6 +206,11 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
         const SectionTitle('التقييمات', icon: Icons.star_rounded),
         _ReviewsSection(
           reviews: _reviews,
+          // The aggregate the header already printed above this section. Two
+          // reads of one fact, and this is what lets the section notice when
+          // they disagree instead of asserting the opposite of the row the
+          // customer just read — see `reviews_section_copy.dart`.
+          headerReviewCount: w.totalReviews,
           onContact: () => _openChat(w),
           onRetry: _retryReviews,
           clock: widget.clock,
@@ -599,6 +605,12 @@ class _PortfolioTile extends StatelessWidget {
 class _ReviewsSection extends StatelessWidget {
   final Future<List<Review>> reviews;
 
+  /// The review count the profile header drew beside the stars.
+  ///
+  /// Only used to detect a contradiction; never to print a score the section
+  /// cannot show. See [reviewsSectionUnbackedAr].
+  final int headerReviewCount;
+
   /// Who can write the first review here? Not the visitor. The review is
   /// written *after* a job is completed, so the only action that leads there is
   /// starting the conversation — the same row idiom the account screen uses,
@@ -614,6 +626,7 @@ class _ReviewsSection extends StatelessWidget {
 
   const _ReviewsSection({
     required this.reviews,
+    required this.headerReviewCount,
     required this.onContact,
     required this.onRetry,
     this.clock,
@@ -673,10 +686,55 @@ class _ReviewsSection extends StatelessWidget {
         // page with dates on it read «قبل 3 أشهر» above «الآن».
         final list = newestReviewFirst(snap.data ?? const <Review>[]);
         if (list.isEmpty) {
+          // The header may already have told this customer the opposite. The
+          // aggregate (`/workers/:id`) and the list (`/workers/:id/reviews`)
+          // are two reads of one fact and the live API returns both, both 200,
+          // disagreeing — `عمر بن علي` is 4.8 over 24 reviews there and the
+          // reviews endpoint answers `[]`. Drawing «لا تقييمات بعد» over that
+          // is not a smaller version of the 500 lie the arm above exists to
+          // prevent; it is the same lie with a success status code.
+          //
+          // So the contradiction gets its own arm, and it is the one case this
+          // section must not resolve on its own: which read is stale is not
+          // knowable from here, and a guess in either direction is a claim
+          // about a man's reputation.
+          final unbacked = reviewsSectionUnbackedAr(
+              headerCount: headerReviewCount);
+          if (unbacked != null) {
+            return AppCard(
+              key: const Key('profile-reviews-unbacked'),
+              child: Row(
+                children: [
+                  const IconBubble(
+                      icon: Icons.cloud_off_rounded,
+                      tint: AppTheme.danger,
+                      wash: AppTheme.dangerWash,
+                      size: 42),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(reviewsSectionUnbackedTitle,
+                            style: AppTheme.bodySoft),
+                        const SizedBox(height: 3),
+                        Text(unbacked, style: AppTheme.caption),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          // The title is read from `noRatingAr()` rather than typed here, and
+          // that is why this card is no longer `const`: a const widget cannot
+          // hold a value it has to ask a function for. One line of the tree is
+          // no longer known at compile time, and in exchange this sentence
+          // cannot be edited in `worker_stats_copy.dart` and left stale here.
           return AppCard(
             key: const Key('profile-reviews-empty'),
             onTap: onContact,
-            child: const Row(
+            child: Row(
               children: [
                 IconBubble(
                     icon: Icons.rate_review_rounded,
@@ -688,7 +746,7 @@ class _ReviewsSection extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('لا تقييمات بعد', style: AppTheme.bodySoft),
+                      Text(reviewsSectionEmptyTitle, style: AppTheme.bodySoft),
                       SizedBox(height: 3),
                       Text('التقييم يُكتب بعد إنجاز العمل — ابدأ بالتواصل معه.',
                           style: AppTheme.caption),

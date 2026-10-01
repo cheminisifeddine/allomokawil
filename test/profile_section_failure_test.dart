@@ -385,14 +385,31 @@ void main() {
   // ── A genuinely empty review list still says it ─────────────────────────
   testWidgets('a genuinely empty review list still says no reviews',
       (tester) async {
+    // **The header has to agree for this to be the honest empty state.**
+    // `_worker` carries `avg_rating: 4.8, total_reviews: 2`, so pairing it
+    // with an empty list is the contradiction `reviews_section_copy.dart`
+    // exists for — the screen now refuses to say «لا تقييمات بعد» over it,
+    // which is correct. This test means "he has no reviews", so the profile it
+    // loads has to mean that too.
+    //
+    // It asserted `findsOneWidget` on the old screen because the screen drew
+    // the contradiction: a man rated twice, described as never rated. The test
+    // passed by pinning the defect.
     final s = await _boot(
         portfolio: () => _json(['https://cdn.test/a.jpg']),
-        reviews: () => _json(<Object>[]));
+        reviews: () => _json(<Object>[]),
+        profile: () => _json(<String, Object?>{
+              ..._worker,
+              'avg_rating': 0,
+              'total_reviews': 0,
+            }));
     await _pump(
         tester, WorkerProfileScreen(workerId: 16), s.api, s.auth);
 
     expect(find.byKey(const Key('profile-reviews-empty')), findsOneWidget);
-    expect(find.text('لا تقييمات بعد'), findsOneWidget);
+    expect(find.text('لا تقييمات بعد'), findsNWidgets(2),
+        reason: 'header pill and empty section say the same thing — the '
+            'duplicate is the agreement, not a defect');
     expect(find.byKey(const Key('profile-reviews-error')), findsNothing);
   });
 
