@@ -10,6 +10,7 @@ import '../../data/quote_duration_copy.dart';
 import '../../data/quote_status_copy.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
+import '../../data/urgency_copy.dart';
 import '../../data/worker_stats_copy.dart';
 import '../../models/enums.dart';
 import '../../models/project.dart';
@@ -419,7 +420,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                               InfoRow(
                                 icon: Icons.schedule_rounded,
                                 label: 'الاستعجال',
-                                value: _urgencyLabel(project.urgency),
+                                value: urgencyAr(project.urgency),
                                 color: AppTheme.info,
                               ),
                               const Divider(
@@ -542,19 +543,6 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     if (wilaya == null) return hasCommune ? commune : '—';
     if (!hasCommune) return wilaya;
     return '$wilaya — $commune';
-  }
-
-  String _urgencyLabel(UrgencyLevel u) {
-    switch (u) {
-      case UrgencyLevel.urgent:
-        return 'عاجل';
-      case UrgencyLevel.withinWeek:
-        return 'خلال أسبوع';
-      case UrgencyLevel.withinMonth:
-        return 'خلال شهر';
-      case UrgencyLevel.flexible:
-        return 'بدون استعجال';
-    }
   }
 
   /// Quote form. Same fields, same validation (>= 1000 DZD), same call.

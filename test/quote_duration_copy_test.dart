@@ -48,12 +48,18 @@ import 'package:allomokawil/src/core/network/api_client.dart';
 import 'package:allomokawil/src/core/security/auth_state.dart';
 import 'package:allomokawil/src/core/theme/app_theme.dart';
 import 'package:allomokawil/src/data/quote_duration_copy.dart';
+import 'package:allomokawil/src/data/urgency_copy.dart';
 import 'package:allomokawil/src/data/repository.dart';
+import 'package:allomokawil/src/models/project.dart' show UrgencyLevel;
 import 'package:allomokawil/src/screens/project/project_detail_screen.dart';
 
 /// The project the client is looking at. `customer_id: 30` matches the signed
 /// in session below, so the screen builds the owner half and the quote card
 /// with its own actions.
+/// The stored `urgency`, so one file can drive two unrelated rows on the same
+/// rendered screen — the quote's day count and the project's urgency.
+String urgencyWire = 'within_week';
+
 Map<String, dynamic> _project() => <String, dynamic>{
       'id': 'p-1',
       'customer_id': 30,
@@ -65,7 +71,7 @@ Map<String, dynamic> _project() => <String, dynamic>{
       'commune': 'حسين داي',
       'budget_min': 60000,
       'budget_max': 90000,
-      'urgency': 'within_week',
+      'urgency': urgencyWire,
       'status': 'open',
       'selected_worker_id': null,
       'created_at': '2026-09-26 08:00:00',
@@ -139,7 +145,8 @@ Future<({ApiClient api, AuthState auth})> _boot(int? days) async {
 }
 
 /// Renders the real screen and returns every string it printed.
-Future<List<String>> card(WidgetTester tester, int? days) async {
+Future<List<String>> card(WidgetTester tester, int? days, {String? urgency}) async {
+  urgencyWire = urgency ?? 'within_week';
   tester.view.physicalSize = const Size(1080, 2600);
   tester.view.devicePixelRatio = 2.75;
   addTearDown(tester.view.reset);
@@ -160,7 +167,14 @@ Future<List<String>> card(WidgetTester tester, int? days) async {
       theme: AppTheme.light,
       locale: const Locale('ar'),
       home: ProjectDetailScreen(
-        key: ValueKey<int?>(days),
+        // The key has to vary with the urgency as well as the day count, for
+        // the reason the comment below gives: the same widget type in the same
+        // tree slot reuses that State, and `initState` — where the project is
+        // fetched — does not run again. With the day count alone in the key,
+        // the second call of a loop kept the first call's *project* and this
+        // test read four stale urgencies. The key is not decoration; it is
+        // what makes the fetch happen.
+        key: ValueKey('$days-$urgencyWire'),
         projectId: 'p-1',
         repo: Repository(boot.api),
       ),
@@ -315,6 +329,37 @@ void main() {
           reason: 'the quote card never rendered: $texts');
       expect(texts.any((t) => t.contains('مدة الإنجاز')), isFalse,
           reason: '$texts');
+    });
+  });
+
+  // The sibling row on the same screen, read the same way.
+  //
+  // The urgency used to be named by a private `switch` in this file's own
+  // subject widget, and the publish screen named the same stored value
+  // differently — «عاجل» here against «عاجل جداً» there. A unit test of the
+  // shared copy proves the two now *read* one constant; it cannot prove this
+  // screen stopped carrying its own. So the row is read off the rendered tree,
+  // over the same fake payload and the same four levels the column accepts.
+  group('the urgency row names the level the client chose', () {
+    testWidgets('the strongest level reads «عاجل جداً», never «عاجل»',
+        (tester) async {
+      final texts = await card(tester, 3, urgency: 'urgent');
+      expect(texts.any((t) => t.contains('عاجل جداً')), isTrue,
+          reason: 'the row dropped the word the client asked for: $texts');
+      // The weaker word is a strict prefix, so this is the exact regression and
+      // not a near miss.
+      expect(texts.where((t) => t == 'عاجل'), isEmpty,
+          reason: 'the detail row named the level more weakly than the pill: '
+              '$texts');
+    });
+
+    testWidgets('every level reaches the screen with a name', (tester) async {
+      for (final wire in const ['flexible', 'within_week', 'within_month', 'urgent']) {
+        final texts = await card(tester, 3, urgency: wire);
+        expect(texts.any((t) => t.contains(urgencyAr(
+              UrgencyLevel.fromWire(wire)))), isTrue,
+            reason: '$wire printed no name: $texts');
+      }
     });
   });
 }

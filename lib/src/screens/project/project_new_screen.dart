@@ -17,6 +17,7 @@ import '../../data/project_edit_outcome.dart';
 import '../../core/location/locator.dart';
 import '../../data/repository.dart';
 import '../../data/taxonomy.dart';
+import '../../data/urgency_copy.dart';
 import '../../widgets/detect_location.dart';
 import '../../models/project.dart';
 import '../../widgets/category_grid.dart';
@@ -1354,11 +1355,15 @@ class _UrgencySelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const opts = <(UrgencyLevel, String, IconData)>[
-      (UrgencyLevel.flexible, 'بدون استعجال', Icons.event_available_rounded),
-      (UrgencyLevel.withinWeek, 'خلال أسبوع', Icons.date_range_rounded),
-      (UrgencyLevel.withinMonth, 'خلال شهر', Icons.calendar_month_rounded),
-      (UrgencyLevel.urgent, 'عاجل جداً', Icons.bolt_rounded),
+    // The label is [urgencyAr]'s word, not a second copy of it, and the icon is
+    // the only thing this table still owns. The pair (level, icon) cannot name
+    // a level the detail page has no word for, and cannot name it differently:
+    // both surfaces now read the same four constants.
+    const opts = <(UrgencyLevel, IconData)>[
+      (UrgencyLevel.flexible, Icons.event_available_rounded),
+      (UrgencyLevel.withinWeek, Icons.date_range_rounded),
+      (UrgencyLevel.withinMonth, Icons.calendar_month_rounded),
+      (UrgencyLevel.urgent, Icons.bolt_rounded),
     ];
     return Wrap(
       spacing: 9,
@@ -1366,10 +1371,10 @@ class _UrgencySelector extends StatelessWidget {
       children: [
         for (final o in opts)
           _UrgencyPill(
-            label: o.$2,
-            icon: o.$3,
+            label: urgencyAr(o.$1),
+            icon: o.$2,
             selected: selected == o.$1,
-            danger: o.$1 == UrgencyLevel.urgent,
+            danger: isUrgentLevel(o.$1),
             onTap: () => onChanged(o.$1),
           ),
       ],
