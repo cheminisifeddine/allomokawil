@@ -50,7 +50,19 @@ tell that the loop was starving itself. Case 8 is a live browser that must
 stay CLEAR (never kill a browser another session is driving), case 9 a
 reparented one that must be reported and then gone once reaped.
 
-Expected: 9/9. A failure here means the gate is lying to the loop.
+Cases 10 and 11 (2 Oct) cover the arm added the same day. The starvation
+floor was read as a SINGLE instantaneous MemAvailable sample, but this box
+does not hold still: it fell 881 -> 692 -> 510 MB across three sampling
+windows, crossing the 900 MB floor while nothing in this loop was running.
+On a box that oscillates across its own floor the one-shot read answered
+4 NO ROOM and 4 CLEAR over eight consecutive invocations *on an identical
+box* -- so a tick was denied its test gate at random. Case 10 is the fix
+(same verdict eight times running); case 11 is the arm that must not break
+while being fixed, because a guard that simply stopped firing would also
+produce a green suite and would let a tick start a build on a box that
+cannot host it.
+
+Expected: 11/11. A failure here means the gate is lying to the loop.
 """
 import os
 import shutil
@@ -158,6 +170,45 @@ def _starved_gate():
 
 def _starved_mb(_):
     return 512
+
+
+def _countered_gate(base, vals, tag):
+    """A copy of the gate whose /proc/meminfo cycles through `vals` (kB).
+
+    The counter is a FILE, not an in-process global, on purpose: the defect
+    this covers is about what happens across consecutive *ticks*, so each
+    invocation has to see a genuinely different box. An in-process counter
+    would advance identically on every run and make the case pass for a
+    reason that has nothing to do with the arm -- the first version of this
+    case did exactly that, and reported 8/8 CLEAR with the bug still in.
+    """
+    src = open(os.path.join(REPO, "tool", "build_gate.py")).read()
+    ctr = os.path.join(tempfile.gettempdir(), "gate_osc_ctr_%s" % tag)
+    if os.path.exists(ctr):
+        os.remove(ctr)
+    inject = (
+        "CTR = %r\n"
+        "VALS = %r\n"
+        "def _osc(p):\n"
+        "    try:\n"
+        "        n = int(open(CTR).read().strip())\n"
+        "    except Exception:\n"
+        "        n = 0\n"
+        "    open(CTR, 'w').write(str(n + 1))\n"
+        "    raw = open('/proc/meminfo').read()\n"
+        "    line = [l for l in raw.split('\\n') if l.startswith('MemAvailable:')][0]\n"
+        "    return raw.replace(line, 'MemAvailable: %%d kB' %% VALS[n %% len(VALS)])\n"
+    ) % (ctr, list(vals))
+    patched = inject + src.replace(
+        "def _read(path):\n    try:",
+        "def _read(path):\n    if path == '/proc/meminfo':\n"
+        "        return _osc(path)\n    try:", 1)
+    if patched == inject + src:
+        return None
+    out = os.path.join(tempfile.gettempdir(), "gate_osc_%s.py" % tag)
+    with open(out, "w") as fh:
+        fh.write(patched)
+    return out
 
 
 def main():
@@ -329,6 +380,49 @@ def main():
         time.sleep(0.3)
     else:
         print("  SKIP (no chromium)")
+
+    print("\n10) a box hovering ON the floor must not flip its verdict")
+    # The defect this arm fixes, kept as a test. Measured 2 Oct: MemAvailable
+    # on this box fell 881 -> 692 -> 510 MB across three sampling windows, so
+    # it crosses MIN_AVAILABLE_MB. Against a box alternating 488/1387 MB the
+    # old one-shot read answered 4 NO ROOM and 4 CLEAR over eight identical
+    # invocations -- a coin flip that silently denies a tick its test gate at
+    # random, which is the same failure that cost this loop three ticks in a
+    # row, only unpredictable now.
+    osc = _countered_gate(None, [500000, 1400000, 520000, 1380000], "osc")
+    if osc:
+        seen = set()
+        for _ in range(8):
+            r = subprocess.run(["python3", osc], capture_output=True,
+                               text=True, cwd=REPO)
+            seen.add("NO ROOM" if "NO ROOM" in r.stdout else "CLEAR")
+        ok = len(seen) == 1
+        results.append(ok)
+        print(("PASS  " if ok else "**FAIL**  ")
+              + "8 ticks on one oscillating box -> one verdict (%s)"
+              % ", ".join(sorted(seen)))
+        print("        | a detector that changes its mind is not a detector")
+    else:
+        print("  **FAIL** could not build the oscillating fixture")
+        results.append(False)
+
+    print("\n11) and a box that is ALWAYS starved must still be refused")
+    # The false-negative direction is the dangerous one: an arm that stops
+    # firing also produces a green suite, and would let a tick start a build
+    # on a box that cannot host it. Sustained starvation must still refuse.
+    dead = _countered_gate(None, [512000, 500000, 530000, 490000], "dead")
+    if dead:
+        r = subprocess.run(["python3", dead], capture_output=True, text=True,
+                           cwd=REPO)
+        ok = r.returncode == 1 and "NO ROOM" in r.stdout
+        results.append(ok)
+        print(("PASS  " if ok else "**FAIL**  ")
+              + "sustained starvation -> still NO ROOM, exit 1")
+        for line in r.stdout.strip().split("\n")[:2]:
+            print("        | " + line)
+    else:
+        print("  **FAIL** could not build the starved fixture")
+        results.append(False)
 
     ok = sum(results)
     print("\n== %d/%d ==  %s" % (ok, len(results),

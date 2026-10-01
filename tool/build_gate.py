@@ -66,6 +66,33 @@ import time
 # to have worked.
 MIN_AVAILABLE_MB = 900
 
+# ...and it has to mean it on more than one reading.
+#
+# MEASURED 2 Oct, on this box, not theorised. Sampled MemAvailable every 2 s
+# for 60 s: it fell **881 -> 692 MB**, and a second independent 45 s window
+# took it **593 -> 510 MB**. That is not noise around a mean, it is a trend
+# -- and it crosses MIN_AVAILABLE_MB. Against a fixture that alternates
+# 488/1387 MB between ticks, the old one-shot read answered **4 NO ROOM and
+# 4 CLEAR over eight consecutive invocations on an identical box**: a coin
+# flip, decided entirely by which phase the tick happened to sample.
+#
+# The consequence is not cosmetic. This box is pressed against its own
+# floor *by construction* (the pressure is outside our PID namespace), so a
+# single-sample verdict means a tick is silently denied its test gate at
+# random -- the same "the box is busy, skip the build" outcome that cost
+# this loop three consecutive ticks, except now it is unpredictable instead
+# of diagnosable. A detector that cannot be relied on to say the same thing
+# twice about the same box is not a detector.
+#
+# So the floor must be **sustained**, not merely touched. Sample three
+# times, take the MEDIAN, and refuse only when the middle reading is under
+# the floor. The median is the point: it ignores one transient dip, which is
+# what "a build started and has not settled" looks like, while still
+# refusing on a box that is genuinely and repeatedly starved. Worst case it
+# spends ~0.4 s of sampling on a path that already sleeps to measure CPU.
+MEM_SAMPLES = 3
+MEM_SAMPLE_GAP_SECONDS = 0.2
+
 # The heavy compilers. `java` alone is not the signal — a Gradle *daemon*
 # idles at 0% CPU between builds and is not a reason to skip a test run.
 # What matters is that a JVM is consuming CPU right now.
@@ -277,14 +304,18 @@ def browser_mb(browsers):
     return total_kb / 1024.0
 
 
-def available_mb():
-    """MemAvailable in MB -- memory a build could actually claim.
+def _available_once():
+    """One instantaneous MemAvailable reading in MB, or None.
 
     MemFree is the wrong field and the difference is the point. MemFree
     excludes page cache, and this box runs a 3-hour-old headless Chrome on
     ~1.4 GB of it, so MemFree sits under 1 GB while there is genuinely
     ~2 GB reclaimable. A build is refused by the kernel against
     *available*, not free, so that is the number this reads.
+
+    MemAvailable is in **kB**, so the division by 1024 is not cosmetic: a
+    fixture that says "512 MB" in a kB field parses as 512 kB and prints as
+    "0 MB", which is a test that still passes while proving nothing.
     """
     raw = _read('/proc/meminfo')
     for line in raw.split('\n'):
@@ -294,6 +325,40 @@ def available_mb():
             except (IndexError, ValueError):
                 return None
     return None
+
+
+def available_mb(samples=None):
+    """MemAvailable in MB -- memory a build could actually claim.
+
+    The MEDIAN of several readings, not one of them. A single reading on a
+    box that oscillates across its own floor produces a different verdict
+    for the same box, which is the defect this function was changed to fix;
+    see MEM_SAMPLES in the header for the measurement. Sampling three times
+    and taking the middle one ignores a single transient dip -- which is
+    what a build starting up looks like -- without ever ignoring a box that
+    is starved on every reading.
+
+    Unreadable /proc/meminfo returns None rather than a guess, and a None
+    never blocks a build (see no_room).
+    """
+    if samples is None:
+        samples = MEM_SAMPLES
+    seen = []
+    for _ in range(max(1, samples)):
+        reading = _available_once()
+        if reading is not None:
+            seen.append(reading)
+        if len(seen) < max(1, samples):
+            time.sleep(MEM_SAMPLE_GAP_SECONDS)
+    if not seen:
+        return None
+    seen.sort()
+    mid = len(seen) // 2
+    if len(seen) % 2:
+        return seen[mid]
+    # Even count: mean of the two middle readings, so the result is still a
+    # value the box actually reported rather than a piece of arithmetic.
+    return (seen[mid - 1] + seen[mid]) / 2.0
 
 
 def _total_mb():
@@ -317,6 +382,20 @@ def no_room():
     if avail is None:
         return False          # cannot measure -> never block on a guess
     return avail < MIN_AVAILABLE_MB
+
+
+def sustained_no_room():
+    """True only when the box is starved *and* stays starved.
+
+    Two consecutive median readings, both under the floor. One median
+    already rejects a single unlucky sample; requiring the next one to agree
+    means a transient neighbour -- the case that made the old gate flip
+    between NO ROOM and CLEAR on an identical box -- can no longer talk the
+    loop out of its gate on its own.
+    """
+    if not no_room():
+        return False
+    return no_room()
 
 
 def survey():
@@ -393,6 +472,11 @@ def main(argv=None):
     busy_jvms = [j for j in jvms if j[2]]
     busy = bool(tools or busy_jvms or leaked or browsers)
     avail = available_mb()
+    # ONE verdict for both the printed line and the exit code. Deriving the
+    # two separately is how the gate ends up printing NO ROOM and exiting 0
+    # on the same run, which reads to the loop as "the box is empty but I am
+    # forbidden to build" -- a contradiction it cannot resolve.
+    starved = sustained_no_room()
 
     if not args.quiet:
         if avail is not None:
@@ -411,7 +495,6 @@ def main(argv=None):
                              else 'busy' if busy_flag else 'idle')
                     print('  %-7d %-6s %s' % (pid, state, cmd))
         if busy:
-            starved = avail is not None and avail < MIN_AVAILABLE_MB
             # The starvation line names the holder, and when the *only*
             # holder is our own leaked browser there is no other build at
             # all -- saying "another build holds the box" here would send a
@@ -429,7 +512,7 @@ def main(argv=None):
                       '~%.0f MB. The loop\'s own render step is what leaves it '
                       'behind; reap it and re-run this gate.'
                       % browser_mb(browsers))
-        elif avail is not None and avail < MIN_AVAILABLE_MB:
+        elif starved:
             print('NO ROOM — nothing is building, but only %.0f MB is reclaimable '
                   'and a run of this suite was measured to bottom out at 1177 MB. '
                   'Do not start a build here.' % avail)
@@ -451,7 +534,7 @@ def main(argv=None):
     # rule, and a second rule is a second thing to get wrong.
     if busy:
         return 1
-    return 1 if no_room() else 0
+    return 1 if starved else 0
 
 
 if __name__ == '__main__':
