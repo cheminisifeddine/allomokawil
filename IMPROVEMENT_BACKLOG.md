@@ -13685,6 +13685,94 @@ class, or seed a fresh item from whatever the audit surfaces.
       backlog item if the founder wants the suite deterministic — it is not an
       app-engineering fix and was not attempted here.
 
+### Phase 5.6 — the plan id: four readers, two of them on the money screen
+
+- [x] **The plan id was compared raw in two places while three sibling
+      readers trimmed first.** Found 1 Oct 2026 with **0 unchecked items**,
+      by reading the family the previous item closed. `plan` is read in four
+      places on the subscription screen and in `plan_id.dart`.
+      `pendingClaimFor` ([pending_request_copy.dart:245]), the pending card's
+      own label ([subscription_screen.dart:1214]) and `PaymentOptions.labelFor`
+      ([plan.dart:396] — which does `final key = id.trim()` before the very
+      same `m.id == key` shape) all trim. **The two that did not were the two
+      that decide what the man sees on the money screen.**
+
+      **What the untrimmed compares cost, both real:**
+
+      1. `planById(" pro")` missed every catalogue row and returned null, so
+         `pendingPlanLabelAr` fell back to the raw wire id and the **receipt the
+         contractor screenshots to support his payment** printed the Latin
+         token `pro` where «محترف» belongs, next to the amount he just
+         transferred.
+      2. `catalogue.current.plan == plan.id` returning false dropped the «خطتك»
+         pill, the accent border, and — at
+         [subscription_screen.dart:1089] — the button label. A contractor
+         **already on pro** was shown «ترقية الاشتراك — محترف» (*upgrade*)
+         instead of «تجديد الاشتراك» (*renew*): **his own tier offered back to
+         him for money, one tap from a second 15000 دج transfer for a plan he
+         already owns.**
+
+      Now: `planById` trims and answers null for a whitespace-only id, and a
+      new `isCurrentPlan(Plan)` states the card's "your plan" marking in one
+      place instead of a bare compare written inline at the call site.
+
+      ### Changed
+      - `lib/src/models/plan.dart` — `planById` trims, rejects empty; new
+        `isCurrentPlan(Plan)`.
+      - `lib/src/screens/worker/subscription_screen.dart` — the card's
+        `current:` asks the catalogue instead of comparing two strings.
+      - `test/plan_id_padding_test.dart` (new, 14 cases) — a padded id is the
+        plan it names; `isCurrentPlan` agrees with `isFree` for padded **and**
+        unpadded rows alike, since the two facts come from the same column by
+        different code.
+
+      ### Evidence
+      - `flutter analyze` → **No issues found!** (9.1s)
+      - Affected files (`billing`, `plan_id`, `plan_id_padding`,
+        `pending_claim`, `pending_request_copy`, `pending_period`,
+        `plan_renewal_copy`, `plan_reach_*`, `plan_disputed_price`,
+        `plan_row_read_truth`, and the four `*_shot_test.dart`) →
+        **161 passed / 0 failed.**
+      - **Screenshots, because this one is user-visible.** The same server
+        payload rendered twice, clean ids and padded ids, on the two surfaces
+        the fix touches — and the two renders are **byte-identical**
+        (`dc6419c5…` renew, `5bf2237f…` receipt):
+        `/tmp/shots/30_plan_renew_clean.png` = `31_plan_renew_padded.png`,
+        `/tmp/shots/32_receipt_clean.png` = `33_receipt_padded.png`.
+        The padded pro card shows «تجديد الاشتراك», **not** «ترقية الاشتراك —
+        محترف», and the padded receipt shows «محترف», **not** the Latin `pro`.
+        The harness was temporary and is **not** committed; the durable
+        assertions live in `plan_id_padding_test.dart`.
+
+      ### Commits
+      - local `18b1f22` → remote `922a5c9` (3/3 blobs MATCH, trees identical
+        `ea7a853e`)
+
+      ### Note for the next tick — two things worth picking up
+      - **`git push` still has no credentials on this box** (post-rebuild).
+        `git push origin main` dies with `could not read Username`; the push
+        goes through `python3 /home/hatch/workspace/repos/gh_push.py`. The
+        returned SHA is **not** in the local object store until `git fetch
+        origin main` is run, so a blob-hash verification done straight after
+        the push fails with `fatal: not a tree object` — fetch first.
+      - **`build_web.sh`, `pngscan.py` and `pngcheck` are gone from this box**
+        (the `/home/renia/*` paths in the loop protocol no longer exist). The
+        loop's step-5 screenshot path cannot run as written. It was worked
+        around this tick by rasterizing in-process with a `RepaintBoundary` +
+        `toImage`, which needs no browser and gives a **stronger** proof: the
+        padded and clean renders hash identically, so the claim is not "it
+        looks right" but "the padding changes nothing at all". Restoring
+        `build_web.sh` / `pngscan.py` would let a later tick use the protocol
+        path, but the in-process route works and is cheaper on a 7.8 GB box.
+
 ### Next
-Backlog at **0 unchecked**. Next tick: keep auditing the one-fact-several-
-readers class, or seed a fresh item from whatever the audit surfaces.
+Backlog at **0 unchecked** again (194 checked). The family the last three
+ticks have been closing is now closed on every reader it names: plan id,
+verification column, project status, typed exceptions. Next tick should seed a
+**fresh** item rather than re-audit a closed family — the most concrete lead
+found this tick is in `PendingClaim.covers` ([pending_request_copy.dart:282]),
+whose second parameter is a non-nullable `String term` compared against
+`periodWire`, which is **nullable** (`String?`). That is a latent crash
+shape on the payment-claim path and was deliberately left alone to keep this
+tick to one item.
+
