@@ -166,6 +166,117 @@ def _is_leaked_tester(pid):
     return _ppid(pid) == 1
 
 
+def _is_leaked_browser(pid):
+    """A headless Chrome the loop itself left behind.
+
+    Step 5 of the loop protocol tells every tick to render and *look* at a
+    visual change, and the render runs a headless Chrome on a debugging port
+    (9333/9444/9335). When a tick ends without reaping it -- the process
+    outlives the shell that launched it, so it reparents to init -- that
+    browser holds ~330-380 MB of a box that has no swap, and the gate then
+    answers NO ROOM forever. That is what this arm is for: the same shape as
+    `_is_leaked_tester`, one binary further down the loop.
+
+    The signal is `remote-debugging-port` in argv, and the leak test is the
+    same PPID 1 rule. Two details are load-bearing:
+
+      * **argv, not comm.** A Chrome tree is ~13 processes whose `comm` is
+        all `chrome` -- zygotes, gpu-process, renderers, crashpad. Counting
+        them is what made a first version of this look like it worked while
+        reporting a wrong total. Only the *root* browser carries the
+        debugging flag; its children inherit argv fragments but not the
+        browser's own `--headless` root switch, so the flag names one
+        process, not a tree. One leak is one report.
+      * **PPID 1 alone is not enough.** A live browser whose parent is the
+        agent's own shell has a normal parent, so it is not counted; but a
+        browser a *different* live session is driving right now also has a
+        non-1 ppid and must not be killed by a later tick. Same discipline
+        as the tester arm: prove the leak, then report it.
+    """
+    cmd = _cmdline(pid)
+    if 'remote-debugging-port' not in cmd:
+        return False
+    return _ppid(pid) == 1
+
+
+def _rss_kb(pid):
+    """Proportional set size of one process in kB, or None.
+
+    PSS, not VmRSS, and the difference is the whole point. A Chrome tree
+    shares most of its memory: the zygotes and the renderers forked from
+    them map the same code and data pages, so summing VmRSS across a tree
+    counts each shared page once per process. Measured on a real leaked
+    browser on this box: **sum(VmRSS) = 1167 MB, sum(PSS) = 444 MB** --
+    RSS over-reports the true cost by 2.6x. A gate that prints "this is
+    holding 1.1 GB" on a box with 1.1 GB *available* is not describing a
+    memory problem, it is describing an arithmetic error, and a tick that
+    believed it would go looking for a gigabyte that is not there.
+
+    PSS divides each shared page by the number of processes mapping it, so
+    the sum over a tree is what the kernel would actually reclaim. It lives
+    in smaps_rollup, which is the cheap per-process version -- the full
+    smaps walk is far too slow to run across a process survey.
+
+    VmRSS from status is the fallback, and it is *only* a fallback: on a
+    box where smaps_rollup is unreadable (it needs the same privilege as
+    the rest of /proc here) a number is still better than none, so the
+    report is explicitly labelled as RSS in that case.
+    """
+    raw = _read('/proc/%s/smaps_rollup' % pid)
+    total = 0
+    for line in raw.split('\n'):
+        if line.startswith('Pss:'):
+            parts = line.split()
+            if len(parts) >= 2:
+                try:
+                    return int(parts[1])
+                except ValueError:
+                    break
+            break
+    raw = _read('/proc/%s/status' % pid)
+    for line in raw.split('\n'):
+        if line.startswith('VmRSS:'):
+            parts = line.split()
+            if len(parts) >= 2:
+                try:
+                    return int(parts[1])
+                except ValueError:
+                    return None
+    return None
+
+
+def browser_mb(browsers):
+    """Total RSS of the leaked browser roots, in MB.
+
+    The root is what the flag lands on, but a Chrome root is only ~66 MB of
+    its own: the zygotes and renderers it forks are the rest of the cost,
+    and they are its children. Charging the loop only the root would report
+    a third of the memory actually held, which is how a real 330 MB leak
+    gets written down as a harmless 66 MB.
+    """
+    total_kb = 0
+    seen = set()
+    frontier = [rec[0] for rec in browsers]
+    while frontier:
+        pid = frontier.pop()
+        if pid in seen:
+            continue
+        seen.add(pid)
+        rss = _rss_kb(pid)
+        if rss:
+            total_kb += rss
+        try:
+            for entry in os.listdir('/proc'):
+                if not entry.isdigit():
+                    continue
+                child = int(entry)
+                if child not in seen and _ppid(child) == pid:
+                    frontier.append(child)
+        except OSError:
+            pass
+    return total_kb / 1024.0
+
+
 def available_mb():
     """MemAvailable in MB -- memory a build could actually claim.
 
@@ -215,6 +326,7 @@ def survey():
     tools = []      # real flutter/dart tool: existence is enough
     jvms = []       # java/gradle: counted, but only "busy" if burning CPU
     leaked = []     # orphaned flutter_tester
+    browsers = []   # orphaned headless Chrome, this loop's own render
 
     for entry in os.listdir('/proc'):
         if not entry.isdigit():
@@ -235,10 +347,11 @@ def survey():
                      or comm == 'dart' and 'flutter_tester' in ident)
         is_java = (cmd.startswith('java') or '/bin/java' in cmd
                    or comm == 'java')
+        is_browser = _is_leaked_browser(pid)
         is_tool = ('bin/flutter' in cmd or 'flutter_tools' in cmd
                    or cmd.startswith('dart ') or '/dart ' in cmd
                    or comm == 'dart' and cmd == '')
-        if not (is_tester or is_java or is_tool):
+        if not (is_tester or is_java or is_tool or is_browser):
             continue
 
         before = _stat_fields(pid)
@@ -249,7 +362,14 @@ def survey():
                 and (after - before) > 0)
 
         rec = (pid, cmd[:70], busy)
-        if is_tester_leaked:
+        if is_browser:
+            # Recorded with a None verdict on purpose. A parked browser
+            # burns ~0% CPU and an idle one ticks a little, so sampling it
+            # makes the label flicker between runs for a fact that does not
+            # depend on CPU at all: the process is leaked either way. None
+            # prints as "leak", which is the thing the reader must act on.
+            browsers.append((pid, cmd[:70], None))
+        elif is_tester_leaked:
             # A tester that survived its tool. Reported, never silently
             # dropped: the caller has to know the box was not actually free.
             leaked.append(rec)
@@ -261,7 +381,7 @@ def survey():
         else:  # java
             jvms.append(rec)
 
-    return jvms, tools, leaked
+    return jvms, tools, leaked, browsers
 
 
 def main(argv=None):
@@ -269,9 +389,9 @@ def main(argv=None):
     ap.add_argument('--quiet', action='store_true')
     args = ap.parse_args(argv)
 
-    jvms, tools, leaked = survey()
+    jvms, tools, leaked, browsers = survey()
     busy_jvms = [j for j in jvms if j[2]]
-    busy = bool(tools or busy_jvms or leaked)
+    busy = bool(tools or busy_jvms or leaked or browsers)
     avail = available_mb()
 
     if not args.quiet:
@@ -281,22 +401,41 @@ def main(argv=None):
                   % (avail, _total_mb() or 0.0, MIN_AVAILABLE_MB))
         for label, group in (('BUSY (build tool present)', tools + busy_jvms),
                              ('LEAKED flutter_tester', leaked),
+                             ('LEAKED headless chrome (this loop\'s render)',
+                              browsers),
                              ('IDLE java/gradle (ignored)', [j for j in jvms if not j[2]])):
             if group:
                 print('%s:' % label)
                 for pid, cmd, busy_flag in group:
-                    print('  %-7d %-6s %s' % (pid, 'busy' if busy_flag else 'idle', cmd))
+                    state = ('leak' if busy_flag is None
+                             else 'busy' if busy_flag else 'idle')
+                    print('  %-7d %-6s %s' % (pid, state, cmd))
         if busy:
-            if avail is not None and avail < MIN_AVAILABLE_MB:
+            starved = avail is not None and avail < MIN_AVAILABLE_MB
+            # The starvation line names the holder, and when the *only*
+            # holder is our own leaked browser there is no other build at
+            # all -- saying "another build holds the box" here would send a
+            # reader hunting for a build that was never started.
+            holders = tools + busy_jvms + leaked
+            if starved and not holders:
+                print('STARVED BY OUR OWN LEAK: nothing is building, and only '
+                      '%.0f MB is reclaimable because of the leaked headless '
+                      'Chrome listed above.' % avail)
+            elif starved:
                 print('BUSY and starved: another build holds the box while only '
                       '%.0f MB is reclaimable.' % avail)
+            if browsers:
+                print('A leaked headless Chrome from an earlier tick is holding '
+                      '~%.0f MB. The loop\'s own render step is what leaves it '
+                      'behind; reap it and re-run this gate.'
+                      % browser_mb(browsers))
         elif avail is not None and avail < MIN_AVAILABLE_MB:
             print('NO ROOM — nothing is building, but only %.0f MB is reclaimable '
                   'and a run of this suite was measured to bottom out at 1177 MB. '
                   'Do not start a build here.' % avail)
         else:
             print('CLEAR — no flutter/dart tool, no busy JVM, no leaked tester, '
-                  'and enough memory to run a build.')
+                  'no leaked browser, and enough memory to run a build.')
         if not busy and not busy_jvms and jvms:
             idle = [j for j in jvms if not j[2]]
             if idle:

@@ -40,7 +40,17 @@ says "512 MB" parses as 512 kB and displays as "0 MB" -- a test that still
 passes while proving nothing. That is case 6b, and it is there because the
 first version of this fixture did exactly that.
 
-Expected: 7/7. A failure here means the gate is lying to the loop.
+Cases 8 and 9 (1 Oct) cover the arm added the same day. Step 5 of the loop
+protocol makes every tick render a visual change in a headless Chrome on a
+debugging port, and a tick that ends without reaping it reparents that
+browser to init -- where it holds ~310 MB forever on a box with no swap. The
+gate caught an orphaned flutter_tester for exactly this reason and had no
+Chrome awareness at all, so it answered NO ROOM at 785 MB and no tick could
+tell that the loop was starving itself. Case 8 is a live browser that must
+stay CLEAR (never kill a browser another session is driving), case 9 a
+reparented one that must be reported and then gone once reaped.
+
+Expected: 9/9. A failure here means the gate is lying to the loop.
 """
 import os
 import shutil
@@ -55,6 +65,10 @@ TESTER = ("/home/hatch/tools/sdk/flutter/bin/cache/artifacts/engine/"
           "linux-x64/flutter_tester")
 JAVA = "/home/hatch/tools/jdk17/bin/java"
 JAVAC = "/home/hatch/tools/jdk17/bin/javac"
+# The real browser the loop's render step launches. A stand-in would not
+# do: the arm matches remote-debugging-port in argv, and only a real
+# browser is launched with that flag.
+CHROME = "/opt/meta-chromium/chrome"
 
 results = []
 
@@ -217,6 +231,104 @@ def main():
               + "fixture is in kB, so the printed figure is not a silent 0")
         for line in r.stdout.strip().split("\n")[:1]:
             print("        | " + line)
+
+    print("\n8) a live headless browser, parented -- not a leak")
+    # The mirror of the tester arm, and the reason PPID 1 is required: a
+    # browser a live session is driving right now has a normal parent, and
+    # treating it as a leak would have a tick kill a working render.
+    have_chrome = os.path.exists(CHROME)
+    if have_chrome:
+        d = tempfile.mkdtemp(prefix="gate_chrome_profile")
+        b = spawn([CHROME, "--headless", "--no-sandbox", "--disable-gpu",
+                   "--remote-debugging-port=9399",
+                   "--user-data-dir=" + d, "about:blank"])
+        print("   pid=%d ppid=%d" % (b.pid, ppid_of(b.pid)))
+        out = _run()
+        # NOT `check(..., 0)`. Spawning a real browser can dip the box under
+        # MIN_AVAILABLE_MB, and at that point NO ROOM is the *correct*
+        # answer and tells you nothing about leak detection. What this case
+        # actually claims is narrower: a browser with a live parent is never
+        # named a leak. Asserting the global exit code here made the case
+        # fail for a reason that had nothing to do with the arm.
+        named = "LEAKED headless chrome" in out.stdout and str(b.pid) in out.stdout
+        ok = not named
+        results.append(ok)
+        print(("PASS  " if ok else "**FAIL**  ")
+              + "live browser -> never named a leak (ppid=%d, not 1)"
+              % ppid_of(b.pid))
+        print("        | " + (out.stdout.strip().split("\n") or [""])[0])
+        b.kill()
+        b.wait()
+        shutil.rmtree(d, ignore_errors=True)
+        time.sleep(0.3)
+    else:
+        print("  SKIP (no chromium)")
+
+    print("\n9) a reparented headless browser -- the loop starving itself")
+    if have_chrome:
+        # A leak is made the way the kernel actually makes one: a double
+        # fork, which reparents the browser to init with no live owner.
+        d = tempfile.mkdtemp(prefix="gate_chrome_leak")
+        code = (
+            "import os\n"
+            "pid = os.fork()\n"
+            "if pid:\n"
+            "    os._exit(0)\n"
+            "os.setsid()\n"
+            "os.execv(%r, [%r, '--headless', '--no-sandbox', '--disable-gpu',"
+            " '--remote-debugging-port=9398', '--user-data-dir=' + %r,"
+            " 'about:blank'])\n" % (CHROME, CHROME, d))
+        r = subprocess.Popen([sys.executable, "-c", code],
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+        r.wait()
+        time.sleep(4.0)   # the browser takes a moment to bind the port
+        leaked = None
+        for entry in os.listdir('/proc'):
+            if not entry.isdigit():
+                continue
+            pid = int(entry)
+            if ppid_of(pid) != 1:
+                continue
+            try:
+                cmd = open("/proc/%d/cmdline" % pid).read().replace("\x00", " ")
+            except (IOError, OSError):
+                continue
+            if "remote-debugging-port=9398" in cmd:
+                leaked = pid
+                break
+        if leaked is None:
+            print("  **FAIL** no reparented browser to test with")
+            results.append(False)
+        else:
+            print("   leaked pid=%d ppid=%d" % (leaked, ppid_of(leaked)))
+            out = _run()
+            # The two claims that are about the ARM, and hold whatever the
+            # memory does: the leak is named, and the gate fails closed. The
+            # "reclaimable" sentence is deliberately not asserted -- it is
+            # gated on MIN_AVAILABLE_MB, so a box with room to spare prints
+            # neither it nor the STARVED line, and asserting it would make
+            # the case fail for the box being healthy.
+            ok = (out.returncode == 1
+                  and "LEAKED headless chrome" in out.stdout
+                  and str(leaked) in out.stdout)
+            results.append(ok)
+            print(("PASS  " if ok else "**FAIL**  ")
+                  + "reparented browser -> named as a leak, exit 1")
+            for line in out.stdout.strip().split("\n")[:4]:
+                print("        | " + line)
+            try:
+                os.kill(leaked, 9)
+            except OSError:
+                pass
+            time.sleep(0.5)
+            # The reaped box must come back to CLEAR, or this arm cannot
+            # tell a real leak from a permanent "busy".
+            check("after reaping the browser -> CLEAR", 0)
+        shutil.rmtree(d, ignore_errors=True)
+        time.sleep(0.3)
+    else:
+        print("  SKIP (no chromium)")
 
     ok = sum(results)
     print("\n== %d/%d ==  %s" % (ok, len(results),
