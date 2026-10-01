@@ -13201,7 +13201,10 @@ finally measured
       it is not founder's to make, and ticks below that re-flag `sharding` are
       answered by this measurement.
 
-*Commit:* `c833d3d`. **Gate:** `flutter analyze` -> **No issues found!**
+*Commit:* local `2c8a9fc` -> remote `6f850d6`. **3/3 blobs MATCH** against the
+real remote tree (fetched through GitHub's API, not the helper's green line):
+`IMPROVEMENT_BACKLOG.md`, `tool/run_tests.py`, `tool/build_gate.py`.
+**Gate:** `flutter analyze` -> **No issues found!**
 (11.4 s), exit 0; full suite through `tool/run_tests.py` -> **1834 passed / 3 skipped / 0
 failed** in **12:02** (exit 0), equal to the previous tick's 1834 — expected and
 correct, this touches no Dart; build gate
