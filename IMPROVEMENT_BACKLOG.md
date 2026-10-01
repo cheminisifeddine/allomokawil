@@ -12867,3 +12867,92 @@ class-level sweep recorded under the monogram item is still open.
       **Next:** backlog remains **0 unchecked**, both defect families
       exhausted, and the standing **`sharding`** decision is unmade. No
       APK, no release, no tag.
+
+---
+
+- [x] **The review notification printed a score straight off the wire with
+      nothing bounding it — the fourth rating surface `clampRating` never
+      reached.** (commit `cf896ff`)
+
+      *Found by finishing an item the previous tick left half-done.* It had
+      written the fix and both test files and then stopped before the gate, so
+      the tree was dirty on arrival: **the unfinished business of this loop,
+      and it was what this tick did first.** No new defect was hunted.
+
+      *Shipped:* `_scoreCopy` in `lib/src/data/notification_body_copy.dart`
+      pins the numerator to **the denominator the server itself stated** —
+      `7/5` → «5 نجوم», `12/10` → «10 من 10» — and a missing, zero or negative
+      denominator falls back to this app's own `_ratingScale = 5`. Pinned to
+      the denominator rather than to a literal five, because the denominator
+      is the scale the server claimed and this file has always deferred to it;
+      a future ten-star form is not silently described against a five-star
+      row. Below the scale nothing changes — `8/10` still reports both
+      numbers, because the fix has to **bound** the score, not silence it.
+
+      *This is the same defect `clampRating` was lifted out for on 1 Oct
+      (`75cf44d`) and it is the fourth rating surface in the app that `grep
+      clampRating` (six call sites) did not cover.* `star_row_shape.dart`
+      existed precisely to stop a payload carrying `7.5` from drawing `FFFFF`
+      beside the text `7.5`; this screen printed the same contradiction three
+      ticks later, in a different file, on the row a contractor opens to find
+      out how he was judged. And `7/0` was worse than out-of-range — `_toInt`
+      returns 0 for an unparseable denominator, so it fell through to the
+      `من $out` arm and printed **«7 من 0»**, a score out of no scale at all.
+
+      *Gate — both halves, run for real.*
+      * `tool/build_gate.py` → **CLEAR** at **2446 MB available** vs the
+        900 MB floor.
+      * `flutter analyze` → **No issues found!** (9.3s)
+      * `flutter test` → **`+1834 ~3: All tests passed!`**, exit 0,
+        **13:46**. Baseline was +1819, so this is **+15 and nothing dropped** —
+        the 14 new cases plus the one assertion added to an existing test.
+
+      *The four cases that keep the fix honest, all inside that count:* the
+      score the Worker really sent on 28 Sep (`5/5`, `3/5`) is byte-identical;
+      `9/10` and `8/10` still print both numbers, so the pin is not a filter;
+      `0/0` and `7/0` answer with a line instead of a fraction; and
+      `5/5 عمل ممتاز` is still a person's own words, untouched.
+
+      *One cost recorded rather than hidden.* Pinning a five-star body to five
+      makes the **11+ counted form of «نجمة» unreachable on this path**.
+      `arabicCounted` is shared and still reachable elsewhere, but no bare
+      `/5` fraction can exercise it now. The clause is written into
+      `notification_body_copy_test.dart` next to the assertion that replaced
+      `10/5 -> 10 نجوم` so nobody reads the removal as coverage that was
+      never there.
+
+      *Photographed, not argued — and the pixels are what settled it.*
+      `test/notification_score_scale_shot_test.dart` drives the **real**
+      `NotificationsScreen` through `FontLoader`-loaded Cairo and writes
+      `/tmp/shots/notification_score_pinned.png` and
+      `/tmp/shots/notification_score_live.png`. The two files **differ by
+      exactly 248 pixels confined to a 19x28 region at rows 384-411** — and
+      rendered as ASCII, that glyph is a **5** on the pinned `7/5` and a **3**
+      on the live `3/5`. The card's other bands are identical, the Arabic
+      around it is real Cairo and not tofu, and `bodyInk=4509` on both. The
+      control is `3/5` rather than `5/5` **on purpose**: at `5/5` the two
+      captures came out byte-identical, which proves the pin works but cannot
+      show the capture reads the wire at all. A control that renders a
+      different score is what makes both files mean something.
+
+      *Two host facts, for the ticks after this one.* The repo is
+      **`/home/hatch/allomokawil`**, not the `/home/renia/allomokawil` this
+      job's prompt still names — that path died with the 26 Sep rebuild and
+      the prompt has not caught up with the protocol section, which is the
+      section that is right. And the **full suite exceeded the 420 s
+      foreground tool limit**, so it has to be launched background and polled;
+      a tick that runs it inline loses the run at the tool boundary with the
+      result on disk and nobody reading it. Runtime here was **13:46**
+      against the 1200 s deadline in `run_tests.py` — the third data point
+      (13:13 / 16:54 / 13:46) and still well inside it, which makes the
+      deadline's known false-failure (every test passing, 33:48 run) a
+      contention problem rather than a slow-suite problem.
+
+      *Verified on the remote, not read off the green push line.* Commit
+      `cf896ff` → remote `d2a72a6`; `lib/src/data/notification_body_copy.dart`
+      blob `ccf7dfd` **MATCH** off the git-data API.
+
+      **Next:** backlog is back to **0 unchecked** and both defect families
+      are exhausted. The standing **`sharding`** decision is unmade — fourth
+      tick flagging it — and it is the founder's call. No APK, no release,
+      no tag.
