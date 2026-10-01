@@ -174,12 +174,53 @@ class Project {
     this.selectedWorkerId,
   });
 
+  /// The budget as the feed and the project page read it, in whole dinars.
+  ///
+  /// **A stored `0` is an absent answer, not a price.** This getter had five
+  /// arms — both null, min only, max only, equal ends, a real band — and a
+  /// zero fitted none of them, so it fell through to the band and printed
+  ///
+  ///     «من 0 إلى 50000 دج»
+  ///
+  /// on `project_card.dart` and `project_detail_screen.dart`: the card a
+  /// contractor scrolls to pick a job, and the page he reads before quoting.
+  ///
+  /// The zero is reachable from **this app's own form**, which is what makes it
+  /// a defect rather than server state. `DzNumber.tryParse` takes a `min`
+  /// bound and the budget fields pass none, so typing `0` parses to the
+  /// integer `0`; the form's `_budgetError` refuses only `min > max`, and zero
+  /// is not greater than anything, so the project publishes with a budget
+  /// floor of nothing. `Money.amountOnly(0)` then prints `0` instead of
+  /// dropping it, because a real `0` and a nonsense `0` are the same `0` by
+  /// the time it is a string.
+  ///
+  /// What it says to a man reading it is the damage. «من 0 دج» is not "no
+  /// budget given" — it is a claim that this renovation is available from
+  /// nothing, and it is indistinguishable on screen from the project's own
+  /// «بدون ميزانية محددة», which is the honest rendering of a customer who
+  /// left both boxes empty. Two different facts, one of them a price. A budget
+  /// of zero dinars is not a budget, and the row that says so is the same
+  /// silence the empty project already gets.
+  ///
+  /// The rule is the one `worker_stats_copy.dart` and `price_range_copy.dart`
+  /// already keep — a stored `0` is a default standing in for an answer — so
+  /// the zero is folded into null **before** the arms are chosen, rather than
+  /// being given a sixth arm. That is the whole difference: one column, one
+  /// rule, and no caller of this getter can reach the band arm with a zero in
+  /// it.
+  ///
+  /// The **negative** half is not handled here on purpose. `DzNumber`'s digit
+  /// fold strips the sign, so a budget this app can publish is never negative;
+  /// a negative row is server state, and this getter has nothing to say about
+  /// one that the form cannot create.
   String get budgetLabel {
-    if (budgetMin == null && budgetMax == null) return 'بدون ميزانية محددة';
-    if (budgetMax == null) return 'من ${Money.dzd(budgetMin!)}';
-    if (budgetMin == null) return 'حتى ${Money.dzd(budgetMax!)}';
-    if (budgetMin == budgetMax) return Money.dzd(budgetMin!);
-    return 'من ${Money.amountOnly(budgetMin!)} إلى ${Money.dzd(budgetMax!)}';
+    final min = budgetMin != null && budgetMin! > 0 ? budgetMin : null;
+    final max = budgetMax != null && budgetMax! > 0 ? budgetMax : null;
+    if (min == null && max == null) return 'بدون ميزانية محددة';
+    if (max == null) return 'من ${Money.dzd(min!)}';
+    if (min == null) return 'حتى ${Money.dzd(max)}';
+    if (min == max) return Money.dzd(min);
+    return 'من ${Money.amountOnly(min)} إلى ${Money.dzd(max)}';
   }
 
   factory Project.fromJson(Map<String, dynamic> json) {
