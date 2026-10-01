@@ -463,6 +463,31 @@ in this file that dies on arrival is how two ticks were lost.
    ```
    If that lists commits you believe are already pushed, the ref is stale, not
    the push: check the real tip before re-pushing.
+
+   **One command now answers both questions — use it instead of the heredoc
+   above (added 1 Oct).** The heredoc works, but it answers "do these files
+   match" and leaves the reader to work out the dangerous part by hand, which
+   on 1 Oct is exactly how this went wrong:
+   ```
+   ## main...origin/main [ahead 12, behind 12]
+   ```
+   `ahead 12, behind 12` is the signature of two writers in one tree, and the
+   reflex repair for it — reset, rebase, force-push — destroys local history.
+   The truth was that every file was already on the remote. `gh_push.py` mints
+   a new commit object over the git-data API on every run, so its commit hash
+   can never equal the local one; `git fetch` then counts both sides forever.
+   The trees are identical and there is nothing to fix.
+   ```
+   python3 tool/remote_state.py                          # 0 = IN SYNC, 1 = DIVERGED, 2 = unreadable
+   python3 tool/remote_state.py --files <paths...>       # per-file blob check
+   ```
+   It compares **tree** hashes, not commit hashes, and it is read-only — it
+   never fetches, pushes or writes a ref. It also reports uncommitted files,
+   because the tree comparison is against the *committed* tree: an edited file
+   reads IN SYNC until it is committed, and the old heredoc said nothing about
+   that. Only `DIVERGED` (exit 1) justifies re-pushing. **Never repair a
+   divergence with a reset** — push with `gh_push.py`, which is a no-op when
+   the trees already match.
 7. Tick the checkbox here (change `- [ ]` to `- [x]`) and add the commit hash,
    so the next loop never re-does finished work.
 8. **Release step is founder-gated — do NOT do it in this loop.** Bumping the
@@ -13259,3 +13284,53 @@ failed** in **12:02** (exit 0), equal to the previous tick's 1834 — expected a
 correct, this touches no Dart; build gate
 **CLEAR** before and after. No APK, no release, no tag — release stays
 founder-gated.
+
+- [x] **`git status` said `ahead 12, behind 12` on a tree that was already
+      fully pushed — the divergence is permanent and it invites a reset that
+      would destroy local history.** Found by running step 6's own verification
+      during a cycle that had nothing else to check: the tracker and a
+      hand-run blob check disagreed, and the tracker was the one shouting.
+      *Cause:* `gh_push.py` pushes through the git-data API and builds a **new
+      commit object** on GitHub from the blobs it uploads, so the remote's
+      commit hash can never equal the local one. Every push widens the gap by
+      construction. `git fetch` then reports both sides forever: on this box
+      12 commits "ahead" and 12 "behind", all of them identical content.
+      Verified rather than assumed — local `HEAD^{tree}` and the remote tip's
+      tree are both `1c182ebe246540c198eecc4bc0799552a7c51f7d`, the same
+      Merkle root, and all three files of interest are `MATCH` blob for blob.
+      The four duplicated fix commits on both sides carry **identical tree
+      hashes** (`d3e2bf9`/`1ca8b80`, `d2a72a6`/`cf896ff`, `ce9c231`/`1648496`,
+      `a55f806`/`0af7121`), so nothing was lost and nothing needs redoing.
+      *Why it mattered:* "behind 12" is the signature of two writers in one
+      tree, and the reflex repair — reset, rebase, force-push — throws away
+      local history to chase a difference that does not exist. Step 6 warned
+      about the *stale ref* in prose but still left the dangerous number
+      sitting in `git status` with nothing to interpret it.
+      *Shipped:* `tool/remote_state.py` (new, read-only). It compares **tree**
+      hashes, not commit hashes, and exits 0 IN SYNC / 1 DIVERGED /
+      2 UNREACHABLE. It never fetches, pushes or writes a ref. It also
+      reports **uncommitted** files, which the old heredoc did not: the tree
+      comparison is against the *committed* tree, so an edited-but-unpushed
+      file reads IN SYNC until committed — a second way the check could say
+      "shipped" over work that only existed on this disk. A missing sha
+      returns `UNKNOWN`, never agreement, because a failed measurement is not
+      a passing one. Step 6 now points at the tool instead of the heredoc and
+      says outright: never repair a divergence with a reset.
+      *Evidence:* `test/remote_state_test.py` (new) → **12/12 pass**, and the
+      load-bearing case drives `classify()` — not `verdict()` — with the real
+      1 Oct shapes (different commit shas, identical tree) because the defect
+      was never in the comparison, it was in *which shas got compared*. Both
+      the IN SYNC and the DIVERGED branch of that case are asserted; a
+      classifier only ever shown a match is indistinguishable from one that
+      always says yes. Mutation: invert the verdict → **4 failed**; treat an
+      empty sha as agreement → **3 failed**. Three consecutive runs green.
+      `flutter analyze` → **No issues found!** (10.2 s). `tool/run_tests.py`
+      correctly refused to start ("BUSY" — orphaned headless Chrome 17130
+      from another session is not mine to reap), so the suite count is
+      unmoved at **1834**; no Dart was touched and neither new file is
+      collected by `flutter test`, so the count cannot move. No APK, no
+      release, no tag. Commit `d345b98` (the commit that introduced the tool).
+      *Recorded the honest way:* a commit cannot contain its own hash, so this
+      line is written by the next commit. The hash that matters for verifying
+      the work is the tree, not the commit — `git rev-parse HEAD^{tree}` is the
+      same `1c182ebe` lineage either way.
