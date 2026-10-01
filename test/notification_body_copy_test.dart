@@ -50,13 +50,31 @@ void main() {
           'حصلت على تقييم 3 نجوم');
     });
 
-    test('the two-digit and single-star forms read as Arabic nouns', () {
+    test('the single-star and dual forms read as Arabic nouns', () {
       expect(notificationBodyCopy('1/5', type: 'review_received'),
           'حصلت على تقييم نجمة');
       expect(notificationBodyCopy('2/5', type: 'review_received'),
           'حصلت على تقييم نجمتين');
+      expect(notificationBodyCopy('4/5', type: 'review_received'),
+          'حصلت على تقييم 4 نجوم');
+    });
+
+    test('a numerator above its own scale is pinned, not printed', () {
+      // **This assertion used to say the opposite**, which is the whole point:
+      // it read '10/5' -> «10 نجوم» and passed, pinning ten stars onto a
+      // five-star scale. The score came straight off the wire with nothing
+      // bounding it, so a drifted aggregate told a contractor his work was
+      // rated double the top of the scale the form can produce.
+      //
+      // The test above now carries `4/5` instead, and that is a real
+      // consequence rather than tidying: pinning a five-star body to five makes
+      // **the 11+ counted form of «نجمة» unreachable on this path**. It is
+      // still reachable in the app — `arabicCounted` is shared — but it can no
+      // longer be exercised through a bare `/5` fraction, and the clause is
+      // recorded here rather than quietly deleted so nobody reads the removal
+      // as coverage that was never there.
       expect(notificationBodyCopy('10/5', type: 'review_received'),
-          'حصلت على تقييم 10 نجوم');
+          'حصلت على تقييم 5 نجوم');
     });
 
     test('spaces around the slash are still a bare score', () {
