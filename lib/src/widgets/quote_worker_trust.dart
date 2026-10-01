@@ -37,18 +37,20 @@ class QuoteWorkerTrust extends StatelessWidget {
   final double size;
   final double badgeSize;
 
-  /// The server sends the raw string; `pending` and `rejected` both mean "not
-  /// verified", and an absent field is not a promise. Only a literal
-  /// `verified` earns the tick — an unknown value is treated as pending rather
-  /// than optimistically true.
-  bool get _isVerified => quote.workerVerificationStatus.trim() == 'verified';
+  /// Only a literal `verified` earns the tick, and the question is now asked
+  /// of a parsed enum rather than of a trimmed string — see
+  /// [VerificationStatus.fromWire] for the padding this stopped being
+  /// vulnerable to. `pending` and `rejected` both mean "not verified", and an
+  /// absent field is not a promise.
+  bool get _isVerified =>
+      quote.workerVerificationStatus == VerificationStatus.verified;
 
   /// `pending` is the server's own word for "asked, not answered", and it is
   /// the state most contractors sit in for days. The customer has to be able
-  /// to tell "not yet" from "no".
+  /// to tell "not yet" from "no". An unreadable or absent value lands here
+  /// too, which is the honest reading of a column the app could not parse.
   bool get _isPending =>
-      quote.workerVerificationStatus.trim().isEmpty ||
-      quote.workerVerificationStatus.trim() == 'pending';
+      quote.workerVerificationStatus == VerificationStatus.pending;
 
   @override
   Widget build(BuildContext context) {
@@ -98,25 +100,13 @@ class QuoteWorkerTrust extends StatelessWidget {
 
 /// The badge on its own, for the row where the avatar is the monogram only.
 Icon? quoteVerificationIcon(Quote quote, {double size = 17}) {
-  final v = quote.workerVerificationStatus.trim();
-  if (v == 'verified') {
-    return Icon(Icons.verified_rounded, size: size, color: AppTheme.success);
-  }
-  if (v.isEmpty || v == 'pending') {
-    return Icon(Icons.schedule_rounded,
-        size: size, color: AppTheme.textSecondary);
-  }
-  return null;
-}
-
-/// Exposed for tests: the enum the model would produce for this wire value.
-VerificationStatus quoteWireVerification(String? wire) {
-  switch (wire?.trim()) {
-    case 'verified':
-      return VerificationStatus.verified;
-    case 'rejected':
-      return VerificationStatus.rejected;
-    default:
-      return VerificationStatus.pending;
+  switch (quote.workerVerificationStatus) {
+    case VerificationStatus.verified:
+      return Icon(Icons.verified_rounded, size: size, color: AppTheme.success);
+    case VerificationStatus.pending:
+      return Icon(Icons.schedule_rounded,
+          size: size, color: AppTheme.textSecondary);
+    case VerificationStatus.rejected:
+      return null;
   }
 }

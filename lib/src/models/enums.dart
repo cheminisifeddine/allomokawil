@@ -19,7 +19,62 @@ enum UserRole {
 }
 
 /// Verification state of a worker's identity/certificate docs.
-enum VerificationStatus { pending, verified, rejected }
+///
+/// One parser for the whole column, because until 2 Oct this app had **three**
+/// and they did not agree. `WorkerProfile` read it through a private `_vd`
+/// that did not trim, `Quote` carried it as a raw `String` and the trust
+/// widget compared that string to `'verified'` in three separate places, and
+/// a fourth copy (`quoteWireVerification`) existed only so a test could reach
+/// it. `GET /api/mobile/workers/top` sends `verification_status` (observed
+/// live, 2 Oct: `'pending'`) and `GET /api/mobile/projects/{id}/quotes` sends
+/// `worker_verification_status` — the same fact, two column names, four
+/// readers, no type making them agree.
+///
+/// The user-visible cost was not theoretical: a padded `' verified '` read as
+/// **pending** through [WorkerProfile], so a verified contractor's own home
+/// screen said «غير موثّق» and dropped the «مقاول موثّق» pill — while his bid
+/// card, going through the string path that trims, drew the green tick at the
+/// same moment. Two answers about one man on two screens he opens in the same
+/// session. `dossierUnderReview` compounds it: pending is also what
+/// [WorkerProfile.verificationPendingDocs] counts against, so a padded
+/// verified profile could be told his papers are «قيد المراجعة».
+enum VerificationStatus {
+  pending,
+  verified,
+  rejected;
+
+  /// The only string this state may be sent as, and the only string the app
+  /// answers it with.
+  ///
+  /// `=> name`, because every value is a single lowercase word exactly as the
+  /// Worker stores it. The getter exists so a future value with a different
+  /// spelling has one place to change — see `PlanId.wire` for the case where
+  /// it is genuinely needed.
+  String get wire => name;
+
+  /// Reads the wire value, or [pending] when the server did not name one this
+  /// app knows.
+  ///
+  /// **Trimmed**, because that was the whole bug: this column arrives padded
+  /// from a `JSON_EXTRACT`/D1 row at least as often as it arrives clean, and
+  /// the other two readers of it in this app trimmed while this one did not.
+  ///
+  /// **Pending rather than a throw, for the reason [QuoteStatus.from]
+  /// documents**: an absent value is not evidence of anything, and a bid or a
+  /// profile the server has not described should still draw. `pending` is the
+  /// state that says «asked, not answered», which is the truth when the app
+  /// cannot read the answer.
+  static VerificationStatus fromWire(String? value) {
+    switch (value?.trim()) {
+      case 'verified':
+        return VerificationStatus.verified;
+      case 'rejected':
+        return VerificationStatus.rejected;
+      default:
+        return VerificationStatus.pending;
+    }
+  }
+}
 
 /// Where a contractor's bid stands on the project it was made against.
 ///

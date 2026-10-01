@@ -1,4 +1,4 @@
-import 'enums.dart' show QuoteStatus;
+import 'enums.dart' show QuoteStatus, VerificationStatus;
 import 'notification.dart' show parseServerTime;
 
 /// A contractor's bid on an open project.
@@ -26,7 +26,13 @@ class Quote {
   /// whether a score exists.
   final double? workerAvgRating;
   final int workerTotalReviews;
-  final String workerVerificationStatus;
+  /// Whether the contractor who sent this bid has been verified.
+  ///
+  /// **This was a raw `String`** and the app compared it to `'verified'` in
+  /// three places, each of which had to remember to `.trim()` first. It is an
+  /// enum now, parsed once by [VerificationStatus.fromWire] at the model
+  /// boundary, so a fourth reader cannot be written that forgets.
+  final VerificationStatus workerVerificationStatus;
 
   /// Whether the bid is still on the table, or has been taken or thrown out.
   ///
@@ -100,8 +106,12 @@ class Quote {
         workerAvgRating: _rating(json['worker_avg_rating']),
         workerTotalReviews:
             (json['worker_total_reviews'] as num?)?.toInt() ?? 0,
-        workerVerificationStatus:
-            (json['worker_verification_status'] ?? '') as String,
+        // Parsed here rather than carried as a String: the trust widget drew
+        // the green tick off a trimmed compare while [WorkerProfile] read the
+        // same fact off an untrimmed one, so a padded row made two screens
+        // disagree about the same man.
+        workerVerificationStatus: VerificationStatus.fromWire(
+            json['worker_verification_status'] as String?),
         status: QuoteStatus.from(json['status'] as String?),
         createdAt: parseServerTime(json['created_at']),
       );

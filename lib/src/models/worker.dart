@@ -128,7 +128,8 @@ class WorkerProfile {
       // radius of nothing.
       serviceRadiusKm: (json['service_radius_km'] as num?)?.toInt(),
       isAvailable: (json['is_available'] as num?)?.toInt() == 1,
-      verificationStatus: _vd(json['verification_status'] as String?),
+      verificationStatus:
+          VerificationStatus.fromWire(json['verification_status'] as String?),
       verificationPendingDocs:
           (json['verification_pending_docs'] as num?)?.toInt() ?? 0,
       identityVerified: (json['is_identity_verified'] as num?)?.toInt() == 1,
@@ -173,16 +174,5 @@ class WorkerProfile {
     if (raw is! num) return null;
     final v = raw.toDouble();
     return v > 0 ? v : null;
-  }
-
-  static VerificationStatus _vd(String? v) {
-    switch (v) {
-      case 'verified':
-        return VerificationStatus.verified;
-      case 'rejected':
-        return VerificationStatus.rejected;
-      default:
-        return VerificationStatus.pending;
-    }
   }
 }

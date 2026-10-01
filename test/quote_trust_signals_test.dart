@@ -34,6 +34,9 @@ const _quoteJson = '''
  "worker_avatar_url":null,"worker_avg_rating":0,"worker_total_reviews":0,
  "worker_verification_status":"pending"}''';
 
+/// Built from the **wire** string on purpose: the tests below hand in what the
+/// server sends, not an enum they constructed themselves, so a padding
+/// regression in the parser is caught here and not only in the model test.
 Quote _quote({
   int id = 13,
   String? avatar,
@@ -49,7 +52,7 @@ Quote _quote({
       workerAvatarUrl: avatar,
       workerAvgRating: 0,
       workerTotalReviews: 0,
-      workerVerificationStatus: status,
+      workerVerificationStatus: VerificationStatus.fromWire(status),
     );
 
 Widget _host(Quote q) => MaterialApp(
@@ -65,19 +68,20 @@ void main() {
       final q = Quote.fromJson(json);
       expect(json.containsKey('worker_avatar_url'), isTrue);
       expect(json.containsKey('worker_verification_status'), isTrue);
-      expect(q.workerVerificationStatus, 'pending');
+      expect(q.workerVerificationStatus, VerificationStatus.pending);
       expect(q.workerAvatarUrl, isNull);
     });
   });
 
   group('which wire values earn a tick', () {
     test('only a literal verified is verified', () {
-      expect(quoteWireVerification('verified'), VerificationStatus.verified);
+      expect(VerificationStatus.fromWire('verified'),
+          VerificationStatus.verified);
     });
 
     test('pending, rejected, junk and absent are all "not verified"', () {
       for (final v in const [null, '', 'pending', 'rejected', 'VERIFIED', '1']) {
-        expect(quoteWireVerification(v), isNot(VerificationStatus.verified),
+        expect(VerificationStatus.fromWire(v), isNot(VerificationStatus.verified),
             reason: '«$v» must not pass as verified');
       }
     });
