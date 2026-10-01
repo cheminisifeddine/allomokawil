@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/l10n/arabic_agreement.dart';
+import '../data/star_row_shape.dart';
 
 /// Screen-reader plumbing, in one place.
 ///
@@ -90,8 +91,16 @@ class A11y {
   /// Same Latin digits as [star], and the same [scale] — the label a screen
   /// reader reads is now character-for-character what the row already printed
   /// on glass.
+  ///
+  /// The score goes through [clampRating] first, and that is the whole point of
+  /// this line: the stars beside this sentence have been clamped to the scale
+  /// since 26 Sep, but the digits here were the caller's raw value, so a 7.5
+  /// off the API read «التقييم 7.5 من 5» next to five full stars. A label that
+  /// contradicts the row it describes is worse than no label at all, so the
+  /// two are now pinned by the same call.
   static String rating(double value, {int? count}) {
-    final score = 'التقييم ${value.toStringAsFixed(1)} من $scale';
+    final score =
+        'التقييم ${clampRating(value, count: scale).toStringAsFixed(1)} من $scale';
     return count == null ? score : '$score، ${reviews(count)}';
   }
 

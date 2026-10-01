@@ -12178,3 +12178,41 @@ count were all read and found correct.
 first item of the next tick is whatever the gate allows — if the box is still
 under 900 MB, another audit, and the star-row number clamp above is the first
 thing to implement once it is not.
+
+- [x] **The star row clamped the glyphs but never the digits printed beside
+      them — a `7.5` off the API drew `FFFFF` next to the text `7.5`.**
+      `75cf44d`. Found by the audit the previous tick ran while the box was
+      under its build floor, and left pinned as the first thing to implement on
+      a tick with a gate. The 26 Sep fix to `star_row_shape.dart` had killed
+      one specific lie — `rating.round()` drew five full stars at a 4.5 — and it
+      fixed **the glyphs only**. The number came from the caller
+      (`rating.toStringAsFixed(1)` in `RatingStars`) and `A11y.rating` built
+      its sentence from the same raw value, while the clamp lived *only* inside
+      `starIconFor`. So the exact contradiction that file was opened to kill came
+      back through the other door: an `avg_rating` outside `0..5` drew five full
+      stars (clamp working) next to `7.5` (clamp absent) and announced
+      «التقييم 7.5 من 5» to a screen reader. **A row that can only draw five
+      stars just claimed 7.5 out of 5** — "never overstate" was true of the
+      shapes and false of the sentence.
+      **One rule, three call sites.** `clampRating(rating, {count})` is now
+      lifted out of `starIconFor` into `data/star_row_shape.dart` and asked by
+      all three: the glyphs (`starIconFor`), the printed digits
+      (`ui.dart:RatingStars`) and the spoken label (`a11y.dart:A11y.rating`).
+      `A11y.rating` and the widget share `A11y.scale` rather than each
+      hard-coding a five. NaN is "no score", not «NaN» beside five empty stars.
+      **The test has teeth — checked, not asserted.** Reverting only the two
+      print sites (keeping `clampRating` defined so the file still compiles)
+      fails **5** behavioural assertions: `a 7.5 prints 5.0`, the negative,
+      the NaN, the infinity, and the spoken-label one. Reverting all of `lib/`
+      fails to compile at `clampRating`, which proves nothing, so the
+      behavioural revert is the one that counts.
+      Reachability is unchanged from the audit: no fixture carries an
+      out-of-scale score and `/api/mobile/workers` answers `{"error":"غير
+      مصرح"}` without a token, so this is latent behind a server trust
+      boundary — and that is the argument for it, not against: the score is the
+      one value on this row the server writes and the app does not.
+      **Not visual-proofed and not claimed.** This changes which digits a row
+      prints for an input no real payload carries; every score on the platform
+      (`0/4.5/4.6/4.7/4.8/5`) renders byte-identically before and after, so a
+      screenshot of the live app would show nothing about this change and one is
+      deliberately not offered.

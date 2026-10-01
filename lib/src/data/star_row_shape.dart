@@ -49,6 +49,32 @@ library;
 
 import 'package:flutter/material.dart';
 
+/// A score pinned to the scale the row actually draws: `0..count`.
+///
+/// **This is the rule for the digits as well as the glyphs**, and until 1 Oct it
+/// was only the glyphs'. `starIconFor` clamped, and the number printed beside
+/// the stars was the caller's raw `rating.toStringAsFixed(1)` — so an
+/// `avg_rating: 7.5` off the API drew `FFFFF` (five full gold stars, the
+/// clamp working) next to the text **7.5** and told a screen reader
+/// «التقييم 7.5 من 5». The row it was opened to fix had simply been fixed
+/// halfway: the glyphs stopped overstating and the digits kept on doing it, and
+/// "never overstate" was true of the shapes and false of the sentence.
+///
+/// The two answers cannot both be right, and which of them to trust is not a
+/// drawing question: the stars are a rendering of the score, so the score is
+/// what has to be pinned, and the glyphs follow it down. Pinning it here, once,
+/// is what keeps the label, the shapes and the printed number from each
+/// growing their own private opinion about a score outside the scale.
+///
+/// NaN is treated as no score at all rather than being left to print as
+/// «NaN» beside five empty stars.
+double clampRating(double rating, {int count = 5}) {
+  if (rating.isNaN) return 0.0;
+  if (rating < 0) return 0.0;
+  if (rating > count) return count.toDouble();
+  return rating;
+}
+
 /// The glyph position [i] (1-based, of [count]) wears for a score of [rating].
 ///
 /// [count] is the number of positions the row draws; the app's row is always
@@ -58,16 +84,7 @@ IconData starIconFor(int i, double rating, {int count = 5}) {
   if (i < 1 || i > count) {
     throw RangeError.range(i, 1, count, 'i');
   }
-  // A score outside the scale is a data problem, not a drawing problem. Pin it
-  // to the ends rather than let it produce a row that disagrees with the number
-  // printed beside it.
-  final r = rating.isNaN
-      ? 0.0
-      : rating < 0
-          ? 0.0
-          : rating > count
-              ? count.toDouble()
-              : rating;
+  final r = clampRating(rating, count: count);
   final whole = r.floor();
   if (i <= whole) return Icons.star_rounded;
   // The first position past the whole stars, and only once the score has

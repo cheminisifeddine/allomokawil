@@ -552,6 +552,13 @@ class RatingStars extends StatelessWidget {
     // says and what the glass shows cannot drift apart — see
     // [printableReviewCount].
     final shown = count == null ? null : printableReviewCount(count!);
+    // One score, pinned once, for every shape on this row. The stars already
+    // clamped inside [starIconFor] and the label already clamps inside
+    // [A11y.rating]; the printed digits were the third copy, and the only one
+    // of the three still showing the caller's raw value — so a 7.5 drew five
+    // full stars beside the number 7.5. Same argument as the count below it:
+    // the text beside the shapes has to be describing the shapes.
+    final pinned = clampRating(rating, count: A11y.scale);
     // Stars are geometry: read out one by one they are five meaningless icons
     // and a bare number. The row is a leaf — the icons are excluded and the
     // score is handed over as the sentence a person would say.
@@ -567,7 +574,7 @@ class RatingStars extends StatelessWidget {
                 size: size, color: AppTheme.star),
           const SizedBox(width: 6),
           Text(
-            rating.toStringAsFixed(1),
+            pinned.toStringAsFixed(1),
             style: AppTheme.ratingValue(size),
           ),
           if (shown != null) ...[
