@@ -12216,3 +12216,77 @@ thing to implement once it is not.
       (`0/4.5/4.6/4.7/4.8/5`) renders byte-identically before and after, so a
       screenshot of the live app would show nothing about this change and one is
       deliberately not offered.
+
+- [x] **The stats line under the worker's own star printed the score raw —
+      a `7.5` off the API sat beside a gold star that means «out of five».**
+      `b24fc93` -> remote `f10dc4c`. This is the **fourth** print site, and the
+      previous tick's own audit is what missed it: it counted the
+      `RatingStars` call sites and the `toStringAsFixed` calls and called the
+      answer three. The count was right about stars and wrong about *stars* —
+      `_StatsLine` (`worker_home_screen.dart:1638`) is the one rating line that
+      does not go through `RatingStars` at all. It draws its own
+      `Icons.star_rounded` and its own `Text`, so a clamp that lives in that
+      widget never reached it, and it kept the raw
+      `worker.avgRating!.toStringAsFixed(1)`.
+
+      **Why this one and not a browse card.** `WorkerProfile._rating` folds a
+      score to null only when `v > 0` is false — that is the whole test — so
+      `avg_rating: 7.5` off `GET /api/mobile/my/profile` arrives intact. On a
+      worker card a wrong score is one card among twenty-six. This is the
+      **contractor's own header**, the first thing he sees when he opens the
+      app, on the screen `stats_freshness_copy` was written specifically to
+      stop the app making claims about his business that have gone stale. A
+      7.5 printed there is the app rating him above every other tradesman on
+      the platform, in the one place he cannot argue with it.
+
+      **The sweep that closes the class, written down so it is not re-run
+      wrong.** The question that finds this is *which other place prints this
+      number with its own copy of the formatting* — not *how many places draw
+      five glyphs*. Answer it by looking for `avgRating` outside `models/`.
+      After the fix: the only `toStringAsFixed` left on a rating is the
+      clamped one, every `RatingStars` site feeds it, and `A11y.rating` shares
+      `A11y.scale` with it. **Four sites, one rule, zero copies of the
+      arithmetic left in a screen.**
+
+      *Red before green, the framework quoting the bug back.* Reverting only
+      the print site (keeping `clampRating` defined so the file still compiles)
+      fails the behavioural assertion with the defect verbatim:
+
+          Expected: no matching candidates
+            Actual: _TextWidgetFinder:<Found 1 widget with text "7.5": ...
+
+      Reverting all of `lib/` would not compile, which proves nothing, so the
+      behavioural revert is the one that counts. 11 green in the new file; the
+      model precondition is asserted too — `7.5` must **not** be folded to
+      null, or the whole defect would be unreachable rather than fixed.
+
+      *No-regression arm.* `4.5/4.6/4.7/4.8/5.0` are asserted to print
+      **exactly**, per mount, because a clamp that moved a score the platform
+      actually carries would be worse than the defect it fixed: wrong about
+      every contractor, every day, and it would look like a rounding decision.
+      One case per mount is not tidiness — a second `pumpWidget` of the same
+      `MarketplaceView` in one body reuses the header the first mount built and
+      the test fails on a harness artefact, a red that says nothing about the
+      fix.
+
+      **Not visual-proofed and not claimed.** Every score a real payload
+      carries renders byte-identically before and after, so a screenshot of
+      the live app would show nothing about this change and one is
+      deliberately not offered. NaN is asserted at the **model**, not by
+      mocking an infinite literal down the wire, because `jsonEncode` refuses
+      to write one — a mock serving NaN would be testing a payload the API
+      cannot send.
+
+      *Gate.* `flutter analyze` -> **No issues found!** (14.3s).
+      `flutter test` -> **1784 passed / 3 skipped / 0 failed**, up from
+      1773/3/0 (+11, the new file), no regressions. Both blobs verified
+      `MATCH` against the real remote tree at tip `f10dc4c`, read off the
+      git-data API rather than trusted from the green push line.
+
+      **Next:** backlog back to **0 unchecked**. Worth the founder's call,
+      neither of them mine: the box still clears only ~1.3–2.4 GB with no
+      swap — but the suite ran in **12:16** this tick against 37:28 last tick,
+      so that gate is finally inside a 10-minute tick, and the standing
+      **`sharding`** decision is still unmade. That split is what turns a
+      12-minute suite into something a short tick can survive. No APK, no
+      release, no tag — release work stays founder-gated.
