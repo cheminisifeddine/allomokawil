@@ -11741,3 +11741,128 @@ trusting the helper's green line. No APK, no release, no tag.
       error arm at all. Still yours and unmade: the `sharding` call. Still
       **BACKEND-API's**: the `durations` array — the live catalogue publishes
       1/3/6/12 months per plan and this app can only order `month` and `year`.
+
+- [x] **A failed GPS read spent the app's single permission question, so a user
+      who fixed the setting that blocked it was never asked again — and was told
+      nothing at all.**
+
+      Found 1 Oct 2026 with 0 unchecked items, by reading the family the last
+      two items closed: **a typed exception caught as `_` and thrown away whole.**
+      `Locator.detect` is the app's only well-specified failure vocabulary — it
+      throws four ways, each carrying a hand-written Arabic sentence and a flag
+      saying whether the cure is a trip to the system Settings. Every caller but
+      one threw that vocabulary away:
+
+          // detect_location.dart — renders it correctly, unchanged
+          } on LocationFailure catch (failure) {
+            _say(failure.messageAr, settings: failure.opensSettings);
+          }
+
+          // place_state.dart — the caller that did not listen
+          } catch (_) {
+            await _markAsked();   // <-- spends the one-shot on all four
+            return false;
+          }
+
+      **The one-shot is the whole feature.** The founder's brief is «ask for
+      gps fird thing when the user open the app so you show related offers to
+      him», and `PlaceWarmup` honours it with `if (!place.asked)` — while
+      `asked` is **persisted** in shared preferences. So whatever writes that
+      flag true decides whether the app ever asks again on this install.
+
+      **Only one of the four failures is a refusal.** `Locator.detect`'s own
+      doc says the geocoder failure «is never fatal — a wilaya is a complete
+      answer», i.e. it had already thought carefully about which failures are
+      soft. The caller threw that away:
+
+      | failure | what it actually is | cure |
+      | --- | --- | --- |
+      | `denied` (prompt dismissed) | **a decision the user made** | none — correct to spend |
+      | location service off | the phone's state | turn the toggle on |
+      | `deniedForever` | blocked in **Settings**, from an earlier prompt | unblock and come back |
+      | timeout / GPS error | indoors, no fix | move somewhere with signal |
+
+      The first three are cured by changing something and coming back, and
+      **none of them is answerable by never asking again.** Spending the
+      one-shot on them made the app permanently silent to a user who had done
+      nothing wrong: they turn GPS on, relaunch, and the app still will not ask,
+      because the flag gating the question was already consumed by a failure
+      that was not an answer. This is the founder's headline feature failing
+      open on the most common real-world cases — indoors, and on any phone where
+      location is off by default.
+
+      **And the sentence was deleted on the way out.** Each failure carries
+      Arabic written for the person holding the phone — «خدمة الموقع مغلقة في
+      الهاتف. شغّلها من الإعدادات ثم أعد المحاولة.» — and `catch (_)` discarded
+      all of it. A user whose Settings blocked the app was shown **no message at
+      all**: no explanation, no button, and a filter silently applied to the
+      wrong wilaya (or none). The one screen that renders it properly
+      (`project_new_screen.dart`) is behind a tap the user must already know to
+      look for.
+
+      *Shipped.* `LocationFailure` gains **`userRefused`**, set on the one
+      prompt the user actually saw and dismissed and nowhere else —
+      `deniedForever` deliberately is **not** a refusal, because the phone never
+      shows a prompt for it, so it was answered somewhere the user cannot see
+      from inside the app. `askAndDetect` spends the question on a refusal alone
+      and publishes every other failure through **`lastFailure`**, so a screen
+      can name the cure instead of inventing one. `PlaceWarmup` draws it through
+      the shared `showNoteWithAction` / `showNote` pair, with the same
+      «الإعدادات» action `DetectLocationButton` uses and **never a
+      retry-shaped one** — a «إعادة المحاولة» button here would re-run a
+      permission request the phone has already refused to show, which is the
+      exact defect the commune sheet filed one tick earlier.
+
+      *Two stale-state traps closed on the way through.* `lastFailure` is
+      cleared when a new attempt starts and when `clear()` drops the fix, or the
+      sentence would outlive both the answer that replaced it and the wilaya it
+      was describing. A foreign exception (a platform channel throwing outside
+      `Locator.detect`'s vocabulary) is also not an answer, and spends nothing.
+
+      *The seam.* The detector is injectable on `PlaceState`, matching the
+      screens' `clock` and `AuthState`'s outbox — the branch worth testing is the
+      failure arm, and a widget test has no GPS. `PlaceState.detached()` keeps
+      its no-platform-channel guarantee by throwing from its own no-op detector
+      rather than reaching for the real one.
+
+      **Red before green, and it drove the *relaunch* path rather than the
+      field.** Reverting **only** the error arm to `catch (_)` → **12 of 15
+      fail.** Three of them are the ones that matter, and none of them asserts
+      on a boolean: each builds a **second `PlaceState` restored from the same
+      shared storage**, exactly as a relaunch does, then asserts the detector
+      was actually reached (call count 2). Reading `place.asked` alone would
+      have passed against the old code the moment the field was reset; proving
+      the *phone* is asked again is the claim that matters.
+
+      **A harness fault, recorded because it briefly looked like evidence.**
+      The first version passed a call counter as `{int* calls}` — Dart has no
+      pointer parameters — and the run returned **12 compilation errors**, which
+      is not a red test suite and must never be reported as one. Replaced with a
+      counter box; the 12 failures above are real assertion failures.
+
+      *Files:* `lib/src/core/location/locator.dart`,
+      `lib/src/core/location/place_state.dart`,
+      `lib/src/widgets/place_warmup.dart`, `test/place_one_shot_test.dart`
+      (new, 15 cases).
+
+      **No new rendered surface, so no screenshot.** Both sentences and the
+      «الإعدادات» button already existed in `Locator` and `DetectLocationButton`
+      and are reused verbatim — the fix is that they now *reach* the user on the
+      launch path instead of dying in a catch. Nothing was added to draw, so a
+      capture would only re-shoot a snack bar that is a one-line pass-through of
+      an already-verified component; this is stated rather than asserted.
+
+      **Gate** — `flutter analyze` → **No issues found!** (8.7 s). Full suite
+      through `tool/run_tests.py` → **1745 passed / 3 skipped / 0 failed** in
+      **11:23**, up from 1730/3/0 (+15), no hang.
+
+      *Commit:* local `2280a50` → remote `38f7481`, **4/4 blobs MATCH** against
+      the real remote tree via the contents API — not the helper's exit code,
+      which reads green on an empty upload set. No APK, no release, no tag.
+
+      **Next:** backlog at **0 unchecked**. The typed-exception family is closed:
+      the app had exactly two callers of `Locator.detect` and the other one
+      already listened, so this was its last member. Still yours and unmade: the
+      `sharding` call. Still **BACKEND-API's**: the `durations` array — the live
+      catalogue publishes 1/3/6/12 months per plan and this app can only order
+      `month` and `year`.
