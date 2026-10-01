@@ -40,6 +40,7 @@
 // not in what the app is entitled to claim.
 library;
 
+import 'review_count.dart';
 import 'worker_stats_copy.dart';
 
 /// The sentence for an empty reviews section whose emptiness contradicts the
@@ -69,3 +70,39 @@ const String reviewsSectionUnbackedTitle = 'تقييماته غير معروضة
 /// here rather than written here, which is the only thing that stops it
 /// drifting.
 String get reviewsSectionEmptyTitle => noRatingAr();
+
+/// The review count the header **actually printed**, or 0 when it printed none.
+///
+/// This is the fix for the hole the first version of this file left, and it
+/// was this loop's own code that left it. The section was handed
+/// `WorkerProfile.totalReviews` — the raw column — and told that was "the
+/// aggregate the header already printed above this section". It is not, and
+/// the two disagree in a case the model layer documents as real:
+///
+///   avg_rating: 0, total_reviews: 24
+///
+/// `avg_rating: 0` is the server's "nobody has rated me yet" sentinel, so
+/// `WorkerProfile.hasRating` is false and the header pill draws
+/// `noRatingAr()` — **«لا تقييمات بعد», with no stars and no count at all**.
+/// Nothing about 24 was printed. [reviewsSectionUnbackedAr] would then fire on
+/// the empty list and say «يظهر أعلاه 24 تقييماً» — telling the customer a
+/// number is on screen when the sentence directly above it is the opposite,
+/// and there is no number anywhere above it.
+///
+/// So the contradiction arm is only entitled to compare against a claim the
+/// customer can actually see. Both of the header's conditions are applied
+/// here, and both are the header's own: it draws a row only on `hasRating`,
+/// and it prints a count only when that count is positive
+/// ([printableReviewCount], which is what turns a stored 0 into an absence).
+///
+/// `review_count.dart` states that these two fields disagree **in both
+/// directions** and that this is a real payload shape — "7 reviews, no score"
+/// is listed there as its own case. That file fixed the case where a *score*
+/// and a *zero count* meet. This is the other direction: a *count* and a
+/// *missing score* meet, and it is the one that makes the arm introduced
+/// yesterday claim something the screen never said.
+int headerPrintedReviewCount({
+  required bool hasRating,
+  required int totalReviews,
+}) =>
+    hasRating ? printableReviewCount(totalReviews) ?? 0 : 0;

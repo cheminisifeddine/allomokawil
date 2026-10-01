@@ -206,11 +206,23 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
         const SectionTitle('التقييمات', icon: Icons.star_rounded),
         _ReviewsSection(
           reviews: _reviews,
-          // The aggregate the header already printed above this section. Two
-          // reads of one fact, and this is what lets the section notice when
-          // they disagree instead of asserting the opposite of the row the
-          // customer just read — see `reviews_section_copy.dart`.
-          headerReviewCount: w.totalReviews,
+          // The count the header **actually printed**, not the raw column.
+          // Two reads of one fact, and this is what lets the section notice
+          // when they disagree instead of asserting the opposite of the row
+          // the customer just read — see `reviews_section_copy.dart`.
+          //
+          // `w.totalReviews` was wrong here, and it was this loop's own line:
+          // the header draws its pill on `hasRating`, so a profile carrying
+          // `avg_rating: 0, total_reviews: 24` prints «لا تقييمات بعد» with no
+          // stars and no number, and a section told 24 would then announce
+          // «يظهر أعلاه 24 تقييماً» about a page that has never shown one.
+          // `headerPrintedReviewCount` applies both of the header's own
+          // conditions, so the arm can only fire against a claim the customer
+          // can see.
+          headerReviewCount: headerPrintedReviewCount(
+            hasRating: w.hasRating,
+            totalReviews: w.totalReviews,
+          ),
           onContact: () => _openChat(w),
           onRetry: _retryReviews,
           clock: widget.clock,
@@ -605,7 +617,11 @@ class _PortfolioTile extends StatelessWidget {
 class _ReviewsSection extends StatelessWidget {
   final Future<List<Review>> reviews;
 
-  /// The review count the profile header drew beside the stars.
+  /// The review count the profile header **drew**, and 0 when it drew none.
+  ///
+  /// Not the raw column: this is [headerPrintedReviewCount], so a profile the
+  /// header refused to put a count on arrives here as 0 and cannot make the
+  /// arm quote a number that is not on screen.
   ///
   /// Only used to detect a contradiction; never to print a score the section
   /// cannot show. See [reviewsSectionUnbackedAr].
