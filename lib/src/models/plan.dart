@@ -235,6 +235,27 @@ class SubscriptionStatus {
     return 'ينتهي الاشتراك بعد ${arabicCounted(days, 'يوم', two: 'يومين', few: 'أيام')} — $end';
   }
 
+  /// `انتهى الاشتراك في 2026-01-01` — the day a paid plan ran out, or null
+  /// when there is nothing to say.
+  ///
+  /// **Not [expiryCountdownAr], and the tense is the whole reason.** That getter
+  /// is written in the future — «ينتهي» — because it describes cover the man
+  /// still holds, and its own sub-day arm falls back to a future-tense date for
+  /// the same reason. Reusing it for a plan that is *already over* would print
+  /// «ينتهي الاشتراك في 2020-01-01» directly under a pill reading «منتهي», on
+  /// the one screen whose entire job is renewal, disagreeing with itself inside
+  /// one card about whether the plan is running or over.
+  ///
+  /// Null for the free plan and for an expiry that cannot be read — the two
+  /// cases [expiresAtLocal] already declines to guess at, and a date invented
+  /// for a payment that never happened is the one number this card must not
+  /// print.
+  String? get expiryEndedAr {
+    final end = subscriptionEndDateLabel(expiresAtLocal);
+    if (end == null) return null;
+    return 'انتهى الاشتراك في $end';
+  }
+
   /// A paid plan that passes its expiry date is expired even if the row still
   /// says active; the server re-checks, and so does the card.
   bool get isExpired {

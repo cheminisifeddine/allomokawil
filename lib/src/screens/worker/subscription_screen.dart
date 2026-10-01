@@ -607,14 +607,45 @@ class _CurrentPlanCard extends StatelessWidget {
                   status.isQuotaSpent ? AppTheme.danger : AppTheme.accent),
             ),
           ],
-          if (status.expiresAt != null && paid) ...[
+          // **The live arm, and the card used to have no arm at all for the
+          // other half.** This guard is `paid`, so a plan that had already
+          // lapsed printed a pill reading «منتهي» and *no date whatsoever* — the
+          // account row two screens away said «انتهت في 2020-01-01» about the
+          // same row of the same table, and the man deciding whether to renew had
+          // to pick which of the app's two answers to believe. Silence is not a
+          // softer version of the answer; it is the absence of one, on a money
+          // screen. The expired arm is below.
+          if (paid && status.expiresAt != null) ...[
             const SizedBox(height: AppTheme.s12),
             Text(
               // Count and date from the same instant, so the two can never
               // disagree the way a server-computed count and a locally-formatted
               // date did. Null only when the expiry is unreadable.
+              //
+              // **Past tense for an ended plan, and never the countdown** — see
+              // [SubscriptionStatus.expiryEndedAr]. The countdown says «ينتهي»
+              // and its sub-day arm falls back to a date sentence in the same
+              // future tense, so reusing it here would put «ينتهي الاشتراك في
+              // 2020-01-01» under a pill that says the plan is over.
               status.expiryCountdownAr ?? _shortDate(status.expiresAt!),
               style: AppTheme.caption.copyWith(color: AppTheme.textSecondary),
+            ),
+          ],
+          // The same sentence, past tense, for the one case the guard above
+          // dropped: a paid plan whose cover has already run out.
+          //
+          // `!status.isFree` is load-bearing, not a nicety. `isFree` is what
+          // makes [SubscriptionStatus.expiresAtLocal] null, so the free plan has
+          // no readable end date — and a free plan that happens to carry an
+          // `expires_at` in its row would otherwise be handed a line reading
+          // «انتهى الاشتراك في …» for a plan that was never paid for and never
+          // ends. Null makes [expiryEndedAr] decline, and this arm draws nothing,
+          // which is what the card did here before.
+          if (!status.isFree && status.isExpired && status.expiresAt != null) ...[
+            const SizedBox(height: AppTheme.s12),
+            Text(
+              status.expiryEndedAr ?? _shortDate(status.expiresAt!),
+              style: AppTheme.caption.copyWith(color: AppTheme.danger),
             ),
           ],
         ],

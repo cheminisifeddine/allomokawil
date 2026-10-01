@@ -388,6 +388,181 @@ void main() {
           reason: 'the card never says the plan is over: $texts');
     });
 
+    testWidgets('an expired plan says WHEN it ended, not only that it did',
+        (tester) async {
+      tester.view.physicalSize = const Size(1080, 3400);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+
+      final api = ApiClient(
+        baseUrls: const ['https://x.test'],
+        httpClient: MockClient((req) async {
+          final p = req.url.path;
+          if (p.endsWith('/api/mobile/subscription')) {
+            return http.Response(jsonEncode(_catalogue('2020-01-01 00:00:00')),
+                200, headers: {'content-type': 'application/json'});
+          }
+          return http.Response(jsonEncode(<String, Object?>{}), 200,
+              headers: {'content-type': 'application/json'});
+        }),
+      );
+      final auth = AuthState(api);
+
+      await tester.pumpWidget(AppScope(
+        api: api,
+        auth: auth,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          locale: const Locale('ar'),
+          home: const SubscriptionScreen(),
+        ),
+      ));
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      final texts = tester
+          .widgetList<Text>(find.byType(Text))
+          .map((t) => t.data ?? '')
+          .toList();
+
+      // **The defect, stated as the fact that is missing.** The pill already
+      // said «منتهي», so asserting that again would pass against the broken
+      // card; the half nobody could read was the *day*. The account row says it
+      // in the other screen (`profile_screen.dart:314`), and this one did not,
+      // so the same row of the same table got two different answers depending on
+      // which tab the contractor was standing in.
+      expect(texts.any((t) => t.contains('انتهى الاشتراك في 2020-01-01')), isTrue,
+          reason: 'the card says the plan ended but not when: $texts');
+
+      // **Past tense, and never the countdown.** `expiryCountdownAr` is
+      // future-tense — «ينتهي» — because it describes cover the man still holds,
+      // and its sub-day arm falls back to a date sentence in the same future
+      // tense. Reusing it here would print «ينتهي الاشتراك في 2020-01-01»
+      // directly under a pill reading «منتهي»: a card disagreeing with itself
+      // about whether the plan is running or over, on the screen whose whole
+      // job is renewal.
+      expect(texts.any((t) => t.contains('ينتهي الاشتراك')), isFalse,
+          reason: 'an ended plan was described as still ending: $texts');
+
+      // The countdown must not have leaked in as a count either — a lapsed
+      // plan has no days left to count.
+      expect(texts.any((t) => t.contains('بعد')), isFalse,
+          reason: 'a countdown was drawn on an ended plan: $texts');
+    });
+
+    testWidgets('a plan that has NOT expired keeps the future-tense countdown',
+        (tester) async {
+      // The other half, and the reason this is not a one-line swap: the live
+      // arm has to be untouched. Without this case, replacing the whole block
+      // with the past-tense sentence would pass the test above and make the
+      // screen wrong for every paying contractor who has not lapsed yet.
+      tester.view.physicalSize = const Size(1080, 3400);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+
+      // **60 days out, not "sometime far away", and that number is load
+      // bearing.** `SubscriptionStatus.maxCountedDays` is 365: past a year the
+      // countdown deliberately degrades to the bare date sentence, because
+      // «بعد 1095 يوماً» is not information a man can read as time. The first
+      // draft of this case used year+3 and then asserted «ينتهي الاشتراك بعد» —
+      // which the *correct* code refuses to print, so the case went red for a
+      // reason that had nothing to do with the expired arm. A guard that fails
+      // on correct behaviour is worse than no guard: it teaches the next tick
+      // to "fix" the live countdown into being broken.
+      final far = DateTime.now().add(const Duration(days: 60));
+      final api = ApiClient(
+        baseUrls: const ['https://x.test'],
+        httpClient: MockClient((req) async {
+          final p = req.url.path;
+          if (p.endsWith('/api/mobile/subscription')) {
+            return http.Response(
+                jsonEncode(_catalogue(far.toUtc().toIso8601String())), 200,
+                headers: {'content-type': 'application/json'});
+          }
+          return http.Response(jsonEncode(<String, Object?>{}), 200,
+              headers: {'content-type': 'application/json'});
+        }),
+      );
+      final auth = AuthState(api);
+
+      await tester.pumpWidget(AppScope(
+        api: api,
+        auth: auth,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          locale: const Locale('ar'),
+          home: const SubscriptionScreen(),
+        ),
+      ));
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      final texts = tester
+          .widgetList<Text>(find.byType(Text))
+          .map((t) => t.data ?? '')
+          .toList();
+
+      expect(texts.any((t) => t.contains('مفعّل')), isTrue,
+          reason: 'a live plan is not announced as active: $texts');
+      expect(texts.any((t) => t.contains('ينتهي الاشتراك بعد')), isTrue,
+          reason: 'the live countdown was replaced by the past tense: $texts');
+      expect(texts.any((t) => t.contains('انتهى الاشتراك')), isFalse,
+          reason: 'a plan that has not ended was described as ended: $texts');
+    });
+
+    testWidgets('the free plan is not given an end date it never had',
+        (tester) async {
+      // The regression this arm could have introduced. `expiresAtLocal` is null
+      // for the free plan (that is what `isFree` buys), so `expiryEndedAr`
+      // declines — but a row that *carries* an `expires_at` anyway is the shape
+      // a Worker bug produces, and this is the one card in the app that must
+      // never invent a date for a plan nobody paid for.
+      tester.view.physicalSize = const Size(1080, 3400);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+
+      final api = ApiClient(
+        baseUrls: const ['https://x.test'],
+        httpClient: MockClient((req) async {
+          final p = req.url.path;
+          if (p.endsWith('/api/mobile/subscription')) {
+            final c = _catalogue('2020-01-01 00:00:00');
+            (c['current'] as Map<String, Object?>)['plan'] = 'free_trial';
+            return http.Response(jsonEncode(c), 200,
+                headers: {'content-type': 'application/json'});
+          }
+          return http.Response(jsonEncode(<String, Object?>{}), 200,
+              headers: {'content-type': 'application/json'});
+        }),
+      );
+      final auth = AuthState(api);
+
+      await tester.pumpWidget(AppScope(
+        api: api,
+        auth: auth,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          locale: const Locale('ar'),
+          home: const SubscriptionScreen(),
+        ),
+      ));
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      final texts = tester
+          .widgetList<Text>(find.byType(Text))
+          .map((t) => t.data ?? '')
+          .toList();
+
+      expect(texts.any((t) => t.contains('انتهى الاشتراك')), isFalse,
+          reason: 'a plan that was never paid for was dated: $texts');
+      expect(texts.any((t) => t.contains('ينتهي الاشتراك')), isFalse,
+          reason: 'a plan that was never paid for was given a countdown: $texts');
+    });
+
     testWidgets('the card does not print the server day count it was given',
         (tester) async {
       tester.view.physicalSize = const Size(1080, 3400);
