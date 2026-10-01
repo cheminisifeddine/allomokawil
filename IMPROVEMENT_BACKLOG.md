@@ -13537,3 +13537,75 @@ founder-gated.
       *Next in backlog:* unchanged — `durations` (BACKEND-API's live-catalogue
       gap) remains the only standing item, blocked on Worker source outside the
       app and therefore founder-gated.
+
+## Tick 2 Oct 2026 (4th) — the trial plan was identified by a bare string, next to a dead enum that spelled it wrong
+
+Backlog was at **0 unchecked** on arrival, so this tick audited for the bug
+class the last two ticks both found by hand: *one value, two spellings, no type
+to stop them agreeing*. `ProjectStatus` and `UrgencyLevel` both got a typed id
+for exactly this. The third column in the same family had not.
+
+`enums.dart` carried `enum SubscriptionPlan { freeTrial, basic, pro, gold,
+perLead, commission }` with **one reference in the repository: its own
+declaration**. Dead since before this loop began. Two of its values are camel
+case, and the wire is not — `GET https://allomokawil.com/api/mobile/plans`
+answered `free_trial`, `basic`, `pro`, `gold` (checked live, this tick). So
+`SubscriptionPlan.freeTrial.name` is `'freeTrial'`, a string the Worker has
+never sent. It is the dead `case 'inprogress'` arm from last tick, one file
+over: a second spelling of a value parked next to the code that reads it, and
+nothing anywhere that could have noticed.
+
+The live half was `SubscriptionStatus.isFree` — `plan == 'free_trial'`. It was
+the **only** reader of this column in the app that did not trim first
+(`redeem_outcome.dart:75`, `pending_request_copy.dart:245` and
+`quote_worker_trust.dart:44` all do), so a padded row read as the trial at
+three call sites and as a *paid* plan here.
+
+That is not cosmetic, because `isFree` is the switch on `expiresAtLocal`:
+`expiresAtLocal` is `isFree ? null : parseServerTime(expiresAt)`. A padded or
+unrecognised id therefore **deleted a paying contractor's expiry date** — the
+current-plan card read «مفعّل» with no date, no countdown, and nothing on the
+screen saying why. The one number that card exists to supply.
+
+**Shipped.** `lib/src/models/plan_id.dart` — `PlanId` with an explicit `wire`,
+so `isFree` is `PlanId.fromWire(plan)?.isFree ?? false`. `fromWire` trims (the
+app's own law, three times established) and answers **null**, never `freeTrial`,
+for an id it cannot read: defaulting an unknown id to the trial would both tell
+a man paying 6000 دج a month that he is on the free plan *and* suppress his
+expiry date. The dead enum is deleted; `isFree` is documented as the switch it
+is, not a label.
+
+**Not a visual change** — no widget was touched, so there is no screenshot and
+none is claimed. The words it protects («مفعّل» / «منتهي», the countdown, the
+ended-date line) are asserted against the real screen in
+`subscription_clock_test.dart`, which still passes.
+
+### Evidence
+- `flutter analyze` → **No issues found!** (7.8s)
+- `python3 tool/run_tests.py` → **1864 passed / 3 skipped / 0 failed**, 15:01,
+  exit 0. Previous run 1850 — this file's 14, no regressions.
+- **Both guards proven failing by revert**, since a parser test cannot see an
+  `isFree` that goes back to comparing a raw string:
+  reverting only `isFree` → **1 test fails**;
+  restoring the dead enum's camelCase `wire` → **5 tests fail**.
+- Push verified by blob hash against the GitHub contents API — **4/4 MATCH**
+  (a green helper line is not proof; see the protocol).
+
+### Commits
+- local `6c69bd1` → remote `07dccb2` (4/4 blobs MATCH)
+
+### Note for the next tick — the standing `durations` flag is STALE
+The last tick reported `durations` as "the only standing item, blocked outside
+the app". **It is not outstanding.** `GET /api/mobile/plans` now returns
+`durations` populated (0 for `free_trial`, 4 each for `basic`/`pro`/`gold`, 1/3/6/12
+months) and the app already handles it: `PendingRequest.period` keeps the raw
+wire string, `pendingPeriodLabelAr` / `pendingPeriodMismatchNoteAr` in
+`data/pending_request_copy.dart` report **the stored term** rather than the
+requested one, and `test/pending_period_test.dart` pins it. Do not re-raise it.
+What remains genuinely open there is that the Worker accepts any unrecognised
+`period` with `ok:true` and files it as `month` — that is **BACKEND-API's** to
+fix (reject unknown terms), and is still founder-gated, not an app item.
+
+### Next
+Backlog still at **0 unchecked**. Next tick: keep auditing for the two-spelling
+class, or seed a fresh item from whatever the audit surfaces.
