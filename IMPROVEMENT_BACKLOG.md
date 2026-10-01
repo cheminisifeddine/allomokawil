@@ -12102,3 +12102,79 @@ after two read-only ticks the loop shipped Dart again. The full suite ran
 **33:48**, well outside the 10-minute cron interval and past `run_tests.py`'s
 own 1200 s deadline — the budget mismatch recorded last tick is not theoretical
 and the `sharding` call is still the answer to it.
+
+---
+
+## Tick 2 Oct 2026 — **read-only tick**: the box cannot host a Dart gate, so this
+tick found no shippable item and did not fake one
+
+**Gate: NO ROOM, twice.** `python3 tool/build_gate.py` →
+
+    Memory: 845 MB available of 7937 MB, no swap; a build needs >= 900 MB
+    NO ROOM — nothing is building, but only 845 MB is reclaimable and a run of
+    this suite was measured to bottom out at 1177 MB. Do not start a build here.
+
+and 25 minutes later `free -m` read **776 MB available** and still falling. The
+two largest RSS consumers are not builds at all and are not mine to kill: the
+Hermes runtime python at **495 MB** and `/opt/hatch/bin/hatch` at **380 MB**.
+`pgrep -c java` → 0 and the only `flutter` match is **this agent's own
+`bash -c`** command line, which is the false positive the gate was written to
+stop counting. So the gate is correct and the box is genuinely starved.
+
+**Therefore: no commit, no push, no backlog checkbox.** There was nothing to
+commit — not a doc note dressed up as a fix. The protocol's non-build allowance
+was used for what it is for, an audit.
+
+**What the audit covered, and the result of each.** The two defect families this
+loop has been mining are both **exhausted**, which is worth more than a
+marginal fix would have been:
+
+* *Capture-before-await* (the family that produced the publish-form, bid,
+  dossier and price-warning items): swept every `await` adjacent to
+  `Navigator.pop/push` in `screens/` and `widgets/`, looking back 30 lines for a
+  local captured from `widget.` or a controller before the await. **0 hits.**
+* *Arabic count agreement and reachable zero/negative*: every one of the **24**
+  `arabicCount`/`arabicCounted` call sites in `lib/` was traced to its guard.
+  The one that looked live is not: `relativeTimeAr`'s compound arm computes
+  `hours = diff.inHours`, which is **0** for a read under an hour and would trip
+  the debug-only assert in `arabicCount` — but the arm is only reachable at
+  `diff.inMinutes >= 60`, and `diff.inMinutes < 1` already returned «الآن»
+  above it. **Guarded.**
+* **Division and modulo by a value that can be 0**: `plan_renewal_copy.dart:109`
+  (`year % month`) tests `month <= 0` on the line above; `api_client.dart:86`
+  (`% _baseUrls.length`) sits inside a loop already preceded by
+  `_baseUrls.isEmpty`. **Both guarded.** `arabic_agreement.dart:76`
+  (`n % 100`) is a constant divisor.
+
+**One real defect found and pinned, deliberately not shipped this tick.** The
+star row clamps its glyphs but not its number. `starIconFor`
+(`data/star_row_shape.dart`) pins a score outside `0..5` to the ends — its own
+comment says so, "a row that draws more stars than it has positions would
+throw" — so a payload carrying `avg_rating: 7.5` draws `FFFFF` and then prints
+**«7.5»** beside it, and `A11y.rating` on the same widget says
+«التقييم 7.5 من 5». The glyph row and the number beside it would answer two
+different things about the one figure a customer compares between two
+tradesmen, which is the exact contradiction `star_row_shape.dart` was opened to
+kill — it fixed the icons and left the digits.
+
+* **Not claimed as reachable, deliberately.** `WorkerProfile._rating` and
+  `QuoteReview._rating` both reject `v > 0` is the only filter, so 7.5 passes;
+  but **every** fixture in `test/` carries `avg_rating` in `0/4.5/4.6/4.7/4.8/5`,
+  the live `/api/mobile/workers` answers `{"error":"غير مصرح"}` without a token,
+  and the server is the only writer of that column. So this is a **latent**
+  disagreement behind a server trust boundary, not a demonstrated one, and it is
+  recorded as such rather than shipped as a "fix" for a number no payload has
+  ever carried. It is the first candidate for a tick with a gate.
+
+**The audit's other half: what is already right, so the next tick does not
+re-audit it.** `chat_time.dart`'s Julian-day arithmetic, `money.dart`,
+`dz_phone.dart`, `chat_recheck_copy`, `stats_freshness_copy`/`read_age_ar`,
+`portfolio_allowance`, `pending_request_copy` (its `pendingRequestNumberAr`
+*is* now wired at `subscription_screen.dart:1227`, contradicting the stale
+"never reached a screen" note in its own doc comment) and `a11y.dart`'s review
+count were all read and found correct.
+
+**Next:** backlog still **0 unchecked**, and this tick shipped nothing, so the
+first item of the next tick is whatever the gate allows — if the box is still
+under 900 MB, another audit, and the star-row number clamp above is the first
+thing to implement once it is not.
