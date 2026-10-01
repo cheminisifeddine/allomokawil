@@ -3376,6 +3376,73 @@ it is a correctness gap that duplicates a user's data.
       shape the server does not send is a refactor for its own sake, which
       this backlog explicitly excludes.
 
+- [x] **The strongest urgency a client can choose was renamed on the way to
+      the page a contractor reads it.** DONE `6e59977`.
+
+      A client tapped «عاجل جداً» on the publish screen, the value was stored
+      as `urgent`, and the project page he then opened printed
+      «الاستعجال: عاجل». He chose the strongest answer the app offers and the
+      page a contractor uses to decide whether to bid tonight came back
+      weaker than the one he gave. Nobody is lied *to* — nothing crashes, no
+      test turns red, and the row is still true — it is just a smaller claim
+      than the one the client made, on the row whose entire job is to carry
+      it.
+
+      **The cause is a private `switch` per widget, and it hid itself well.**
+      `project_new_screen` names the four levels in its `const` pill table;
+      `project_detail_screen` named them again in a private `_urgencyLabel`.
+      Three of the four are byte-identical, so the divergence is one word wide
+      and survives a screenshot, an analyzer and a careful read — and it is
+      the one level that carries the most force. The same file's own doc
+      comment on `StatusPill.project` records a sibling of this: a display
+      helper that is forgiving of a broken write hides the write, and a `const`
+      list of tuples would not even fail to compile if a fifth level were
+      added — it would simply be missing from the picker while the detail page
+      still had an answer for it.
+
+      So both now read one function. `urgencyAr` lives in
+      `lib/src/data/urgency_copy.dart` — the exact sibling of
+      `quote_status_copy.dart`: a model-owned enum in, one Arabic word out,
+      under `data/` rather than on the enum, so the model keeps knowing only
+      the wire (`UrgencyLevel.wire` / `fromWire` already do, and are
+      unchanged). `isUrgentLevel` also replaced the pill's inline
+      `== UrgencyLevel.urgent`, because which level earns red is a property of
+      the level rather than of the widget that happens to be drawing it.
+
+      **Two guards, because one of them could not have caught this.**
+      `test/urgency_copy_test.dart` (6 cases) pins the shared rule: every level
+      has a name, the four names are distinct, the strongest is the pill's
+      exact word, only it is dangerous, and the name still round-trips through
+      `fromWire` so the display layer cannot become a second forgiving parser.
+      A unit test of the shared copy **cannot** see a second copy being
+      reintroduced in a widget, so the real guard is the widget one: two cases
+      added to `quote_duration_copy_test.dart`, which already renders the real
+      `ProjectDetailScreen` from a real payload, reading the row off the
+      rendered tree over all four wire values.
+
+      Both were run in the failing direction, which is the only thing that
+      licenses them. Shared value reverted to «عاجل» → 2 unit cases fail.
+      Private switch restored on the screen → 2 widget cases fail. Reverted,
+      22/22 in those two files.
+
+      **The widget guard hit this file's own documented trap first.** The
+      `ProjectDetailScreen` key varied with the day count only, so the second
+      call of a loop reused the `State` and `initState` — where the project is
+      fetched — never ran again; the test read four stale urgencies. The key
+      now varies with the urgency too. The comment that file already carried
+      about the key being load-bearing was right, and was simply incomplete.
+
+      *Evidence:* `flutter analyze` → **No issues found!** (7.1s).
+      `python3 tool/run_tests.py` → **1842 passed / 3 skipped / 0 failed** in
+      12:44, exit 0 — up from 1834, so nothing existing moved. Not visual in
+      the screenshot sense: the change is one word inside an existing row, and
+      the row is asserted directly off the rendered tree, which is stronger
+      evidence than a pixel diff for this defect. `test/design_shots_test.dart`
+      ran inside the suite and wrote all 16 baselines to `/tmp/shots` with no
+      golden failure.
+      *Commit:* local `6e59977`, remote `90298bc`. All five blobs verified
+      **MATCH** against the remote tree (`8061d7d`).
+
 ## Completed
 ## Completed
 
