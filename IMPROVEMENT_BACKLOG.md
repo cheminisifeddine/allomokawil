@@ -12362,3 +12362,76 @@ thing to implement once it is not.
       than trusted from the green push line.
 
 **Next:** backlog back to **0 unchecked**.
+
+- [ ] **The browse card gates its whole tag row on the wrong price predicate —
+      a contractor who typed only a maximum loses the price tag on the row a
+      customer picks him from, and the fix one line below it is undone by the
+      gate one line above it.** `worker_card.dart:188`.
+
+      Found 2 Oct 2026, with the backlog at 0 unchecked, by asking the question
+      the 1 Oct zero item had answered one file over: *`hasPriceRange` now
+      folds zero and the max-only case. Does the row that **draws** the tag ask
+      it the same way?* It did not.
+
+          // worker_card.dart:188 — gates the WHOLE Wrap: both tags
+          if (worker.experienceYears > 0 ||
+              worker.priceRangeMin != null) ...[
+
+          // worker_card.dart:205 — gates the money tag alone
+          if (hasPriceRange(worker.priceRangeMin, worker.priceRangeMax))
+            _MiniTag(...),
+
+      **The outer gate is the one commit `f83fd4c` left behind.** That commit
+      replaced `worker.priceRangeMin != null` with `hasPriceRange(...)` on line
+      205 — the correct fix, for the exact defect the 1 Oct item describes ("a
+      contractor who typed a single maximum price had this tag on his profile
+      and not here"). It did not touch line 188, **one line above it**, which
+      is still `priceRangeMin != null`. `git blame` confirms the two dates:
+      line 205 is `f83fd4c`, line 189 is `9354e36` from 12 Sep. The fix was
+      applied to the inner gate and the outer one — the one that decides whether
+      the tags exist at all — kept the old predicate for eleven days.
+
+      **The consequence is the same defect coming back through the outer door,
+      and it is worse than the original, because now the fix and the bug are in
+      the same expression.** A contractor with `price_range_min: null` and
+      `price_range_max: 9000`:
+        * `hasPriceRange(null, 9000)` is **true** — the money tag is wanted;
+        * `priceRangeMin != null` is **false** and `experienceYears > 0` is
+          **false** (a new account), so the enclosing `Wrap` is never built;
+        * the card renders **no price tag at all** — exactly the defect
+          `f83fd4c` shipped to fix, still live on the one surface that fix
+          named.
+
+      **Reachable from this app's own form**, same as the zero case: `_save`
+      parses both boxes with a bare `DzNumber.tryParse`, no `min`, and its only
+      cross-field rule is `min > max`. A contractor who types **9000 into
+      «أعلى سعر» and leaves «من» empty** saves a max-only row — the form sends
+      every field unconditionally, `null` included, on purpose.
+
+      **The fix is the gate one line up, and it is one token:** the outer gate
+      becomes `experienceYearsAr(...) != null || hasPriceRange(...)`, so both
+      tags are asked with the predicate that already answers correctly for them,
+      and no screen holds a private copy of "does this contractor have a
+      price". This is the same class as `budgetLabel` vs `priceRangeAr`: one
+      server column, two answers.
+
+      *Not shipped this tick.* The gate said NO ROOM (484 MB of 7936, no swap;
+      a run of this suite is measured to bottom out at 1177 MB), so no Dart gate
+      could run and the protocol forbids committing a change that has not been
+      analyzed and tested. Left checked and pinned for the first tick with room.
+
+      **Not visual and not claimed.** A row with a min price or real experience
+      renders byte-identically before and after; only the max-only row with no
+      experience changes, and for that row the change is *a tag appears where
+      none was*. A screenshot of the live app would need a max-only profile to
+      show anything, and one is not claimed.
+
+      *Gate for whoever takes it:* `flutter analyze` -> "No issues found!";
+      `flutter test` >= 1795 passed / 3 skipped / 0 failed. **Assert against
+      both variants** — `WorkerCardVariant.row` is the one with the gate, and
+      `price_range_shot_test.dart` already has a `_maxOnly()` fixture
+      (`min: null, max: 9000`, `experience_years: 5`) that **passes today only
+      because its fixture sets 5 years of experience**, which is the `||` arm
+      keeping the Wrap alive. Change that fixture to `experience_years: 0` and
+      the existing max-only test fails — that is the regression test, already
+      written, already green for the wrong reason.
