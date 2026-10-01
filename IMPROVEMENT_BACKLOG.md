@@ -12658,3 +12658,81 @@ class-level sweep recorded under the monogram item is still open.
       («A · B +1»), so it read «ورق جدران +1» as a trade name and failed on
       correct code. Fixed by peeling the badge off first; the claim is kept
       and now also checks the badge parses as a count and that it is honest.
+
+- [x] **The reviews section told a contractor with 24 reviews that he has none,
+      on the same page that printed the 24.**
+      Found 1 Oct 2026 with 0 unchecked items, by asking the **live API** about
+      one man twice — the only way to see this, because both answers are 200
+      and each is a true reading of what its own endpoint returned:
+
+          GET /api/mobile/workers/1          -> avg_rating 4.8, total_reviews 24
+          GET /api/mobile/workers/1/reviews  -> []
+
+      `worker_profile_screen.dart` draws the first in `_CoverHeader` and the
+      second in `_ReviewsSection`, a few scrolls apart on one page. The customer
+      choosing between tradesmen is told «عمر بن علي» has four stars over
+      twenty-four reviews, then told **«لا تقييمات بعد»**, and then told
+      «التقييم يُكتب بعد إنجاز العمل — ابدأ بالتواصل معه» — an instruction to
+      message a contractor who has already been reviewed twenty-four times. The
+      last line is the worst of the three: it does not just misdescribe him, it
+      sends the user off to redo finished work.
+
+      *This is the 500 lie `profile_section_failure_test.dart` already closed,
+      one status code over:* a failed read is not an answer, and a read that
+      contradicts another answer about the same fact is not an answer either.
+
+      *Shipped* (`bae8eb3` local -> `188a75f` remote, all 6 blobs MATCH): a
+      third arm, `profile-reviews-unbacked`, plus
+      `lib/src/data/reviews_section_copy.dart`. The section is **not** told
+      which read is stale — the aggregate can lag the list, or the list can be
+      scoped to what this viewer may see, and neither is knowable from inside
+      the screen. Guessing in either direction is a claim about a man's
+      reputation, so the arm states only what is true: the count is printed
+      above, these are not shown here, the connection may be unstable.
+
+      **The empty card also lost a private copy.** It typed «لا تقييمات بعد»
+      into its own `Text` while `project_detail_screen`, `worker_home_screen`,
+      `worker_card` (×2) and this file's own header all call `noRatingAr()` —
+      the shape `worker_home_screen.dart` shipped for the trade line
+      (`54cf5dc`). It now reads `noRatingAr()`, which cost the card its
+      `const`. That is the honest price of not leaving a second copy to drift,
+      and the analyzer caught it (`const_with_non_constant_argument`) rather
+      than my noticing it.
+
+      *Evidence.* `flutter analyze` → **No issues found!** `flutter test` →
+      **1813 passed / 3 skipped / 0 failed**, up from 1808 (+5). Red-then-green
+      on the live payload: reverting **only** the screen fails *"the two reads
+      disagree"* with `Found 0 widgets with key ['profile-reviews-unbacked']`,
+      while the two regression guards stay green — so the red is the defect and
+      not the harness. **Pixels**, real `WorkerProfileScreen` at 392x844:
+
+          | state | `#C33F39` danger | `#B5790B` gold star |
+          | --- | --- | --- |
+          | contradicted (4.8 / 24 vs `[]`) | **681 px** cloud-off bubble | 0 |
+          | agreed (unrated, empty) | 0 | **1675 px** review bubble |
+
+      11 883 px differ between the two shots, bbox x366–1175 y2021–2114 — the
+      card, and nothing else. Shots: `/tmp/shots/reviews_contradicted.png`,
+      `/tmp/shots/reviews_agreed.png`. **The hexes came from `app_theme.dart`
+      after a first scan with a guessed `#D64550` returned 0 boxes in both** —
+      a wrong colour reports "nothing changed", which is the failure mode that
+      makes a pixel check lie.
+
+      **Two existing tests were pinning the defect; both are corrected.**
+      `profile_section_failure_test.dart` and `review_date_and_order_test.dart`
+      each built a profile carrying `avg_rating: 4.8, total_reviews: 2` and
+      paired it with an **empty** review list — the contradiction itself — then
+      asserted the screen drew «لا تقييمات بعد» over it. They passed *because
+      of* the bug. Both now load an unrated profile, which is what "a genuinely
+      empty list" has to mean. They also had to move to `findsNWidgets(2)`:
+      with both reads agreeing the header pill and the section print the same
+      sentence, and **the duplicate is the agreement, not a defect** — my first
+      version asserted one and failed on correct code, the same trap this
+      backlog has hit before.
+
+      *Next.* The sweep that found this one is **not** a private-copy sweep. It
+      is: **a screen holding two independent reads of one fact, with nothing
+      comparing them.** The reviews section was the instance; the same shape is
+      now worth sweeping — the portfolio grid has the identical structure
+      (`/workers/:id` totals vs the `/portfolio` list) and the same
+      not-guessing rule applies.
