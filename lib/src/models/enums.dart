@@ -21,8 +21,6 @@ enum UserRole {
 /// Verification state of a worker's identity/certificate docs.
 enum VerificationStatus { pending, verified, rejected }
 
-/// Subscription plans offered to contractors.
-enum SubscriptionPlan { freeTrial, basic, pro, gold, perLead, commission }
 /// Where a contractor's bid stands on the project it was made against.
 ///
 /// Found on 29 Sep 2026, on the live API, driving a real accept. The Worker

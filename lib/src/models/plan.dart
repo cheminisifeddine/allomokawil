@@ -15,6 +15,7 @@ library;
 import '../core/format/money.dart';
 import '../core/l10n/arabic_agreement.dart';
 import 'notification.dart' show parseServerTime;
+import 'plan_id.dart' show PlanId;
 
 /// Monthly or annual. Algeria pays in cash and by transfer, so the yearly plan
 /// is the one that matters most to a contractor who dislikes small recurring
@@ -140,7 +141,27 @@ class SubscriptionStatus {
   /// يوماً". Nothing in the UI may print this again.
   final int? renewsInDays;
 
-  bool get isFree => plan == 'free_trial';
+  /// Whether this row is the one nobody pays for.
+  ///
+  /// Through [PlanId.fromWire] rather than a bare `plan == 'free_trial'`,
+  /// which is what this line was. Two reasons, and the second is the one that
+  /// mattered.
+  ///
+  /// The first is trimming: this column is compared **raw** here while every
+  /// other reader in the app trims it first — `redeem_outcome.dart`,
+  /// `pending_request_copy.dart`, `quote_worker_trust.dart`. A row carrying
+  /// ` free_trial` was therefore read as a *paid* plan here while being read as
+  /// the trial everywhere else.
+  ///
+  /// The second is what the answer controls. `isFree` is not a label, it is the
+  /// switch on [expiresAtLocal]: a paid row is the only kind allowed to have a
+  /// readable end date. So a plan id that arrived padded, or one this app does
+  /// not know, made a paying contractor's card drop its expiry date entirely —
+  /// the plan reads «مفعّل», no date, no countdown, and nothing on the screen
+  /// says why. [PlanId.fromWire] returning null for an unknown id is deliberate:
+  /// an unreadable id must not be filed under the trial, which is the one
+  /// answer that would *also* strip a real expiry.
+  bool get isFree => PlanId.fromWire(plan)?.isFree ?? false;
   bool get hasUnlimitedQuotes => quoteLimit < 0;
 
   /// `null` when the plan is unlimited.
