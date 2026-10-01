@@ -13776,3 +13776,134 @@ whose second parameter is a non-nullable `String term` compared against
 shape on the payment-claim path and was deliberately left alone to keep this
 tick to one item.
 
+
+- [x] **The billing parsers cast the server's JSON by hand, and five of the
+      casts sat on the money screen — a re-typed field took the whole
+      subscription page down.** Found 1 Oct 2026 with **0 unchecked items**, by
+      reading the parsing layer under the `PendingClaim` lead the previous tick
+      left (which turned out to be already fixed — see the note at the end).
+
+      `lib/src/models/plan.dart` reads eleven server fields by cast rather than
+      by parse. Every one is a `TypeError` waiting for a payload that is not the
+      shape the app expects, and the same file already owned the answer:
+      `_text()` (line 592) returns null for anything that is not a string, and
+      three call sites were using it while ten were casting.
+
+      **The cast that bites hardest is the account number.** `instructions` was
+      `(json['instructions'] as String?)` — and a nullable cast succeeds on
+      `null` and on `String` and **throws on an int**. A CCP number is the
+      obvious field to send as a JSON number rather than a quoted string, so the
+      shape that takes the page down is the shape nobody would think to test.
+
+      **What it cost, per field:**
+
+      | field | cast | shape that broke it |
+      | --- | --- | --- |
+      | `payment[].instructions` | `as String?` | int account number |
+      | `payment[].id` | `'${json['id']}'` | absent id -> printed «null» |
+      | `payment.support_phone` | `as String?` | numeric phone |
+      | `payment.methods[]` | `m as Map` | one non-map row -> **whole sheet** |
+      | `payment` | `as Map<String, dynamic>?` | string payment block |
+      | `current.expires_at` | `as String?` | epoch int |
+      | `current.starts_at` | `as String?` | epoch int |
+      | `plans[]` (x2) | `p as Map` | one non-map row -> **whole catalogue** |
+      | `current` | `as Map?` | string current block |
+      | `plans[].tagline_ar` | `as String?` | numeric tagline |
+
+      Two of those are worse than a crash, because they are silent:
+
+      1. **`id: '${json['id']}'` printed the literal «null».** An absent id
+         became the four-letter string `null`, and that string is what the
+         write path POSTs back as `method` on `requestSubscription`
+         ([subscription_screen.dart:261]) and what `labelFor` compares against.
+      2. **One malformed row cost every row.** `for (final m in ... m as Map)`
+         throws on the first bad entry, so a single bad row in `methods` or
+         `plans` took the entire payment sheet or price catalogue — not that
+         row. The good rows were already in memory and were thrown away with it.
+
+      **Now:** every field the payload may legitimately withhold or re-type is
+      *read* — `_text` for copy and prose, `_wireText` for id columns (so an
+      absent id is `''` rather than the word «null»), `_list` for JSON arrays
+      (wrong type yields empty rather than throwing), and a new `_payable`
+      filter that skips a method row with no id at all.
+
+      **`_payable` is the one addition that is not purely mechanical**, and it
+      came out of a real render: `labelAr` falls back to the id, so a row with
+      neither leaves the sheet offering **a pay button labelled with nothing**
+      (`Text(m.labelAr)` at [subscription_screen.dart:1539], drawn raw) and
+      posts an empty `method`. The first version of this item shipped that —
+      `_wireText` returns `''`, not null, so `?? _wireText(json['id'])` never
+      fired and a method with no `label_ar` came out blank. Caught by the
+      suite, not by reasoning.
+
+      ### Changed
+      - `lib/src/models/plan.dart` — 10 casts -> reads; new `_wireText`,
+        `_list`, `_payable` next to `_text`.
+      - `test/billing_json_shape_test.dart` (new, 24 cases) — one per row of the
+        table above, plus the ones that must keep working: a real account number
+        still reads and trims, a real date still drives the countdown, a bad row
+        is skipped **without** costing the good ones.
+      - `test/no_empty_text_site_test.dart` — `_wireText` added to the guard's
+        existing `notCopy` hatch, with the reason and the pinning test named.
+
+      ### Evidence
+      - **Red first, then green.** The new file on the unfixed code:
+        **8 passed / 14 failed**, every failure a real `TypeError` naming its
+        line — `type 'int' is not a subtype of type 'String?' in type cast`
+        (plan.dart:99), `type 'String' is not a subtype of type 'Map<dynamic,
+        dynamic>'` (plan.dart:571), `type 'String' is not a subtype of type
+        'List<dynamic>?'` (plan.dart:570). After the fix: **24/24**.
+      - `flutter analyze` -> **No issues found!** (7.9s).
+      - Full suite through `python3 tool/run_tests.py` -> **1910 passed /
+        3 skipped / 1 failed**, 14:13, exit 1. The **1 failure is
+        pre-existing and not this item's** — see the clock note below; it is
+        pinned down before this item was written.
+      - Remote verified by blob hash after `git fetch`: `plan.dart`
+        `e60d4cd2`, `billing_json_shape_test.dart` `28b0c308`,
+        `no_empty_text_site_test.dart` `2298efbc` — **3/3 MATCH**.
+      - **The guard caught a regression I shipped, twice, and the report says
+        so.** `no_empty_text_site_test.dart` failed the first full run
+        (`a copy function can now answer "" and this guard has never heard of
+        it: {_wireText}`). That is the test doing its job: it exists to catch a
+        copy function that can answer `''`, and I had written one. Fixed in the
+        parser rather than silenced, because the empty answer was reachable from
+        a `Text()`.
+
+      ### Commits
+      - local `6f84aa1` -> remote `70403f8`
+
+      ### Note for the next tick
+      - **`subscription_clock_test.dart` is a red suite on this host right
+        now, and it is a time bomb, not a regression.** The case *"the day count
+        is local calendar days"* pins its fixture to `expires_at:
+        '2026-10-01 22:00:00'` and then asserts `days >= 0`. It passed while the
+        clock was before 22:00 UTC today and began failing after. It is the only
+        thing standing between the suite and green, and it fails **identically on
+        a clean tree** — measured by stashing this whole item and re-running the
+        file: **+15 / -1**, same case, same reason. **Fix it before seeding
+        anything new**: the fixture is wrong, not the code. It asserts on a day
+        that walks, when what it actually wants to prove is that the count is
+        derived from the local instant rather than from `renews_in_days` — which
+        can be pinned by a fixture *relative* to now, or by asserting on the
+        derived date only.
+      - **The lead the previous tick left is already fixed** — do not re-audit
+        it. `PendingClaim.covers` ([pending_request_copy.dart:282]) now reads
+        `final claim = periodWire; if (claim == null) return false;`, with the
+        shadowing hazard the old code had documented at length in its own
+        doc comment. That was fixed by commit `616bbea`, three ticks before the
+        note was written.
+      - **The lead behind this item is the `as String?` family.** It is *not*
+        finished — it is only finished on the money screen. The same cast
+        appears in `chat.dart:42,43,115,120,121`, `notification.dart:29,30`,
+        `project.dart:234,240,241,244,245`, `quote_review.dart:98,102,114,115,184`
+        and `user.dart:28,30,31`. Same crash shape, and
+        `chat.dart:120` (`content: json['content'] as String?`) is on the chat
+        timeline. **That is the next item** — the chat and profile parsers, one
+        file at a time, because a chat screen that throws is worse than one that
+        prints a blank.
+      - **Unrelated, for whoever runs a build:** `flutter test` invoked from a
+        foreground tool call is killed at 420 s, so the ~13-minute suite
+        **cannot** be run in the foreground on this harness. It must be run
+        `background=true` and collected with `process(action='wait')` (which
+        clamps to 180 s per call, so it needs several). The suite itself is
+        fine; only the way it is invoked matters.
