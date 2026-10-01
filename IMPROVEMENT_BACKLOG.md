@@ -12499,3 +12499,104 @@ thing to implement once it is not.
       he has a price while his checklist says he has not. One line, next tick.
       (A "price filter" was suspected here too and **does not exist** in this
       file; not recorded as work.)
+
+### Phase 5 — engineering hardening: the checklist contradicted the card it
+points at
+
+The sibling recorded as "next tick" by the last price item, shipped 1 Oct 2026.
+
+`worker_home_screen.dart:1887` gated the contractor's own setup step
+*«حدّد أسعارك ونطاق خدمتك»* on
+
+```dart
+worker.priceRangeMin != null && worker.priceRangeMax != null
+```
+
+`&&` on two null checks is a **third private answer** to "does this contractor
+have a price", next to the two the last two ticks deleted: `worker_card.dart`
+and `worker_profile_screen.dart`. Two arms, both reachable from this app's own
+form, and both pointing the user at work he has already done:
+
+* **One box typed.** `profile_edit_screen.dart:_save()` only rejects a *non-empty*
+  field that did not parse; a single price box is a legal submission. A man who
+  typed only the «حتى» box was **told on his own dashboard that he had not set
+  his prices**, while the browse card — the row customers pick him from — printed
+  «حتى 9000 دج» for the same profile. Two surfaces of one man, one fact, two
+  answers, opposite.
+* **Both boxes zero.** `(0, 0)` satisfies `&&`, and `DzNumber.tryParse` accepts a
+  bare `0` with no lower bound on the field, so the pair is reachable from the
+  editor (see `price_range_zero_test.dart`). `priceRangeAr` folds it to **no
+  price at all**, so the card shows no money tag while the checklist ticks the
+  step as done.
+
+**Why the checklist is the expensive surface for this one.** The card is a
+*description*; the checklist is a **directive** — «ابدأ باستقبال طلبات العمل»,
+«أكمل ملفك ليظهر اسمك أمام أصحاب المشاريع», and a progress bar that
+**never fills to 100 %** because the step cannot be completed. A man obeying a
+checklist that asks for work he has done is the exact failure
+`test/portfolio_badge_failure_test.dart` records at a cost: a wrong badge told a
+contractor with twelve photos to go and upload more, and he obeyed, pushing
+duplicates of work that was never missing. Here the wasted work is a PATCH to
+his own profile and, worse, a profile he can still be found on.
+
+**Shipped** — one call site changed, and it now reads the app-wide gate:
+
+```dart
+_SetupStep('حدّد أسعارك ونطاق خدمتك', Icons.payments_rounded,
+    hasPriceRange(worker.priceRangeMin, worker.priceRangeMax)),
+```
+
+`hasPriceRange` is the same boolean the browse card and the public profile read
+(`price_range_copy.dart`), including the `> 0` zero fold, so the zero arm needed
+no separate rule here — it came free with the gate, which is the whole argument
+for having one.
+
+**Red before green, and the two red cases are exactly the two arms.** Reverted
+only the one-line Dart change, kept both new files, ran them:
+
+```
+Failing tests:
+  ... a (0, 0) price pair is not a price, on this step either
+  ... a contractor who typed only a maximum has his step ticked
+```
+
+**2 failed / 3 passed** — and the 3 that stayed green are the ones worth
+having stayed green: *nothing typed* (`2 من 4`), *(min, max) and (min, null)*
+(`3 من 4`), and the card/checklist agreement table. A suite that went all-red
+would have proved nothing about which half was wrong. The `(0, 0)` failure text
+is the defect quoted back: the buggy run renders **«3 من 4»** where it must say
+«2 من 4».
+
+**One test in this file was wrong and was caught by running it.** The
+agreement table first asserted `isTrue` for all ten price pairs — which would
+have passed with `(null, null)` broken, i.e. it could only ever fail in one
+direction. It now asserts the *correspondence* (`hasPriceRange(p) ==
+priceRangeAr(p) != null`) over all ten pairs and names the four load-bearing
+answers separately, so a regression reports which pair broke.
+
+**Proven by pixels**, on the real `WorkerHomeScreen` at 786x2808, scanning the
+icon drawn beside the step (`AppTheme.success` `1B7E50` vs `AppTheme.textMuted`
+`6C707A`):
+
+| profile | green ticks (600 px each) | muted empty circles |
+| --- | --- | --- |
+| max-only 9000 | **3** — at y 699, 757, 815 | 1 (the documents step) |
+| nothing typed | 2 | **2** — y 815, 873 |
+| (0, 0) pair | 2 | **2** — y 815, 873 |
+
+The rows sit in checklist order, so the price step is the **third** row
+(y 815): green in the max-only shot, muted in the other two — the same row, the
+same label, two different icons, which is the only difference the model makes
+visible. `zero` is byte-identical to `todo` (62 259 bytes each), as it must be:
+a zero pair carries no price, so it is the same screen as no price at all.
+Comparison strip: `/tmp/shots/setup_price_step_compare.png`.
+
+*Gate.* `flutter analyze` -> **No issues found!** (13.7 s). `flutter test` ->
+**1805 passed / 3 skipped / 0 failed**, up from 1797/3/0 (+8: four widget
+cases, one agreement table, three shot cases). Wall clock **16:17** on a 7.8 GB
+no-swap box.
+
+**Not claimed clean.** `hasPriceRange` now has three readers and no fourth is
+ruled out by this item; `worker_profile_screen.dart:392` still reads
+`experienceYearsAr` directly (correct — that is the copy function), and the
+class-level sweep recorded under the monogram item is still open.

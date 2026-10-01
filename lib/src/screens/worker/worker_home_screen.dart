@@ -20,6 +20,7 @@ import '../../data/unread_message_count.dart';
 import '../../data/stats_freshness_copy.dart';
 import '../../data/star_row_shape.dart';
 import '../../data/worker_stats_copy.dart';
+import '../../data/price_range_copy.dart';
 import '../../models/enums.dart';
 import '../../models/chat.dart';
 import '../../models/plan.dart';
@@ -1883,8 +1884,16 @@ class _GettingStarted extends StatelessWidget {
           'أضف تخصصاتك', Icons.handyman_rounded, worker.specialties.isNotEmpty),
       _SetupStep('اكتب نبذة تعريفية عنك', Icons.notes_rounded,
           (worker.bio ?? '').trim().isNotEmpty),
+      // The same gate the browse card uses, and for the same reason. `&&` on
+      // two null checks was a third private answer to "does this contractor
+      // have a price": the edit form accepts a *single* box, so a man who typed
+      // only «حتى» was ticked here while the card he is chosen from showed no
+      // price at all — and a `(0, 0)` pair, which that same form accepts and
+      // which `priceRangeAr` folds to no price, ticked him too. A checklist
+      // that calls a finished step unfinished costs a contractor the one thing
+      // this screen exists to give him: a next step that is actually a step.
       _SetupStep('حدّد أسعارك ونطاق خدمتك', Icons.payments_rounded,
-          worker.priceRangeMin != null && worker.priceRangeMax != null),
+          hasPriceRange(worker.priceRangeMin, worker.priceRangeMax)),
       // A submitted dossier is the contractor's part DONE — the rest is on us.
       // Leaving this step unticked while the papers were already in the queue
       // is what made the whole screen read as "you have not uploaded anything".
