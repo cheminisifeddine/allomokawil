@@ -12956,3 +12956,78 @@ class-level sweep recorded under the monogram item is still open.
       are exhausted. The standing **`sharding`** decision is unmade — fourth
       tick flagging it — and it is the founder's call. No APK, no release,
       no tag.
+
+- [x] **The loop's own leaked headless Chrome was invisible to the build
+      gate, so the loop starved its own gate and could not see it doing it.**
+      *Shipped:* `1648496` → remote `ce9c23`. `1648496` → remote `ce9c23`, both blobs **MATCH** off the
+git-data API (`f8b29b3`, `ee4e5a2`), not read off the push line.
+
+**The defect.** Step 5 of this protocol tells every tick to render a visual
+change and look at it, and that render is a headless Chrome on a debugging
+port. A tick that ends without reaping it reparents the browser to init,
+where it holds memory on a box that has no swap. `tool/build_gate.py` caught
+an orphaned `flutter_tester` for exactly this reason and had **no Chrome
+awareness at all** — so it reported the box as clean while the loop's own
+leftover sat on it.
+
+**Found on arrival, not hunted for.** The previous tick's Chrome was still
+resident when this one started: 13 processes, 374 MB by RSS, `PPID 1`, on
+port 9335, profile `/tmp/chrome-fact2-profile`. The gate at that moment read
+`NO ROOM — only 785 MB is reclaimable` and named no holder, so a tick could
+see the box was starved but not that it had starved itself.
+
+**Measured, old gate vs new, same box, same leaked browser:**
+
+| | verdict | leak named | exit |
+| --- | --- | --- | --- |
+| before | `CLEAR` | no | **0** |
+| after | `LEAKED headless chrome (this loop's render)` | yes, with pid | **1** |
+
+Reaped, the same gate returns `CLEAR` at 1177 MB — so the arm tells a real
+leak from a permanent busy, which is the property the tester arm has and the
+one a detector without tests does not.
+
+**Three things the first version got wrong, all caught before commit.**
+
+1. *Counted the tree.* A Chrome tree is ~13 processes whose `comm` is all
+   `chrome` — zygotes, gpu-process, renderers, crashpad. Matching `comm`
+   reports a total nobody can act on. Only the root carries
+   `--remote-debugging-port`, so one leak is one line.
+2. *Printed the wrong memory.* Summing `VmRSS` over a tree counts every
+   shared page once per process: **1167 MB RSS against 444 MB PSS** on the
+   same tree, a **2.6x** overstatement. The first version said "holding
+   1162 MB" on a box with 1104 MB *available* — an arithmetic error dressed
+   as a memory diagnosis, which would send a tick hunting a gigabyte that is
+   not there. Now **PSS** from `smaps_rollup`, which is what the kernel would
+   reclaim, with `VmRSS` only as a fallback when that file is unreadable.
+3. *Blamed a build that never ran.* "another build holds the box" is false
+   when the only holder is our own leak; that case now prints
+   `STARVED BY OUR OWN LEAK`.
+
+**Tests: cases 8 and 9, on a real Chromium, 10/10** (`Expected` line in the
+file updated 7/7 → 9/9 → 10/10 by the extra reap assertion). Case 9 builds
+the leak the way the kernel does — a **double fork**, so the browser
+reparents to init with no live owner — then reaps it and asserts the box
+returns to CLEAR. Both new cases assert the **capability** (named, or not
+named) and deliberately do *not* assert the global exit code: spawning a real
+browser can dip the box under `MIN_AVAILABLE_MB`, where `NO ROOM` is the
+correct answer and says nothing about leak detection. Asserting the exit
+code made the case fail for a reason unconnected to the arm — caught by
+running the unmodified suite first, which passed 7/7 under the same
+starvation, so the regression was in the test and not the gate.
+
+**A note on the stale path, unchanged from the last tick:** this job's prompt
+still says `/home/renia/allomokawil`, dead since the 26 Sep rebuild. Real
+repo is `/home/hatch/allomokawil` and the Loop protocol section above is the
+one that is right. The prompt is the stale artifact, not this file.
+
+**Gate:** `flutter analyze` → **No issues found!** (9.4s), exit 0.
+`flutter test` → **`+1834 ~3: All tests passed!`**, exit 0, **11:50** — same
+count as the previous tick, nothing dropped; this change is Python and does
+not touch the Dart suite, so an equal count is the correct result, not a
+missing one. Launched background and polled: the suite still overruns the
+420 s foreground tool limit, as the last tick recorded.
+
+**Next:** backlog back to **0 unchecked**. The standing **`sharding`**
+decision is still unmade — **fifth tick flagging it**, and it is the
+founder's call. No APK, no release, no tag.
