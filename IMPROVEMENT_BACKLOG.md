@@ -12019,3 +12019,86 @@ four prepaid terms per paid plan (`months: 1/3/6/12`) while `BillingPeriod` has
 two arms, so `basic` at 3 and 6 months (4250 دج / 8000 دج) is computed
 nowhere and the contractor is quoted 1500/15000 only. Until the box has its
 900 MB floor back, ticks here are read-only.
+
+## Tick 1 Oct 2026 (2nd) — a project budget of zero was published as a price
+
+Backlog was at 0 unchecked again, so this tick went back to the one number a
+**client types himself** and walked its *write* path rather than its read path.
+Every other copy in this repo has already been pinned against a live payload;
+this one had only ever been checked against a payload it did not appear in.
+
+**The defect.** `Project.budgetLabel` had five arms — both null, min only, max
+only, equal ends, a real band — and a **zero** fitted none of them, so it fell
+through to the band and printed
+
+    «من 0 إلى 50000 دج»
+
+on `project_card.dart` and `project_detail_screen.dart`: the card a contractor
+scrolls to pick a job, and the page he reads before quoting.
+
+**It is reachable from this app's own form**, which is what makes it a defect
+rather than server state. `DzNumber.tryParse` takes a `min` bound and the budget
+fields pass none (`_budgetMinValue` is a bare `DzNumber.tryParse(...)`), so
+typing `0` parses to the integer 0. The form's own `_budgetError` refuses only
+`min > max`; zero is not greater than anything, so the project publishes with a
+budget floor of nothing. `Money.amountOnly(0)` then prints `0` rather than
+dropping it, because a real 0 and a nonsense 0 are the same `0` by the time it
+is a string.
+
+**What it says to a man reading it.** «من 0 دج» is not "no budget given" — it is
+a claim that this renovation is available from nothing, and on screen it is
+indistinguishable from the project's own «بدون ميزانية محددة», which is the
+honest rendering of a customer who left both boxes empty. Two different facts,
+one of them a price.
+
+**The fix is the existing rule, not a new one.** The zero is folded into null
+*before* the arms are chosen rather than being given a sixth arm, so no caller
+of the getter can reach the band with a zero in it — the same "a stored 0 is a
+default standing in for an answer" contract `worker_stats_copy.dart` and
+`price_range_copy.dart` already keep. Negative budgets are deliberately left
+alone: `DzNumber`'s digit fold strips the sign, so one cannot be published
+from here at all, and the test now pins `-5000 -> 5000` as the truth it is
+rather than the null I had assumed when writing it.
+
+**Evidence.** `flutter analyze` → **No issues found!** (4.2 s). Full suite →
+**1760 passed / 3 skipped / 0 failed** in **33:48**, up from 1748/3/0 (+12),
+no hang. Pixels on `ProjectCard` itself with Cairo and MaterialIcons
+registered: the budget row at **y517–557** is **246 px narrower** on the
+zero-floor card (**x810–1056**, 2420 ink px) than on the control
+(**x635–1055**, 4217 ink px), so the zero and its «من … إلى» framing are
+really gone from the render rather than merely moved. Shots:
+`/tmp/shots/budget_zero_01_zero_floor.png`, `budget_zero_02_real_band.png`.
+
+**A test of mine was wrong twice, and both are worth the next tick's time.**
+First, `contains('0 دج')` is satisfied by «حتى 50000 دج» — the substring sits
+inside the correct answer, so the assertion would have passed a label that
+still printed the zero. The unit file asserts by equality now. Second, the shot
+file made **the same mistake one hour later** on the same fixture and went red
+on the very sentence the fix produces; it asserts `find.text` exactly. A
+substring check on a number is never a safe check on a number, and it took two
+separate files to learn that.
+
+*Files:* `lib/src/models/project.dart`,
+`test/budget_zero_label_test.dart` (new, 10 cases),
+`test/budget_zero_card_shot_test.dart` (new, 2 shots).
+
+*Commit:* local `0eab7a0` → remote `8a647aa`, **3/3 blobs MATCH** against the
+real remote tree via the contents API — not the helper's exit code, which
+reads green on an empty upload set. No APK, no release, no tag.
+
+**Next:** backlog at **0 unchecked** again. Still yours and unmade, unchanged:
+the `sharding` call. Still **BACKEND-API's** — the `durations` array. Re-probed
+this tick: `GET /api/mobile/plans` publishes four prepaid terms per paid plan
+(`months: 1/3/6/12`; `basic` at 3 and 6 is **4250 دج / 8000 دج**) while
+`BillingPeriod` has two arms, so a contractor is quoted 1500/15000 only. The
+app side of this is already deliberately defensive — `pendingPeriodLabelAr`
+and `pendingPeriodMismatchNoteAr` exist precisely so a 6-month purchase
+arriving as a stored month says so — so the missing piece is a server that can
+file the term, not a client that can ask for it.
+
+**Note on the box:** the build gate returned **CLEAR** this tick (1452 MB
+available against the 900 MB floor, median 968 MB on the previous tick), so
+after two read-only ticks the loop shipped Dart again. The full suite ran
+**33:48**, well outside the 10-minute cron interval and past `run_tests.py`'s
+own 1200 s deadline — the budget mismatch recorded last tick is not theoretical
+and the `sharding` call is still the answer to it.
