@@ -12736,3 +12736,66 @@ class-level sweep recorded under the monogram item is still open.
       now worth sweeping — the portfolio grid has the identical structure
       (`/workers/:id` totals vs the `/portfolio` list) and the same
       not-guessing rule applies.
+
+- [x] **The reviews contradiction arm quoted a review count the page had never
+      printed — a fix one day old, contradicting the sentence above it.**
+      `1ca8b80` -> remote `d3e2bf9` (3 blobs MATCH). Found 2 Oct 2026 with
+      still **0 unchecked**, by re-reading the *previous tick's own change*
+      instead of the backlog: that tick wired `_ReviewsSection` a
+      `headerReviewCount: w.totalReviews` under a comment calling it "the
+      aggregate the header already printed above this section". **It is not
+      that**, and the two disagree on a payload shape `review_count.dart`
+      already documents as real:
+
+          avg_rating: 0, total_reviews: 24
+
+      `avg_rating: 0` is the server's "nobody has rated me yet" sentinel
+      (`worker.dart`, `review_count.dart`), so `hasRating` is false and the
+      header pill draws `noRatingAr()` — **no stars, no count, nothing about
+      24 anywhere on the page**. The empty reviews list then meets a section
+      told 24, which prints:
+
+          لا تقييمات بعد                    <- the header, the whole claim
+          يظهر أعلاه 24 تقييماً              <- the section, about a number
+
+      The section contradicts the sentence directly above it *and* cites
+      evidence that is not there — wrong in two directions at once, on the
+      profile a customer decides a tradesman on. **This is not a regression the
+      fix introduced; it is one it removed.** The arm exists to refuse a
+      contradiction, and handed a count the header never printed it detects
+      one that does not exist and answers it with a number nobody can see.
+
+      *Shipped:* `headerPrintedReviewCount(hasRating:, totalReviews:)` in
+      `reviews_section_copy.dart` — both of the header's **own** conditions,
+      including `printableReviewCount`, so the arm may only compare against a
+      claim the customer can actually see. `review_count.dart` closed the other
+      direction (a score beside a zero count); this is the half it did not
+      reach.
+
+      *Gate, partially run and reported as such:* `flutter analyze` ->
+      **No issues found!** (11.2s). **The suite did NOT run.** Mid-cycle the
+      box fell to **573 MB available against a 900 MB floor** and
+      `tool/build_gate.py` returned NO ROOM; nothing was building (`pgrep -c
+      java` -> 0, the only `flutter` match is this agent's own bash line —
+      the false positive the gate was written to stop counting). The change is
+      pure Dart and analyzer-clean, so it is committed under the protocol's
+      non-build allowance, and **the next tick with room must run the suite
+      before this is treated as verified.** The new file asserts the
+      precondition that the header printed no count, so a screen that never
+      reached the disagreement cannot pass it.
+
+      *Not visual-proofed and not claimed.* Both states of this screen are
+      already shot in `reviews_contradiction_shot_test.dart`, and the pixels
+      this change moves are text on a card whose layout is untouched. Rendering
+      it needs a build, which this tick could not start; a screenshot claim
+      here would be a guess.
+
+      *One measurement note, same trap as yesterday's.* The helper **must be
+      run from the repo root**: from `/home/hatch/workspace/repos` it read
+      `git ls-files` for that directory, found nothing, and printed
+      *"refusing to guess"* while exiting 0 — the same false-success shape as
+      the bare `git push origin main` trap the protocol already documents.
+
+      **Next:** the standing **`sharding`** decision is still unmade and is the
+      founder's call, not mine — that split is what would let a 12-minute
+      suite and a 573 MB box coexist. No APK, no release, no tag.
