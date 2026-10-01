@@ -13477,3 +13477,63 @@ founder-gated.
       line is written by the next commit. The hash that matters for verifying
       the work is the tree, not the commit — `git rev-parse HEAD^{tree}` is the
       same `1c182ebe` lineage either way.
+
+- [x] **A job in progress was drawn «مفتوح» on every project card and every
+      project page — and «منتهي» meant both "finished job" and "expired
+      plan".** `StatusPill.project` in `ui.dart` keyed its switch on
+      `'inprogress'`, **the Dart enum name**, while **both** of its callers
+      pass `project.status.wire`, which is `'in_progress'`. No caller in the
+      repo ever passed the string that arm matched, so the arm was dead code
+      and no project in this app had ever been drawn «قيد التنفيذ».
+      *Why it is worse than a word:* «مفتوح» is not a synonym for «قيد
+      التنفيذ», it is the claim that **other contractors may still bid on this
+      job**. Every renovation a contractor was actively working drew that, in
+      the accent tint of a project taking offers — and the «مشاريعي» tab above
+      it said «قيد التنفيذ», the two surfaces disagreeing on one screen about
+      one project. The factory took a bare `String`, so nothing checked the
+      argument: exactly the «a display helper made forgiving of a broken write
+      hides the write, not the symptom» trap the sibling pair documents at
+      length.
+      *Shipped:* `lib/src/data/project_status_copy.dart` (new) — `projectStatusAr`,
+      sibling of `urgency_copy.dart` and `quote_status_copy.dart`. The factory
+      now takes the parsed `ProjectStatus`, so `ProjectStatus.fromWire` is the
+      single parser and no caller can hand a pill a value the server never
+      sent; `project_card.dart` and `project_detail_screen.dart` pass the enum
+      they already hold. `completed` said «منجز» on the filter tab and «منتهي»
+      on the pill — and **«منتهي» is this app's word for an EXPIRED SUBSCRIPTION
+      PLAN** (`subscription_screen.dart`, `_planSummary`), so one word carried
+      two meanings on screens the reader learned it from. It now says «منجز»,
+      the word the tab and the worker's own «3 مشاريع منجزة» line already use.
+      The `_tabs` table reads the same names, so a tab and the card under it
+      cannot diverge again.
+      *Evidence:* `flutter analyze` → **No issues found!** (7.3 s).
+      `python3 tool/run_tests.py` → **1850 passed / 3 skipped / 0 failed**,
+      12:31, exit 0. Was 1842 — the 8 new cases, no regressions.
+      *Both guards proven in the failing direction,* which is the part that
+      matters: reverting **only** the `inProgress` arm to the wrong word fails
+      **3** tests; re-duplicating `completed` as «منتهي» in the tab table fails
+      **1**. A unit test of the shared copy cannot see a second copy
+      reintroduced in a widget, so both directions are widget-driven: the card
+      is built through `Project.fromJson` from the server's own string, and
+      the tab words are read back off the real `ProjectsScreen` tree.
+      *Rendered and measured, not asserted:* `/tmp/shots/project_status_pills.png`
+      via `test/status_pill_shot_test.dart`. Four distinct tints, and
+      **inProgress is now info blue `2C6FBB` on `EAF2FB`** where it was the open
+      amber `9B6415` on `FDF3E3` — every pair matching `app_theme.dart` exactly.
+      The hue is half of what a pill says, and «مفتوح» in amber is a perfectly
+      ordinary-looking pill, which is why this survived a screenshot.
+      *Two harness traps paid for on the way, both recorded in the test:* the
+      filter strip is a horizontal `ListView`, so «منجز» and «ملغى» are not
+      built until it is scrolled — asserting without scrolling passes on the
+      three tabs that happen to fit — and the scroll helper has to work in both
+      directions, or the tab it left off-screen at the far end («الكل») reads
+      as missing. Separately, the repo's `tool/png_read.py` ignores the alpha
+      channel, so this RGBA capture decoded as **pure white** and looked like
+      an empty image; the pixel numbers above come from a decoder that composites
+      over white. That is worth knowing before a future tick reads a blank PNG
+      as a broken layout.
+      *Commits:* local `01e2945` → remote `034a4cf` (7/7 blobs MATCH, tip
+      `034a4cf2b8d8b8c34a9df0484288f3246a35cfc4`).
+      *Next in backlog:* unchanged — `durations` (BACKEND-API's live-catalogue
+      gap) remains the only standing item, blocked on Worker source outside the
+      app and therefore founder-gated.
