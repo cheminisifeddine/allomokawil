@@ -15,6 +15,7 @@ import '../../data/project_search.dart';
 import '../../data/repository.dart';
 import '../../data/unread_message_trust.dart';
 import '../../data/taxonomy.dart';
+import '../../data/specialty_label.dart';
 import '../../data/quote_count_copy.dart';
 import '../../data/unread_message_count.dart';
 import '../../data/stats_freshness_copy.dart';
@@ -1553,13 +1554,23 @@ class _HeaderSection extends StatelessWidget {
         ),
       ];
 
-  static String _specialtyLabel(WorkerProfile w) {
-    if (w.specialties.isEmpty) return 'حرفي';
-    return w.specialties
-        .map((s) => Taxonomy.categoryName(s))
-        .take(2)
-        .join(' · ');
-  }
+  /// The one trade line the app owns, on the header of «سوق المقاولين».
+  ///
+  /// This was a private copy of [SpecialtyLabel.of] — `take(2).join(' · ')`,
+  /// the exact pre-28-Sep bug [specialty_label.dart] was written to kill — so
+  /// every surface in the app said «A · B +1» while this one said «A · B» and
+  /// the third trade did not exist anywhere on screen.
+  ///
+  /// It is the worst place for it. [SpecialtyLabel] fixed the browse card
+  /// because a customer filtering by that trade would find the man and read a
+  /// card that denied it. Here it is the *contractor's own* name and trades,
+  /// on the feed where he reads who is quoting his work, directly above the
+  /// browse cards that count his third trade correctly — so he is told two
+  /// different things about his own profile in one screen, and the one that
+  /// says «+1» belongs to a widget that already made the rule. The second
+  /// copy had no reason to exist.
+  static String _specialtyLabel(WorkerProfile w) =>
+      SpecialtyLabel.of(w.specialties);
 }
 
 /// A working contractor's numbers, said in one line instead of three cards.

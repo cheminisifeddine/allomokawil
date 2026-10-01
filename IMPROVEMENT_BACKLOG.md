@@ -12600,3 +12600,61 @@ no-swap box.
 ruled out by this item; `worker_profile_screen.dart:392` still reads
 `experienceYearsAr` directly (correct — that is the copy function), and the
 class-level sweep recorded under the monogram item is still open.
+
+- [x] **The market header was still a private copy of the trade rule — the
+      third trade was deleted on the contractor's OWN screen, one scroll above
+      the card that counts it.**
+      Found 1 Oct 2026 by extending the private-copy sweep the price/years
+      family had already been built on: *a rule duplicated as a private copy
+      beside the shared function that owns it*. `SpecialtyLabel` shipped
+      `1e45c2f` on 28 Sep to stop a contractor's third trade being silently
+      deleted from his **browse card**, and it counts what it does not name
+      («A · B +1»). `worker_card.dart` calls it and its two variants agree.
+
+      `worker_home_screen.dart:1556` kept its own copy of the same rule:
+
+          if (w.specialties.isEmpty) return 'حرفي';
+          return w.specialties.map(Taxonomy.categoryName).take(2).join(' · ');
+
+      That is the pre-28-Sep defect verbatim, in the place it is least
+      excusable. It renders at `worker_home_screen.dart:1354`, inside
+      `_identity`, under «سوق المقاولين» — the contractor's **own** name and
+      trades, on the feed where he reads who is quoting his work. It is also
+      the only surface where both answers are visible at once: the header
+      card and the browse cards below it are the same man in the same list,
+      one scroll apart, so he is told «A · B» and «A · B +1» about his own
+      profile in a single screen.
+
+      *Shipped:* the private copy is deleted, not patched. The header now
+      calls `SpecialtyLabel.of(w.specialties)` — one line — so there is no
+      second copy left to drift.
+
+      *Evidence:* `flutter analyze` **No issues found!** Red-then-green on the
+      real `MarketplaceView`: the new `test/market_identity_specialty_shot_test.dart`
+      fails on the build before the fix (`Found 0 widgets with text "…ورق
+      جدران +1"`) and passes on the new one. **Proven by pixels**: the golden
+      diff is **40 px in a single box, x53–66, y172–181** — the `+1` at the RTL
+      end of the trade line and *nothing else on the screen*; every other row
+      of both goldens is byte-identical. `08_worker_home` and `16_guest_worker`
+      were re-baselined on that measured diff, not on a green line.
+
+      **The goldens were verified NOT stale first.** The two failures could
+      have been pre-existing; on unmodified code `08_worker_home` passes, so
+      the change is the sole cause.
+
+      **Two measurement mistakes this tick, both recorded because both nearly
+      became a false claim.** (1) `--plain-name "golden: …"` **writes no
+      screenshot** — only the `shots:` group writes `/tmp/shots/`. Two
+      "before/after" PNGs I diffed were the *same file copied twice* and came
+      out byte-identical, which would have read as "the change did nothing".
+      The real renders are `test/failures/*_testImage.png` (new) against
+      `*_masterImage.png` (golden). (2) A hand-rolled ink profile over the
+      navy header counted the *whole band* and never isolated the glyphs; the
+      `masterImage`/`testImage` bbox is what actually located the change.
+
+      **One test in the new file was wrong and was caught by running it.** The
+      second case split the label on `' · '` and asked whether every segment
+      was a trade he carries — but the «+1» badge rides on the *last* segment
+      («A · B +1»), so it read «ورق جدران +1» as a trade name and failed on
+      correct code. Fixed by peeling the badge off first; the claim is kept
+      and now also checks the badge parses as a count and that it is honest.
