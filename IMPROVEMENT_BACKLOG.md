@@ -11866,3 +11866,90 @@ trusting the helper's green line. No APK, no release, no tag.
       `sharding` call. Still **BACKEND-API's**: the `durations` array — the live
       catalogue publishes 1/3/6/12 months per plan and this app can only order
       `month` and `year`.
+
+## Tick 1 Oct 2026 — the plan that ended said it was over, and never said when
+
+- [x] **A lapsed paid plan drew a «منتهي» pill and no date at all, while the
+      account row two screens away named the same day — so the one screen whose
+      entire job is renewal said strictly less than the settings tab about the
+      same row of the same table.** Found 1 Oct 2026 with **0 unchecked items**,
+      by reading `_CurrentPlanCard` against the other place in the app that
+      renders a `SubscriptionStatus` — the family three previous items each
+      named (a field parsed and never printed, a future-tense sentence for a
+      past fact), rather than by inventing new work.
+
+      **The defect.** `subscription_screen.dart:610` guarded the end-date line
+      on `paid`, which is `!isFree && !isExpired`:
+
+          if (status.expiresAt != null && paid) ...[ Text(status.expiryCountdownAr …) ]
+
+      so the expired arm had **no rendering path whatsoever**. A contractor
+      whose cover ran out read a «منتهي» pill, his quota line, and nothing
+      else — while `_planSummary` in `profile_screen.dart:314`, given the same
+      object, printed «انتهى في 2020-01-01» and «نشط حتى …» for the live case.
+      One fact, two answers, and the disagreement decided by tab. It is the
+      shape this backlog has filed three times: the branch that is guarded out
+      is the branch nobody notices is missing.
+
+      **Why `expiryCountdownAr` could not simply be reused.** It is future
+      tense — «ينتهي الاشتراك بعد 40 يوماً — 2026-11-10» — because it describes
+      cover the man still holds, and its sub-day arm degrades to a date
+      sentence in that same future tense. Under a «منتهي» pill it would print
+      «ينتهي الاشتراك في 2020-01-01»: a card disagreeing with itself, inside
+      one card, about whether the plan is running or over. So the tense is the
+      fix, and `SubscriptionStatus.expiryEndedAr` carries it — past tense,
+      from the same `expiresAtLocal`, null for the free plan and for an
+      unreadable date.
+
+      **The guard is `!isFree && isExpired`, not `!paid`.** That is the whole
+      width between a fix and a new defect: `isFree` is what makes
+      `expiresAtLocal` null, so the free plan has no readable end date — and a
+      `free_trial` row that carries an `expires_at` anyway (a Worker bug, and
+      exactly the shape the third test fabricates) would otherwise be handed
+      «انتهى الاشتراك في …» for cover that was never bought.
+
+      **Red before green, and the red was 1 of 3, not 3 of 3.** Reverting only
+      the two lib files leaves exactly **one** red: *an expired plan says WHEN
+      it ended*. The other two are guards that correctly **pass** against the
+      unfixed code — a live plan keeps its countdown, a free plan is never
+      dated — and that is the point of having them: without them, replacing the
+      whole block with the past-tense sentence passes the expired case and
+      silently breaks every paying contractor who has not lapsed yet.
+
+      **One case caught its own author, which is why it is filed.** The
+      live-control draft used `now + 3 years` and asserted
+      «ينتهي الاشتراك بعد …». That is red against the **correct** code, because
+      `SubscriptionStatus.maxCountedDays` is 365 and past a year the countdown
+      deliberately degrades to the bare date — so the guard was demanding a
+      sentence the app has already decided not to print. A guard that fails on
+      correct behaviour is worse than no guard: it teaches the next tick to
+      "fix" the live countdown into being broken. It now uses **+60 days**,
+      inside the counted range, and the reason is in the file.
+
+      *Files:* `lib/src/models/plan.dart`,
+      `lib/src/screens/worker/subscription_screen.dart`,
+      `test/subscription_clock_test.dart` (+3 cases),
+      `test/expired_plan_card_shot_test.dart` (new, 2 shots).
+
+      **Evidence.** `flutter analyze` → **No issues found!** (7.9 s). Full
+      suite through `tool/run_tests.py` → **1748 passed / 3 skipped / 0 failed**
+      in **11:07**, up from 1745/3/0 (+3), no hang. File alone: 16/16.
+      Pixels: `tool/pngscan.py --color C33F39` finds **45 boxes at y617–646** in
+      the expired shot and **0** in the live control — the red date line is
+      drawn for a lapsed plan and not for a live one. Full-size captures:
+      `/tmp/shots/expired_card_01_expired.png`,
+      `/tmp/shots/expired_card_02_live.png` (Cairo + MaterialIcons registered;
+      a capture without the font is a row of empty boxes and proves nothing).
+
+      *Commit:* local `97f6c6b` → remote `6a9759b`, **4/4 blobs MATCH** against
+      the real remote tree via the contents API — not the helper's exit code,
+      which reads green on an empty upload set. No APK, no release, no tag.
+
+      **Next:** backlog at **0 unchecked**. The subscription family is closed
+      on every line the current-plan card draws. Still yours and unmade: the
+      `sharding` call. Still **BACKEND-API's**: the `durations` array —
+      **re-confirmed against the live Worker this tick**, `GET
+      /api/mobile/plans` publishes four prepaid terms per paid plan
+      (`months: 1/3/6/12`) and this app's `BillingPeriod` has two arms, so the
+      3- and 6-month figures (4250 دج / 8000 دج for `basic`) are computed
+      nowhere and a contractor is quoted 1500/15000 only.
