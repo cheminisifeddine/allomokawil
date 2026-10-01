@@ -18,6 +18,7 @@ import '../../data/taxonomy.dart';
 import '../../data/quote_count_copy.dart';
 import '../../data/unread_message_count.dart';
 import '../../data/stats_freshness_copy.dart';
+import '../../data/star_row_shape.dart';
 import '../../data/worker_stats_copy.dart';
 import '../../models/enums.dart';
 import '../../models/chat.dart';
@@ -1620,8 +1621,21 @@ class _StatsLine extends StatelessWidget {
         if (worker.hasRating) ...[
           const Icon(Icons.star_rounded, size: 15, color: AppTheme.accent),
           const SizedBox(width: 4),
+          // The fourth print site, and the only one of the four that never
+          // went through [RatingStars]. That is why the 1 Oct clamp missed it:
+          // the rule was lifted into the widget's own digits, and this line
+          // draws its own single star and its own text, so it kept the raw
+          // `avgRating!.toStringAsFixed(1)` and printed **7.5** beside a star
+          // that means «out of five» — on the one screen where a contractor
+          // reads his own score.
+          //
+          // Same rule, same reason as the other three: the text beside the
+          // shape has to be describing the shape. [WorkerProfile._rating] only
+          // folds a score to null when it is not **positive** — `v > 0` is the
+          // whole test — so 7.5, and any other oversized mean the server ever
+          // computes, arrives here intact and used to be printed intact.
           Text(
-            worker.avgRating!.toStringAsFixed(1),
+            clampRating(worker.avgRating!, count: A11y.scale).toStringAsFixed(1),
             style: AppTheme.label.copyWith(
                 fontSize: AppTheme.fsMeta, color: AppTheme.onNavy),
           ),
