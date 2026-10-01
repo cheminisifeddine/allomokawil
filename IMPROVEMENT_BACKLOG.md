@@ -181,6 +181,55 @@ The backlog is empty and the gate was lying, so this phase is about the
 harness rather than the app. Items here are only real if they change what a
 future tick can *see*.
 
+- [x] **The gate's own test suite decided its own result by whatever else was
+      on the box — and it had been leaving one arm untested entirely.**
+      `2af285c`.
+      A non-build tick: another session's headless Chrome (PID 17130,
+      `chrome-fact3-profile`, CDP 9336) was live on this kernel, so
+      `build_gate.py` correctly answered NO ROOM and the box could not host a
+      Dart gate. `python3 test/build_gate_test.py` was still runnable and
+      returned **6/12**.
+      *Both failures were the suite's fault, not the gate's.* Cases 1 and 9
+      assert CLEAR, and CLEAR is a fact about the whole machine, not about
+      anything the suite started — so another session's browser decided the
+      result. Case 11 compounded it: it judged starvation by the literal
+      string `"NO ROOM"` in the summary, a line any leak suppresses by taking
+      the leak branch instead.
+      *Fixed:* a baseline of the pids the gate already calls leaks at
+      startup, neutralised in the copy every case runs. The baseline mirrors
+      the gate's real classification (a `flutter_tester` that is PPID 1), not
+      the bare predicate — asking the predicate alone also matches `hermes`
+      and `systemd-journal`, and neutralising those would hide the leak the
+      arm exists to catch. That mistake was made and corrected in this tick.
+      *The uncovered arm.* Case 4 spawns a real engine with a live parent,
+      so it only ever reached the *tool* arm. Forcing `_is_leaked_tester` to
+      return True for everything, and False for everything, each left the
+      suite green — a predicate that survives its own negation is not tested.
+      Case 4b now builds a genuine PPID-1 orphan and asserts the gate names
+      it LEAKED, not merely exits non-zero (the tool arm returns 1 for the
+      same process, so an exit-code assertion passes for the wrong reason).
+      *Three attempts worth not repeating, recorded in the case itself:* the
+      real engine exits instantly with no test file on argv, so the case
+      checked a process that had already gone; `start_new_session` leaves
+      the PPID as the test's own pid, so reparenting needs an intermediate
+      that forks and exits; and killing through the subprocess handle leaked
+      the engine, which made case 5 — the next check — fail.
+      *And a third defect:* `_isolated_path()` wrote its copy only when
+      absent, so the suite measured an earlier tick's `build_gate.py` and
+      reported 13/13 green against a deliberately broken gate. A stale
+      fixture in a test of a *detector* certifies a broken detector.
+      *Evidence.* **13/13, three consecutive runs**, baseline correctly
+      naming 1 foreign pid (17130) and nothing else. Negating
+      `_is_leaked_tester` → **12/13**, 4b fails. Negating
+      `_is_leaked_browser` → **12/13**, the browser case fails.
+      `flutter analyze` -> **No issues found!** (8.2s). `tool/run_tests.py`
+      refused to start ("BUSY — not starting a second suite on this box"),
+      correctly, while the other session held it; no Dart changed and this
+      file is a python suite `flutter test` does not collect, so the count
+      cannot move. `tool/build_gate.py` byte-identical to HEAD.
+      *Not visual.* A test harness changes no pixels; no screenshot is
+      claimed and none should be.
+
 - [x] **The build gate read "busy" on a free box for three ticks, and a real
       leaked `flutter_tester` would have read "busy" forever — both invisible,
       both silently costing the loop its analyze/test gate.**

@@ -62,7 +62,50 @@ while being fixed, because a guard that simply stopped firing would also
 produce a green suite and would let a tick start a build on a box that
 cannot host it.
 
-Expected: 11/11. A failure here means the gate is lying to the loop.
+**And on 2 Oct (later) the suite itself was found not to be hermetic: it
+asserted a *global* verdict while it shared the box with other agent
+sessions.** Case 1 and case 9 both expect the gate to answer CLEAR, and
+CLEAR means "no leaked browser anywhere" -- a property of the whole machine,
+not of anything this suite started. On 2 Oct a headless Chrome belonging to a
+*different* session (PID 17130, `chrome-fact3-profile`, CDP port 9336) was
+sitting on this kernel, and the gate was right to name it: 428 MB of a box
+with no swap. Cases 9 and 11 failed, 6/12, and neither failure had anything
+to do with the arms they cover. Case 11 failed on a second, sharper version
+of the same mistake: it asserted the word "NO ROOM" in stdout, but a leak
+takes that branch instead, so the starvation verdict was being judged by a
+line a foreign process could suppress.
+
+A test whose answer depends on what else is running is not testing the thing
+it names, and worse, it fails *and* lies about why. So the suite now
+measures a **baseline** before it spawns anything and neutralises exactly the
+leaks it did not create:
+
+    _FOREIGN = every pid the gate already classifies as a leak at startup
+
+`_isolated_src()` returns the gate with one guard per leak arm -- return
+False for a pid in `_FOREIGN` -- and every case runs that copy. Nothing else
+about the gate is touched, so the arms are still the real ones, still fail
+when they should, and the suite's verdict now depends only on what the suite
+itself started. On a clean box `_FOREIGN` is empty and this is a no-op.
+
+The copies are the same trade `_starved_gate()` and `_countered_gate()`
+already made for memoryinfo, and they carry the same hazard, stated here so
+a later tick does not "simplify" it away: the suite exercises a *copy*. What
+keeps that honest is that the copy is byte-identical except for two
+early-return lines, and that a foreign leak is still reported by the real
+gate -- this only stops a neighbour's process from deciding our result.
+
+Case 4b (2 Oct) closes the one arm that had **no coverage at all**:
+`_is_leaked_tester`. Case 4 spawns a real engine with a live parent, so it
+only ever reached the *tool* arm; the leak arm was executed by no case.
+Mutation showed it plainly -- forcing that arm to return True for every pid,
+and forcing it to return False for every pid, each left the suite 12/12
+green. A predicate that survives being negated is not being tested, and this
+is the predicate whose first wrong answer cost the loop three ticks of its
+gate. 4b spawns the real engine under `setsid` so it is genuinely PPID 1,
+and asserts the gate refuses rather than reading CLEAR.
+
+Expected: 13/13. A failure here means the gate is lying to the loop.
 """
 import os
 import shutil
@@ -81,6 +124,107 @@ JAVAC = "/home/hatch/tools/jdk17/bin/javac"
 # do: the arm matches remote-debugging-port in argv, and only a real
 # browser is launched with that flag.
 CHROME = "/opt/meta-chromium/chrome"
+# A real, long-lived binary that is not a build. Copied (not
+# symlinked) to the name `flutter_tester` by case 4b.
+SLEEP = "/bin/sleep"
+
+def _gate_module():
+    """The real gate, imported, so its own predicates can be asked what
+    they already see. Importing rather than reimplementing matters: a copy
+    of the matching logic would drift from the thing it is isolating."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "build_gate_under_test", os.path.join(REPO, "tool", "build_gate.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _is_tester_process(mod, pid):
+    """True when the gate's survey would classify pid as a flutter_tester.
+
+    Same expression the survey uses, so the baseline agrees with the thing
+    it is isolating rather than with a looser reading of it.
+    """
+    cmd = mod._cmdline(pid)
+    comm = mod._comm(pid)
+    ident = cmd or comm
+    return ('flutter_tester' in cmd or comm == 'flutter_tester'
+            or comm == 'dart' and 'flutter_tester' in ident)
+
+
+def _foreign_leaks():
+
+    """Every pid the gate ALREADY calls a leak, before this suite spawns
+    anything -- i.e. another session's process, never ours."""
+    mod = _gate_module()
+    out = set()
+    for entry in os.listdir('/proc'):
+        if not entry.isdigit():
+            continue
+        pid = int(entry)
+        if mod._is_leaked_browser(pid):
+            out.add(pid)
+            continue
+        # Mirror the gate's REAL classification, which is `_is_leaked_tester`
+        # applied only to a process that IS a flutter_tester. Asking the bare
+        # predicate instead matches any PPID-1 process on the box -- the
+        # agent itself, systemd-journal -- and neutralising those would hide
+        # a real leak that happens to be PPID 1, which is precisely the
+        # thing the tester arm exists to catch.
+        if mod._is_leaked_tester(pid) and _is_tester_process(mod, pid):
+            out.add(pid)
+    return out
+
+
+_FOREIGN = _foreign_leaks()
+_ISOLATED = os.path.join(tempfile.gettempdir(), "gate_isolated.py")
+
+
+def _isolated_src():
+    """The gate's source with foreign leaks neutralised.
+
+    One early return per arm, keyed on the startup baseline. A pid this
+    suite spawns is never in `_FOREIGN`, so the arms still fire on it --
+    which is the only thing cases 4, 8 and 9 are actually about.
+    """
+    src = open(os.path.join(REPO, "tool", "build_gate.py"),
+               encoding="utf-8").read()
+    out = src
+    for fn in ("_is_leaked_browser", "_is_leaked_tester"):
+        head = "def %s(pid):" % fn
+        if head not in out:
+            continue
+        out = out.replace(
+            head,
+            head + "\n    if pid in _FOREIGN_PIDS:\n        return False",
+            1)
+    banner = "_FOREIGN_PIDS = frozenset(%r)\n" % (sorted(_FOREIGN),)
+    return banner + out
+
+
+def _isolated_path():
+    """Regenerated on EVERY call, never cached.
+
+    The first version wrote it only if absent, keyed on nothing. That made
+    the suite lie in both directions: it kept measuring a build_gate.py from
+    an earlier tick, so a deliberately broken gate still reported 13/13
+    green, and a second concurrent run could measure the first run's copy.
+    A stale-fixture bug in a test of a *detector* is worse than no test --
+    it is a test that certifies a broken detector. Two lines, unconditional.
+    """
+    body = _isolated_src()
+    with open(_ISOLATED, "w", encoding="utf-8") as fh:
+        fh.write(body)
+    return _ISOLATED
+
+
+def _foreign_note():
+    if not _FOREIGN:
+        return "box clean at startup"
+    return ("%d foreign leak(s) neutralised: %s"
+            % (len(_FOREIGN), ", ".join(str(p) for p in sorted(_FOREIGN))))
+
 
 results = []
 
@@ -114,7 +258,8 @@ def build_busy_jvm():
 
 
 def _run():
-    return subprocess.run(GATE, capture_output=True, text=True, cwd=REPO)
+    return subprocess.run(["python3", _isolated_path()], capture_output=True,
+                          text=True, cwd=REPO)
 
 
 def check(label, expect):
@@ -142,7 +287,6 @@ def ppid_of(pid):
 def _starved_gate():
     """A copy of the gate whose /proc/meminfo read is redirected to a
     fixture holding 512 MB available. Returns the path, or None."""
-    src = os.path.join(REPO, "tool", "build_gate.py")
     fixture = os.path.join(tempfile.gettempdir(), "gate_meminfo_starved")
     if not os.path.exists('/proc/meminfo'):
         return None
@@ -155,7 +299,7 @@ def _starved_gate():
     with open(fixture, "w") as fh:
         fh.write(raw)
     out = os.path.join(tempfile.gettempdir(), "gate_starved_build_gate.py")
-    body = open(src).read()
+    body = _isolated_src()
     patched = body.replace(
         "def _read(path):",
         "def _read(path):\n"
@@ -166,6 +310,15 @@ def _starved_gate():
     with open(out, "w") as fh:
         fh.write(patched)
     return out
+
+
+def _is_starved(stdout):
+    """True when the gate's own verdict line says it refused for memory.
+
+    Matches the NO ROOM summary and the starved-while-busy one, so the
+    assertion survives either branch without pinning the wording.
+    """
+    return 'NO ROOM' in stdout or 'starved' in stdout
 
 
 def _starved_mb(_):
@@ -182,7 +335,7 @@ def _countered_gate(base, vals, tag):
     reason that has nothing to do with the arm -- the first version of this
     case did exactly that, and reported 8/8 CLEAR with the bug still in.
     """
-    src = open(os.path.join(REPO, "tool", "build_gate.py")).read()
+    src = _isolated_src()
     ctr = os.path.join(tempfile.gettempdir(), "gate_osc_ctr_%s" % tag)
     if os.path.exists(ctr):
         os.remove(ctr)
@@ -209,6 +362,55 @@ def _countered_gate(base, vals, tag):
     with open(out, "w") as fh:
         fh.write(patched)
     return out
+
+
+def _reparented_tester_binary():
+    """A copy of /bin/sleep named exactly `flutter_tester`.
+
+    `cp`, never a symlink: the gate matches `comm`, which is the basename of
+    the executable, and a symlink leaves the kernel reporting `sleep`.
+    """
+    if not os.path.exists(SLEEP):
+        return None
+    d = os.path.join(tempfile.gettempdir(), "fb2")
+    os.makedirs(d, exist_ok=True)
+    b = os.path.join(d, "flutter_tester")
+    shutil.copyfile(SLEEP, b)
+    os.chmod(b, 0o755)
+    return b
+
+
+def _spawn_orphan(binary):
+    """Start `binary` and return the pid of a process that is PPID 1.
+
+    An intermediate forks the target and exits immediately, so the kernel
+    reparents the target to init -- which is the whole point of the arm.
+    Returns None if the orphan never appeared, so the caller can report a
+    broken case instead of a passing one.
+    """
+    mid = os.path.join(tempfile.gettempdir(), "fb2", "orphan_mid.py")
+    with open(mid, "w") as fh:
+        fh.write("import os, sys\n"
+                 "os.setsid()\n"
+                 "pid = os.fork()\n"
+                 "if pid > 0:\n"
+                 "    sys.exit(0)\n"
+                 "os.execv(sys.argv[1], [sys.argv[1], '30'])\n")
+    subprocess.Popen([sys.executable, mid, binary],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(40):
+        time.sleep(0.1)
+        for entry in os.listdir('/proc'):
+            if not entry.isdigit():
+                continue
+            pid = int(entry)
+            try:
+                if open('/proc/%d/comm' % pid).read().strip() == \
+                        'flutter_tester' and ppid_of(pid) == 1:
+                    return pid
+            except (IOError, OSError, ValueError):
+                continue
+    return None
 
 
 def main():
@@ -251,6 +453,75 @@ def main():
     else:
         print("  SKIP (no engine)")
 
+    print("\n4b) a REPARENTED tester -- the arm that had no coverage")
+    # Case 4 spawns the real engine with a live parent, so it only ever
+    # reached the *tool* arm: a live tester is matched by `is_tester`, never
+    # by `_is_leaked_tester`. Mutation proved the gap from both sides --
+    # forcing `_is_leaked_tester` to return True for every pid, and forcing
+    # it to return False for every pid, each left this suite 12/12 green. A
+    # predicate that cannot be told apart from its own negation is not being
+    # tested, and this is the predicate whose first wrong answer cost the
+    # loop three ticks of its gate.
+    #
+    # Getting a REAL PPID-1 orphan took two attempts that are worth not
+    # repeating, because both produce a green-looking case that tests
+    # nothing:
+    #
+    #   1. `spawn([TESTER], start_new_session=True)` -- the engine exits
+    #      immediately with no test file on argv, so by the time `check()`
+    #      runs there is no process at all. Verified: nothing survives.
+    #   2. `start_new_session=True` (no setsid binary) -- the child becomes a
+    #      session leader but its **PPID is still the test's pid**, because
+    #      reparenting to init happens when the PARENT dies, not when the
+    #      child is setsid'd. Measured ppid 25061 = this suite. That run
+    #      also killed through the subprocess handle, left the engine alive,
+    #      and case 5 -- the next check -- failed with "exit=1" as a direct
+    #      consequence of a leak the suite had just made itself.
+    #
+    # What works is an intermediate that forks the engine and then EXITS,
+    # so the kernel reparents the engine to init. The engine itself is
+    # `/bin/sleep` copied to a file named exactly `flutter_tester`: a symlink
+    # would keep `comm` as the target's name and this arm matches on comm.
+    binary = _reparented_tester_binary()
+    if not binary:
+        print("  SKIP (no /bin/sleep to copy)")
+    else:
+        orphan = _spawn_orphan(binary)
+        print("   tester pid=%d ppid=%d (1 = reparented to init)"
+              % (orphan, ppid_of(orphan)))
+        ppid = ppid_of(orphan)
+        if ppid != 1:
+            print("   **FAIL** the spawn did not reparent (ppid=%d); "
+                  "this case proves nothing" % ppid)
+        # Assert the LEAK classification, not merely a non-zero exit.
+        # Asserting exit 1 alone passes for the wrong reason: a reparented
+        # tester is ALSO matched by `is_tester`, so it lands in the tools
+        # list and the gate returns 1 even with `_is_leaked_tester` forced
+        # to return False. That was measured -- the negation left this suite
+        # 13/13 green -- and the case was named after an arm it never
+        # reached. "LEAKED flutter_tester" is the line only that arm prints.
+        out = _run()
+        ok = out.returncode == 1 and 'LEAKED flutter_tester' in out.stdout
+        results.append(ok)
+        print(("PASS  " if ok else "**FAIL**  ")
+              + "reparented tester -> named LEAKED, not merely non-zero")
+        for line in out.stdout.strip().split("\n")[:3]:
+            print("        | " + line)
+        try:
+            os.kill(orphan, 9)
+        except OSError:
+            pass
+        for _ in range(40):
+            if not os.path.exists("/proc/%d" % orphan):
+                break
+            time.sleep(0.1)
+        if os.path.exists("/proc/%d" % orphan):
+            print("   **FAIL** could not reap pid %d -- the next cases will "
+                  "be poisoned" % orphan)
+        else:
+            print("   reaped pid %d" % orphan)
+        time.sleep(0.3)
+
     print("\n5) back to clean")
     check("after cleanup -> CLEAR", 0)
 
@@ -259,7 +530,11 @@ def main():
     if starved:
         r = subprocess.run(["python3", starved], capture_output=True, text=True,
                            cwd=REPO)
-        ok = r.returncode == 1 and "NO ROOM" in r.stdout
+        # Judged on the DECISION (exit 1) and on the starvation verdict
+        # itself, never on the word "NO ROOM" in the summary: a leak of any
+        # kind takes that print branch instead, which is how this case
+        # failed for two days while its arm was working perfectly.
+        ok = r.returncode == 1 and _is_starved(r.stdout)
         results.append(ok)
         print(("PASS  " if ok else "**FAIL**  ")
               + "no build but %d MB reclaimable -> NO ROOM, exit 1"
@@ -414,7 +689,13 @@ def main():
     if dead:
         r = subprocess.run(["python3", dead], capture_output=True, text=True,
                            cwd=REPO)
-        ok = r.returncode == 1 and "NO ROOM" in r.stdout
+        ok = r.returncode == 1 and _is_starved(r.stdout)
+        # Same rule as case 6, and the reason this case needed it: a
+        # leak of any kind takes the leak branch of the summary instead,
+        # so asserting the printed word made the starvation verdict
+        # depend on whether some other session's browser happened to be
+        # on the box. The decision (exit 1) plus the starvation verdict is
+        # what this case is about.
         results.append(ok)
         print(("PASS  " if ok else "**FAIL**  ")
               + "sustained starvation -> still NO ROOM, exit 1")
@@ -424,8 +705,9 @@ def main():
         print("  **FAIL** could not build the starved fixture")
         results.append(False)
 
+    print("\nBaseline: %s" % _foreign_note())
     ok = sum(results)
-    print("\n== %d/%d ==  %s" % (ok, len(results),
+    print("== %d/%d ==  %s" % (ok, len(results),
                                  "ALL PASS" if all(results) else "SOME FAILED"))
     return 0 if all(results) else 1
 
