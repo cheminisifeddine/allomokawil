@@ -11953,3 +11953,69 @@ trusting the helper's green line. No APK, no release, no tag.
       (`months: 1/3/6/12`) and this app's `BillingPeriod` has two arms, so the
       3- and 6-month figures (4250 دج / 8000 دج for `basic`) are computed
       nowhere and a contractor is quoted 1500/15000 only.
+
+## Tick 1 Oct 2026 — the box cannot currently host a Dart change, and the loop cannot host a full gate
+
+No item shipped this tick, and none could: the backlog was already at **0
+unchecked**, and the build gate refused a run. Recording the two structural
+blockers so the next tick starts from measurements instead of rediscovering
+them.
+
+**Blocker 1 — memory, and it is chronic, not a busy tick.**
+`python3 tool/build_gate.py` → **NO ROOM**, exit **1**. Sampled `MemAvailable`
+every ~4 s for 40 s: **min 900 / median 968 / max 1008 MB**, against
+`MIN_AVAILABLE_MB = 900` and a suite measured to bottom out at **1177 MB**. It
+clears the floor by 8% and is still ~200 MB short of the thing it is gating,
+so a green tick here is luck, not a plan.
+
+The interesting part is *who* holds the memory, because it is not us. All **9**
+PIDs visible in this namespace sum to **~890 MB** RSS. `AnonPages` is 1471 MB,
+`Shmem` 385 MB, unreclaimable slab 139 MB — and subtracting those from
+Total−Free−Buffers−Cached leaves **~4.3 GB UNACCOUNTED**, inside a container
+whose `/sys/fs/cgroup/memory.current` does not even exist. So the pressure is
+outside the PID namespace; nothing this loop can see, kill, or drop cache its
+way out of. Two things that look like culprits are **not**:
+`/run/hatch/resume` reads 30 GB in `df`, but it is `btrfs`, not tmpfs (the
+`mount` table has a second, real `tmpfs` line for it shadowed by it), and it is
+248 KB on disk. `Shmem` 385 MB is real and matches nothing we started.
+**No OOM kill was performed and none should be**: nothing here belongs to this
+loop, and the standing rule is to report, never to free memory by force.
+
+**Blocker 2 — the gate cannot fit inside the loop.** A green full run is
+measured at **11:07–13:13**; this cron fires every **10 minutes**, and
+`tool/run_tests.py`'s own `DEFAULT_DEADLINE` is **1200 s (20 min)**. So a
+correct tick — change, `analyze`, full suite, push — overruns its own interval
+by design whenever the suite runs green. A tick that starts on the boundary is
+still running when the next one fires, which is precisely the two-writers-one-
+checkout situation step 1 of the protocol exists to refuse. This is the same
+class of fault the loop already records for the box being 7.8 GB and
+swapless: the **budget** is wrong, not the code.
+
+**What is verified this tick, read-only, no build.** Working tree clean, local
+HEAD `73ade6e`. Remote tip `a8d1102` checked against the **real GitHub tree**
+via the contents API: **5/5 blobs MATCH** across
+`lib/src/models/plan.dart`,
+`lib/src/screens/worker/subscription_screen.dart`,
+`test/subscription_clock_test.dart`,
+`test/expired_plan_card_shot_test.dart`, `IMPROVEMENT_BACKLOG.md`. The remote
+tree holds **458** blobs. So the previous tick's ended-plan fix is genuinely on
+the remote and the repo is not in a half-pushed state.
+
+**Audit coverage re-counted**, so the next tick does not re-walk settled
+ground. Filename-mention counts in this file are 0 for
+`role_home.dart`/`rating_stars.dart`/`quote_worker_trust.dart` and 1 for
+`client_start_card.dart`, but reading them shows **all already fixed** —
+`quote_worker_trust.dart` and `quote_status_copy.dart` both carry doc headers
+describing the fix itself (the dropped `worker_verification_status`, the
+dropped `Quote.status`), and `rating_stars.dart` is a one-line re-export of
+`ui.dart`. **Zero filename mentions does not mean unaudited**, and treating it
+as "unexplored" is how a tick burns itself re-deriving a finished fix. The
+uncovered-code signal here is worthless; the audit has reached the point where
+finding a real defect takes the live API, not a grep.
+
+**Next:** still **yours**, unchanged — the `sharding` call. Still
+**BACKEND-API's** — the `durations` array. `GET /api/mobile/plans` publishes
+four prepaid terms per paid plan (`months: 1/3/6/12`) while `BillingPeriod` has
+two arms, so `basic` at 3 and 6 months (4250 دج / 8000 دج) is computed
+nowhere and the contractor is quoted 1500/15000 only. Until the box has its
+900 MB floor back, ticks here are read-only.
