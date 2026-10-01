@@ -12799,3 +12799,71 @@ class-level sweep recorded under the monogram item is still open.
       **Next:** the standing **`sharding`** decision is still unmade and is the
       founder's call, not mine — that split is what would let a 12-minute
       suite and a 573 MB box coexist. No APK, no release, no tag.
+
+---
+
+- [x] **The verification debt from the last tick is now paid: the full suite
+      ran green at `+1819 ~3`, so `1ca8b80` is verified rather than
+      merely analyzer-clean.** No code changed this tick — the item *was*
+      the gate, because the backlog was at **0 unchecked** and the previous
+      tick shipped a fix under the protocol's non-build allowance with the
+      explicit condition *"the next tick with room must run the suite
+      before this is treated as verified."* That condition was the
+      unfinished business of this loop, so it is what this tick did first.
+
+      *Gate, for real this time.* `python3 tool/build_gate.py` →
+      `CLEAR — no flutter/dart tool, no busy JVM, no leaked tester, and
+      enough memory to run a build.` at **1052 MB available** against the
+      900 MB floor. The two ticks that were starved (573 MB, 845 MB) were
+      the honest ones; this one had the room, so the debt was payable
+      rather than arguable.
+
+      *Evidence:*
+      * `flutter analyze` -> **No issues found!** (13.0s)
+      * `flutter test` -> **`+1819 ~3: All tests passed!`**, **exit 0**,
+        **16:54** wall clock.
+
+      **The debt is specifically discharged, not waved at.** All seven
+      cases of `reviews_unprinted_count_test.dart` — the file that last
+      tick could only commit blind — ran and passed inside that count, and
+      the four named cases are the assertion that the arm now follows the
+      header rather than the column:
+
+          +1814  a count the header never printed cannot arm the section
+          +1815  no score means no claim, however many reviews the column claims
+          +1816  a real score with a real count is the claim the arm may compare to
+          +1817  a score with no count prints no count, so the claim is 0
+          +1818  the gate that fired for a real contradiction still fires
+
+      The last one is the one that matters for trust in the fix: the change
+      had to **narrow** what arms the contradiction without disabling it.
+      A guard that simply stopped firing would also have produced a green
+      suite, and would have shipped a real contradiction back to users. It
+      still fires.
+
+      *A count the backlog had never recorded.* No previous tick in this
+      file had run the suite past `+672` (30 Sep), and later ticks were
+      read-only or gate-blocked — so **1819 is the first trustworthy full
+      count on this host** and the baseline every future tick is measured
+      against. Nothing dropped; there is nothing to compare down from.
+
+      *Second runtime data point for the sharding decision.* The suite is
+      **16:54** here against the `13:13` measured when `run_tests.py` was
+      written and the `33:48` recorded on 1 Oct. Across **217 test files**
+      the runtime is not a fixed cost — it swings 2.5x, which is exactly
+      the signature of contention for one box rather than of slow tests.
+      The `run_tests.py` 1200 s (20 min) deadline now has a known bad case:
+      a run that lands near 33:48 blows it while every test passes. **This
+      is the third tick in a row that has flagged `sharding` as unmade.**
+      It is the founder's call and this tick did not make it.
+
+      *Still not visual-proofed, and still not claimed.* The reviews screen
+      has both states shot in `reviews_contradiction_shot_test.dart`, and
+      this change moved text on a card whose layout is untouched — but no
+      build was started this tick beyond the test run, so **no screenshot
+      exists and none is asserted.** Rendering costs a web build on a box
+      that was at 1052 MB; spending it on the gate was the right order.
+
+      **Next:** backlog remains **0 unchecked**, both defect families
+      exhausted, and the standing **`sharding`** decision is unmade. No
+      APK, no release, no tag.
