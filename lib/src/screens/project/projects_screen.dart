@@ -8,6 +8,7 @@ import '../../core/l10n/error_copy.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
 import '../../data/project_search.dart';
+import '../../data/project_status_copy.dart';
 import '../../data/stale_projects_copy.dart';
 import '../../data/repository.dart';
 import '../../models/enums.dart';
@@ -23,20 +24,35 @@ import 'project_new_screen.dart';
 
 /// Status filters for the list. `null` means "الكل" and is passed straight
 /// through to `Repository.myProjects(status: null)` (no `status` query param).
-const List<({ProjectStatus? status, String label, IconData icon})> _tabs = [
+/// `label` is the shared Arabic name, not a second copy of it: the pill on the
+/// project card and the tab that filters to this state read the same word out
+/// of `data/project_status_copy.dart`. This table is a `List` and not a
+/// `const` one because those names are functions, and the reason that is safe
+/// is the file's — a state added to the column cannot silently go missing from
+/// the picker while its card still answers, because a fifth row here has to be
+/// written by hand against a name that already exists.
+final List<({ProjectStatus? status, String label, IconData icon})> _tabs = [
   (status: null, label: 'الكل', icon: Icons.apps_rounded),
-  (status: ProjectStatus.open, label: 'مفتوح', icon: Icons.bolt_rounded),
+  (
+    status: ProjectStatus.open,
+    label: projectStatusAr(ProjectStatus.open),
+    icon: Icons.bolt_rounded
+  ),
   (
     status: ProjectStatus.inProgress,
-    label: 'قيد التنفيذ',
+    label: projectStatusAr(ProjectStatus.inProgress),
     icon: Icons.play_circle_fill_rounded
   ),
   (
     status: ProjectStatus.completed,
-    label: 'منجز',
+    label: projectStatusAr(ProjectStatus.completed),
     icon: Icons.check_circle_rounded
   ),
-  (status: ProjectStatus.cancelled, label: 'ملغى', icon: Icons.cancel_rounded),
+  (
+    status: ProjectStatus.cancelled,
+    label: projectStatusAr(ProjectStatus.cancelled),
+    icon: Icons.cancel_rounded
+  ),
 ];
 
 /// "My projects" with status tabs, shared by customers and workers

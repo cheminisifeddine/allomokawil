@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import '../core/text/monogram.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/motion.dart';
+import '../data/project_status_copy.dart';
 import '../data/quote_status_copy.dart';
 import '../data/review_count.dart';
 import '../data/star_row_shape.dart';
 import '../data/taxonomy.dart';
 import '../models/enums.dart' show QuoteStatus;
+import '../models/project.dart' show ProjectStatus;
 import 'a11y.dart';
 import 'motion.dart';
 
@@ -424,53 +426,52 @@ class StatusPill extends StatelessWidget {
     this.icon,
   });
 
-  factory StatusPill.project(String status) {
-    // Snake_case only, and that used to be deliberately untrue: this factory
-    // stripped `_` and lowercased, so it accepted the Dart enum-name
-    // `inProgress` as well as the wire's `in_progress`.
-    //
-    // That tolerance is what hid [ProjectStatus.wire]'s bug for a full
-    // release. The filter asked the server for `inProgress`, the server matched
-    // nothing and answered 200 with zero rows, and this factory — the one
-    // place a project status is turned into the word a user reads — drew
-    // «قيد التنفيذ» without complaint from both spellings, so the mismatch
-    // was invisible everywhere it was displayed and decisive in the one place
-    // it was sent. A display helper made forgiving of a broken write hides the
-    // write, not the symptom.
-    //
-    // Matching the stored values exactly means a status the server never sends
-    // falls to `open`, the same answer [ProjectStatus.fromWire] gives it, and
-    // the pill and the parser can no longer disagree about what a string means.
+  /// The pill on a project card and on the project page.
+  ///
+  /// Takes the parsed [ProjectStatus], not a string, and that signature is the
+  /// fix: this factory used to take a bare `String` and switch on it, so
+  /// nothing checked what a caller passed. Both callers passed
+  /// `status.wire` (`'in_progress'`) while the switch keyed on
+  /// `'inprogress'` — the Dart enum name — so the arm was unreachable and
+  /// **no project in this app has ever been drawn as «قيد التنفيذ»**. Every
+  /// running job drew «مفتوح»: the claim that other contractors may still
+  /// bid on it.
+  ///
+  /// See `data/project_status_copy.dart`, which owns the words; this factory
+  /// owns only the colour, and it reads the label from there so the filter
+  /// tabs in `projects_screen.dart` and this pill cannot name one state two
+  /// ways. `ProjectStatus.fromWire` is the single parser, so a string the
+  /// server never sends is read as `open` before it reaches a widget that was
+  /// only asked to draw a pill.
+  factory StatusPill.project(ProjectStatus status) {
     switch (status) {
-      case 'inprogress':
-        return const StatusPill(
-            label: 'قيد التنفيذ',
+      case ProjectStatus.inProgress:
+        return StatusPill(
+            label: projectStatusAr(ProjectStatus.inProgress),
             color: AppTheme.info,
             wash: AppTheme.infoWash,
             icon: Icons.play_circle_fill_rounded);
-      case 'completed':
-        return const StatusPill(
-            label: 'منتهي',
+      case ProjectStatus.completed:
+        return StatusPill(
+            label: projectStatusAr(ProjectStatus.completed),
             color: AppTheme.success,
             wash: AppTheme.successWash,
             icon: Icons.check_circle_rounded);
-      case 'cancelled':
-        return const StatusPill(
-            label: 'ملغى',
+      case ProjectStatus.cancelled:
+        return StatusPill(
+            label: projectStatusAr(ProjectStatus.cancelled),
             color: AppTheme.danger,
             wash: AppTheme.dangerWash,
             icon: Icons.cancel_rounded);
-      default:
-        return const StatusPill(
-            label: 'مفتوح',
+      case ProjectStatus.open:
+        return StatusPill(
+            label: projectStatusAr(ProjectStatus.open),
             color: AppTheme.accentDeep,
             wash: AppTheme.accentWash,
             icon: Icons.bolt_rounded);
     }
   }
 
-  /// The stamp on a bid the server has already decided.
-  ///
   /// A sibling of [StatusPill.project] rather than a private widget inside the
   /// quote card, for the same reason that factory is public: the word, the
   /// colour and the icon are one decision, and a second copy of it on another

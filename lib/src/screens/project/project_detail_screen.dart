@@ -802,7 +802,7 @@ class _StatusRow extends StatelessWidget {
       runSpacing: 8,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        StatusPill.project(project.status.wire),
+        StatusPill.project(project.status),
         // One job can carry several trades; the badge row is a Wrap already, so
         // every trade it needs is visible without a second screen.
         for (final slug in project.allCategories) CategoryBadge(slug: slug),
