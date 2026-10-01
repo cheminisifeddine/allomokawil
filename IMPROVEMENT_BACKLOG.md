@@ -173,6 +173,68 @@ remote tree, read off the git-data API rather than trusted from the push line.
 
 ---
 
+- [x] **The gate could NAME the leaked browser but never clear it, and its
+      own kill-instruction was derived from a fact that does not support
+      it: a live render and an abandoned one look identical.**
+      A non-build tick, and the direct cause of twelve consecutive ticks
+      being denied their Dart gate.
+      PID **17130** — headless Chrome, `--remote-debugging-port=9336`,
+      `chrome-fact3-profile` — had been **PPID 1 for 68 minutes**, `State: S`,
+      37 threads, and held **~208 MB** by the gate's own PSS accounting on a
+      7.8 GB box with no swap. Not mine to reap under the old rule ("report
+      it, do not kill it"), and nothing in the repo could ever clear it, so
+      every future tick read BUSY and skipped its gate. Verified abandoned
+      rather than assumed: the kernel socket tables held 9336 as a LISTEN
+      entry and **zero** established connections to it.
+      *Defect 1 — the report had no action behind it.* The summary told the
+      reader to "reap it and re-run this gate", which is a manual procedure
+      for a failure that recurs every visual tick. `--reap` now exists:
+      SIGTERM the leaked roots, **wait for them to actually exit** (up to
+      6 s), then **re-survey**. The re-survey is load-bearing: reporting on
+      the pre-reap state prints the browser this call just killed and exits
+      1, so the caller reads "reaping did not help" on a box it had just
+      fixed — the same class of defect as the stale `origin/main` tracker,
+      a verdict computed from state that no longer exists. It never
+      SIGKILLs and never escalates; a pid that ignores SIGTERM, or is not
+      ours to signal, is **reported, not killed**.
+      *Defect 2 — the one that could kill someone's screenshot.* The leak
+      test was `PPID 1`, full stop. But a browser is a **server**: the shell
+      that launched it can exit while the session driving it over CDP carries
+      on, which is the normal shape of a render that outlived its own
+      command. `PPID 1` therefore says only that the *launcher* is gone,
+      never that the browser is unused. The tester arm gets away with it
+      because a `flutter_tester` talks to nobody; this one answers on a
+      port. `is_leaked_browser` now requires PPID 1 **and** an idle port,
+      read from `/proc/net/tcp{,6}` (not `ss`, absent on this image) with
+      LISTEN excluded and TIME_WAIT counted on purpose: under-reporting a
+      leak only keeps the gate busy, while over-reporting one tells a tick
+      to kill a live render. Measured on a real reparented browser — **idle
+      -> leak (True), CDP client connected -> not a leak (False)** — the
+      same pid flipping on nothing but a client's presence.
+      *Also fixed:* only the `=` form of `--remote-debugging-port` was ever
+      parsed, so a browser launched with the space-separated form was
+      invisible to the arm. Both spellings now parse.
+      *Evidence.* `test/build_gate_test.py` -> **15/15**, three consecutive
+      runs. New **case 12** asserts both directions of the new check on one
+      real browser, because case 9 only ever reaches the leak branch and
+      could not tell a deleted guard from a working one. Mutation: guard
+      removed -> **14/15**; guard inverted -> **13/15** (case 9 fails too,
+      since inverting it hides real leaks). *The first version of case 12
+      failed on its own leftovers* — a hardcoded port 9402 that its own
+      TIME_WAIT connection occupied for the next run, so run N+1 saw its
+      fresh browser as "driven". Fixed with an ephemeral port; that is the
+      same non-hermetic defect this suite was already patched for once,
+      reached from a new direction. Ran it against the live box: gate said
+      BUSY, `--reap` cleared 17130 and **waited for exit**, re-surveyed, and
+      the same command printed **CLEAR, exit 0**.
+      `flutter analyze` -> **No issues found!** (9.2 s).
+      `flutter test` -> **1834 passed / 3 skipped / 0 failed**, unmoved —
+      correct, this touches no Dart and neither file is collected by
+      `flutter test`. *For the first time in twelve ticks this suite could
+      actually start.* No APK, no release, no tag — release stays
+      founder-gated. Not visual: a build gate changes no pixels, and no
+      screenshot is claimed.
+
 ---
 
 ## Phase 6 — the loop's own instruments
@@ -513,9 +575,23 @@ in the repo** — it replaced the two `pgrep`s on 28 Sep:
 ```bash
 python3 tool/build_gate.py          # human summary
 python3 tool/build_gate.py --quiet  # exit 0 = clear, 1 = busy
+python3 tool/build_gate.py --reap   # clear OUR OWN leaked render, then re-survey
 ```
 Non-zero means something is building on this 7.8 GB, no-swap box and a second
 build gets OOM-killed. Take a non-build item instead and say so in the report.
+
+   **`--reap` exists because a leaked browser is the one denial you can fix.**
+   The arm reports `LEAKED headless chrome (this loop's render)`: a browser a
+   previous tick launched and did not reap, which reparents to init and then
+   blocks **every** later tick for as long as it lives. Until 1 Oct nothing in
+   the repo could clear it, so the loop sat denied for twelve consecutive
+   ticks on a 378 MB leak. `--reap` SIGTERMs the leaked roots, **waits for
+   them to exit**, and **re-surveys** — all three parts load-bearing; run it
+   instead of hunting pids by hand. It acts only on pids the survey already
+   proved leaked, so it can never kill a live render: a browser with a CDP
+   client connected is *not* classified as a leak (PPID 1 alone is not
+   enough — a browser is a server, and its launcher can exit while the
+   session driving it carries on). It never SIGKILLs and never escalates.
 
    **Why the `pgrep`s went, and this is the third attempt at this gate.** The
    bracket trick in `pgrep -fc "[f]lutter"` exists so `pgrep` cannot match the

@@ -262,6 +262,28 @@ def _run():
                           text=True, cwd=REPO)
 
 
+def _free_port():
+    """A TCP port nothing is listening on and nothing is in TIME_WAIT on.
+
+    Bind to port 0 and let the kernel hand one out. A HARDCODED port is
+    wrong here in a way it was not for cases 8 and 9: this case opens a
+    real connection to the browser and leaves it in TIME_WAIT for ~60 s,
+    and `_port_in_use` counts TIME_WAIT on purpose. So the *next* run of
+    this suite finds the port still busy, its own freshly-spawned browser
+    reads as "driven", and the idle branch fails -- the suite failing on
+    its own leftovers, with no code change at all. That is the same
+    non-hermetic defect this file was already fixed for once (cases 1 and
+    9 deciding their own result by whatever else was on the box), reached
+    again from a different direction.
+    """
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
 def check(label, expect):
     r = _run()
     ok = r.returncode == expect
@@ -704,6 +726,75 @@ def main():
     else:
         print("  **FAIL** could not build the starved fixture")
         results.append(False)
+
+    print("\n12) a reparented browser WITH a live CDP client is not a leak")
+    # The arm this change adds, and the one case 9 cannot reach: case 9
+    # spawns a reparented browser and nobody drives it, so it only ever
+    # sees the leak branch. Without this case the new `_port_in_use` check
+    # could be deleted and every other case would stay green.
+    #
+    # Both directions are asserted on one real browser, because the whole
+    # point of the check is that the SAME process flips verdict with
+    # nothing but the presence of a client changing.
+    have_chrome12 = os.path.exists(CHROME)
+    if have_chrome12:
+        mod = _gate_module()
+        port = _free_port()
+        d12 = tempfile.mkdtemp(prefix="gate_chrome_live")
+        code = (
+            "import os\n"
+            "pid = os.fork()\n"
+            "if pid:\n"
+            "    os._exit(0)\n"
+            "os.setsid()\n"
+            "os.execv(%r, [%r, '--headless', '--no-sandbox', '--disable-gpu',"
+            " '--remote-debugging-port=%d', '--user-data-dir=' + %r,"
+            " 'about:blank'])\n" % (CHROME, CHROME, port, d12))
+        subprocess.run([sys.executable, "-c", code],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(4.0)
+        pid12 = None
+        for entry in os.listdir('/proc'):
+            if not entry.isdigit():
+                continue
+            if ("--remote-debugging-port=%d" % port) in mod._cmdline(int(entry)):
+                pid12 = int(entry)
+                break
+        if pid12 is None:
+            print("  **FAIL** no reparented browser to test with")
+            results.append(False)
+        else:
+            # Branch A: reparented, nobody talking -> a real leak.
+            idle_verdict = mod._is_leaked_browser(pid12)
+            # Branch B: a client connects over CDP -> a live render, and the
+            # gate must not call that a leak or `--reap` kills a screenshot
+            # somebody is in the middle of taking.
+            import socket
+            sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+            sock.sendall(b"GET /json/version HTTP/1.0\r\n\r\n")
+            sock.recv(128)
+            time.sleep(0.3)
+            live_verdict = mod._is_leaked_browser(pid12)
+            sock.close()
+            ok = (idle_verdict is True) and (live_verdict is False)
+            results.append(ok)
+            print(("PASS  " if ok else "**FAIL**")
+                  + "ppid=1 alone is not a leak: idle=%s, driven=%s"
+                  % (idle_verdict, live_verdict))
+            # And the port parsing that feeds it, both argv spellings.
+            parsed = (mod._debug_port("chrome --remote-debugging-port=%d" % port)
+                      == port
+                      and mod._debug_port("chrome --remote-debugging-port %d" % port)
+                      == port
+                      and mod._debug_port("chrome --headless") is None)
+            results.append(parsed)
+            print(("PASS  " if parsed else "**FAIL**")
+                  + "debug port parsed in both argv spellings")
+            mod.reap([(pid12, "probe", None)])
+            time.sleep(0.3)
+            shutil.rmtree(d12, ignore_errors=True)
+    else:
+        print("  SKIP (no chromium)")
 
     print("\nBaseline: %s" % _foreign_note())
     ok = sum(results)

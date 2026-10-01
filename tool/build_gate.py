@@ -47,6 +47,7 @@ caller cannot mistake "the script cleaned up" for "the box was free".
 """
 import argparse
 import os
+import signal
 import sys
 import time
 
@@ -193,6 +194,65 @@ def _is_leaked_tester(pid):
     return _ppid(pid) == 1
 
 
+def _debug_port(cmd):
+    """The --remote-debugging-port value in argv, or None.
+
+    Both spellings the browser accepts, because only reading the `=` form
+    is how a port silently goes undetected: `--remote-debugging-port 9398`
+    is a legal argv and leaves `cmd` containing the flag with no value
+    glued to it.
+    """
+    parts = cmd.split()
+    for i, tok in enumerate(parts):
+        if tok == '--remote-debugging-port' and i + 1 < len(parts):
+            try:
+                return int(parts[i + 1])
+            except ValueError:
+                return None
+        if tok.startswith('--remote-debugging-port='):
+            try:
+                return int(tok.split('=', 1)[1])
+            except ValueError:
+                return None
+    return None
+
+
+def _port_in_use(port):
+    """True when something is *connected* to `port`, listener excluded.
+
+    Read from the kernel's own socket tables rather than `ss`, which is
+    absent on this box's minimal image, and from `/proc/net/tcp{,6}`
+    rather than by scanning fds, so the answer does not depend on the
+    privilege of the caller.
+
+    A LISTEN socket (state 0A) does not count: that is the browser's own
+    listening socket, present whether or not anyone is talking to it.
+    Any other state on that local port is a client, so the browser is
+    being driven. TIME_WAIT (06) counts too, deliberately: it is the
+    remnant of a session that was just using it, and under-reporting a
+    leak only makes the gate stay busy, while over-reporting one tells a
+    tick to kill a live render.
+    """
+    if port is None:
+        return False
+    needle = '%04X' % (port & 0xFFFF)
+    for table in ('/proc/net/tcp', '/proc/net/tcp6'):
+        raw = _read(table)
+        if not raw:
+            continue
+        for line in raw.split('\n')[1:]:
+            fields = line.split()
+            if len(fields) < 4:
+                continue
+            local = fields[1].rsplit(':', 1)
+            if len(local) != 2 or local[1].upper() != needle:
+                continue
+            if fields[3].upper() == '0A':      # TCP_LISTEN
+                continue
+            return True
+    return False
+
+
 def _is_leaked_browser(pid):
     """A headless Chrome the loop itself left behind.
 
@@ -221,9 +281,24 @@ def _is_leaked_browser(pid):
         as the tester arm: prove the leak, then report it.
     """
     cmd = _cmdline(pid)
-    if 'remote-debugging-port' not in cmd:
+    port = _debug_port(cmd)
+    if port is None:
         return False
-    return _ppid(pid) == 1
+    if _ppid(pid) != 1:
+        return False
+    # PPID 1 is NECESSARY but NOT SUFFICIENT here, and the gap is not
+    # theoretical: a browser is a server. The shell that launched it can
+    # exit while the session that is *driving* it over CDP carries on --
+    # that is the normal shape of a tick whose render outlived its own
+    # command. The tester arm gets away with PPID 1 because a flutter_tester
+    # talks to nobody; this one answers on a port, so reparenting says only
+    # that the launcher is gone, never that the browser is unused.
+    #
+    # This matters because the gate does not merely report what it finds:
+    # its own output tells the reader to "reap it and re-run this gate".
+    # An instruction to kill, derived from a fact that does not support it,
+    # is how a live render dies mid-screenshot.
+    return not _port_in_use(port)
 
 
 def _rss_kb(pid):
@@ -463,12 +538,76 @@ def survey():
     return jvms, tools, leaked, browsers
 
 
+def reap(browsers, dry_run=False, grace=6.0, poll=0.2):
+    """SIGTERM the leaked browser roots and wait for them to actually die.
+
+    Takes only the pids the survey already classified as leaks, so this
+    cannot become a second, looser process survey that kills something the
+    gate had deliberately called clear. Returns (killed, survivors).
+
+    SIGTERM, never SIGKILL, and only after the process has gone: a Chrome
+    root with ~13 forked children dies as a group when it does, and a
+    SIGKILL to the root would orphan the renderer tree instead of removing
+    it -- trading one leak for a bigger one.
+
+    The wait is what makes the exit code mean something. Without it the
+    call returns while the memory is still held, the caller re-runs the
+    gate, reads NO ROOM on the same browser it was told it had just
+    killed, and concludes the gate is broken. It is not a guess about the
+    kernel: the pid is gone from /proc before this returns.
+    """
+    killed, survivors = [], []
+    for pid, _cmd, _verdict in browsers:
+        if _ppid(pid) is None and not os.path.exists('/proc/%d' % pid):
+            continue                       # already gone; nothing to reap
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue                       # exited between survey and here
+        except PermissionError:
+            survivors.append(pid)          # not ours to signal; never force
+            continue
+        killed.append(pid)
+        deadline = time.time() + grace
+        while time.time() < deadline:
+            if not os.path.exists('/proc/%d' % pid):
+                break
+            time.sleep(poll)
+        else:
+            # It ignored SIGTERM. Say so rather than escalating: a tick must
+            # never SIGKILL a process it cannot prove it owns.
+            survivors.append(pid)
+    return killed, survivors
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(add_help=True)
     ap.add_argument('--quiet', action='store_true')
+    ap.add_argument('--reap', action='store_true',
+                    help='SIGTERM leaked browser roots this loop left behind, '
+                         'then re-survey. Acts only on pids already proven '
+                         'leaked; never on a live render.')
     args = ap.parse_args(argv)
 
     jvms, tools, leaked, browsers = survey()
+
+    if args.reap and browsers:
+        # Reap, then SURVEY AGAIN. Reporting on the pre-reap survey would
+        # print the browser this call just killed and exit 1, so the caller
+        # would read "reaping did not help" on a box it had just fixed --
+        # the same class of defect as a stale tracker or a stale gate: a
+        # verdict computed from state that no longer exists.
+        killed, survivors = reap(browsers)
+        if not args.quiet:
+            for pid in killed:
+                print('reaped leaked browser %d (SIGTERM, waited for exit)'
+                      % pid)
+            for pid in survivors:
+                print('browser %d ignored SIGTERM or is not ours to signal; '
+                      'left running and NOT force-killed' % pid)
+        if killed:
+            jvms, tools, leaked, browsers = survey()
+
     busy_jvms = [j for j in jvms if j[2]]
     busy = bool(tools or busy_jvms or leaked or browsers)
     avail = available_mb()
@@ -510,7 +649,8 @@ def main(argv=None):
             if browsers:
                 print('A leaked headless Chrome from an earlier tick is holding '
                       '~%.0f MB. The loop\'s own render step is what leaves it '
-                      'behind; reap it and re-run this gate.'
+                      'behind; run `python3 tool/build_gate.py --reap` to '
+                      'clear it, then re-run this gate.'
                       % browser_mb(browsers))
         elif starved:
             print('NO ROOM — nothing is building, but only %.0f MB is reclaimable '
