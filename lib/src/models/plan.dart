@@ -473,12 +473,54 @@ class BillingCatalogue {
   /// no badge.
   bool get isPrepaid => autoRenew == false;
 
+  /// The plan whose id is [id], or null when the catalogue does not carry it.
+  ///
+  /// **Trimmed, because every other reader of this column in the app trims
+  /// and this one did not** — the same law [PlanId.fromWire] was written to
+  /// keep, and the exception to it is what this line was.
+  ///
+  /// Three readers of `plan` already called `.trim()` before comparing:
+  /// `pendingClaimFor` ([pending_request_copy.dart:245]), the pending card's
+  /// own label ([subscription_screen.dart:1214]) and `PaymentOptions.labelFor`
+  /// ([plan.dart:396]) — which does `final key = id.trim()` before the very same
+  /// `m.id == key` shape used here. This loop was handed the sibling line.
+  ///
+  /// **What the untrimmed compare cost.** The only caller is the pending-payment
+  /// card, which passes `catalogue.pendingRequest!.plan` straight through to
+  /// name the plan the contractor is paying for. A row arriving as `" pro"`
+  /// missed every catalogue entry and `planById` returned null, so the label
+  /// fell to `pendingPlanLabelAr`'s own fallback and the receipt — the one
+  /// document a man screenshots to support — printed the **raw wire id**
+  /// `pro` where the Arabic name «محترف» should be, next to the amount he just
+  /// transferred. Every other reader of the same column had already decided
+  /// the padded id is the plan `pro`; this one contradicted them on the only
+  /// screen where the answer is a receipt.
   Plan? planById(String id) {
+    final key = id.trim();
+    if (key.isEmpty) return null;
     for (final p in plans) {
-      if (p.id == id) return p;
+      if (p.id == key) return p;
     }
     return null;
   }
+
+  /// Whether [plan] is the tier this subscription is currently on.
+  ///
+  /// Exists so the card's "your plan" marking asks the catalogue rather than
+  /// comparing two strings inline. Written by hand it was
+  /// `catalogue.current.plan == plan.id` — the **fourth** reader of the plan
+  /// id on this screen, and the second one that did not trim, after
+  /// [planById].
+  ///
+  /// **What the untrimmed compare cost.** This is not a label, it is the state
+  /// of the card. `current` decides the accent border, the «خطتك» pill, and — at
+  /// [subscription_screen.dart:1089] — whether the button reads «تجديد» (*renew*) instead
+  /// of «ترقية — محترف» (*upgrade*). A `current.plan` of `" pro"` left the
+  /// contractor on his **pro** plan looking at a card that says *upgrade*, not
+  /// *renew*: his own tier offered back to him for money, on the money screen,
+  /// one tap from a second 15000 دج transfer for a plan he already owns.
+  bool isCurrentPlan(Plan plan) =>
+      current.plan.trim() == plan.id.trim() && plan.id.trim().isNotEmpty;
 
   /// The paid plans a contractor can buy, cheapest first.
   List<Plan> get purchasable => [

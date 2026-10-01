@@ -526,7 +526,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           period: _period,
                           priceLabel: catalogue.priceLabel(plan, _period),
                           dispute: _disputeFor(plan.id, _period),
-                          current: catalogue.current.plan == plan.id,
+                          current: catalogue.isCurrentPlan(plan),
                           busy: _busy,
                           claimed: claimed,
                           requestId: catalogue.pendingRequest?.id,
