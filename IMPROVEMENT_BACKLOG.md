@@ -13031,3 +13031,92 @@ missing one. Launched background and polled: the suite still overruns the
 **Next:** backlog back to **0 unchecked**. The standing **`sharding`**
 decision is still unmade — **fifth tick flagging it**, and it is the
 founder's call. No APK, no release, no tag.
+
+---
+
+- [x] **The build gate's starvation floor was a single instantaneous sample,
+      so on this box it flip-flopped between CLEAR and NO ROOM on an
+      identical one — denying a tick its gate at random.** `0af7121` -> remote
+      `a55f806`. Not a Dart item: the backlog was at **0 unchecked** and both
+      Dart defect families are recorded exhausted, so this tick worked the
+      loop's own instrumentation, which is what decides whether *any* tick
+      gets to run its gates.
+
+      **What the box actually did.** Sampled `MemAvailable` every 2 s for
+      60 s: **881 -> 875 -> 819 -> ... -> 692 MB**. A second independent
+      45 s window: **593 -> 588 -> 548 -> ... -> 510 MB**. Two windows, both
+      monotone downward, crossing `MIN_AVAILABLE_MB = 900` — not oscillation
+      around a mean but a **trend**, and it crosses the gate's own threshold.
+      The cause is outside this loop: visible PIDs in this namespace sum to
+      **481 MB** PSS against 7.9 GB total, and `AnonPages` is 1425 MB. The
+      pressure is real and is not ours to kill.
+
+      **The defect, measured on the same fixture.** A box alternating
+      **488 / 1387 MB**, floor 900 MB, eight consecutive gate invocations:
+
+          BEFORE:  NO ROOM  CLEAR  NO ROOM  CLEAR  NO ROOM  CLEAR  NO ROOM  CLEAR
+          AFTER:   CLEAR   CLEAR  CLEAR   CLEAR  CLEAR   CLEAR  CLEAR   CLEAR
+
+      **4/4 split, then 8/8 deterministic.** A single `available_mb()` read
+      decides by phase, so a tick whose gate says "the box is busy" may be
+      reading nothing but a transient dip. This is the **same failure that
+      cost this loop three consecutive ticks** — the one whose docstring
+      explains that a gate reading "busy" when the box is free costs the loop
+      its whole test gate, silently. Only now it is *unpredictable* instead of
+      diagnosable, which is strictly worse.
+
+      **The fix is a median, because a mean or a retry is not the point.**
+      `available_mb()` returns the **median of 3** samples, and
+      `sustained_no_room()` requires **two consecutive medians** under the
+      floor. One median ignores a single transient dip — which is what a
+      build starting up looks like; two agree before a build is refused. The
+      median is what rejects the outlier, which is the actual failure mode.
+
+      *One mistake caught by looking at the diff, not by the tests.* The
+      first wiring printed the verdict from one median and exited on another,
+      so the gate could print **NO ROOM and exit 0** on the same run — a
+      contradiction the loop cannot resolve. Both now derive from a single
+      `starved`, computed once. A test asserting only the exit code would
+      have passed while the message lied.
+
+      *The false-negative arm is the one that matters.* A guard that simply
+      stopped firing also produces a green suite, and would let a tick start a
+      build on a box that cannot host it. Case 11 asserts a **permanently**
+      starved box is still refused. Four behavioural fixtures were run and
+      all four pass: constant-starved -> NO ROOM, starved+jitter -> NO ROOM,
+      healthy -> CLEAR, one-dip-then-room -> CLEAR.
+
+      *A test that passed for the wrong reason, twice, and is documented so
+      the next tick does not repeat it.* The first oscillator advanced an
+      **in-process** counter, so every invocation read the same phase and
+      reported **8/8 CLEAR with the bug still in the gate**. The counter is
+      now a **file**, because the defect is about what happens across
+      consecutive *ticks* and each invocation must see a genuinely different
+      box. Second: the teeth check is not optional — running the **new** tests
+      against the **old** gate makes case 10 fail
+      (`one verdict (CLEAR, NO ROOM)`) while case 11 still passes, which is
+      the exact split a regression test must show.
+
+      **Gate, all four halves run.**
+      * `test/build_gate_test.py` -> **12/12 ALL PASS**, exit 0 (was 10/10).
+        Real Chromium, real JVM, zero orphans left behind.
+      * `flutter analyze` -> **No issues found!** (8.9s), exit 0.
+      * `flutter test` -> **`+1834 ~3: All tests passed!`**, exit 0, **11:46**.
+        Equal to the previous tick's 1834 — expected and correct, this touches
+        no Dart. Nothing dropped.
+      * `build_gate.py --quiet` after the run -> **CLEAR**, exit 0.
+
+      **One error of my own, recorded because it nearly cost the fix.** To
+      prove the new cases fail against the old gate I copied `HEAD`'s gate
+      over the working one and ran `git checkout -- tool/build_gate.py`
+      afterwards to restore it — which discarded the **uncommitted** fix and
+      left an empty tree. It was recovered from the scratch copy taken before
+      the experiment and verified byte-identical by `md5sum` before anything
+      else was done. The safe order is: take the copy first, and restore with
+      `cp`, never `git checkout --` on a file that is not committed.
+
+      **Next:** backlog remains **0 unchecked** after this. The **`sharding`**
+      decision is still unmade — sixth tick flagging it — and it is now the
+      only thing between this loop and a gate it can trust: the suite ran
+      **11:46** against a **10-minute** tick interval and a 1200 s
+      `run_tests.py` deadline. No APK, no release, no tag.
