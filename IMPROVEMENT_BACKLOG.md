@@ -12290,3 +12290,75 @@ thing to implement once it is not.
       **`sharding`** decision is still unmade. That split is what turns a
       12-minute suite into something a short tick can survive. No APK, no
       release, no tag — release work stays founder-gated.
+
+- [x] **A contractor who priced his work at zero was published as a price —
+      «0 دج» on the card a customer picks him from.** DONE 1 Oct 2026.
+
+      Found with the backlog at 0 unchecked, by asking the question the
+      budget-zero item one file over had already answered: **`budgetLabel`
+      folds a stored `0` to null. Does `priceRangeAr` — the label for the same
+      two server columns, printed by a different widget on a different screen
+      — fold it the same way?** It did not.
+
+      `price_range_copy.dart` was shipped three days ago to fix `7000 - 7000 دج`,
+      and **the collapse it added is what made the zero visible**:
+
+          if (min == max) return Money.dzd(min);
+
+      Both ends zero satisfies that arm exactly, so a row holding `(0, 0)`
+      printed
+
+          «0 دج»
+
+      in the gold `payments_rounded` tag on `worker_card.dart` — the card a
+      customer picks a tradesman from. Not a crash, not an error: **a price**,
+      and the only price in the app that is not one. «0 دج» reads as *he works
+      for nothing* rather than *he never typed one*.
+
+      **Reachable from this app's own form, which is what makes it a defect
+      and not server state.** `profile_edit_screen._save` parses both boxes with
+      a bare `DzNumber.tryParse(...)` — no `min` bound, verified on the running
+      parse — so a typed `0` is the integer 0. The form's only cross-field rule
+      is `min > max`, which zero does not violate. Two `0`s and a saved profile
+      is a two-field typo, not a server bug.
+
+      **The shape is the same defect as the budget one, which is how it was
+      found:** the same two columns, the same stored `0` sentinel, two labels
+      answering it differently. Folded to null here, **before** the arms, the
+      way `budgetLabel` does it — not a sixth arm for zero.
+
+      *Shipped:* `priceRangeAr` folds both ends, and `hasPriceRange` folds with
+      it. The gate had to move too: it is the thing `worker_card` draws the tag
+      around, so with the fold only on the copy, `(0, 0)` would have satisfied
+      the gate and rendered an **icon around a sentence that says there is no
+      price** — the two-surfaces-disagreeing defect the bool was invented to
+      end, reintroduced by the fix beside it.
+
+      *Teeth, not assertion.* Reverting only the fold (keeping the file
+      compiling) turns **5 green red**, quoting the bug verbatim — including one
+      I had not predicted and did not write a case for:
+
+          Expected: null          Actual: '0 دج'
+          Expected: 'حتى 8000 دج'  Actual: '0 - 8000 دج'
+
+      The `0 - 8000 دج` band is the honest reading of a contractor who typed a
+      maximum and left the «من» box at `0`: the arm that fires is the band, not
+      the bound, because zero was not folded out of the way first.
+
+      *One existing test was pinning the bug as correct.*
+      `price_range_copy_test.dart` asserted `priceRangeAr(0, 0) == '0 دج'`,
+      in a group named «the collapse matches the project budget beside it» —
+      three days after the same file fixed the *other* half of this column. It
+      is corrected, not deleted, and the reason is left in place.
+
+      *Not visual and not claimed.* A contractor with a real price renders
+      byte-identically before and after; only a `(0, 0)` row changes, and that
+      row now draws no tag at all. A screenshot would show nothing about this.
+
+      *Gates:* `flutter analyze` -> **No issues found!** (2.7s).
+      `flutter test` -> **1795 passed / 3 skipped / 0 failed**, up from
+      1784/3/0 (+11, the new file), **12:52**, no regressions. All 4 blobs
+      verified against the real remote tree, read off the git-data API rather
+      than trusted from the green push line.
+
+**Next:** backlog back to **0 unchecked**.

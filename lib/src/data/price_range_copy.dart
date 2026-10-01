@@ -40,6 +40,17 @@
 // different widgets in two different screens. The fix is the same collapse,
 // made into the rule both of them now read.
 //
+// The **zero** is closed here too, and it is the half of this column the first
+// pass left open. Both arms above are about two real numbers; a stored `0` is
+// the server's «nobody answered» sentinel wearing a number's clothes, and
+// `priceRangeAr(0, 0)` printed «0 دج» — which is not a price any Algerian
+// charges, on the card a customer picks a tradesman from. `DzNumber.tryParse`
+// accepts `0` (the price fields pass no `min`), and the form's only
+// cross-field rule is `min > max`, which zero does not break, so a `0` and a
+// `0` is a state this app's own form can publish. Folded to null here, before
+// the arms, exactly as `Project.budgetLabel` folds it one file over — the two
+// labels answer the same server column and must not answer it differently.
+//
 // The **inverted** pair is closed here too, for a different reason: nothing in
 // this app can produce `min > max` (both forms refuse it), so an inverted
 // pair is server state only. It is answered rather than passed through, so a
@@ -61,14 +72,34 @@ import '../core/format/money.dart';
 ///   * both, real -> «2500 - 6000 دج»
 ///   * inverted   -> the honest single reading, see [_inverted].
 String? priceRangeAr(int? min, int? max) {
-  if (min == null && max == null) return null;
-  if (min != null && max != null) {
-    if (min == max) return Money.dzd(min);
-    if (min > max) return _inverted(min, max);
-    return '${Money.amountOnly(min)} - ${Money.dzd(max)}';
+  // A stored `0` is an absent answer, not a price. Folded here, **before** the
+  // arms are chosen, so no caller can reach an arm with a zero in it — the same
+  // rule and the same one-column-first treatment as `Project.budgetLabel`.
+  //
+  // This is the zero half of a pair of defects this file already fixed the
+  // other half of. It collapses `min == max` into a bare amount, so a `0` and a
+  // `0` became «0 دج» — the one sentence that is not a price at all. Both ends
+  // zero is what a server row holds when the form's two boxes were both typed
+  // `0`, which `DzNumber.tryParse` accepts: the price fields pass no `min`
+  // bound, and the form's only cross-field rule is `min > max`, which zero does
+  // not violate. So this was reachable from this app's own form, and the browse
+  // card — the row a customer picks a tradesman from — published «0 دج» next to
+  // a gold coin icon.
+  //
+  // `hasPriceRange` reads the same fold for the same reason: with the fold
+  // here, a `(0, 0)` pair is no price at all, and the tag the card draws must
+  // agree with the sentence inside it rather than being gated on a null check
+  // that a zero slips past.
+  final lo = min != null && min > 0 ? min : null;
+  final hi = max != null && max > 0 ? max : null;
+  if (lo == null && hi == null) return null;
+  if (lo != null && hi != null) {
+    if (lo == hi) return Money.dzd(lo);
+    if (lo > hi) return _inverted(lo, hi);
+    return '${Money.amountOnly(lo)} - ${Money.dzd(hi)}';
   }
-  if (max != null) return 'حتى ${Money.dzd(max)}';
-  return 'من ${Money.dzd(min!)}';
+  if (hi != null) return 'حتى ${Money.dzd(hi)}';
+  return 'من ${Money.dzd(lo!)}';
 }
 
 /// True when the pair carries any price at all — the one gate the two call
@@ -80,7 +111,16 @@ String? priceRangeAr(int? min, int? max) {
 /// card he is chosen from: the same man's range was on the profile page and
 /// absent from the browse list, which is the list a customer actually picks
 /// him out of. One boolean, read by both, is the fix — [hasPriceRange] is it.
-bool hasPriceRange(int? min, int? max) => min != null || max != null;
+///
+/// **The `> 0` is the zero fold, not a second rule.** It has to live on this
+/// gate as well as on the copy: [priceRangeAr] folds `(0, 0)` to `null`, and a
+/// tag gated on a bare null check would draw an empty money icon on a card
+/// whose own text says there is no price. The two are asserted to agree over a
+/// table of pairs in `price_range_zero_test.dart`, which is what keeps them
+/// from drifting into exactly the two-surfaces-disagreeing defect the bool was
+/// invented to end.
+bool hasPriceRange(int? min, int? max) =>
+    (min != null && min > 0) || (max != null && max > 0);
 
 /// The sentence for a range whose ends are the wrong way round.
 ///

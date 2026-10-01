@@ -53,7 +53,17 @@ void main() {
       // Same column, same server, two widgets: the project's own label already
       // collapsed this and the worker's did not.
       expect(priceRangeAr(5000, 5000), '5000 دج');
-      expect(priceRangeAr(0, 0), '0 دج');
+      expect(priceRangeAr(2500, 2500), '2500 دج');
+    });
+
+    test('equal ends that are zero are not a price', () {
+      // This case used to assert «0 دج». That was the bug being pinned as
+      // correct: `0` and `0` collapsed to a bare amount because the collapse
+      // ran before anything asked whether the number was a price. It is the
+      // one sentence on the card that is not a price at all, and it is
+      // reachable from this app's own form — see `price_range_zero_test.dart`,
+      // which drives the whole zero fold rather than this one pair.
+      expect(priceRangeAr(0, 0), isNull);
     });
   });
 
