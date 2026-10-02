@@ -223,27 +223,107 @@ class Project {
     return 'من ${Money.amountOnly(min)} إلى ${Money.dzd(max)}';
   }
 
+  /// Reads the payload instead of casting it, for the reason `chat.dart` and
+  /// `notification.dart` carry in their own file headers: `repository._rows`
+  /// turns a model `TypeError` into an `ApiException` and **drops the row**, so
+  /// one unexpected column costs a card and not a field.
+  ///
+  /// On this model that is the worst of the four outcomes the family has found.
+  /// A lost chat row is a message missing from a thread that still reads as a
+  /// thread; a lost notification is never drawn at all; a lost project is **a
+  /// job the customer cannot open and a contractor cannot quote** — and browsing
+  /// is the first thing either of them does with the app. The feed renders as
+  /// «لا توجد مشاريع» over a market that has work in it, and the founder's
+  /// screen shows him no projects rather than an error he could report.
+  ///
+  /// **This file was the one with three casts that could not fail quietly.**
+  /// `customer_id`, `title` and `category` were `as int` / `as String`, not the
+  /// `as String?` the audit flagged, so there was no null to tolerate: any
+  /// shape but the exact one threw, and one row took the page with it.
+  ///
+  /// The rules are the ones the two shipped files already keep, and they are
+  /// not applied uniformly on purpose — each field gets the fallback its
+  /// **caller** already knows how to render:
+  ///
+  ///   * **`title` is the one field a string may not become a placeholder.** It
+  ///     is drawn verbatim on the card (`project_card.dart:31`) and the detail
+  ///     page (`project_detail_screen.dart:389`), and the same string seeds the
+  ///     edit form (`project_new_screen.dart:118`). A fabricated «مشروع بدون
+  ///     عنوان» would be *written back to the server* the next time its owner
+  ///     saves an edit — the app inventing a title and then persisting it as
+  ///     the customer's own. So an unreadable title is empty, and the honest
+  ///     rendering of an empty title is a card with no headline, which is
+  ///     visibly unfinished rather than confidently wrong.
+  ///   * **`category` does get a placeholder**, because it has one: every
+  ///     reader already routes an unknown slug to `Taxonomy`'s own fallback —
+  ///     `categoryName` answers «خدمات عامة» and `canonical` never leaks a raw
+  ///     English slug into the Arabic UI. `''` is already on that path
+  ///     (`canonical` returns it unchanged), so the badge draws the same grey
+  ///     handyman it draws for a slug this build has never heard of. Nothing
+  ///     invents a trade.
+  ///   * **`id` stays a key** — flattened by its own text, never interpolated
+  ///     into «null», because it is the argument to `/api/mobile/projects/$id`
+  ///     and `push()` with it.
+  ///   * **Copy is never flattened.** A number is not a sentence somebody
+  ///     wrote, and both readers already answer «there is nothing here»: the
+  ///     description's own section is skipped when it is null, and the title is
+  ///     drawn as it came.
+  ///   * **A budget stays nullable.** `budgetLabel` folds a stored `0` into null
+  ///     before it chooses a band, and `project_new_screen` writes
+  ///     `budgetMin?.toString() ?? ''` — so an unreadable floor must be
+  ///     *absent*, never `0`, or the edit form would show a zero budget the
+  ///     customer never typed.
   factory Project.fromJson(Map<String, dynamic> json) {
     List<String> imgs = const [];
     final raw = json['images'];
     if (raw is List) imgs = raw.map((e) => e.toString()).toList();
     return Project(
-      id: json['id'].toString(),
-      customerId: json['customer_id'] as int,
-      title: json['title'] as String,
-      description: json['description'] as String?,
-      category: json['category'] as String,
+      // A key, not copy: whatever the server sent is flattened by its own
+      // text, and an absent one is '' rather than the word «null» — which is
+      // what `.toString()` already did, so this is the same answer for a new
+      // reason. `push()` with it either way is still a dead link, but a dead
+      // link beats a page that shows nothing.
+      id: _wireText(json['id']),
+      // Read, not cast: `as int` threw on `'30'` — a string from SQLite, the
+      // shape `_asInt` in `data/repository.dart` documents in its own comment
+      // — and `customer_id` is what the «مراسلة صاحب المشروع» button sends to
+      // the chat screen (`project_detail_screen.dart:466`). A lost id there is
+      // a conversation opened against nobody.
+      customerId: _int(json['customer_id']),
+      // Copy, never flattened, and never invented — see the note above.
+      title: _text(json['title']) ?? '',
+      // Copy. The detail page guards this section with `!= null`
+      // (`project_detail_screen.dart:399`), so an absent description is a
+      // section that is not drawn, which is the existing honest answer.
+      description: _text(json['description']),
+      // A key with a fallback already in the table — see the class note.
+      category: _wireText(json['category']),
       categories: json['categories'] is List
           ? (json['categories'] as List).map((e) => e.toString()).toList()
           : const [],
       images: imgs,
-      wilaya: (json['wilaya'] as String?) ?? '',
-      commune: json['commune'] as String?,
-      budgetMin: (json['budget_min'] as num?)?.toInt(),
-      budgetMax: (json['budget_max'] as num?)?.toInt(),
-      urgency: _urgen(json['urgency'] as String?),
-      status: _status(json['status'] as String?),
-      selectedWorkerId: (json['selected_worker_id'] as num?)?.toInt(),
+      // A **code**, not a name: `Taxonomy.wilayaNameOrNull` returns null for a
+      // blank or unknown one and the card then draws no location row at all
+      // (`project_card.dart:18,59`), which is the fix the 26 Sep
+      // «project without a wilaya is published in الجزائر» bug produced. An
+      // unreadable code must therefore be blank and stay blank — flattening a
+      // number here would name a wilaya nobody stated, which is the exact lie
+      // that getter was written to stop.
+      wilaya: _wireText(json['wilaya']),
+      // Copy the edit form seeds a field with (`project_new_screen.dart:119`).
+      commune: _text(json['commune']),
+      // `as num?` threw on a SQLite string and read `''` as 0 on a null — see
+      // the budget note above.
+      budgetMin: _nullableInt(json['budget_min']),
+      budgetMax: _nullableInt(json['budget_max']),
+      urgency: _urgen(_wireText(json['urgency'])),
+      status: _status(_wireText(json['status'])),
+      // Read rather than cast, and still nullable: `project_commit_outcome`
+      // compares `fresh.selectedWorkerId == workerId` to decide whether a
+      // contractor's pick is confirmed, so a drifted `'7'` must arrive as 7 —
+      // and a genuinely absent one must stay null, or every project would
+      // claim a worker nobody was chosen.
+      selectedWorkerId: _nullableInt(json['selected_worker_id']),
     );
   }
 
@@ -255,4 +335,63 @@ class Project {
   /// Reading a status is [ProjectStatus.fromWire] and nothing else, so the
   /// table above has exactly one copy of it.
   static ProjectStatus _status(String? v) => ProjectStatus.fromWire(v);
+}
+// ---- reading the payload, not casting it -----------------------------------
+//
+// The same four readers `chat.dart` and `notification.dart` keep, and
+// deliberately the same code: three files that each grew their own version of
+// "how do we read a column" is how they drift apart, and the drift would be
+// invisible — a tolerant field in one model and a throwing one in the next is
+// the same defect the audit found three times. Each stays private to its file,
+// so a model cannot quietly borrow another model's leniency.
+
+/// An integer column, tolerant of the two shapes D1 really answers with.
+///
+/// `_asInt` in `data/repository.dart` names them: a number from a JSON body, a
+/// string from SQLite. 0 when neither — and 0 on `customer_id` opens a chat
+/// against user 0, which is a visibly dead thread rather than a lost screen.
+int _int(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value.trim()) ?? 0;
+  return 0;
+}
+
+/// An integer that stays null when the field is absent or unreadable, so the
+/// caller must choose a default instead of inheriting one by accident.
+///
+/// Both budgets and the selected worker use this. A 0 where a budget was
+/// expected is not "no money": `budgetLabel` treats a stored 0 as an absent
+/// answer, and the edit form prints `?.toString() ?? ''`, so a fabricated 0
+/// would round-trip a zero budget the customer never typed.
+int? _nullableInt(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value.trim());
+  return null;
+}
+
+/// A wire value as text, for a **key** column: a project id, a wilaya code, a
+/// trade slug, a status or urgency name.
+///
+/// Interpolation prints the literal «null» for an absent key, and «null» is a
+/// code the routing rule, the wilaya table and the category table have never
+/// heard of — so every one of them lands on its own fallback, which is what an
+/// absent key gets anyway. Flattening a real number is right here and only
+/// here: these are identifiers, not sentences.
+String _wireText(Object? value) {
+  if (value == null) return '';
+  if (value is String) return value;
+  return '$value';
+}
+
+/// Copy, trimmed, or null when absent/empty/not a string.
+///
+/// No flattening: a number is not a sentence somebody wrote, and both callers
+/// here already have the honest answer for «there is nothing here» — the
+/// description section is simply not drawn, and the title is drawn as it came.
+String? _text(Object? value) {
+  if (value is! String) return null;
+  final v = value.trim();
+  return v.isEmpty ? null : v;
 }
