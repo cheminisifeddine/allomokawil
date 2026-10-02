@@ -194,37 +194,67 @@ void main() {
 
     test('the day count is local calendar days, not rounded hours', () async {
       final out = await _underZone('Africa/Algiers', r'''
-      // D1 says this plan runs for 3 more days from 22:00 UTC on the 30th.
-      // In Algiers that is already 23:00 on the 30th, so the days still to
-      // live are the 31st and the 1st: two. Measured off elapsed hours the
-      // same answer comes out as 1, because 30 hours of run time is less than
-      // the 48 hours a naive `inHours ~/ 24` would need.
+      // Built relative to now, like the boundary below it, because a date
+      // frozen in a fixture is a date the clock eventually walks past — and
+      // this one already did. `2026-10-01 22:00:00` was 23:00 on 1 Oct in
+      // Algiers; that day went by while this suite was green, and the count
+      // honestly became **-1**, because the number of midnights between *now*
+      // and a day that is behind you is negative. `DAYS >= 0` was failing on a
+      // **correct** app — it asserted that time does not pass.
+      //
+      // What is under test is the *unit*, and the unit is the whole title:
+      // midnights crossed, not elapsed hours. So the plan ends at **local
+      // midnight tomorrow**, and that hour is what makes the two units
+      // disagree at *every* time of day rather than in one window:
+      //
+      //   * calendar days  -> exactly **1**, at 00:01 and at 23:59 alike;
+      //   * elapsed hours  -> `24 - H ~/ 24` -> **0**, all day long, because
+      //     fewer than 24 hours remain until the next midnight unless the
+      //     suite happens to run at 00:00.000.
+      //
+      // An earlier draft of this fixture ended at 01:00 tomorrow and passed
+      // against `end.difference(today).inHours ~/ 24` — a mutation that
+      // reintroduces the exact bug this test exists to catch. It only
+      // discriminated in the 65 minutes after local midnight, so on every
+      // other run of the day the guard was decorative.
+      final now = DateTime.now();
+      final startOfTomorrow = DateTime(now.year, now.month, now.day + 1);
+      final end = startOfTomorrow;
       final s = SubscriptionStatus.fromJson(<String, dynamic>{
         'plan': 'basic', 'name_ar': 'x', 'status': 'active',
-        'starts_at': null, 'expires_at': '2026-10-01 22:00:00',
+        'starts_at': null, 'expires_at': end.toUtc().toIso8601String(),
         'quote_limit': -1, 'portfolio_limit': 1,
         'quotes_used_this_month': 0, 'renews_in_days': 3,
       });
       print('DAYS=${s.daysUntilExpiry}');
       print('AR=${s.expiryCountdownAr}');
+      print('END=${subscriptionEndDateLabel(s.expiresAtLocal)}');
 ''');
-      // The end instant is 23:00 on 1 Oct in Algiers. The count is whatever
-      // midnights stand between *now* and that day — and the probe runs
-      // whenever this suite runs, so the day is not something a fixture can
-      // pin. What is fixed is that the number is derived, not sent, and that
-      // the date printed is the Algiers one: 1 Oct in UTC is 23:00 on the 1st
-      // locally, so «2026-10-01» is right all day, whereas the bare parse this
-      // replaced would have said the same only until 21:00 UTC.
+      // One midnight stands between now and tomorrow, so the count is **1** at
+      // every time of day. Measured off elapsed hours the same plan reads
+      // **0** — and «0» is the arm that prints «ينتهي الاشتراك في …», dropping
+      // the day count off the card entirely for a plan a contractor has not
+      // finished yet.
       final m = RegExp(r'DAYS=(-?\d+)').firstMatch(out);
       expect(m, isNotNull, reason: out);
-      final days = int.parse(m!.group(1)!);
-      expect(days, greaterThanOrEqualTo(0), reason: out);
-      // `renews_in_days` said 3. The app now ignores it, and prints the day it
+      expect(int.parse(m!.group(1)!), 1, reason: out);
+      // `renews_in_days` said 3. The app ignores it and prints the day it
       // derived from the exact instant instead — the whole point of the fix.
       expect(out, isNot(contains('3 يوماً')),
           reason: 'the server count reached the screen:\n$out');
       expect(out, contains('ينتهي الاشتراك'), reason: out);
-      expect(out, contains('2026-10-01'), reason: out);
+      // One day takes the singular nominative, «يوم» — and the trailing dash
+      // is there so «بعد يومين» (two days) cannot satisfy this by prefix.
+      expect(out, contains('بعد يوم —'), reason: out);
+      // The date in the sentence is the **Algiers** day, and it is checked
+      // against the label the app derives from the same instant rather than a
+      // typed one — both strings are produced inside the UTC+1 subprocess,
+      // because the parent runs in UTC and would parse the bare date as local.
+      final printed = RegExp(r'— (\d{4}-\d{2}-\d{2})').firstMatch(out);
+      final derived = RegExp(r'END=(\S+)').firstMatch(out);
+      expect(printed, isNotNull, reason: out);
+      expect(derived, isNotNull, reason: out);
+      expect(printed!.group(1), derived!.group(1), reason: out);
     });
 
     test('a plan ending tomorrow counts 1, never 0 and never -3', () async {
