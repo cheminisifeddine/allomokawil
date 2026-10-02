@@ -15547,3 +15547,91 @@ each is a caller asking the *model* for a date answer the way
 `profile_screen` used to, and each has a sibling `*At(clock)` beside it, so
 the question is whether every call site uses the `_At` form. That is a
 read-only census and fits a tick.
+
+- [x] **The seam census came back clean, and nothing was watching it — five
+      hand-fixes deep, the next wall-clock call site would have gone in
+      unremarked.**  `438b3f6` -> remote `44429ba`.
+
+      The previous tick asked the productive question and left it to this one:
+      *which data helpers still reach `DateTime.now()` themselves, and who calls
+      them*. A census, not a symptom, because the symptom list — screens missing
+      a timer — had been exhausted at ten of ten and had already been shown not
+      to contain the straggler it then found.
+
+      **Answered by reading the source, both halves green.**
+      * **19** top-level helpers take the `{DateTime? now}` seam, and **all 19**
+        are called from `lib/` with a clock passed. Zero violations.
+      * The three wall-clock getters on `SubscriptionStatus` —
+        `daysUntilExpiry`, `expiryCountdownAr`, `isExpired` — have **zero**
+        call sites outside `plan.dart` itself. Every rendering surface already
+        uses the `*At(clock)` sibling.
+
+      **Both answers are zero, which is the worst thing to leave unwatched.** A
+      clean result is precisely what one later edit erases without anyone
+      noticing, and the family has already been fixed by hand five separate
+      times. So the tick's work was not a sixth fix — there was nothing left to
+      fix — it was to make the answer *hold*.
+
+      `test/wall_clock_seam_site_test.dart`, four cases. The family list is
+      **derived from the source**, not hardcoded, for the same reason
+      `no_empty_text_site_test.dart` keeps its own list honest: a guard that
+      only knows the functions it has already met goes blind the moment the app
+      grows a new one, and derives its own coverage instead.
+
+      **The rule the first version of the file asserted was its own bug.** It
+      required every member to read the wall clock directly, and failed on all
+      **fifteen** that merely forward `now:` to one of the four roots. The rule
+      it meant is one hop stronger, and worth more: a helper that *takes* a
+      clock, ignores it, and forwards nothing is **a seam that lies** — the
+      caller passes `now:`, gets a confident answer, and that answer came from
+      the real clock regardless. That is the exact defect this family was built
+      to prevent, wearing the costume of the fix. Membership is now transitive:
+      reads the clock, or hands the clock to a member that does. Recorded in
+      the file because the wrong rule looked right and passed a real sweep.
+
+      **Mutation gate, three arms, every one independently red.**
+      * the original straggler reintroduced (`chatDayLabel(at!)`) — named with
+        `file:line` and the offending source line quoted back;
+      * a screen switched back to the model getter (`status.isExpired`) — same;
+      * **a seam turned into a liar**: `statsFreshnessAr` accepts `now:`, ignores
+        it, and calls `readAgeAr` without it — caught **twice**, by the honesty
+        case and by the site sweep independently, which is the only arm that
+        shows the two halves are not the same check.
+
+      Plus a **positive control**: one payload through `readAgeAr` with two
+      clocks must yield two answers. Without it all three sweeps would pass for
+      free the day the family stopped honouring `now` — a guard with no
+      assertion that the thing it protects still works.
+
+      *Gate.* `flutter analyze` -> **No issues found!** (1.7 s) — one lint on the
+      first pass (`prefer_interpolation_to_compose_strings` on the getter regex)
+      and fixed rather than left. `tool/run_tests.py` -> **+2046 ~3: All tests
+      passed!** (12:44), up 4 from +2042, 0 failed. `tool/build_gate.py` ->
+      CLEAR before the run.
+
+      *`lib/` is byte-identical to HEAD.* This tick ships a guard, not a change
+      to the app — and saying so is the honest report, because a reader who
+      expects a pixel diff is owed the fact that there is none. Not visual: a
+      test harness draws nothing, and no screenshot is claimed. No APK, no
+      release, no tag: founder-gated.
+
+      *Pushed and verified.* The helper printed `Pushed 1 changed, 0 deleted ->
+      44429ba`, and per the 26 Sep lesson a green push line is not proof, so the
+      blob was checked against the remote tree: git blob SHA
+      `129a4411b05882e6c09ec967b563001e8bdb1177` on both sides, 11890 bytes.
+      *The first verification pass reported a MISMATCH and was wrong* — it
+      hashed the raw file content, while GitHub's `sha` is the SHA-1 of the
+      blob *with its `blob <len>\0` header*. A verifier that cannot tell the
+      difference between a wrong answer and a wrong method will eventually
+      report a real mismatch as a push failure, or hide one.
+
+      **What the next tick should do.** Not a seventh arm of this family — the
+      census is closed, enforced, and mutation-proven. The open question this
+      tick ran into is about the **root four** rather than the fifteen
+      delegates: `chatDayLabel`, `readAgeAr`, `relativeTimeAr` and
+      `statsAreStale` are the only helpers in the app that still reach the wall
+      clock when handed no clock, which is correct for tests and dangerous for
+      anything else. A read-only census of whether every *test* that omits `now:`
+      does so knowingly — `read_age_ar_test.dart` has a case that asserts
+      omitting it works, and states why — versus by accident would close the
+      last direction the family can rot in. That fits a tick.
