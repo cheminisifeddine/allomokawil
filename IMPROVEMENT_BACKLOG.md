@@ -14431,8 +14431,10 @@ at ~7 minutes and reports nothing.
 ## Tick 2 Oct 2026 (7th) — file 5 of 5 is **written but unvalidated**; the box
 ## cannot host the gate that would let it ship
 
-**Item: the `as String?` family, file 5 of 5 — `user.dart:26-33` — TESTS
-WRITTEN, NOT SHIPPED. The parser is deliberately still the original.**
+**Item: the `as String?` family, file 5 of 5 — `user.dart:26-33` — SHIPPED.**
+(The note was written when the gate was closed; the gate opened mid-tick at
+1062 MB and the item was finished in the same tick. Commit `6f2f71a` ->
+remote `fe565e5`. See "SHIPPED" section at the end.)
 
 ### What happened
 
@@ -14532,3 +14534,132 @@ behaviour is unchanged and the deployed app is untouched. The 8 casts and the
 **Tree IN SYNC** (`ba62d8e` local = remote, `remote_state.py` exit 0; the
 "ahead 38, behind 30" line is commit counts, not content). `allomokawil.com`
 200, API 200.
+
+
+---
+
+## Item: the `as String?` family, file 5 of 5 — `user.dart` — SHIPPED. **The
+## family is closed.**
+
+The eight casts are gone. All five files in the family now read the payload.
+
+### The rule is different here, and that is the finding
+
+The other four are read through `repository._rows`, which turns a model
+`TypeError` into an `ApiException` and drops the row — so "one unreadable row
+costs that row and nothing else" is what they can honestly promise.
+**`User.fromJson` is not on that path.** It has exactly two callers and both
+are whole-account:
+
+  * `AuthState._session` (`auth_state.dart:527`) — `/api/login`,
+    `/api/register`. A failure throws `ApiException`; the user is left at the
+    form.
+  * `AuthState._readUser` (`auth_state.dart:362`) — the session envelope, read
+    on **every launch**. A failure returns null, which *signs the user out*.
+
+So the loss is never a row. It is the session. Importing the other four files'
+"read it or lose the row" reasoning here would have been wrong in both
+directions: too lax in the only place it is unsafe, and it would have hidden
+the real cost.
+
+### `id`, `phone` and `type` refuse. That is the opposite of the family rule,
+### and the reason is the caller again
+
+`quote_review.dart` kept the readers honest and guarded the *draw site*, because
+there the reader's `0` was a printed lie («المبلغ: 0 دج»). Here the reader's
+`0` is an **invisible** lie, which is worse:
+
+  * `id` keys the signed-in subtree (`app.dart:90`), is `_me`
+    (`chat_screen.dart:81`) and resolves which side of a conversation the user
+    is (`notifications_screen.dart:308`). A parser answering an unreadable id
+    with `0` restores a **signed-in user who is nobody**: the session looks
+    valid, the home screen draws, and every one of those comparisons is
+    silently false. That is strictly worse than being signed out, because
+    nothing on screen shows it.
+  * `phone` is the account key on login and the only way the profile screen
+    reaches the user («رقم الهاتف»).
+  * `type` is refused instead of run through `UserRole.from`, which answers
+    `customer` for `null` and for a role this build has never heard of. That
+    default is **correct** for a guest choosing between two buttons and
+    **wrong** here: `profile_screen.dart:87` shows a contractor his portfolio
+    only when `u.type == UserRole.worker`, so defaulting a drifted role signs a
+    contractor into the wrong half of the app on every launch.
+
+`UnreadableUser` carries the refused column name for the support log
+(`_whyRowFailed` already logs `cause`) and is never shown on a screen.
+
+The tolerant columns are tolerant for a reason each, not by default:
+
+  * `wilaya`/`commune` **flatten a numeric code**, because
+    `Taxonomy.wilayaNameOrNull` is keyed on a string and a code arriving as a
+    number is a real shape (`api_shape_guard_test.dart:103` feeds
+    `user_wilaya: 16`).
+  * `email` **keeps `''`**, because the app sends `email: ''` on every
+    registration by the founder's call (`auth_screen.dart:162`). Nulling it
+    would make the second launch after sign-in disagree with the first.
+  * `avatar_url` is never flattened — `NetImage` would fetch a host that does
+    not exist; null falls back to the monogram.
+  * `full_name` is trimmed and may be empty (`Monogram.of('')` paints «؟`,
+    `customer_home_screen.dart:743` greets with `null`), but is **refused** when
+    it is not a string — flattening would put «5» where a person's name goes.
+
+### Evidence
+
+- **Red first: +8 -16** against the untouched casts (24 tests, 16 discriminate).
+  Same trap as file 4: stashing the model gives a *compile* error, not reds, so
+  only `class UnreadableUser` was grafted onto the pristine casts to make the
+  file load and the count reflect the **parser**.
+- **Live proof, not just fixtures.** The committed parser was run against the
+  deployed API's own bytes: `RAW {"id":430,...,"type":"customer",...}` ->
+  `PARSED id=430 phone=0550000000 name=Probe Test type=UserRole.customer`.
+  A strict parser that had never seen a real answer would be a guess.
+- New file **24/24**; full suite **2015 passed / 3 skipped / 0 failed** in
+  **12:00** (was 1991/3/0 — the 24 are exactly the delta).
+  `flutter analyze` -> **No issues found!** (6.4 s).
+
+### I broke a test and the broken test was lying
+
+The first full run failed: `market_identity_specialty_shot_test.dart` — "the
+market header accounts for the trade it no longer names". Stashing my parser
+confirmed it was mine, not pre-existing.
+
+The fixture sent **`'role': 'worker'`** where the deployed API sends
+`'type'`. It passed for the worst possible reason: the old parser ignored
+columns it did not cast, so the role arrived as `null`, `UserRole.from(null)`
+defaulted it to `customer`, and a test asserting only on the trade line under
+the name never noticed **it was looking at the worker's market as a customer**.
+`grep` confirms no app code reads `'role'` from a user row and this was the
+only fixture using it — so it was corrected, not weakened.
+
+**The lesson is the general one, not the fixture's:** a fixture that lies about
+the wire cannot catch a parser going strict, and going strict is the only way to
+find out. I would rather this strictness break a lying fixture now than ship a
+session that is signed-in-but-nobody.
+
+### Files
+
+`lib/src/models/user.dart`, `test/user_payload_shape_test.dart` (new),
+`test/market_identity_specialty_shot_test.dart` (fixture corrected).
+
+No user-facing string was added and nothing was rendered, so **no screenshot**
+and no layout claim is made.
+
+### Commits
+
+`6f2f71a` -> remote `fe565e5` (all three blobs verified `MATCH` against the real
+remote tree via `remote_state.py --files`, not the helper's green line).
+Forward-only.
+
+### Next
+
+**The `as String?` family is complete — all five files.** The next item is the
+standing one, still unactioned for the seventh tick: the **28 absolute
+`created_at` fixtures across 9 test files**. Inert while they only drive
+ordering; a bomb the moment one feeds a "time ago" label. That is a
+documentation-fixture item, and unlike this one it does **not** need the Dart
+gate, so it can run on a low-memory tick.
+
+Also still open: `NO ROOM` is a real state on this box, not a theoretical one —
+it answered twice this tick and memory fell 889 -> 721 MB while nothing was
+building. The two big processes (876 MB between them) are the agent and the
+host supervisor; neither is ours to kill.
