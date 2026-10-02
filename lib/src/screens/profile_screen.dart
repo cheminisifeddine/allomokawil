@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/app_scope.dart';
@@ -17,7 +19,23 @@ import 'worker/subscription_screen.dart';
 /// Lightweight account screen shared by both roles: identity info,
 /// wilaya help, and logout.
 class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({super.key, this.clock});
+
+  /// The wall clock, injectable so a test can move the subscription row's
+  /// answer across a midnight without waiting for one. Defaults to the system
+  /// clock in the app.
+  ///
+  /// Same seam, same reason, as [SubscriptionScreen.clock]: that screen ages
+  /// its own readings once a minute, this one cannot be moved at all by a test.
+  /// **The account tab is the worse of the two.** It lives inside the shell's
+  /// `IndexedStack` (see `worker_home_screen.dart`), so it is built once and
+  /// then stays mounted for the whole session — the «اشتراكي» line keeps the
+  /// value `_planSummary` computed when the read first landed, and a
+  /// contractor who leaves the app open across his plan's end date is told he
+  /// is still «نشط» long after the cover has run out. In the app this reads
+  /// correct right up to the moment it stops being correct, which is the
+  /// expensive kind of wrong.
+  final DateTime Function()? clock;
 
   @override
   Widget build(BuildContext context) {
@@ -132,7 +150,9 @@ class ProfileScreen extends StatelessWidget {
             const SizedBox(height: 10),
             // The founder asked for the subscription to be visible where a
             // contractor looks for his own things, not only on the home tab.
-            const _PlanAccountRow(),
+            // Not `const`: the row ages the subscription line against the
+            // screen's clock (see [ProfileScreen.clock]).
+            _PlanAccountRow(clock: clock),
           ],
 
           // ── Logout ─────────────────────────────────────────────────────
@@ -160,7 +180,11 @@ class ProfileScreen extends StatelessWidget {
 /// The contractor's subscription, read live so the account screen never claims
 /// a plan the server does not have.
 class _PlanAccountRow extends StatefulWidget {
-  const _PlanAccountRow();
+  const _PlanAccountRow({this.clock});
+
+  /// The screen's clock, forwarded to [_planSummary] so this row never prints
+  /// a plan state that was true when the read landed and false now.
+  final DateTime Function()? clock;
 
   @override
   State<_PlanAccountRow> createState() => _PlanAccountRowState();
@@ -173,10 +197,56 @@ class _PlanAccountRowState extends State<_PlanAccountRow> {
   /// not keep offering itself after it has been pressed.
   bool _retrying = false;
 
+  /// Ages the subscription line once a minute. See [_armAgeTick].
+  Timer? _ageTimer;
+
+  /// The screen's clock. Defaults to the system clock in the app.
+  DateTime _now() => (widget.clock ?? DateTime.now)();
+
+  @override
+  void initState() {
+    super.initState();
+    // Armed here, not only on a retry: the row's *first* read is issued in
+    // `didChangeDependencies` and a contractor who never presses retry is
+    // exactly the one whose line would sit frozen all session.
+    _armAgeTick();
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _future ??= Repository(AppScope.of(context).api).subscription();
+  }
+
+  /// Keep the line honest while the tab sits mounted in the shell's
+  /// `IndexedStack`.
+  ///
+  /// **This row is the one place in the app that most needed it.** The account
+  /// tab is built once and then never rebuilt by tab switches — `IndexedStack`
+  /// keeps every child alive — so before this timer the «اشتراكي» line held
+  /// whatever `_planSummary` said when the read first landed. The read is
+  /// issued exactly once, and a plan can end *during* a session: a contractor
+  /// who opens the app before midnight and looks again after sees «نشط حتى
+  /// 2026-10-01» from yesterday's answer, on the row whose only job is to get
+  /// him to the renewal screen.
+  ///
+  /// Armed from the same place the future is set, not from `build` — a timer
+  /// created in `build` is a new timer on every frame. It is armed whether or
+  /// not a read has landed, because the arming is cheap and a read that lands
+  /// later must not find the row un-aged.
+  void _armAgeTick() {
+    _ageTimer?.cancel();
+    _ageTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted) return;
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ageTimer?.cancel();
+    _ageTimer = null;
+    super.dispose();
   }
 
   /// Re-issue the read. The block body is load-bearing: an arrow-form
@@ -195,6 +265,7 @@ class _PlanAccountRowState extends State<_PlanAccountRow> {
         if (mounted) setState(() => _retrying = false);
       });
     });
+    _armAgeTick();
   }
 
   @override
@@ -235,7 +306,8 @@ class _PlanAccountRowState extends State<_PlanAccountRow> {
           return _SettingsRow(
             icon: Icons.workspace_premium_outlined,
             title: 'اشتراكي',
-            value: _planSummary(snap.data?.current, snap.connectionState),
+            value: _planSummary(snap.data?.current, snap.connectionState,
+                now: _now()),
             tint: AppTheme.accentDeep,
             wash: AppTheme.accentWash,
             trailing: const _Chevron(),
@@ -299,7 +371,8 @@ class _PlanRetry extends StatelessWidget {
 }
 
 /// One line under «اشتراكي»: what the contractor is actually on right now.
-String _planSummary(SubscriptionStatus? s, ConnectionState state) {
+String _planSummary(SubscriptionStatus? s, ConnectionState state,
+    {required DateTime now}) {
   if (s == null) {
     return state == ConnectionState.waiting
         ? 'جارٍ التحقق من اشتراكك…'
@@ -311,8 +384,20 @@ String _planSummary(SubscriptionStatus? s, ConnectionState state) {
   // and call it active whatever the date said, so a lapsed subscription still
   // read "أساسي — نشط حتى 2020-01-01" on the screen whose only job is to send
   // him to the renewal screen.
+  //
+  // `isExpired`, not `isExpiredAt(now)`. This line used to ask the *model*
+  // the question, which reaches `DateTime.now()` inside `models/plan.dart`, and
+  // on the surface where it mattered least: the account tab is mounted once
+  // inside the shell's `IndexedStack` and then rebuilt by nothing, so the
+  // answer it printed was the one that was true when the read landed. A
+  // contractor whose plan ended during the session was told his paid cover
+  // still ran, and told it on the row that exists to send him to renew.
+  //
+  // `subscription_screen.dart` answered the same question against the clock
+  // it was handed (`52b3640`); this row is the same fuse in the last reader
+  // that had it left.
   final end = subscriptionEndDateLabel(s.expiresAtLocal);
-  if (s.isExpired) {
+  if (s.isExpiredAt(now)) {
     return end == null ? '${s.nameAr} — منتهية' : '${s.nameAr} — انتهت في $end';
   }
   return end == null ? s.nameAr : '${s.nameAr} — نشط حتى $end';
