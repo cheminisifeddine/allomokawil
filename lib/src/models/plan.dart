@@ -14,7 +14,7 @@ library;
 
 import '../core/format/money.dart';
 import '../core/l10n/arabic_agreement.dart';
-import '../data/chat_time.dart' show calendarDaysBetween;
+import '../core/format/calendar_day.dart' show calendarDaysBetween;
 import 'notification.dart' show parseServerTime;
 import 'plan_id.dart' show PlanId;
 
@@ -218,8 +218,10 @@ class SubscriptionStatus {
   ///
   /// `chat_time.dart` already answered this exact question, in the other
   /// direction, and named DST as the reason its own hand-rolled index was thrown
-  /// away for a Julian Day Number. This is that file's rule, so the two do not
-  /// drift: one rule for "how many calendar days", held once.
+  /// away for a Julian Day Number. This is that same rule, which now lives in
+  /// `core/format/calendar_day.dart` so both layers can reach it without
+  /// either importing the other: one rule for "how many calendar days", held
+  /// once.
   int? daysUntilExpiryAt(DateTime now) {
     final end = expiresAtLocal;
     if (end == null) return null;

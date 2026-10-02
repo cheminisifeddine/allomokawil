@@ -39,10 +39,21 @@ lib/
     security/auth_state.dart     # session persistence + role
     theme/app_theme.dart         # minimalist, big-touch, Cairo/Navy/Sand
     l10n/strings.dart            # Arabic UI strings
+    format/                      # shared leaves: money, calendar-day arithmetic
   src/data/
     taxonomy.dart                # 58 wilayas + 16 service categories (offline)
     repository.dart              # screen-facing API (mirrors web loaders/actions)
   src/models/                    # mirrors finili types.ts (chat/project/quote/...)
+
+# Layering, held by test/layering_test.dart:
+#   models/ -> core/       pure types
+#   data/   -> models/, core/
+#   screens/-> all of the above
+# A `models/` -> `data/` edge is forbidden. It existed once (plan.dart reached
+# into data/chat_time.dart for the calendar-day count); the rule moved to
+# core/format/calendar_day.dart instead. core/format/ is a strict leaf (imports
+# nothing); core/ as a whole is not, because the DI scope is assembled from the
+# top — app_scope.dart imports data/, auth_gate.dart imports screens/.
   src/screens/
     auth/                        # login, register(+role), role gate
     scaffold/role_home.dart      # role-aware home switch
