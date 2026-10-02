@@ -16747,3 +16747,114 @@ paid plan is still running — untested, and it is a money surface.
 
 Commits: code `aff4d63`, this note to follow. No APK, no release, no tag:
 founder-gated.
+
+---
+
+## Tick 2 Oct 2026 (13th) — the calendar-day rule lived in a chat file, so
+## `models/` learned to import `data/`, and now the layering is a test
+
+**Backlog still 209/209 ticked. This tick audited BOTH hints tick 12 left, found
+one DEAD by measurement and shipped the other as a guard rather than a guess.**
+
+**Hint 1 — `isExpiredAt` vs `daysUntilExpiryAt`, the "money surface": measured,
+NOT a defect, nothing changed.** The premise was that comparing full instants
+while the day count strips time-of-day lets the two disagree about whether a
+paid plan is still running. The premise holds — they disagree on **2,880 of
+230,400** (now, expiry) pairs, every one of them in the early hours of the expiry
+day. What it does **not** follow is that the disagreement is user-visible, and
+that is the half worth measuring, because a disagreement between two internal
+predicates is not a bug and a contradiction between two rendered sentences is.
+
+Replicated the **card's exact branch logic** (`subscription_screen.dart` ~573-665:
+`paid` guard, countdown arm, expired arm) and the **account row's**
+(`profile_screen.dart` ~400) and swept the *rendered Arabic* over **3,917,184
+cases** under `TZ=Africa/Algiers` — every day from −3 to +400 against every
+expiry day over the same span, at every hour of the day:
+
+```
+cases=3917184  activeWithPastDate=0  endedWithFutureDate=0
+```
+
+**Zero contradictions.** A «مفعّل» pill never sits over a past date; an «انتهى»
+line never sits over a future one. The reason is that the two predicates answer
+*different questions* — "has the instant passed" and "how many midnights are
+left" — and on the expiry day **both answers are simultaneously true**. A plan
+ending at 00:00 UTC on the 1st is expired at 00:30, and it is also true that the
+1st is today. Making them agree would mean changing one of them into a lie about
+the other. Recorded as closed so the thirteenth tick does not spend a fourth one
+re-deriving it.
+
+*Discipline note:* the first probe asserted `expired == (days < 0)`, which is
+**false by design** — `days == 0` means "ends today" and pairs with an expired
+instant. That invariant would have produced a headline defect that does not
+exist. The honest question was not "do they disagree" but "does the man see two
+answers".
+
+**Hint 2 — the `models/` → `data/` edge: real, and shipped.** `plan.dart`
+reached into `data/chat_time.dart` for `calendarDaysBetween`, because the chat
+file had solved the same arithmetic first. That is the **first `models/` →
+`data/` edge the app ever carried**, and the layering the README states is the
+other way round. It came from the DST fix (`aff4d63`) — inherited from a bug
+fix, not chosen. Nothing was broken by it, which is exactly why nothing caught
+it: the analyzer has no opinion about layering and no test looked.
+
+The rule moved to `core/format/calendar_day.dart`, which every layer already
+imports from (`plan.dart` → `core/format/money.dart`; a dozen files →
+`core/l10n/arabic_agreement.dart`). `chat_time.dart` **re-exports** the name, so
+its callers and tests are untouched — one implementation, reachable from both
+directions. The JDN rationale and the DST bug it prevents travel with it.
+
+**`test/layering_test.dart` holds three rules, and each was proven to FAIL
+first.** A guard that has never been seen red is decoration:
+
+* `models/` may reach `core/`, never `data/`, `screens/` or `widgets/`.
+* `core/format/` is a **strict leaf**. Deliberately *not* a blanket `core/`
+  rule — `app_scope.dart` imports `data/` and `auth_gate.dart` imports
+  `screens/` and `widgets/`, because the DI scope is assembled from the top and
+  cannot be assembled from below. Asserting otherwise would assert a refactor
+  nobody asked for, and **a red suite teaches the next tick to ignore the
+  suite**.
+* `calendarDaysBetween` is defined exactly **once**, in `core/`, and `plan.dart`
+  reads it from there — a move can leave a second copy behind, and two copies of
+  one calendar rule is the drift this move existed to remove.
+
+**Two guards in that file were broken when written, and both were caught before
+the commit. They are the most useful thing in this tick:**
+
+* **`_importsIn()` used `^import` with no `multiLine` flag.** So `^` meant *start
+  of string*, the pattern matched only line 1 — and because Dart puts the header
+  comment first, it matched **nothing**. Every offender list came out empty and
+  **all three tests passed against a tree containing the exact import the file
+  exists to forbid.** It was caught by reintroducing the bad edge and watching
+  which tests went red: only the direct-string one did. **A guard that greps
+  and finds no matches is indistinguishable from a clean tree**, and this one
+  had been reporting "no problems" for a rule it was never evaluating.
+* **The `core/format/` leaf test ran against an empty allow-list**, so it could
+  not fail at all. It now asserts the real property, and is verified red by
+  planting an import.
+
+*Red before green, same tick:* reverted `plan.dart` to the old import →
+2 of 3 red, naming `Actual: ['lib/src/models/plan.dart -> ../data/chat_time.dart']`;
+planted an import in `core/format/calendar_day.dart` → the leaf test red with
+`Actual: ['lib/src/core/format/calendar_day.dart -> ../../models/enums.dart']`;
+restored → **3/3**.
+
+**Files:** `lib/src/core/format/calendar_day.dart` (new), `lib/src/data/chat_time.dart`,
+`lib/src/models/plan.dart`, `test/layering_test.dart` (new), `README.md` (layering
+table written down, including that `core/` as a whole is not a leaf).
+
+**Gate.** `flutter analyze` → **No issues found!** (8.1s).
+`tool/run_tests.py` → **+2079 ~8, PASS in 13:04**, 0 failed — up from +2076,
+which is exactly the three new tests and nothing else.
+
+**Commits:** local `d78913e` → remote `edae3e0`. **IN SYNC, identical tree**
+(`tool/remote_state.py --files`: both trees `3fa8dfb`). No APK, no release, no
+tag: founder-gated.
+
+**Next:** the rules in `layering_test.dart` are deliberately the two that hold
+today, so they will not fail on any existing file — but they are **not the full
+graph**, and the honest next step is a *read-only* census of every `data/` →
+`screens/` and `screens/` → `data/` edge, which this loop has never audited.
+`data/repository.dart` is screen-facing and `screens/` imports it heavily; if
+that direction has inverted anywhere it is the same class of defect as the one
+just fixed, and it should be **counted before** anything is refactored.
