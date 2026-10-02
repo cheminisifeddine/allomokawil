@@ -16133,3 +16133,80 @@ contains none of them — so it has to be a fixture.
       (`time.time`, `datetime.now`, ...). An alias -- `from time import time as
       wall`, then `wall()` -- is a real wall-clock read the sweep cannot see,
       and by construction the corpus has none to prove either way.
+
+- [x] **The clock guard recognised clocks by their LITERAL SPELLING, so the
+      one way Python's own docs write a clock read was invisible to it.**
+
+      `_wallClockReads` matched a regex of dotted names -- `time.time`,
+      `datetime.now`, `date.today`. But `from time import time as wall`
+      followed by `wall()` is the same read, and the sweep reported the file
+      **clean**. A third false negative in the direction that hides bugs, and
+      a direct continuation of the two the previous tick fixed in the reader.
+
+      **Clocks are now recognised by the PATH that reaches the function**,
+      resolved across the file's imports, so all four spellings land on the
+      same entry `time.time`:
+
+          import time                       time.time()
+          import time as t                  t.time()
+          from time import time             time()
+          from time import time as wall     wall()
+
+      Resolution is **bounded to `time`/`datetime`/`date`**. Resolving an alias
+      out of an unrecognised module would mean claiming the guard knows what
+      some third-party `now()` does, and a guard that claims more than it
+      checks is worse than one that admits its edge.
+
+      **A shadowed alias is neither a read nor a clean file.** `wall` may also
+      be a parameter, so `wall()` may not call the clock -- the guard cannot
+      say. Reporting that as clean would be a false negative *worse* than the
+      original, since the guard would be asserting coverage of a call it had
+      just admitted it cannot understand. It is now a named `file:line`
+      **suspicion** for a human to check. "Found nothing" and "could not tell"
+      no longer collapse into the same answer; that collapse is how this guard
+      was wrong twice already.
+
+      **Second defect, found while fixing the first: `time.perf_counter` was
+      on the wall-clock ban list and is not a wall clock.**
+      `time.get_clock_info('perf_counter')` reports `monotonic=True,
+      adjustable=False`. That matters in the real direction: a guard that
+      forbids the safe clock pushes the fix for a wall-clock bug onto a wall
+      clock. The table is now pinned **by the interpreter** in a test
+      (`get_clock_info` for `time`, `perf_counter`, `monotonic`,
+      `process_time`, `thread_time`), so a future Python that changes any of
+      them goes red instead of being taken on this comment's word.
+
+      Fixtures committed as `*.py.fixture` (`git ls-files '*.py'` would collect
+      them and turn the guard red on its own test data) and each asserted to
+      still `compile`. The alias fixture deliberately carries **two correct
+      aliases** -- `mono` and `fast` -- because a resolver that simply banned
+      every aliased import would pass the case while making the rule
+      unsatisfiable.
+
+      *Gate:* `flutter analyze` -> **No issues found!** (7.5 s);
+      `tool/run_tests.py` -> **+2061 ~3: All tests passed!** (12:49), up 4
+      from +2057, 0 failed, same 3 skips. `tool_clock_seam_test.dart` ->
+      **14/14**.
+
+      **Mutation: four arms, all red.** Drop alias resolution -> red,
+      `Expected <1> Actual <0>`. Ignore the module alias -> red, `<2>/<0>`.
+      Drop shadow detection -> red, `Expected: empty Actual: [_Read]`.
+      Re-add `perf_counter` -> red, `Expected <false> Actual <true>`.
+      **One arm was a no-op mutation first** -- it *removed* an entry that was
+      already absent, so it went green and proved nothing; re-run as an add,
+      which is what the report should have been from the start.
+
+      `lib/` **byte-identical to HEAD** -- guard and fix both in `test/`,
+      nothing a user sees changed. Not visual, no screenshot claimed. No APK,
+      no release, no tag: founder-gated.
+
+      *Commits:* local `96f841b` -> remote `360e291`. **4/4 blobs MATCH** the
+      real GitHub tree.
+
+      **Next:** the alias table resolves a *module-level* binding, but a clock
+      re-bound inside a function (`def f(): time = _fake; time()`) is still
+      reported by spelling, and `_reboundNames` only recognises the handful of
+      binding forms it was written for -- `as`, `for`, `=`, `def`, `class`,
+      lambda. A walrus (`(wall := time.time())`) and `global`/`nonlocal`
+      rebinding are not in that list, and each is a way for the guard to claim
+      a read it cannot verify.
