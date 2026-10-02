@@ -4,6 +4,7 @@ linter:
   rules:
     prefer_const_constructors: false
     unnecessary_string_interpolations: false
+    unawaited_futures: true
 
 analyzer:
   strong-mode:

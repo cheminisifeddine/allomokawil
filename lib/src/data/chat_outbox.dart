@@ -502,7 +502,12 @@ class ChatOutbox {
         // Released even when the body throws: one failed send must not wedge
         // every later one behind a lock nobody will ever take off.
         if (identical(_locks[chatOutboxKey], completer.future)) {
-          _locks.remove(chatOutboxKey);
+          // `Map<String, Future<void>>.remove` *returns* the entry it dropped,
+          // which is the discarded future `unawaited_futures` fires on here.
+          // The value is deliberately dropped -- the entry is being retired,
+          // not waited on -- and the guard stays exactly as it was: only the
+          // holder that owns the lock releases it.
+          unawaited(_locks.remove(chatOutboxKey));
         }
         completer.complete();
       }

@@ -17,6 +17,7 @@
 // never returned, on the one screen whose empty state is a *true* statement
 // with a real meaning, and the view it printed carried no retry at all: a
 // browse button, and no way to re-read.
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -176,7 +177,9 @@ Future<void> _reread(
   // passed, and it reads like the screen throwing on a failed read. Probed this
   // tick rather than guessed at.
   final future = h.repo.conversations();
-  future.then((_) {}, onError: (_, __) {});
+  // `unawaited` states the intent; the empty handlers are what suppress the
+  // unhandled-error report, and they are load-bearing (see above).
+  unawaited(future.then((_) {}, onError: (_, __) {}));
   await tester.pumpWidget(AppScope(
     api: h.api,
     auth: h.auth,

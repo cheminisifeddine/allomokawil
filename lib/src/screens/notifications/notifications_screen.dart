@@ -339,7 +339,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   /// clickble when i click on them nothing happens fix it». [notificationTarget]
   /// holds the rule; this turns it into a screen.
   Future<void> _open(AppNotification n) async {
-    _markRead([n.id]);
+    // `unawaited`, not `await`: the row has already flipped to read locally
+    // and the thread this opens must not wait on the write landing. The write
+    // reports its own failure inside [_markRead] and reloads on a refusal.
+    unawaited(_markRead([n.id]));
     final target = notificationTarget(n.type, n.link);
     if (target.kind == 'chat') {
       await _openThread(target.id);
