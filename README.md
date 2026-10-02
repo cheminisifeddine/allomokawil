@@ -45,15 +45,30 @@ lib/
     repository.dart              # screen-facing API (mirrors web loaders/actions)
   src/models/                    # mirrors finili types.ts (chat/project/quote/...)
 
-# Layering, held by test/layering_test.dart:
-#   models/ -> core/       pure types
-#   data/   -> models/, core/
-#   screens/-> all of the above
+# Layering, held by test/layering_test.dart. Rank, floor first:
+#   core/     the floor: formatting, l10n, theme, network, DI scope
+#   models/   -> core/            pure types that format themselves
+#   data/     -> models/, core/   screen-facing API + copy
+#   widgets/  -> data/, models/, core/
+#   screens/  -> all of the above
 # A `models/` -> `data/` edge is forbidden. It existed once (plan.dart reached
 # into data/chat_time.dart for the calendar-day count); the rule moved to
 # core/format/calendar_day.dart instead. core/format/ is a strict leaf (imports
 # nothing); core/ as a whole is not, because the DI scope is assembled from the
 # top — app_scope.dart imports data/, auth_gate.dart imports screens/.
+#
+# CENSUS, 2 Oct 2026. Read-only, over all 557 app-internal imports in 130 files
+# across the 5 layers, and now asserted rather than described:
+#   * `data/` -> `screens/` and `data/` -> `widgets/`: **0 edges.** The direction
+#     the 13th tick feared was inverted does not exist, so there is nothing to
+#     refactor and no red suite to justify one. (The two grep hits under data/
+#     are comments in urgency_copy.dart naming its consumers, not imports.)
+#   * 12 upward edges exist and all 12 are deliberate: 8 from core/ (DI scope,
+#     the auth gate, the locator) and 1 from widgets/ (the bell navigates to
+#     the notification centre). They are listed one by one in the test, so a
+#     13th fails and names the file instead of being absorbed silently.
+#   * `models/` -> `core/` is DOWNWARD and therefore correct — plan.dart's three
+#     core/format/ imports are the intended direction, not violations.
   src/screens/
     auth/                        # login, register(+role), role gate
     scaffold/role_home.dart      # role-aware home switch

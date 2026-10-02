@@ -83,6 +83,95 @@ String? _layerOf(String importPath) {
   return m?.group(1);
 }
 
+/// Every `.dart` file under [dir], recursively.
+///
+/// Recursive because `core/` nests (`core/format/`, `core/network/`) and a
+/// census that only reads the top level would silently skip the deepest leaf,
+/// which is the one most likely to reach upward.
+List<File> _dartFilesIn(Directory dir) {
+  if (!dir.existsSync()) return const [];
+  return dir
+      .listSync(recursive: true, followLinks: false)
+      .whereType<File>()
+      .where((f) => f.path.endsWith('.dart'))
+      .toList();
+}
+
+/// The on-disk `.dart` file an import path lands in, or null if it is not one
+/// of ours.
+///
+/// **Both import flavours are resolved, and the first draft of this census
+/// resolved only one.** Dart files here are written two ways and both are live:
+/// `../data/chat_time.dart` (relative to the file) and `data/repository.dart`
+/// (relative to `lib/src/`). An instrument that only understands the first
+/// marks the second as unresolvable and then *silently drops the edge* — the
+/// census came back "0 upward edges", which is the one answer a broken scanner
+/// is guaranteed to produce. The `_coverage` case below exists because of it.
+///
+/// It also skips `dart:` and `package:` (flutter, flutter_test), which are not
+/// edges in this graph.
+File? _resolveImport(File from, String spec) {
+  if (spec.startsWith('dart:') || spec.startsWith('package:')) return null;
+  // `Uri.resolve` is load-bearing, not stylistic. A hand-built
+  // '$dir/$spec' string keeps its `..` segments, so
+  // `lib/src/core/../data/x.dart` reached `_layerOf`, whose regex matches the
+  // FIRST core|data|... segment it sees — it reported the *importing* layer
+  // rather than the target. Every upward edge then looked downward, the
+  // offender list came back empty, and the census reported a clean graph:
+  // exactly the answer a broken instrument is guaranteed to produce.
+  // resolve() collapses `..` per RFC 3986, which is what makes the target's
+  // layer the real one.
+  File? tryResolve(Uri base) {
+    final path = base.resolve(spec).toFilePath();
+    if (File(path).existsSync()) return File(path);
+    if (File('$path/index.dart').existsSync()) return File('$path/index.dart');
+    return null;
+  }
+
+  // A dotless spec is written relative to lib/src/, not to the importing
+  // file — that is the flavour the first census scanner dropped.
+  final resolved = tryResolve(from.uri) ??
+      (spec.startsWith('.') ? null : tryResolve(Directory('lib/src').uri));
+  if (resolved != null) return resolved;
+  // An import that does not land on a file is reported, never dropped: a
+  // silently discarded edge is how this census lied the first time.
+  throw StateError(
+      'import "$spec" in ${from.path} does not resolve to a file under lib/. '
+      'A dropped edge reads as a clean graph.');
+}
+
+/// Every upward edge in `lib/src` today: **12**, measured 2 Oct 2026 and
+/// cross-checked by a second, independent walk of the same tree before being
+/// written down.
+///
+/// Rank is the README's own dependency order — `core/` is the floor, then
+/// `models/`, `data/`, `widgets/`, `screens/` — so an edge pointing *up* that
+/// list inverts it. Note the consequence: `models/` -> `core/` is **downward**
+/// and therefore correct, which is why `plan.dart` reaching for
+/// `core/format/money.dart` is deliberately absent from this list.
+///
+/// Three of the twelve were found only because the rank came from the README
+/// rather than from the first census, which ranked `models` *below* `core`
+/// and so hid `core/` -> `models/` as if those edges did not exist.
+const _knownUpward = <String>{
+  // DI is assembled from the top and cannot be assembled from below.
+  'core/app_scope.dart -> ../data/notification_count_trust.dart',
+  'core/app_scope.dart -> ../data/unread_message_trust.dart',
+  'core/auth_gate.dart -> ../models/enums.dart',
+  'core/auth_gate.dart -> ../screens/auth/auth_screen.dart',
+  'core/auth_gate.dart -> ../widgets/big_button.dart',
+  'core/auth_gate.dart -> ../widgets/ui.dart',
+  'core/location/locator.dart -> ../../data/taxonomy.dart',
+  'core/location/locator.dart -> ../../data/wilaya_centers.dart',
+  'core/security/auth_state.dart -> ../../data/chat_outbox.dart',
+  'core/security/auth_state.dart -> ../../models/enums.dart',
+  'core/security/auth_state.dart -> ../../models/user.dart',
+  // The bell opens the notification centre. A widget navigating is ordinary
+  // Flutter; the alternative is a callback threaded from every home screen,
+  // which is a refactor nobody asked for.
+  'widgets/notifications_bell.dart -> ../screens/notifications/notifications_screen.dart',
+};
+
 void main() {
   test('models/ does not import a layer above it', () {
     final offenders = <String>[];
@@ -158,5 +247,148 @@ void main() {
         reason: 'this is the edge that started it.');
     expect(plan, contains("core/format/calendar_day.dart"),
         reason: 'the day count on the subscription card must come from core/.');
+  });
+
+  // ---------------------------------------------------------------------------
+  // The census the 13th tick asked for and never ran.
+  //
+  // It asked for this as *read-only*: count every `data/` -> `screens/` and
+  // `screens/` -> `data/` edge before anyone refactors anything. The count is
+  // below and it is 0 in the dangerous direction — `data/` reaches no screen
+  // at all — so there is nothing to refactor and no red suite to justify one.
+  //
+  // The numbers were produced by walking `lib/src` and are recorded here so a
+  // future change that moves an edge is a *diff* against a baseline rather than
+  // a fresh reading nobody can check. They are asserted, not commented.
+  //
+  // Layer order is the dependency order the README states. An edge pointing
+  // *up* this list is an inversion; the ones that exist today are enumerated
+  // explicitly rather than waved through, so adding a fourth is a test failure
+  // naming the file and line.
+  // ---------------------------------------------------------------------------
+
+  test('data/ never reaches a screen: the 13th tick\'s open census is 0', () {
+    final offenders = <String>[];
+    for (final f in _dartFilesIn(Directory('lib/src/data'))) {
+      for (final imp in _importsIn(f)) {
+        final target = _resolveImport(f, imp);
+        if (target == null) continue;
+        final layer = _layerOf(target.path);
+        if (layer == 'screens' || layer == 'widgets') {
+          offenders.add('${f.path} -> $imp');
+        }
+      }
+    }
+    expect(offenders, isEmpty,
+        reason: 'data/ is the layer the screens call; a data file reaching '
+            'back into a screen or a widget inverts that. The census on '
+            '2 Oct 2026 found 0 such edges in 557 app-internal imports, and '
+            'the two matches grep reports under data/ are comments in '
+            'urgency_copy.dart naming the screens that consume it, not '
+            'imports. If you are adding one, the logic belongs in core/ and '
+            'the screen should keep its own copy.');
+  });
+
+  test('the census scanner resolves imports to their real target', () {
+    // The anti-vacuous case, and the most important test in this file.
+    //
+    // A scanner that resolves nothing, or resolves to the wrong file, makes
+    // every rule above pass for the wrong reason. It did exactly that twice
+    // while this file was being written:
+    //
+    //   1. Unnormalised paths. `'$dir/$spec'` keeps its `..` segments, so
+    //      `lib/src/core/../data/x.dart` reached `_layerOf`, which matches the
+    //      FIRST core|data|... segment — the *importing* layer. Every upward
+    //      edge looked downward and the offender list came back empty.
+    //   2. Blind to the lib/src fallback. The first census assumed the app
+    //      writes `data/x.dart` relative to lib/src/ and 192 imports looked
+    //      unresolvable. Measured, that assumption is simply false: **all 557
+    //      app-internal imports resolve relative to the importing file**, and
+    //      none need the lib/src root. Deleting that fallback changed nothing
+    //      and the mutation arm stayed green — proving the guard was testing
+    //      a population that does not exist.
+    //
+    // So this asserts the two things that actually distinguish a working
+    // scanner: that a spec is resolved to a file that EXISTS, and that a
+    // `..`-laden spec lands on the target's layer rather than the importer's.
+    final core = File('lib/src/core/auth_gate.dart');
+    // `../` crosses up out of core/ into models/. A scanner that does not
+    // collapse `..` keeps the literal `core/` prefix and calls this a
+    // core->core edge, which is the bug in its most checkable form.
+    expect(_layerOf(_resolveImport(core, '../models/enums.dart')!.path),
+        'models',
+        reason: 'a `..` import must resolve to the TARGET layer, not to the '
+            'importer. An unnormalised path reports core/ and hides every '
+            'inversion.');
+    expect(_resolveImport(core, '../models/enums.dart')!.path,
+        endsWith('lib/src/models/enums.dart'),
+        reason: 'the resolved file must be the one that exists on disk.');
+
+    // And the census as a whole must still land on real files: if resolution
+    // breaks, this is where it shows, because a broken resolver either throws
+    // (the StateError above) or silently counts a much smaller graph.
+    var resolvedInternal = 0;
+    for (final f in _dartFilesIn(Directory('lib/src'))) {
+      for (final imp in _importsIn(f)) {
+        if (imp.startsWith('dart:') || imp.startsWith('package:')) continue;
+        if (_resolveImport(f, imp) != null) resolvedInternal++;
+      }
+    }
+    expect(resolvedInternal, greaterThanOrEqualTo(557),
+        reason: 'lib/src currently holds 557 app-internal imports, every one '
+            'of which resolves to a file that exists. A smaller number means '
+            'the scanner is dropping edges, and a dropped edge is '
+            'indistinguishable from a clean graph.');
+    expect(_dartFilesIn(Directory('lib/src')).length, greaterThanOrEqualTo(130),
+        reason: '130 Dart files across 5 layers today; the walk must be '
+            'recursive or it silently misses core/format/, the one directory '
+            'held to the strict leaf rule.');
+  });
+
+  test('every upward edge in the app is one of the known, deliberate ones', () {
+    // The whole graph, diffed against a baseline rather than asserted empty.
+    //
+    // An empty expectation would be the wrong guard: 12 upward edges exist
+    // today and every one is deliberate. The contract is therefore not "none"
+    // but "no *new* one" — a 14th fails and names itself, so the list stays a
+    // list someone actually maintains.
+    const rank = <String, int>{
+      'core': 0,
+      'models': 1,
+      'data': 2,
+      'widgets': 3,
+      'screens': 4,
+    };
+
+    /// `layer/relative/path.dart -> the import as written`
+    String label(File f, String spec) {
+      final rel = f.path.substring('lib/src/'.length);
+      return '$rel -> $spec';
+    }
+
+    final offenders = <String>[];
+    for (final f in _dartFilesIn(Directory('lib/src'))) {
+      final rel = f.path.substring('lib/src/'.length);
+      final from = rel.split('/').first;
+      if (!rank.containsKey(from)) continue;
+      for (final imp in _importsIn(f)) {
+        final target = _resolveImport(f, imp);
+        if (target == null) continue;
+        final to = _layerOf(target.path);
+        if (to == null || !rank.containsKey(to)) continue;
+        if (rank[to]! > rank[from]!) offenders.add(label(f, imp));
+      }
+    }
+    offenders.sort();
+
+    expect(_knownUpward, hasLength(12),
+        reason: 'the baseline itself is wrong — recount before trusting the '
+            'diff below.');
+    expect(offenders, _knownUpward,
+        reason: 'the layer graph grew an edge that nobody recorded.\n'
+            'Each line is `file -> import`. If the new edge is deliberate, add '
+            'it to _knownUpward with a comment saying why; if it is not, it is '
+            'an inversion — the fix is to move the logic down, not to extend '
+            'this list.');
   });
 }
