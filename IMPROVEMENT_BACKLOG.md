@@ -13880,12 +13880,9 @@ tick to one item.
         clock was before 22:00 UTC today and began failing after. It is the only
         thing standing between the suite and green, and it fails **identically on
         a clean tree** — measured by stashing this whole item and re-running the
-        file: **+15 / -1**, same case, same reason. **Fix it before seeding
-        anything new**: the fixture is wrong, not the code. It asserts on a day
-        that walks, when what it actually wants to prove is that the count is
-        derived from the local instant rather than from `renews_in_days` — which
-        can be pinned by a fixture *relative* to now, or by asserting on the
-        derived date only.
+        file: **+15 / -1**, same case, same reason. **SHIPPED 2 Oct, 5th tick**
+        — see the clock section at the end of this file. The fixture was the
+        bug, exactly as recorded here, and the suite is now green.
       - **The lead the previous tick left is already fixed** — do not re-audit
         it. `PendingClaim.covers` ([pending_request_copy.dart:282]) now reads
         `final claim = periodWire; if (claim == null) return false;`, with the
@@ -13907,3 +13904,103 @@ tick to one item.
         `background=true` and collected with `process(action='wait')` (which
         clamps to 180 s per call, so it needs several). The suite itself is
         fine; only the way it is invoked matters.
+
+## Tick 2 Oct 2026 (5th) — the one red test asserted that time does not pass
+
+**Item: `subscription_clock_test.dart` — the last red case in the suite — SHIPPED**
+
+No unchecked item was left, so this tick took the blocker the previous tick
+flagged: the suite's single failure, *"the day count is local calendar days,
+not rounded hours"*.
+
+### What the failure actually was
+
+The test pinned `expires_at: '2026-10-01 22:00:00'` and asserted
+`days >= 0`. The clock passed that day at 22:00 UTC and it went red on its
+own:
+
+```
+00:02 +3 -1: ... the day count is local calendar days, not rounded hours [E]
+  Expected: a value greater than or equal to <0>
+    Actual: <-1>
+  DAYS=-1
+  AR=ينتهي الاشتراك في 2026-10-01
+```
+
+`DAYS=-1` is the **app being correct**. `daysUntilExpiry` (plan.dart:207)
+counts the midnights between now and the end day; a day that is behind you has
+fewer of them. The fixture was asserting that a plan which ended *yesterday*
+was still in the future — that time does not pass. **The fixture is the bug,
+and `plan.dart` is not**, which is what the previous tick suspected and could
+not finish.
+
+### The fix
+
+Fixture rebuilt *relative* to now, ending at **local midnight tomorrow**, the
+way the two boundary tests below it in the same file already do. Midnight is
+the hour that makes the two units disagree **at every time of day**: calendar
+days say **1**, elapsed hours say **0**.
+
+Three assertions, each tightened:
+
+  * `days == 1` exactly, where it was `days >= 0`. The looser form is what
+    let a negative through and what the frozen date made unfixable.
+  * `«بعد يوم —»` with the trailing dash, so `«بعد يومين»` cannot satisfy it
+    by prefix.
+  * the date inside the sentence is compared against
+    `subscriptionEndDateLabel(s.expiresAtLocal)` — **both** computed inside the
+    UTC+1 subprocess, because the parent runs in UTC and would parse the bare
+    date as local. Previously it was a typed literal, which is the same
+    calendar bomb one layer down.
+
+### Evidence — and the part that matters
+
+**Red first, on a clean tree:** **+15 / -1**, reproduced before the edit.
+
+**Green after:** **16/16** for the file; full suite **1911 passed / 3 skipped /
+0 failed** (12:28). Previous run was 1910/3/**1 failed** — this file
+contributes the 16th. `flutter analyze` → **No issues found!** (8.1s).
+
+**The guard is proven non-vacuous, because the first one I wrote was not.**
+Reinstating the original bug as `end.difference(now).inHours ~/ 24`:
+
+```
+00:01 +3 -1: ... the day count is local calendar days [E]
+  Expected: <1>
+    Actual: <0>
+```
+
+But the fixture I shipped *first* — ending 01:00 tomorrow — **survived that
+mutation**. It only discriminated in the 65 minutes after local midnight; on
+every other run of the day the guard was decorative. Moving the end to
+midnight fixed it. A guard written against a wall-clock offset is only as good
+as the hours it happens to run in.
+
+### Files
+
+`test/subscription_clock_test.dart` only. **No `lib/` change** — the model was
+never wrong, and the one thing this tick did *not* do is bend the app to match
+a bad test.
+
+### Commits
+
+`72b274c` → remote `70eec5f` (`git diff HEAD origin/main` empty after fetch).
+
+### Next — the `as String?` family is still unstarted, and it is not only chat
+
+The previous tick's lead stands and is confirmed by the same grep: the casts
+are in `chat.dart:42,43,115,120,121`, `notification.dart:29,30`,
+`project.dart:234,240,241,244,245`, `quote_review.dart:98,102,114,115,184`
+and `user.dart:28,30,31`. **`chat.dart:120` (`content: json['content'] as
+String?`) is on the chat timeline**, which is the app's highest-traffic
+screen. One file at a time, `chat.dart` first.
+
+**Also noted, not actioned** (out of scope for one tick): a scan for the same
+class of frozen-date bomb found 28 absolute timestamps in test fixtures across
+9 files — `chat_outbox_test.dart:77`, `chat_timeline_test.dart:71,219`,
+`header_trust_wiring_test.dart:78`, `notification_center_test.dart:82,152`,
+`outbox_eviction_test.dart:55,95`, `review_date_and_order_test.dart:71,101`,
+`unconfirmed_pip_test.dart:81`, `unread_round_trip_test.dart:70`. Those are
+**created_at**, so they are inert while they only drive ordering and relative
+age, but the same reasoning says a `read_age`/notification-age test built on
+one is a bomb with the same fuse. Worth its own audit.
