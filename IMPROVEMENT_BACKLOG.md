@@ -16210,3 +16210,104 @@ contains none of them — so it has to be a fixture.
       lambda. A walrus (`(wall := time.time())`) and `global`/`nonlocal`
       rebinding are not in that list, and each is a way for the guard to claim
       a read it cannot verify.
+
+- [x] **The clock guard's binder missed every rebind that is not
+      `name = value` — and half of the previous tick's `Next` was wrong.**
+
+      `_reboundNames` decides whether a clock alias is shadowed, and it
+      carried a binder list written for the shapes it was first shown.
+      **Measured against the Python on this box, it caught 2 of the 7 ways
+      Python binds a name:**
+
+          walrus            (wall := fake)              MISSED
+          annotated         wall: T = fake               MISSED
+          unpacking         other, wall = other, fake    MISSED
+          star target       rest, wall = x, fake         MISSED
+          match/case        case [wall]:                 MISSED
+          plain assign      wall = fake                  caught
+          augmented         wall += 1                    caught
+
+      The miss is the dangerous direction. `wall()` after `(wall := fake)`
+      is whatever was passed in, but the guard reported it as a **real
+      wall-clock read** — claiming coverage of a call it had just admitted
+      it could not resolve.
+
+      **The previous tick's `Next` named walrus and `global`/`nonlocal`.
+      Half of that was wrong, and it is recorded as wrong rather than
+      built on:** `global wall` with no assignment is a *declaration*, not a
+      rebind. Run it — `wall` still resolves to the clock (1.79e9). The
+      rebind is the assignment, which was already caught. Implementing that
+      claim as written would have added a rule firing on correct code.
+
+      Three fixtures, all committed `.py.fixture`, each asserted to
+      `compile`:
+        * **walrus** shadows the alias — one unresolved call, named
+          `file:line`, not silence.
+        * **unpacking + annotation** — the alias is deliberately **NOT first**
+          on the left of `=`, because a binder reading one name off the
+          front of the line sees the first and misses the rest.
+        * **match/case capture** — both capture forms, plus the word "case"
+          in a comment, which must not bind: prose is not code.
+
+      Also fixed: a **comprehension target has its own scope**, so
+      `[wall for wall in xs]` does *not* rebind the outer name — verified by
+      running it, not by reading the spec. Treating it as a rebind would
+      name clean files as suspicions.
+
+      `_identifiers` / `_assignSplits` / `_insideOpenBracket` replace the
+      regex list. `_assignSplits` skips `== != <= >= +=` and the `=` of `:=`,
+      all of which read as an assignment to a scan that only looks for the
+      character — and that scan hands back an expression as a target list,
+      manufacturing names like `a !` and `cfg = dict(stamp`.
+
+      **A bare `wall: T` annotation was carried as a rule and REMOVED.** The
+      arm that deletes it stays green, because every annotated binding that
+      can actually be *called* carries a `=` and is already covered; the only
+      shape it caught raises `UnboundLocalError` rather than returning a wrong
+      clock. Green arm, non-existent subject — deleted, not kept. The
+      measurement is written into the source because "removed an unused
+      rule" and "removed a rule I did not understand" look identical to the
+      next tick.
+
+      *Gate:* `flutter analyze` -> **No issues found!** (10.2 s);
+      `tool/run_tests.py` -> **+2067 ~3: All tests passed!** (13:11), up 6
+      from +2061, 0 failed, same 3 skips. `tool_clock_seam_test.dart` ->
+      **20/20**, up from 14.
+
+      **Mutation: 5 arms, all red.**
+        * drop walrus binding -> red, walrus case
+        * drop `case` capture -> red, `Expected: empty / Actual: 2 _Read`
+        * only first name left of `=` -> red, `Expected: empty / Actual: 1`
+        * comparison counts as assign -> red, `Expected: empty / Actual: 1`
+          suspicion
+        * comprehension target rebinds -> red, `Expected <1> Actual <0>`
+
+      **Three of those five arms went GREEN first and were fixed rather than
+      reported as passing.** Two because the fixture put the alias first on
+      every left-hand side, so a binder reading one name still passed; one
+      because an unrelated `def kw(wall=1)` in the same file already bound
+      the alias through the parameter rule and masked the mutation entirely.
+      A green arm is not evidence of a correct fix — it is evidence of a case
+      that cannot fail. Same lesson as the two no-op arms two ticks ago.
+
+      `lib/` **byte-identical to HEAD** — nothing a user sees changed. Not
+      visual, no screenshot claimed. No APK, no release, no tag:
+      founder-gated.
+
+      *Commits:* local `0edd542` -> remote `b14f41c`. **4/4 blobs MATCH** the
+      real GitHub tree (`tool/remote_state.py --files`).
+
+      **Next:** `_clockScanFrom` walks lines and keys on *characters* in one
+      line. Two shapes still slip past it, both because a call can be split
+      across lines:
+        * a **backslash continuation inside a call** — `wall(\n)` or, worse,
+          `elapsed = wall(\n    )` — has its second physical line scanned as if
+          it were independent code, and
+        * an **implicit continuation inside brackets**, `x = (wall(\n))`, is
+          ordinary Python and always joined.
+      Neither is in the tracked corpus, which is the same argument this file
+      has now refuted four times. Before touching it: **measure with
+      Python's `tokenize` whether a call split this way is one NAME token**,
+      and pin the answer in a test the way the backslash-newline case was
+      pinned — the first fix here assumed a raw-string exemption that the
+      tokenizer disproved.
