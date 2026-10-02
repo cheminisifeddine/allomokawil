@@ -832,7 +832,12 @@ class _ReviewCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              RatingStars(rating: review.rating.toDouble(), size: 13),
+              // An unreadable score draws no stars rather than five empty
+              // ones. [Review.rating] cannot be 0 in real data — the form is
+              // 1-5 — so a 0 is the reader saying it read nothing, and empty
+              // stars are the one shape that reads as "this man did badly".
+              if (review.ratingIsReal)
+                RatingStars(rating: review.rating.toDouble(), size: 13),
             ],
           ),
           if (when.isNotEmpty) ...[

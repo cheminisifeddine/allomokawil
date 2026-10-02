@@ -91,28 +91,27 @@ class Quote {
   bool get isDecided => status != QuoteStatus.pending;
 
   factory Quote.fromJson(Map<String, dynamic> json) => Quote(
-        id: json['id'] as int,
-        projectId: json['project_id'].toString(),
-        workerId: json['worker_id'] as int,
-        amount: (json['amount'] as num).toInt(),
-        message: json['message'] as String?,
-        estimatedDays: (json['estimated_days'] as num?)?.toInt(),
+        id: _int(json['id']),
+        projectId: _wireText(json['project_id']),
+        workerId: _int(json['worker_id']),
+        amount: _int(json['amount']),
+        message: _text(json['message']),
+        estimatedDays: _nullableInt(json['estimated_days']),
         workerFullName:
-            (json['worker_full_name'] ?? '') as String,
-        workerAvatarUrl: json['worker_avatar_url'] as String?,
+            _text(json['worker_full_name']) ?? '',
+        workerAvatarUrl: _text(json['worker_avatar_url']),
         // A stored 0 is the server's "nobody has rated me yet" sentinel, not a
         // score. Folded to null exactly as [WorkerProfile.avgRating] folds it,
         // so both models read one wire value one way.
         workerAvgRating: _rating(json['worker_avg_rating']),
-        workerTotalReviews:
-            (json['worker_total_reviews'] as num?)?.toInt() ?? 0,
+        workerTotalReviews: _nullableInt(json['worker_total_reviews']) ?? 0,
         // Parsed here rather than carried as a String: the trust widget drew
         // the green tick off a trimmed compare while [WorkerProfile] read the
         // same fact off an untrimmed one, so a padded row made two screens
         // disagree about the same man.
         workerVerificationStatus: VerificationStatus.fromWire(
-            json['worker_verification_status'] as String?),
-        status: QuoteStatus.from(json['status'] as String?),
+            _wireText(json['worker_verification_status'])),
+        status: QuoteStatus.from(_wireText(json['status'])),
         createdAt: parseServerTime(json['created_at']),
       );
 
@@ -123,6 +122,25 @@ class Quote {
   /// browse card are the two places a customer chooses a tradesman from, and
   /// they must not answer differently about the same man.
   bool get hasRating => workerAvgRating != null;
+
+  /// True when [amount] is a price somebody actually typed.
+  ///
+  /// **The bid's own floor is 1000 DZD** — `submitQuote` refuses less
+  /// ([DzNumber.tryParse] with `min: 1000`), and the server's own validator
+  /// refuses it too — so on this row a 0 is never a real price: it is the
+  /// reader's answer for a column it could not read. The card prints
+  /// «المبلغ: 0 دج» for it otherwise, which is the one line on this screen
+  /// that would be an outright lie rather than a missing fact.
+  ///
+  /// The reader cannot decide this on its own, because 0 is the right answer
+  /// for an id and the wrong answer for a price — which is the whole of the
+  /// "the caller decides the fallback" rule this file was rebuilt on.
+  bool get amountIsReal => amount >= _minAmount;
+
+  /// The lowest price a bid may carry, mirroring the validator on the write
+  /// path. Named here rather than inlined so the card and this getter cannot
+  /// drift apart on what counts as a price.
+  static const int _minAmount = 1000;
 
   /// Null for a missing score and for a `0` the server sent as a sentinel.
   static double? _rating(Object? raw) {
@@ -161,6 +179,16 @@ class Review {
   /// hour off, and one sent late on the 31st would file itself under the 1st.
   final DateTime? createdAt;
 
+  /// True when [rating] is a score somebody actually chose.
+  ///
+  /// The review form is 1-5 (`createReview` sends what the stars collected), so
+  /// no set of real reviews can average to zero and a 0 here is the reader's
+  /// answer for a column it could not read. `RatingStars` clamps whatever it
+  /// is given, so the alternative is a row of five empty stars beside a
+  /// customer's name: a review that says the man did badly work, on a card
+  /// whose whole job is to say whether he did good work.
+  bool get ratingIsReal => rating >= 1 && rating <= 5;
+
   const Review({
     required this.id,
     required this.projectId,
@@ -177,17 +205,89 @@ class Review {
     final raw = json['images'];
     if (raw is List) imgs = raw.map((e) => e.toString()).toList();
     return Review(
-      id: json['id'] as int,
-      projectId: json['project_id'].toString(),
-      workerId: json['worker_id'] as int,
-      rating: (json['rating'] as num).toInt(),
-      comment: json['comment'] as String?,
+      id: _int(json['id']),
+      projectId: _wireText(json['project_id']),
+      workerId: _int(json['worker_id']),
+      rating: _int(json['rating']),
+      comment: _text(json['comment']),
       images: imgs,
       customerFullName:
-          (json['customer_full_name'] ?? '') as String,
+          _text(json['customer_full_name']) ?? '',
       // Nullable on purpose: a row the server could not date is an absence,
       // and `review_order.dart` puts those last rather than dropping them.
       createdAt: parseServerTime(json['created_at']),
     );
   }
+}// ---- reading the payload, not casting it -----------------------------------
+//
+// The same four readers `chat.dart`, `notification.dart` and `project.dart`
+// keep, deliberately the same code: four files that each grew their own
+// version of "how do we read a column" is how they drift apart, and the drift
+// is invisible — a tolerant field in one model and a throwing one in the next
+// is the same defect the audit found four times. Each stays private to its
+// file, so a model cannot quietly borrow another model's leniency.
+
+/// An integer column, tolerant of the two shapes D1 really answers with.
+///
+/// `_asInt` in `data/repository.dart` names them: a number from a JSON body, a
+/// string from SQLite. 0 when neither.
+///
+/// **0 here is the honest floor, and the callers are what make it safe.** Two
+/// of the three int columns on this row are ids that are only ever handed back
+/// to the server (`acceptQuote(projectId, q.id)`), so a bid the app could not
+/// identify answers 404 rather than accepting somebody else's bid — a visible
+/// no-op, not a wrong contract. The third is `amount`, and a fabricated 0 is
+/// printed as «المبلغ: 0 دج»: the one line on this card that would be a lie.
+/// It is guarded by [amountIsReal] below rather than by the reader, because
+/// only the card knows it is drawing a price.
+int _int(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value.trim()) ?? 0;
+  return 0;
+}
+
+/// An integer that stays null when the field is absent or unreadable, so the
+/// caller must choose a default instead of inheriting one by accident.
+///
+/// Both `estimated_days` and the review count use this. A 0 for a duration
+/// would print «مدة الإنجاز: 0 يوم» — a promise the contractor never made — and
+/// `quoteDurationLineAr` already treats null as "say nothing at all".
+int? _nullableInt(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value.trim());
+  return null;
+}
+
+/// A wire value as text, for a **key** column: a project id, a status name, a
+/// verification state.
+///
+/// Interpolation prints the literal «null» for an absent key, and «null» is a
+/// name neither table has heard of — so both land on their own fallback, which
+/// is what an absent key gets anyway. Flattening a real number is right here
+/// and only here: these are identifiers, not sentences.
+///
+/// Both callers take a `String?` and already answer every unknown value the
+/// way this reader does, so nothing is invented here.
+String _wireText(Object? value) {
+  if (value == null) return '';
+  if (value is String) return value;
+  return '$value';
+}
+
+/// Copy, trimmed, or null when absent/empty/not a string.
+///
+/// **No flattening, unlike `_wireText`** — and the reason is the caller again.
+/// `message` and `comment` are the contractor's and the customer's own words:
+/// a number is not a sentence, and `_text` returning null makes the card leave
+/// the block undrawn rather than print «5». `worker_avatar_url` is a URL fed
+/// to `NetImage`, where a flattened number would be a request to a host that
+/// does not exist; null falls back to the monogram the widget already draws.
+/// The name uses `?? ''` because `Monogram.of` answers an empty string with
+/// «؟» and the profile card has its own «زبون» for a nameless customer.
+String? _text(Object? value) {
+  if (value is! String) return null;
+  final v = value.trim();
+  return v.isEmpty ? null : v;
 }

@@ -1196,9 +1196,16 @@ class _QuoteCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('المبلغ: ${Money.dzd(quote.amount)}',
-                    style: AppTheme.h2
-                        .copyWith(fontSize: AppTheme.fsBar, color: AppTheme.navy)),
+                // A bid the app could not read a price out of prints no price
+                // at all. The 0 [Quote.fromJson] answers for an unreadable
+                // `amount` is not «free» — it is the reader saying it has
+                // nothing, and «المبلغ: 0 دج» would put a number on this
+                // contract that no contractor ever typed. The block itself
+                // still draws, so the bid keeps its place in the list.
+                if (quote.amountIsReal)
+                  Text('المبلغ: ${Money.dzd(quote.amount)}',
+                      style: AppTheme.h2.copyWith(
+                          fontSize: AppTheme.fsBar, color: AppTheme.navy)),
                 if (sentLine.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(sentLine,
