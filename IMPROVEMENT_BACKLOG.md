@@ -15781,3 +15781,160 @@ is the same question one level up, and it has never been asked.
       HEAD** — the fix and the guard are both tests, so nothing a user sees
       changed. Not visual, no screenshot claimed. No APK, no release, no tag:
       founder-gated.
+
+## Tick 2 Oct 2026 (13th) — the loop's own instruments were asked the wall-clock
+      question one level up, and one of them was wrong
+
+The previous tick closed the wall-clock family in `lib/` and then in `test/`,
+and named the untested direction: **`tool/`**. `run_tests.py`, `build_gate.py`
+and `remote_state.py` are the instruments the tick itself runs on, and they
+carry date logic of their own. Read-only census first, as the last three ticks
+of this family taught.
+
+**Census, located with a real AST walk, not a regex — 7 clock reads, 6 already
+monotonic, 1 defect.** A `grep` for `time\.time` is not a census: it counts the
+comment this very fix is about to write, and the last two ticks of this family
+each published a wrong number before looking at one of them. `ast.parse` and a
+walk for `Call(Attribute(Name('time'), 'time'|'monotonic'))` cannot read prose,
+so the number it reports is the number of *reads*.
+
+- **`run_tests.py` — 5 reads, all `time.monotonic()`.** Correct already,
+  including the SIGTERM grace inside `_kill_group`.
+- **`remote_state.py` — 0 reads.** No clock at all; it compares git state, not
+  time. Nothing to answer.
+- **`build_gate.py` — 2 reads, both `time.time()`, both in `reap()`.**
+
+**The defect: `reap()` bounded its post-SIGTERM wait on the wall clock.**
+
+`reap()` is the only function in that file that waits on anything, and the
+purpose of the wait is written in its own docstring:
+
+> "The wait is what makes the exit code mean something. Without it the call
+> returns while the memory is still held, the caller re-runs the gate, reads
+> NO ROOM on the same browser it was told it had just killed, and concludes the
+> gate is broken."
+
+and
+
+    The pid is gone from /proc before this returns.
+
+It was measured with `time.time()`, which is set by NTP and by `settimeofday` —
+neither of which the program can observe. Step the clock forward by more than
+the 6 s grace and
+
+    deadline = time.time() + grace
+    while time.time() < deadline:
+
+is **already false on the first comparison**: the wait is skipped outright,
+`reap()` returns while the process it just announced as reaped is still holding
+its ~600 MB, and `--reap` has already printed "reaped leaked browser". That is
+*exactly* the state the docstring says the wait exists to prevent. Step it
+backwards by more than the grace and the same wait outlasts its budget.
+
+**Neither failure needs the box to be loaded.** It needs the host to be in sync,
+which is a normal condition and not a fault — which is why no test on this box
+had ever been able to see it, and why the only honest way to settle it is a
+census plus an enforced rule rather than a reproduction.
+
+**One directory apart, the two instruments disagreed about what a wait is.**
+`run_tests.py` bounds its identical SIGTERM grace on `time.monotonic()` already
+(line 111). That disagreement is what made this a *census answer* rather than a
+guess: 6 of 7 reads were already right, so the rule is not "stop measuring waits
+on the wall clock" but "no loop instrument reads the wall clock at all".
+
+**The census is now a guard — `test/tool_clock_seam_test.dart`, 4 cases.** Reads
+are located with a tokenizer that strips comments and string literals *while
+preserving line numbering*, because the fix's own comment quotes `time.time()`
+to explain itself and a regex would count that prose as code. A positive control
+hands the reader a file that genuinely reads the clock and requires exactly one
+hit, on line 4 — so a sweep that has stopped matching anything cannot pass for a
+clean box.
+
+**Mutation gate, three arms, all red — and the third one caught a test of mine
+that was wrong:**
+
+- *revert the fix* → **3 of 4 cases red**;
+- *a wall-clock read in `run_tests.py`* → the file-level sweep red, naming
+  `tool/run_tests.py:111` — so the rule is not one that only knows the file it
+  was born in;
+- *delete the `/proc` poll outright* → **red**, `found 1 probe(s), expected >= 2`.
+
+That third arm is the interesting one. My first "reap() still waits at all" case
+re-asserted the **clock**, so a mutation that deleted the entire poll passed it
+**4/4 green** — a test naming a contract it did not check. It now counts
+`os.path.exists` (2 in a correct `reap()`: the "already gone" guard and the
+poll) rather than using `contains`, which still passes with only the guard left.
+Re-run, the arm is red. **The mutation gate did not just certify the guard; it
+corrected the guard.**
+
+**Evidence.** `flutter analyze` → **No issues found!** (1.9 s) — two lints on the
+first pass (`unused_local_variable` on the match object, which was also being
+recompiled per line, and `unnecessary_brace_in_string_interps`) and both fixed
+rather than left. `tool/run_tests.py` → **+2051 ~3: All tests passed!** (12:57),
+up 4 from +2047, 0 failed — exactly the four new cases. `python3
+test/build_gate_test.py` → **17/17 ALL PASS**, so the gate still works after
+being edited. `build_gate.py --quiet` → exit 0 before the run.
+
+**`lib/` is byte-identical to HEAD.** The defect was in a tool, the fix is in a
+tool, and the guard is a test — so nothing a user sees changed, and a report
+that implied a pixel diff would be lying. Not visual, no screenshot claimed. No
+APK, no release, no tag: founder-gated.
+
+*Pushed and verified.* Helper printed `Pushed 2 changed -> b82d60a`; both blobs
+then checked against the real GitHub tree read off the contents API —
+`72a9d08…` (`tool/build_gate.py`) and `d95ed078…` (`test/tool_clock_seam_test.dart`),
+**2/2 MATCH**. A green push line is not proof; the blob is.
+
+**Next.** The wall-clock family is now closed at all three levels — `lib/`,
+`test/` and `tool/`. What is *not* covered by any of them is the assumption the
+guard rests on: that a sweep which finds nothing is genuinely nothing. The
+`test/` half proved its own reader with a probe file; `tool/`'s half does the
+same, but neither proves that **the list of instruments is complete** — the
+sweep enumerates `tool/*.py`, and nothing asserts that the loop's real
+instruments are all in `tool/`. A runner that lived outside it would be unwatched.
+That is a census question, it is small, and it has never been asked.
+
+- [x] **A loop instrument bounded its wait on the wall clock, so a clock step
+      skipped the wait entirely and the gate reported a reaped browser that was
+      still holding its memory.** Shipped with the sweep that keeps `tool/` on
+      the same rule the other two levels now obey.
+
+      Census of `tool/` by AST walk (a `grep` counts the prose): **7 clock
+      reads, 6 already `time.monotonic()`, 1 defect.** `run_tests.py` 5/5
+      correct; `remote_state.py` reads no clock at all; `build_gate.py` had both
+      of its reads in one function.
+
+      **`build_gate.reap()` bounded its post-SIGTERM wait on `time.time()`.**
+      Step the clock forward past the 6 s grace and `while time.time() <
+      deadline` is false on the *first* comparison — the wait is skipped,
+      `reap()` returns while the process it just announced as reaped is still
+      holding its memory, which is the precise failure its own docstring says
+      the wait exists to prevent. No bug required: NTP stepping is normal.
+
+      **`run_tests.py` bounds its identical SIGTERM grace on `time.monotonic()`
+      already** — the instruments disagreed one directory apart, and that is what
+      made the census an answer rather than a guess.
+
+      Fixed to `time.monotonic()`. The guard's rule is *"no loop instrument reads
+      the wall clock at all"*, so nothing in `tool/` can come to depend on host
+      time sync; reads are found by a stripper that preserves line numbers,
+      because the fix's own comment quotes `time.time()`.
+
+      **Mutation: three arms, all red.** Revert the fix → 3/4 red. Wall-clock
+      read in `run_tests.py` → red, naming `tool/run_tests.py:111` (the sweep is
+      not one file's rule). Delete the `/proc` poll → red.
+
+      *The third arm caught a test of my own that was wrong:* "reap() still waits
+      at all" re-asserted the clock, so deleting the poll passed it 4/4 green —
+      a test naming a contract it did not check. Now counts `os.path.exists`
+      (floor 2), since `contains` survives with only the guard left.
+
+      *Gate:* `flutter analyze` → **No issues found!** (1.9 s); `tool/run_tests.py`
+      → **+2051 ~3: All tests passed!** (12:57), up 4 from +2047, 0 failed;
+      `test/build_gate_test.py` → **17/17 ALL PASS**. **`lib/` byte-identical to
+      HEAD** — the defect and the fix were both in `tool/`, so nothing a user
+      sees changed. Not visual, no screenshot claimed. No APK, no release, no
+      tag: founder-gated.
+
+      *Commit:* local `0fe5c1a`, remote `b82d60a`. **2/2 blobs MATCH** the real
+      remote tree (`72a9d08…`, `d95ed078…`), read off the contents API.
