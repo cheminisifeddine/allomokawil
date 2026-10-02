@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -48,6 +49,18 @@ class ChatScreen extends StatefulWidget {
   /// instead of of the box.
   final String Function(DateTime at)? clockFormat;
 
+  /// The screen's clock, forwarded to [chatDayLabel] so a day divider is
+  /// decided against a day the caller can name.
+  ///
+  /// It is a seam, not a feature, and it exists for a reason the hour seam
+  /// above does not cover: [clockFormat] pins the *zone* a bubble is drawn in,
+  /// but `chatDayLabel` reached `DateTime.now()` inside `data/chat_time.dart`
+  /// and answered "is this today?" against the box's own clock. A thread open
+  /// across midnight therefore labelled yesterday's messages «اليوم» for the
+  /// rest of the session, and a message from two days ago kept reading «أمس».
+  /// Both are the labels that tell a user how stale the thread is.
+  final DateTime Function()? clock;
+
   const ChatScreen({
     super.key,
     this.conversationId,
@@ -57,6 +70,7 @@ class ChatScreen extends StatefulWidget {
     required this.repo,
     this.outbox,
     this.clockFormat,
+    this.clock,
   });
 
   @override
@@ -173,10 +187,47 @@ class _ChatScreenState extends State<ChatScreen> {
   /// was stored, which is the ordinary case.
   final Map<int, bool> _markStored = <int, bool>{};
 
+  /// The screen's clock. Defaults to the system clock in the app.
+  DateTime _now() => (widget.clock ?? DateTime.now)();
+
+  /// Re-decides the day dividers once a minute. See [_armAgeTick].
+  Timer? _ageTimer;
+
   @override
   void initState() {
     super.initState();
+    // Armed here, not from `build`: a timer made in `build` is a new timer on
+    // every frame, and the tick multiplies.
+    _armAgeTick();
     _bootstrap();
+  }
+
+  /// Keep «اليوم» / «أمس» honest for as long as this thread sits open.
+  ///
+  /// The labels are *calendar* labels, not elapsed-time labels, so a timer is
+  /// not the obvious tool — but a calendar label has an expiry: the message
+  /// this screen drew as «اليوم» at 23:58 is «أمس» at 00:01, and the screen
+  /// only redraws when the user sends, scrolls into a new message, or the read
+  /// lands. A customer who opens a thread in the evening, asks a question, and
+  /// comes back to it the next morning is shown a thread where *every* message
+  /// is stamped today, and the only thing that would say otherwise is the
+  /// message's own hour, which he has to read for himself.
+  ///
+  /// Guarded on `_messages` for the same reason every sibling screen guards on
+  /// its rows: a thread whose first read has not landed draws no dividers, and
+  /// a once-a-minute rebuild of an empty thread is a rebuild for nothing.
+  /// Armed whether or not a read has landed, because a read that lands later
+  /// must not find the labels frozen at the day it arrived on.
+  void _armAgeTick() {
+    _ageTimer?.cancel();
+    _ageTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted) return;
+      if (_messages.isEmpty) return;
+      // A `setState` with no fields changed is the whole mechanism:
+      // `chatDayLabel` composes its answer in `build`, so re-running the build
+      // is what re-reads the clock.
+      setState(() {});
+    });
   }
 
   /// Opens the thread, then redraws and flushes whatever this phone still owes
@@ -901,6 +952,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _ageTimer?.cancel();
+    _ageTimer = null;
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -997,7 +1050,8 @@ class _ChatScreenState extends State<ChatScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (_needsDateDivider(i)) _DateDivider(label: chatDayLabel(at!)),
+            if (_needsDateDivider(i))
+              _DateDivider(label: chatDayLabel(at!, now: _now())),
             _Bubble(
               message: m,
               mine: mine,
@@ -1270,6 +1324,12 @@ class _DateDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
+      // The label is the only evidence a user has of how old the thread is, and
+      // it is a seam the tests need to aim at: a scan for «اليوم» across the
+      // page also matches a *message* whose text happens to be that word, which
+      // is how the first version of the ageing test measured the wrong widget
+      // and passed against a screen with no timer.
+      key: const Key('chat-day-divider'),
       padding: const EdgeInsets.symmetric(vertical: 14),
       child: Center(
         child: Container(
