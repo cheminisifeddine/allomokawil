@@ -14308,3 +14308,120 @@ one 10-minute tick's foreground budget: a foreground run of it is killed by the
 tool at ~7 minutes and reports nothing. It has to be started with
 `background=true` and polled. Recording it here because the protocol's step 4
 lists the runner without saying which.
+
+---
+
+## Item: the `as String?` family, file 4 of 5 — `quote_review.dart` — SHIPPED
+
+`Quote.fromJson` and `Review.fromJson` hand-cast **sixteen** columns between
+them (`id`, `project_id`, `worker_id`, `amount`, `message`, `estimated_days`,
+`worker_full_name`, `worker_avatar_url`, `worker_total_reviews`,
+`worker_verification_status`, `status` on the bid; `id`, `project_id`,
+`worker_id`, `rating`, `comment`, `customer_full_name` on the review). Both go
+through `repository._rows`, which turns a model `TypeError` into an
+`ApiException` and drops that row.
+
+**This is the worst loss in the family, and it is worth saying why.** A dropped
+chat row is a message missing from a thread. A dropped project is a job nobody
+can open. But a dropped **bid is the other half of a decision**: the customer
+comparing three contractors is shown two, and the one that vanished is the one
+the backend then accepts on their behalf. The app does not look broken; it
+shows a confident, shorter, wrong list.
+
+Both models now read through the same four private readers `chat.dart`,
+`notification.dart` and `project.dart` already keep (`_int`, `_nullableInt`,
+`_wireText`, `_text`).
+
+### The rule that decided every fallback is the caller — and this is the first
+### file in the family where it is more than parse-or-drop
+
+Three of this file's columns are not "read it or lose the row"; they are
+**printed to the customer as facts**, and for those a reader's `0` is not an
+absence but a lie:
+
+  * `amount` -> «المبلغ: 0 دج» is a price **no contractor typed**. That is the
+    one line on the bid card that would be an outright lie rather than a
+    missing fact.
+  * `rating` -> `RatingStars` clamps whatever it is given, so a 0 draws five
+    empty stars beside a customer's name: a card whose entire job is to say
+    whether he did good work, saying he did bad work.
+
+So the readers stay honest (they answer "nothing" as `0`/null, as everywhere
+else) and the **draw sites** now ask whether the value is real —
+`Quote.amountIsReal`, `Review.ratingIsReal` — and omit the line instead of
+inventing it.
+
+**Both floors are the write path's own, not a guess**, which is what makes this
+safe to gate on:
+
+  * `submitQuote` parses its amount with `DzNumber.tryParse(..., min: 1000)`
+    (`project_detail_screen.dart:574`) and shows «المبلغ يجب أن يكون 1000 دج على
+    الأقل» otherwise. So no bid in the database is under 1000 DZD.
+  * The review picker is 1-5 and refuses 0 (`review_screen.dart:44`). So no set
+    of real reviews can average to zero.
+
+Hence on **this row**, and only this row, a `0` is never a real answer — it is
+always the reader saying it read nothing. That is why the guard belongs to the
+caller and not to `_int`.
+
+`estimated_days` and `worker_total_reviews` stay nullable instead: a fabricated
+`0` there would save «مدة الإنجاز: 0 يوم», a promise the contractor never made,
+and `quoteDurationLineAr` already treats null as "say nothing at all".
+
+### Evidence
+
+- **Red first against the unmodified parser: +11 -17.** 17 of the 28 discriminate
+  and the other 11 pin behaviour that was already right (a clean row read as
+  sent, `images` that are not a list, the pre-existing `0`-as-not-rated
+  sentinel). Said plainly because a guard that passes against the bug is
+  decorative.
+- New file **28/28**; full suite via `tool/run_tests.py` **+1991 ~3: All tests
+  passed!** in **12:45**, previous run 1963/3/0 — the 28 new tests are exactly
+  the delta.
+- `flutter analyze` -> **No issues found!** (7.3 s).
+
+**A first attempt at the red baseline was worthless and I discarded it.**
+Stashing the model and running the file produced a *compile* error, not 28
+failing tests: the two new getters do not exist on the old model, so the file
+never loaded and the run reported `-1` for the file, which would have read as
+"28 tests, 1 file failed". The fix was to graft only the two getters onto the
+original casts so the file compiles and the red count reflects the **parser**
+change alone.
+
+**One of my own tests was wrong and was corrected, not weakened.** The
+`_review` helper used `images ?? [good]`, which silently collapsed "absent
+column" into "a full list" — so the test written to prove an absent `images`
+survives was asserting against a full list and passing for the wrong reason. A
+first fix with a `_NotPassed` sentinel over-corrected the other way and broke
+the clean-row default. The actual fix is that a **default in the signature**
+already separates the two cases; the `??` in the body was the whole bug.
+
+### Files
+
+`lib/src/models/quote_review.dart`,
+`lib/src/screens/project/project_detail_screen.dart` (the bid card),
+`lib/src/screens/worker/worker_profile_screen.dart` (the review card),
+`test/quote_payload_shape_test.dart`.
+
+No user-facing string was added and nothing was rendered, so **no screenshot**
+and no layout claim is made.
+
+### Commits
+
+`5e919a4` -> remote `bea85f6` (all four blobs verified `MATCH` against the real
+remote tree via GitHub's API, not the helper's green line). Forward-only.
+
+### Next — the `as String?` family, file 5 of 5: `user.dart:28,30,31`
+
+Last file in the family.
+
+**Still not actioned** (out of scope for one tick, unchanged from the previous
+entries): the 28 absolute `created_at` fixtures across 9 test files. Inert while
+they only drive ordering; the same reasoning makes them a bomb the moment one
+feeds a "time ago" label.
+
+**One tick-level note, now confirmed twice.** `run_tests.py` takes ~12:45 —
+longer than one 10-minute tick's foreground budget. It must be started with
+`background=true` and polled with `process(action='wait')` (the wait itself is
+clamped to 180 s, so it needs ~5 polls). A foreground run is killed by the tool
+at ~7 minutes and reports nothing.
