@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
@@ -98,11 +100,39 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
         builder: (_) => AuthScreen(mode: AuthMode.signUp, role: role)));
   }
 
+  /// The tick that ages every bid card's «أُرسل …» stamp while the page sits
+  /// open.
+  ///
+  /// **[ProjectDetailScreen.clock] was a seam with nothing behind it.** The
+  /// field exists because a screen reading the real wall clock is "a screen
+  /// whose pixels depend on when the test ran" — the field is how a test pins
+  /// the answer. That is all it was ever wired to. Production leaves it null,
+  /// `_QuoteCard` calls `relativeTimeAr(quote.createdAt, now: clock?.call())`
+  /// **at build time**, and this screen rebuilds on exactly two things: the
+  /// first pair of reads, and `_reload()`. Neither is "a minute passed".
+  ///
+  /// So an owner comparing four bids left the page open and came back to
+  /// «قبل 12 دقيقة» on all four, frozen from the frame they opened on, while
+  /// the bid that arrived during the reading pushed the newest stamp forward.
+  /// Four cards on one screen, disagreeing about when they arrived, on the
+  /// screen that decides which contractor gets the job.
+  ///
+  /// This is the fourth screen in the family fixed so far — `profile_screen`,
+  /// `subscription_screen`, `notifications_screen` — and the first one reached
+  /// from four different callers, so it is pushed rather than held alive by the
+  /// shell's `IndexedStack`, and [dispose] below is load-bearing.
+  Timer? _ageTimer;
+
   @override
   void initState() {
     super.initState();
     _project = _observe(widget.repo.getProject(widget.projectId));
     _quotes = _observe(widget.repo.projectQuotes(widget.projectId));
+    // Armed here and re-armed from `_reload`. The reads are futures, so there is
+    // no "the first stamp landed" callback to arm from the way
+    // `notifications_screen.dart` does it; the tick is idempotent — it rebuilds
+    // and nothing else — so a minute spent over a skeleton costs one redraw.
+    _armAgeTick();
   }
 
   void _reload() {
@@ -110,6 +140,43 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
       _project = _observe(widget.repo.getProject(widget.projectId));
       _quotes = _observe(widget.repo.projectQuotes(widget.projectId));
     });
+    // Re-armed, not armed: `_accept` and `_cancel` both land here after a
+    // successful commit, and arming rather than re-arming would leave a second
+    // live timer running on a screen the user can already have open.
+    _armAgeTick();
+  }
+
+  /// Starts the once-a-minute tick that re-labels every bid card.
+  ///
+  /// A `setState` with no fields changed is the whole mechanism: `_QuoteCard`
+  /// reads the clock in `build`, so re-running the build is what re-reads it.
+  /// Same shape as `notifications_screen.dart`, and for the same reason it is
+  /// not written in `build` — a timer made in `build` is a new timer every frame
+  /// and the tick multiplies.
+  void _armAgeTick() {
+    if (!mounted) return;
+    _ageTimer?.cancel();
+    _ageTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted) return;
+      // No guard on whether cards are showing. Every sibling screen guards with
+      // "nothing to age yet" because it can tell — it holds the parsed rows as a
+      // field. This screen keeps its quotes inside a [Future] that a
+      // [FutureBuilder] consumes, so the State cannot ask "did a card land?"
+      // without duplicating the parse. A `setState` with no fields changed is
+      // free when there is nothing to redraw, and a minute of skeleton is the
+      // honest alternative to a second copy of the list.
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    // Four callers push this route (browse, my projects, search, chat), so an
+    // uncancelled timer outlives the trip back and fires `setState` on a dead
+    // State — which fails the next test in the file with "A Timer is still
+    // pending".
+    _ageTimer?.cancel();
+    super.dispose();
   }
 
   /// Marks a read as observed from the moment it is issued, not from the moment

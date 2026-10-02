@@ -796,6 +796,71 @@ def main():
     else:
         print("  SKIP (no chromium)")
 
+    print("\n13) a reparented LAUNCHER naming a browser is not the browser")
+    # Found on this box, 2 Oct 2026, and it is the worst shape this suite has
+    # caught because the gate did not merely mis-report: it printed
+    # `LEAKED headless chrome (this loop's render)` naming a /bin/bash holding
+    # 618 kB, then told the reader to run `--reap`, which SIGTERMs exactly the
+    # pids the survey named. Following the instruction would have killed a live
+    # session's browser mid-screenshot -- the gate arming itself at its own
+    # stated purpose ("an instruction to kill, derived from a fact that does not
+    # support it").
+    #
+    # The shape: `bash -c 'nohup chrome --remote-debugging-port=9333 ... &'`,
+    # where the shell is orphaned (PPID 1) and the browser it is about to exec
+    # is a normal child. argv *contains* the flag; the process *is not* the
+    # browser. Cases 8/9/12 all spawn a real browser, so every one of them
+    # passes with the guard deleted.
+    mod13 = _gate_module()
+    launcher = subprocess.Popen(
+        ["/bin/bash", "-c", "sleep 30 & sleep 30",
+         "--remote-debugging-port=%d" % _free_port()],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        # Bounded wait, and it is a fix to a race in this case rather than
+        # politeness: `Popen` returns once the child is forked, and between the
+        # fork and `exec` the child carries its PARENT's cmdline verbatim. Read
+        # too early and the read returned the harness's own argv -- which has
+        # no debugging port in it at all -- so the case failed on `port13=None`
+        # with no code change at all. Same non-hermetic failure shape as
+        # `_free_port`, reached from a different direction.
+        cmd13 = ""
+        port13 = None
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            cmd13 = mod13._cmdline(launcher.pid)
+            port13 = mod13._debug_port(cmd13)
+            if port13 is not None:
+                break
+            time.sleep(0.1)
+            launcher.terminate()   # it exited: the argv we saw was the truth
+            launcher = subprocess.Popen(
+                ["/bin/bash", "-c", "sleep 30 & sleep 30",
+                 "--remote-debugging-port=%d" % _free_port()],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        ok = (port13 is not None                       # the flag IS parsed out
+              and mod13._looks_like_browser(launcher.pid, cmd13) is False
+              and mod13._is_leaked_browser(launcher.pid) is False)
+        results.append(ok)
+        print(("PASS  " if ok else "**FAIL**")
+              + "bash launcher naming a browser -> not a leak (port parsed=%s)"
+              % port13)
+        # And the negative: the guard must not have made the arm blind. A real
+        # browser process with the same flag must still be identified as one,
+        # or this case would pass with `_looks_like_browser` always False.
+        blind = mod13._looks_like_browser(launcher.pid,
+                                          "/opt/meta-chromium/chrome "
+                                          "--headless --remote-debugging-port=9333")
+        results.append(blind is True)
+        print(("PASS  " if blind else "**FAIL**")
+              + "a real chrome argv still identifies as a browser")
+    finally:
+        launcher.terminate()
+        try:
+            launcher.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            launcher.kill()
+
     print("\nBaseline: %s" % _foreign_note())
     ok = sum(results)
     print("== %d/%d ==  %s" % (ok, len(results),

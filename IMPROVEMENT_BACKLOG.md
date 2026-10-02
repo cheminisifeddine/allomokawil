@@ -15125,3 +15125,101 @@ same defect `a87647e` shipped for the notification centre, one screen over, and
 it is the one a customer reads while deciding on a contractor. Implement it
 **last** of the three only if the gate stays down; the ordering by traffic is
 by design, not by difficulty.
+
+---
+
+- [x] **The project detail page dates every bid card, and ages them while it
+      sits open — and finding that cost one extra tick, because the build gate
+      was wrong in the way that could have killed somebody's screenshot.**
+      Shipped `1a2b3c4` (see the hash in the commit log for the tick that
+      landed it; the two halves below are separate concerns and were gated
+      separately).
+
+**Half 1 — the defect, and the item the last tick pinned.** `f35c4d4` left the
+next tick pinned to `project_detail_screen.dart`: the 3-seam/0-timer screen with
+the most traffic (4 pushers, its own `clock` seam, its own doc comment arguing
+*for* the seam — "a screen that reads the real clock is a screen whose pixels
+depend on when the test ran"). It rebuilds on exactly two things: the first
+pair of reads, and `_reload()`. Neither is "a minute passed". So an owner
+comparing four bids — which is what the page is *for* — watched «قبل 12 دقيقة»
+sit frozen on all four cards while the bid that arrived during his reading
+pushed the newest stamp forward. Same fuse as `profile_screen` (80a0e65),
+`subscription_screen` (52b3640), `notifications_screen` (a87647e); the first
+of the four reached from four different callers, so it is a pushed route and
+the `dispose` cancel is load-bearing rather than hygiene.
+
+**Half 2 — the gate nearly killed a live render to clean up a non-leak.**
+`run_tests.py` answered `BUSY` with `LEAKED headless chrome (this loop's render)`
+naming **pid 20299**, and the next line told the reader to run `--reap`.
+Refused to run it without proof, because `--reap` SIGTERMs *exactly the pids the
+survey names*. The survey named a **`/bin/bash` holding 618 kB**. The real
+browser was its child 20303 (70 MB, `comm` = `chrome`), correctly *not* a leak
+because its PPID was 20299 — a live session's launcher, 3 minutes old. So the
+gate classified the one process on the box that was provably **not** a browser
+as a browser leak, and told a tick to SIGTERM it. The `_rss_kb` number in the
+same report said **0 MB**: a 330-380 MB leak does not weigh 0 MB.
+
+*Root cause.* `_is_leaked_browser` keyed on `remote-debugging-port` appearing
+**anywhere** in argv. argv is a description of intent, not of identity: a
+`bash -c 'nohup chrome --remote-debugging-port=9333 … &'` launcher has the flag
+in the *script text* it is about to run, and every browser token in it belongs
+to a child. Fixed with `_looks_like_browser()` — argv[0]'s basename against a
+known-browser set, a known-launcher set short-circuiting to False, and **`comm`
+as the decider for anything unfamiliar** rather than guessing True. That last
+part is the non-obvious half: between `fork` and `exec` a child carries its
+parent's cmdline verbatim, so "unrecognised argv[0]" usually means "has not
+become itself yet", and the parent's argv is exactly what this bug is about.
+`comm` is the kernel's own name for what is running *now*.
+
+*Evidence.* Live box: 20299 → `leaked=False` (was True), 20303 → `False`
+(correct before and after — it was never the leak). `test/build_gate_test.py`
+-> **17/17**, three consecutive runs. **New case 13** spawns a real orphaned
+`bash -c` naming a browser and asserts both directions: the flag still parses
+out of the launcher (so the case is not passing by accident) and the launcher is
+not a leak, *and* a genuine `chrome` argv still identifies as a browser — which
+is what stops the case passing with the guard deleted. Mutation: guard deleted
+-> **14/17**. Cases 8/9/12 all spawn a *real* browser, so every one of them
+stayed green with the guard removed; this is the third time this suite has been
+green against a deleted arm, and the third time the new case had to be written
+from the shape of the bug rather than from the shape of the code.
+
+**One race found and fixed inside the new case itself**, recorded because the
+same non-hermetic shape has now been hit twice in this file: `Popen` returns
+once the child is forked, and between fork and `exec` the child carries its
+parent's cmdline — so the read returned the *harness's* argv, which has no
+debugging port in it, and the case failed on `port13=None` with no code change
+at all. Same class as `_free_port`'s TIME_WAIT leftover, from a new direction.
+
+**Shipped:**
+- `project_detail_screen.dart`: `dart:async`, `Timer? _ageTimer` with the
+  reasoning on it, `_armAgeTick()` armed from `initState` and re-armed from
+  `_reload()` (re-arm, not arm: `_accept` and `_cancel` both land there, and a
+  second live timer on a screen the user can already have open is exactly the
+  leak the family keeps creating), a `setState` with no fields changed as the
+  whole mechanism, and the cancel in `dispose`.
+- The tick body carries **no "nothing to age yet" guard**, and says why in the
+  source: every sibling screen guards because it can tell — it holds the parsed
+  rows as a field. This screen keeps its quotes inside a `Future` that a
+  `FutureBuilder` consumes, so the State cannot ask "did a card land?" without
+  duplicating the parse. A `setState` with no fields changed is free when there
+  is nothing to redraw, and a minute of skeleton beats a second copy of the
+  list.
+- `test/project_bid_age_clock_test.dart` (new, 4 cases): one fixture, two
+  clocks, byte-identical payload. The third case moves **only** the clock — no
+  `pumpWidget`, no key change, no `setState` — because that is what actually
+  happens when the page sits open. Before the fix that pump was a no-op.
+- `tool/build_gate.py` + `test/build_gate_test.py` case 13, as above.
+
+**Gate:** `flutter analyze` -> **No issues found!** (9.0 s).
+`tool/run_tests.py` -> **+2030 ~3: All tests passed!** (13:45), up 4 from
++2026. `python3 test/build_gate_test.py` -> **17/17**.
+
+**Not visual:** no pixel changed — the label it re-reads is one the page already
+drew — and no screenshot is claimed. The screenshot half of the protocol does
+not apply to a screen that was already correct at the instant it was opened.
+No APK, no release, no tag: release stays founder-gated.
+
+**Next:** `worker/my_portfolio_screen.dart` (stale-gallery band, `:458`) — same
+defect, lower traffic. `worker/worker_profile_screen.dart` (`:817`, «قبل …» on
+every review card) follows it. Both are one grep from `f35c4d4`'s census, and
+both are already written four times over in this repo.

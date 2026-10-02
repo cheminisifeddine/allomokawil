@@ -253,6 +253,38 @@ def _port_in_use(port):
     return False
 
 
+def _looks_like_browser(pid, cmd):
+    """Is this process itself a browser, or merely a script naming one?
+
+    `_debug_port` answers "does argv contain the flag", which a *launcher*
+    also answers. This asks the narrower question the leak arm needs: the
+    process's own executable is the browser. `argv[0]`'s basename is the
+    test, with `comm` as the fallback for the exec'd-with-empty-argv case
+    `_comm` already exists to cover.
+    """
+    browsers = ('chrome', 'chromium', 'chrome-headless-shell',
+                'headless_shell', 'google-chrome', 'chromium-browser')
+    # A shell or wrapper that *runs* a browser. Its own executable is not the
+    # browser and it holds no debugging port of its own.
+    launchers = ('bash', 'sh', 'dash', 'zsh', 'ksh', 'env', 'nohup', 'setarch',
+                 'timeout', 'script', 'sudo', 'su', 'xargs', 'nice', 'setsid',
+                 'stdbuf', 'watch', 'command', 'time')
+    comm = _comm(pid)
+    if cmd:
+        base = os.path.basename(cmd.split()[0])
+        if base in browsers:
+            return True
+        if base in launchers:
+            return False
+    # Neither a known browser nor a known launcher: do **not** guess True from
+    # an unfamiliar argv[0]. Between `fork` and `exec` a child carries its
+    # parent's cmdline verbatim, so "unrecognised" here usually means "has not
+    # become itself yet" -- and the parent's argv is exactly what this whole
+    # bug is about. `comm` is the kernel's own name for what is running now
+    # and is the one signal here that is not inherited from the parent.
+    return comm in browsers
+
+
 def _is_leaked_browser(pid):
     """A headless Chrome the loop itself left behind.
 
@@ -280,9 +312,34 @@ def _is_leaked_browser(pid):
         non-1 ppid and must not be killed by a later tick. Same discipline
         as the tester arm: prove the leak, then report it.
     """
+    # **argv is a description of intent, not of identity.** A process only
+    # *has* a debugging port if its own command line is the browser's; a
+    # `bash -c '... chrome --remote-debugging-port=9333 ...'` launcher contains
+    # the flag in the script text the shell is about to run, and every browser
+    # token in it belongs to a *child* the shell is about to exec.
+    #
+    # Measured on this box, 2 Oct 2026, and it was not hypothetical: the gate
+    # printed `LEAKED headless chrome` naming pid **20299**, a `/bin/bash`
+    # holding 618 kB, whose PPID was 1. The real browser was its child 20303
+    # (70 MB, `comm` = `chrome`), and 20303 was correctly *not* a leak because
+    # its PPID was 20299 -- a launcher from a live session, not a dead one.
+    # So the gate classified the one process on the box that was provably
+    # *not* a browser as a browser leak, and printed the instruction to reap
+    # it: `--reap` SIGTERMs exactly the pids this survey names, which would
+    # have killed a live session's browser mid-screenshot. The `_rss_kb` number
+    # in the same report said 0 MB, which is the tell: a 330-380 MB leak does
+    # not weigh 0 MB.
+    #
+    # The identity test is argv[0], not `comm`: `comm` is truncated to 15
+    # chars, which is fine for `flutter_tester` but would mangle a longer
+    # wrapper path, and `_comm` is already the fallback this file uses where
+    # argv is empty. Both are checked so an exec'd-with-empty-argv browser is
+    # still caught.
     cmd = _cmdline(pid)
     port = _debug_port(cmd)
     if port is None:
+        return False
+    if not _looks_like_browser(pid, cmd):
         return False
     if _ppid(pid) != 1:
         return False
