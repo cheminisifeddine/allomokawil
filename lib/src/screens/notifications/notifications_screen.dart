@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
@@ -108,6 +110,28 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   /// both; this says which of them the body is in.
   bool get _stale => _error != null && _items.isNotEmpty;
 
+  /// The tick that ages the rows' timestamps while the centre sits open.
+  ///
+  /// **[NotificationsScreen.clock] was a seam with nothing behind it.** The
+  /// field exists so the golden gate can pin pixels — the `15_notifications`
+  /// baseline drifted 171 px on an hour boundary and took the whole
+  /// `flutter test` gate red with it — and that is all it was ever used for.
+  /// Production leaves it null, `_tile` reads `relativeTimeAr` against the real
+  /// wall clock, and the timestamp it prints is therefore whatever was true
+  /// when that tile last rebuilt. This screen rebuilds on exactly three things:
+  /// the first `_load`, a pull-to-refresh, and a read being marked. None of
+  /// them is "a minute passed".
+  ///
+  /// So the centre showed «قبل 12 دقيقة» to a contractor who sat reading the
+  /// list for twenty minutes, next to a message that arrived *during* those
+  /// twenty minutes. The newest row and the oldest row on the same screen
+  /// disagreed about when it was, and both were stamped from one build. This
+  /// is the same fuse as `profile_screen.dart`'s plan row and
+  /// `subscription_screen.dart`'s card: a computed answer whose screen never
+  /// asks the question again. The seam is here; the timer is what makes it
+  /// live.
+  Timer? _ageTimer;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -130,6 +154,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         _items = list;
         _error = null;
       });
+      // Armed where the first stamp lands, not from `initState`: before this
+      // runs there are no rows and nothing to age, and `_load` re-arms rather
+      // than arms so a pull-to-refresh cannot leave two live timers behind.
+      _armAgeTick();
     } catch (e) {
       if (!mounted) {
         return;
@@ -149,6 +177,35 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       // that could not run — so a plain pull-to-refresh was the odd one out.
       _trust.withdraw();
     }
+  }
+
+  /// Starts the once-a-minute tick that re-labels the rows.
+  ///
+  /// A `setState` with no fields changed is the whole mechanism: `_tile` calls
+  /// `relativeTimeAr` with the clock at build time, so re-running `build` is
+  /// what re-reads it. Same shape as the tick on `browse_screen.dart`, and for
+  /// the same reason it is not written in `build` — a timer made in `build` is
+  /// a new timer every frame and the tick multiplies.
+  void _armAgeTick() {
+    if (!mounted) return;
+    _ageTimer?.cancel();
+    _ageTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted) return;
+      // Nothing to age: a failed first read draws no rows, so ticking would
+      // rebuild an error screen once a minute for nothing.
+      if (_items.isEmpty) return;
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    // The bell pushes this route and the route can sit under the project screen
+    // it opened, so an uncancelled timer outlives the trip back and fires
+    // `setState` on a dead State — which fails the next test in the file with
+    // "A Timer is still pending".
+    _ageTimer?.cancel();
+    super.dispose();
   }
 
   int get _unread => _items.where((n) => n.isRead == 0).length;
