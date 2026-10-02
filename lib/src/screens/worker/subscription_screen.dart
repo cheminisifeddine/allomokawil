@@ -491,7 +491,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         ),
                         const SizedBox(height: AppTheme.gap),
                       ],
-                      _CurrentPlanCard(status: catalogue.current),
+                      _CurrentPlanCard(
+                          status: catalogue.current, now: _now),
                       if (catalogue.pendingRequest != null) ...[
                         const SizedBox(height: AppTheme.gap),
                         _PendingCard(
@@ -550,13 +551,27 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 // ── Current plan ────────────────────────────────────────────────────────────
 
 class _CurrentPlanCard extends StatelessWidget {
-  const _CurrentPlanCard({required this.status});
+  const _CurrentPlanCard({required this.status, required this.now});
 
   final SubscriptionStatus status;
 
+  /// The screen's clock, forwarded so this card answers the same question
+  /// against the same "now" as the band above it.
+  ///
+  /// **Why the card takes it rather than asking the model.** This is the card
+  /// that tells a paying contractor whether his cover still runs, and every
+  /// one of those answers was reaching `DateTime.now()` inside
+  /// `models/plan.dart` — while the stale-catalogue band fourteen lines above
+  /// measured against [SubscriptionScreen.clock], on a screen that re-reads
+  /// itself once a minute. In the app both are the system clock, so nothing
+  /// differed; what differed was that the card's answer could not be moved by
+  /// a test, which is the same fuse `chat_list_screen.dart`'s tile had.
+  final DateTime Function() now;
+
   @override
   Widget build(BuildContext context) {
-    final paid = !status.isFree && !status.isExpired;
+    final expired = status.isExpiredAt(now());
+    final paid = !status.isFree && !expired;
     final left = status.quotesLeft;
 
     return AppCard(
@@ -627,7 +642,8 @@ class _CurrentPlanCard extends StatelessWidget {
               // and its sub-day arm falls back to a date sentence in the same
               // future tense, so reusing it here would put «ينتهي الاشتراك في
               // 2020-01-01» under a pill that says the plan is over.
-              status.expiryCountdownAr ?? _shortDate(status.expiresAt!),
+              status.expiryCountdownArAt(now()) ??
+                  _shortDate(status.expiresAt!),
               style: AppTheme.caption.copyWith(color: AppTheme.textSecondary),
             ),
           ],
@@ -641,7 +657,7 @@ class _CurrentPlanCard extends StatelessWidget {
           // «انتهى الاشتراك في …» for a plan that was never paid for and never
           // ends. Null makes [expiryEndedAr] decline, and this arm draws nothing,
           // which is what the card did here before.
-          if (!status.isFree && status.isExpired && status.expiresAt != null) ...[
+          if (!status.isFree && expired && status.expiresAt != null) ...[
             const SizedBox(height: AppTheme.s12),
             Text(
               status.expiryEndedAr ?? _shortDate(status.expiresAt!),

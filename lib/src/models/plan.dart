@@ -204,16 +204,26 @@ class SubscriptionStatus {
   ///
   /// Calendar days, not elapsed hours: the user is asking "how many days do I
   /// still have", and the answer has to be the number of midnights he crosses.
-  int? get daysUntilExpiry {
+  int? daysUntilExpiryAt(DateTime now) {
     final end = expiresAtLocal;
     if (end == null) return null;
-    final now = DateTime.now();
     // Both are local, and both are stripped of their time, so the difference
     // cannot be pushed off by the hour the raw timestamps disagree about.
     final today = DateTime(now.year, now.month, now.day);
     final lastDay = DateTime(end.year, end.month, end.day);
     return lastDay.difference(today).inDays;
   }
+
+  /// [daysUntilExpiryAt] against the wall clock.
+  ///
+  /// **A screen that can age its own readings must not use this.** Every
+  /// caller that renders is handed one (`SubscriptionScreen.clock`), and the
+  /// screen's once-a-minute ageing timer means the two answers can be live on
+  /// one screen at the same time — a band that moved to «قبل دقيقة» above a
+  /// card still holding the count computed at build time. Keep this for code
+  /// with no clock of its own; prefer [daysUntilExpiryAt] the moment there is
+  /// one to pass.
+  int? get daysUntilExpiry => daysUntilExpiryAt(DateTime.now());
 
   /// The Arabic sentence that says when the paid months run out, or null when
   /// there is nothing to say.
@@ -241,10 +251,10 @@ class SubscriptionStatus {
   /// day is «يوم», two are «يومين», three to ten «أيام», and eleven and up
   /// are counted singular again. Printing one fixed noun for every count is
   /// the mistake this line used to make.
-  String? get expiryCountdownAr {
+  String? expiryCountdownArAt(DateTime now) {
     final end = subscriptionEndDateLabel(expiresAtLocal);
     if (end == null) return null;
-    final days = daysUntilExpiry;
+    final days = daysUntilExpiryAt(now);
     if (days == null || days < 1 || days > maxCountedDays) {
       return 'ينتهي الاشتراك في $end';
     }
@@ -255,6 +265,9 @@ class SubscriptionStatus {
     // «بعد 1 يوماً» and one two days out read «بعد 2 يوماً».
     return 'ينتهي الاشتراك بعد ${arabicCounted(days, 'يوم', two: 'يومين', few: 'أيام')} — $end';
   }
+
+  /// [expiryCountdownArAt] against the wall clock. See [daysUntilExpiry].
+  String? get expiryCountdownAr => expiryCountdownArAt(DateTime.now());
 
   /// `انتهى الاشتراك في 2026-01-01` — the day a paid plan ran out, or null
   /// when there is nothing to say.
@@ -279,11 +292,16 @@ class SubscriptionStatus {
 
   /// A paid plan that passes its expiry date is expired even if the row still
   /// says active; the server re-checks, and so does the card.
-  bool get isExpired {
+  bool isExpiredAt(DateTime now) {
     final end = expiresAtLocal;
     if (end == null) return false;
-    return end.isBefore(DateTime.now());
+    return end.isBefore(now);
   }
+
+  /// [isExpiredAt] against the wall clock. See [daysUntilExpiry] — this is the
+  /// one that decides whether a man is told his paid plan still runs, so a
+  /// screen that was handed a clock must ask the question against it.
+  bool get isExpired => isExpiredAt(DateTime.now());
 
   factory SubscriptionStatus.fromJson(Map<String, dynamic> json) =>
       SubscriptionStatus(
