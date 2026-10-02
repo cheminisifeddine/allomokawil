@@ -14663,3 +14663,120 @@ Also still open: `NO ROOM` is a real state on this box, not a theoretical one �
 it answered twice this tick and memory fell 889 -> 721 MB while nothing was
 building. The two big processes (876 MB between them) are the agent and the
 host supervisor; neither is ours to kill.
+
+## Tick 2 Oct 2026 (8th) — the `created_at` audit, and the `NO ROOM` box
+
+**Item: the frozen `created_at` fixtures — AUDITED, and the backlog's own
+numbers for them were wrong.** No Dart shipped this tick; the gate said
+`NO ROOM` and stayed there (below).
+
+### The audit: 9 files, and the real risk is not where the list said
+
+The standing item, unactioned for seven ticks, asked for the 28 absolute
+`created_at` fixtures across 9 files to be defused "before one feeds a time-ago
+label". Measured, per file, all four timestamp columns (`created_at`,
+`updated_at`, `last_message_at`, `read_at`), not just `created_at`:
+
+| file | frozen stamps |
+| --- | --- |
+| `chat_outbox_test.dart` | 1 |
+| `chat_timeline_test.dart` | 2 |
+| `header_trust_wiring_test.dart` | 1 |
+| `notification_center_test.dart` | 3 |
+| `outbox_eviction_test.dart` | 2 |
+| `review_date_and_order_test.dart` | 3 |
+| `unconfirmed_pip_test.dart` | 1 |
+| `unread_round_trip_test.dart` | 1 |
+| **total** | **14, not 28** |
+
+**The 28 was a guess that survived four ticks of being repeated.** Every one of
+the 28 in the older list is a `created_at`; the `updated_at` values sitting on
+the same rows were never counted, and counting them the other way — listing
+line numbers instead of occurrences — inflates a fixture into several. 14 is
+the number of *frozen stamps*. Across all of `test/` the real census is **204
+absolute `created_at` literals in 110 files**, so the named 9 were never a
+closed set either.
+
+**And they are all inert, for a reason the older entry had backwards.** Every
+one of the 14 is a `created_at`/`updated_at` on a **user** or **project** row
+(`_me`, `_sessionUser`, `_project`), and `User`/`Project` never date anything —
+no `relativeTimeAr`, no `chatDayLabel`, no `readAgeAr` reads them. The surfaces
+that *do* date are fed from three other columns (`n.createdAt`, `r.createdAt`,
+`conv.lastMessageAt`), and the fixtures feeding **those** are already relative:
+`notification_center_test.dart` does not stamp `2026-09-11` at all, its `_row`
+defaults to `_stamp(Duration(hours: 3))` — three hours ago, computed at run
+time. So the tests that assert «قبل» are already wall-clock-safe, and the frozen
+ones are frozen on columns nobody renders. **Defusing 14 inert fixtures would
+have been work with no defect behind it**, and doing it "before one feeds a
+label" was the right instinct attached to the wrong columns.
+
+### The real finding: a tile that cannot be tested, because it ignores its clock
+
+Reading the three call sites that date a row to check whether a frozen fixture
+could reach them turned up the actual defect this item was standing next to.
+
+`chat_list_screen.dart:529` calls
+
+```dart
+relativeTimeAr(conv.lastMessageAt),   // no `now:`
+```
+
+while the **same widget** measures its stale band eleven lines above against its
+own injected clock (`staleInboxLineWithAgeAr(..., now: _now())`, line 385), and
+declares that clock explicitly for this purpose: *"The band has to say how old
+its rows are, and a widget test that could only photograph the silent case
+would pass against a screen that never dated anything at all"* (line 61). The
+tile therefore dates its row against `DateTime.now()` — the **system** clock —
+on a screen that has been handed a different one.
+
+In the app `clock` is null and the two agree, so **this is invisible in
+production and unreachable from every existing test**: no file pumps
+`ChatListScreen` and asserts the tile's timestamp. `stale_inbox_age_test.dart`
+pins a clock for this screen and asserts only the *band*, nine lines up. That is
+precisely the fuse the `created_at` audit was opened to defuse, on the surface
+it was aimed at — the tile's one printed output could not be asserted, so any
+regression in it would be silent.
+
+`chat_screen.dart:1000` is the same shape and *not* a defect: it is
+`chatDayLabel(at!)`, and that screen's injectable is `clockFormat` (a
+`String Function(DateTime)` for the bubble's own hour), a different seam. Flagged
+so a later tick does not "fix" it.
+
+### The red test is written and staged — **not committed**, because the box said no
+
+`.git/chat_tile_clock.patch` (1947 bytes, `test/stale_inbox_age_test.dart`,
++29) asserts the tile measures against the injected clock: the fixture row is
+stamped `10:00`, the injected clock is `11:00`, the honest answer is the
+singular hour arm «قبل ساعة». Against today's code that answers «قبل 3 أيام»
+from the system clock (3 Oct vs the 29 Sep fixture) — **red for the right
+reason**: the wrong clock, not a wrong number.
+
+It is staged rather than committed because committing a test nobody has run
+would ship exactly what the `as String?` family learned not to: the loop's own
+rule is a red build is never shipped, and an unrun test is an unproven one. The
+tree is **clean** and the patch is one file for the next tick to apply and run
+when the gate is clear.
+
+### Why nothing shipped: `NO ROOM` was not an oscillation, it was a decline
+
+`build_gate.py` answered `NO ROOM` four times this tick and the memory trend
+refutes the previous two ticks' reading that it "clears on its own":
+
+    824 -> 1082 -> 1032 -> 496 -> 488 MB available
+
+That mid-tick **rise to 1082 MB was a peak, not a recovery** — it sampled one
+spot above the floor. The floor has been falling all tick (824 -> 488 over
+~20 min) while **nothing is building**: no JVM, no `flutter_tester`, no browser.
+The two big processes are 502 MB (the Hermes agent) and 377 MB (the host
+supervisor), both 2 hours old and both not ours to kill. A suite run was
+measured bottoming out at 1177 MB against a 900 MB floor, so **this box cannot
+currently host a Dart gate at all** — and the difference between the gate being
+`NO ROOM` and the agent having room to run is now smaller than the run's own
+footprint. Recording the trend, not the peak: **a tick that samples the gate
+once can read a green gate on a box that has been starving for twenty minutes.**
+
+Next tick: apply `.git/chat_tile_clock.patch`, confirm red, pass `now: _now()`
+into `_ConversationTile`, confirm green, run `tool/run_tests.py` **in the
+background** (12 min > the 7-minute foreground budget), and only then tick this
+item. The fixture census above needs no Dart — 14 inert stamps on columns no
+surface renders — and is **closed**, not deferred.
