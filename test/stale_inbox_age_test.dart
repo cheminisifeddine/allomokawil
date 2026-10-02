@@ -401,4 +401,33 @@ void main() {
       expect(find.text('تعذّر جلب الرسائل'), findsNothing);
     });
   });
+
+  group('ChatListScreen — a tile dates its row on the screen\'s own clock', () {
+    testWidgets('the tile measures against the injected clock, not the wall',
+        (tester) async {
+      // The row arrives stamped at 10:00 and [now] is 11:00, so the honest
+      // answer is exactly one hour — the singular arm, «قبل ساعة».
+      final now = DateTime(2026, 9, 29, 11, 0);
+      await _boot(tester, now: () => now);
+      expect(find.text('سمير بن عمر'), findsOneWidget,
+          reason: 'the premise: a conversation tile is on screen');
+
+      // **What this pins.** The tile called `relativeTimeAr` with no `now:`,
+      // so it fell back to `DateTime.now()` — the *system* clock — while the
+      // stale band drawn nine lines above it measured against this screen's
+      // own `_now()`. In the app `clock` is null and the two agree, which is
+      // exactly why this survived review: it is invisible in the app and
+      // unreachable from a test. The wall clock is three days past the
+      // fixture, so the tile answered «قبل 3 أيام» for a message that was
+      // sent an hour ago.
+      //
+      // And that is the fuse the `created_at` audit was opened to defuse: a
+      // frozen `last_message_at` here could never be turned into an age
+      // assertion, so this surface could only ever be tested by *not* looking
+      // at the one thing it prints.
+      expect(find.text('قبل ساعة'), findsOneWidget,
+          reason: 'the tile must measure against the clock the screen was '
+              'handed, not the wall clock');
+    });
+  });
 }

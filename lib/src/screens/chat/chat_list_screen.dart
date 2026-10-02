@@ -389,6 +389,11 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     conv: conv,
                     queued: _queued[conv.id] ?? 0,
                     onTap: () => _openThread(conv),
+                    // The tile prints an age on the trailing edge, and this is
+                    // the clock the screen itself was handed. Passing it down
+                    // is what makes the number the same number as the band
+                    // above it.
+                    now: _now(),
                   );
                 },
               ),
@@ -474,10 +479,28 @@ class _ConversationTile extends StatelessWidget {
   /// Messages of this conversation the server has not stored yet.
   final int queued;
 
+  /// The clock the screen dates its stale band against. See
+  /// [ChatListScreen.clock].
+  ///
+  /// **Why the tile takes it rather than calling `DateTime.now()` itself.**
+  /// This widget is the third user of the screen's clock and the only one
+  /// that was reading the *system* clock instead: the band above it passed
+  /// `now: _now()`, and the row beside it passed nothing, so on a screen
+  /// handed a clock the two answers were minutes apart and no test could say
+  /// which was right. The failure was invisible in the app — `clock` is null
+  /// there and the two readings agree — and unasserted by every existing
+  /// test, because the only assertion anyone could write about the age was
+  /// unreachable: this row's age could not be aged.
+  ///
+  /// The system clock is still the default, so nothing changes for the app;
+  /// the seam now exists for the same reason it exists on the screen.
+  final DateTime now;
+
   const _ConversationTile({
     required this.conv,
     required this.onTap,
     this.queued = 0,
+    required this.now,
   });
 
   @override
@@ -526,7 +549,7 @@ class _ConversationTile extends StatelessWidget {
             children: [
               if (conv.lastMessageAt != null)
                 Text(
-                  relativeTimeAr(conv.lastMessageAt),
+                  relativeTimeAr(conv.lastMessageAt, now: now),
                   style: AppTheme.caption.copyWith(
                       fontSize: AppTheme.fsBadge, color: AppTheme.textMuted),
                 ),
