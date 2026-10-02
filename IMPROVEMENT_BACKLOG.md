@@ -15425,3 +15425,125 @@ the tick, and should.
       next tick should either re-run the census for a *fourth* straggler or take
       a non-clock item — the fuse this family was built to kill is spent, and
       repeating the arm a sixth time is how a loop stops finding defects.
+
+## Tick 2 Oct 2026 (11th) — the chat thread dates its dividers once and calls
+      it today for the rest of the session
+
+The previous tick closed the clock family and asked the next one to **re-run
+the census** rather than trust it. Re-run: the family's claim was right about
+the shape and wrong about the count, and the gap is where this defect was
+sitting.
+
+**The census, re-run rather than trusted.** Ten screens carry `_ageTimer`, not
+the thirteen the last note claimed, and all ten are correct — cancel-first,
+armed from `initState`, a `!mounted` guard, a `setState` with no fields
+changed. **The straggler was not a screen that forgot the arm; it was a screen
+that had no clock to arm.** `chat_screen.dart` was never in the
+`_ageTimer` list because it never had one, so any census built on that list
+could not find it. It was found by asking a different question: *which data
+helpers still reach `DateTime.now()` on their own?* `chat_time.dart:77` did,
+and its only consumer is the thread.
+
+*One method to the earlier note.* The first grep of this tick was
+`grep -rln "Timer(" lib/`, which returned **zero files** — `Timer(` does not
+match `Timer.periodic(`, and for a moment the whole family looked absent. The
+shape of the claim survived a check that appeared to refute it, which is the
+cheapest way to ship a wrong conclusion. Counting is done with
+`grep -rln "_ageTimer"` (ten) and the call sites, not a token match.
+
+**The defect.** `chatDayLabel` takes an injectable `now:` and its unit test
+pins that — `chat_timeline_test.dart` names today, yesterday and the month
+roll-over, all with the clock handed in. **The screen never passed one.** The
+call read `chatDayLabel(at!)`, so «اليوم» and «أمس» were decided against
+`DateTime.now()` inside the helper and then frozen for as long as the thread
+sat open. The redraws this screen does get come from a send, a read landing or
+a scroll into a message — never from "a day passed".
+
+This is the odd member of the family and the reason it survived three ticks
+of it: the other labels are *elapsed-time* labels, so a missing redraw shows
+up as a number that goes stale, and the fix is obvious once you know the
+pattern. These are *calendar* labels, which expire too, but at midnight, by
+someone else's clock, and nothing in the app is watching for it. A customer
+who opens a conversation in the evening, asks a contractor a question and
+comes back to it the next morning is shown every message stamped «اليوم»,
+and a message from two days back still reads «أمس» — on the one line whose
+entire job is to say how stale the thread is.
+
+*Shipped:* a `clock` seam on `ChatScreen` beside the existing `clockFormat`,
+`dart:async`, `Timer? _ageTimer`, `_armAgeTick()` from `initState`, a
+fieldless `setState` as the whole mechanism, the cancel in `dispose`, and
+`now: _now()` at the one call site. No new strings — the labels are the ones
+the thread already printed.
+
+**The two seams are different questions, and this screen already had one.**
+`clockFormat` pins the *zone* a bubble's hour is drawn in, and its own doc
+says why: `Platform.environment` is unmodifiable, so the design gate could not
+hold the screen still. It does not answer "is this today?" — that question
+lives in the data layer and was reaching for the wall clock. Pinning the hour
+and pinning the day are separate, and having the first is no reason to
+assume the second is covered.
+
+**A guard whose absence is observable, unlike its nine siblings' cousins.**
+`if (_messages.isEmpty) return;` — a thread whose first read has not landed
+draws no dividers, and a once-a-minute rebuild of an empty thread is a rebuild
+for nothing. Removing it alone turns the suite red, so unlike the retry arms
+the last tick deleted, this line earns its place.
+
+**Mutation gate — all three arms independently observable, which is not what
+the last tick got:**
+- `initState` arm **and** empty-guard removed -> **2 red**, both labelling
+  cases, on the exact label the user reads.
+- empty-guard **alone** removed -> **1 red**.
+- The two ageing cases assert the rendered label, not a build count, so they
+  fail on the string itself. The third case is the only one that counts
+  rebuilds, through the framework's own `debugOnRebuildDirtyWidget` — the
+  only way to say "this did not rebuild" is to watch it not.
+
+**The test file's first version was wrong twice, and both are recorded in it.**
+1. It scanned every `Text` on the page for «اليوم» / «أمس» and the fixture's
+   own message bodies were «أمس» and «اليوم», so it read **four** dividers off
+   a two-message thread and failed on its own fixture. That is the *third*
+   time in this repo a page-wide scan for an Arabic sentinel has measured the
+   wrong widget — `portfolio_stale_age_clock_test.dart` and
+   `profile_review_age_clock_test.dart` both learned it. The fix was not a
+   better sentinel string, it was a **Key**: `_DateDivider` now carries
+   `Key('chat-day-divider')`, so a test can aim at the divider and no scan can
+   confuse it with a bubble. The key stays in the source because the next
+   test will need it too.
+2. The build-count helper was written from memory as a recursive call to
+   itself, and the divider scanner as `widgetList<Divider>` mapping to empty
+   strings — neither type-checked its way to meaning. `flutter analyze` caught
+   the second; the first was rewritten before the gate ran. **A helper
+   written to look like a test helper is the most expensive kind of wrong.**
+
+*Evidence.* One fixture, two clocks — byte-identical payload, only the
+injected clock moves 21:00 -> 00:05. The first case moves **only** the clock:
+no `pumpWidget`, no key change, no `setState` from the test, because that is
+what actually happens when a thread is left open. The second case pins the
+correction that is easy to get wrong in the other direction: one tick turns
+*two* dividers into *different* right answers — the 12th becomes
+`12/09/2026` and the 13th becomes «أمس» — so an implementation that simply
+shifted every label by a day would fail it.
+
+*Gate:* `flutter analyze` -> **No issues found!** (7.0 s).
+`tool/run_tests.py` -> **+2042 ~3: All tests passed!** (18:26), up 3 from
++2039, 0 failed. `tool/build_gate.py` -> CLEAR before the run.
+
+*Not visual:* no pixel changed at any single instant — the label this tick
+re-reads is one the page already drew, and the bug is the *absence* of a
+redraw across a day boundary. No screenshot is claimed. No APK, no release, no
+tag: founder-gated.
+
+*Shipped `9821e3e` -> remote `97c7dd8`, both blobs verified identical.*
+
+**What the next tick should do: not a sixth arm.** The census is now closed
+*and the question that found this one is the better one.* The productive form
+was not "which screens lack a timer" — that list is exhausted, ten of ten are
+correct, and this defect was invisible to it. It was **"which data helpers
+still reach `DateTime.now()` themselves, and who calls them"** — a question
+about the seam rather than the symptom. `models/plan.dart` still has three
+(`daysUntilExpiry`, `expiryCountdownAr`, `isExpired` at lines 226/270/304);
+each is a caller asking the *model* for a date answer the way
+`profile_screen` used to, and each has a sibling `*At(clock)` beside it, so
+the question is whether every call site uses the `_At` form. That is a
+read-only census and fits a tick.
