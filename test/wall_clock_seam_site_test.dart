@@ -276,4 +276,92 @@ void main() {
     expect(readAgeAr(read, now: DateTime(2026, 9, 29, 12)), 'أمس');
     expect(readAgeAr(read, now: DateTime(2026, 9, 26, 9)), isNot('أمس'));
   });
+
+  _testOmissions();
+}
+
+// ---------------------------------------------------------------------------
+// The direction the family can still rot in, closed 2 Oct 2026 (2nd tick).
+//
+// The sweep above asks the question about **`lib/`**: does a screen pass a
+// clock it was handed? The answer is zero, and it is enforced.
+//
+// This asks the question about **`test/`**, and the two are not the same
+// check. A test that holds a fake clock and then calls a seam helper *without*
+// it is a test computing its quantity against the real machine's date — which
+// is not a flaky test, it is a *silently different* one: it passed on the day
+// it was written and will keep passing until the wall clock crosses the
+// fixture. `stats_freshness_test.dart` held exactly that, at line 319, in a
+// form that read as correct: `statsAreStale(now)` handed the screen's *current*
+// clock to the **`readAt`** slot and let the function reach the real one. It
+// asserted `isTrue` and got `true` from a 5-day difference instead of the
+// 65 minutes it meant. Nothing was red; the answer was simply about a
+// different interval than the test claimed.
+//
+// So the rule is not "pass `now:`". It is narrower, and derived: a call that
+// omits the seam **in a test that holds an injected clock** is the defect
+// shape. Both halves are discovered from the source, so a helper or a fixture
+// written after this file is covered without editing it.
+void _testOmissions() {
+  final seamNames = <String>{};
+  for (final f in _sources()) {
+    seamNames.addAll(_seamFunctions(f.readAsStringSync()).keys);
+  }
+
+  // The 19 minus the seven whose first positional parameter is a `String`:
+  // `staleXLineWithAgeAr(String error, ...)` has no stamp to date, so omitting
+  // a clock on it is not a defect and banning it would be a guard that gets
+  // deleted. Derived, not hardcoded, so a new `...LineWithAgeAr` is recognised
+  // by its shape rather than by being added to a list here.
+  final dateArity = <String>{};
+  for (final f in _sources()) {
+    final src = f.readAsStringSync();
+    _seamFunctions(src).forEach((name, at) {
+      final first = _args(src, src.indexOf('(', at)).split(',').first.trim();
+      if (first.startsWith('DateTime')) dateArity.add(name);
+    });
+  }
+
+  test('a test that holds a fake clock does not drop it at a seam call site',
+      () {
+    // The floor is **11, not 12**, and the gap is deliberate: one member being
+    // reshaped away from a date is the ordinary consequence of adding a
+    // `...LineWithAgeAr`-shaped helper, and a guard that goes red for it gets
+    // deleted on the next ordinary change. A *collapse* — four of them at once
+    // — still lands under it and was verified red before this line shipped.
+    expect(dateArity.length, greaterThanOrEqualTo(11),
+        reason: 'the dated arm of the family fell from 12 to ${dateArity.length}; '
+            'the sweep below is about to pass vacuously.\n'
+            'Present: ${(dateArity.toList()..sort()).join(', ')}');
+
+    final offenders = <String>[];
+    final files = Directory('test')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'));
+    for (final f in files) {
+      final src = f.readAsStringSync();
+      final lines = src.split('\n');
+      // A file that holds a clock at all: `clock: () => x`, `now: () => x`, or
+      // a `var now = …` it mutates. Without one, an omission is a *unit* test
+      // of the default arm, which `read_age_ar_test.dart` asserts on purpose.
+      final holds = RegExp(r'(?:clock|now|at)\s*:\s*\(\)\s*=>').hasMatch(src) ||
+          RegExp(r'\bvar\s+(?:now|_now|frozen)\s*=').hasMatch(src);
+      if (!holds) continue;
+      for (final m in RegExp(r'(?<![\w.])(\w+)\s*\(').allMatches(src)) {
+        final name = m.group(1)!;
+        if (!dateArity.contains(name)) continue;
+        final line = src.substring(0, m.start).split('\n').length;
+        if (_commented(lines[line - 1])) continue;
+        if (!RegExp(r'\bnow\s*:').hasMatch(_args(src, m.end - 1))) {
+          offenders.add('${f.path}:$line  ${lines[line - 1].trim()}');
+        }
+      }
+    }
+    expect(offenders, isEmpty,
+        reason: 'this test injects a clock into its widget and then calls a '
+            'seam helper without it, so the assertion is computed against the '
+            "real machine's date rather than the fixture's:\n"
+            '${offenders.join('\n')}');
+  });
 }

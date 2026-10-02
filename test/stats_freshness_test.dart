@@ -316,7 +316,21 @@ void main() {
     // Loud, not muted: this is the tone the app already uses on this line.
     final style = tester.widget<Text>(_freshness).style!;
     expect(style.color, AppTheme.accent);
-    expect(statsAreStale(now), isTrue);
+    // **The stamp is `start`, not `now`.** `statsAreStale`'s first parameter
+    // is the moment the numbers were *read* — `_readAt = widget.now()`, taken
+    // on the first build, which was at `start`. This line used to read
+    // `statsAreStale(now)`, handing the screen's *current* clock to the
+    // `readAt` slot and letting the function reach the real one for `now:`.
+    // It passed anyway, and for the wrong reason: the diff it computed was
+    // 27 Sep -> the actual date, not 27 Sep 12:00 -> 13:05. It would have
+    // kept passing until the wall clock moved *before* the fixture, at which
+    // point the negative-skew guard would have flipped it to `false` and the
+    // loud-tone assertion would have failed for no reason on screen. A test
+    // that computes the wrong quantity and lands on the right answer is the
+    // one kind of test nobody notices is broken.
+    expect(statsAreStale(start, now: now), isTrue);
+    // And the quantity itself, not just the boolean: 65 minutes, not 5 days.
+    expect(statsFreshnessAr(start, now: now), isNot('الآن'));
   });
 
   testWidgets('the tick re-renders the age with no re-read', (tester) async {

@@ -15635,3 +15635,149 @@ read-only census and fits a tick.
       does so knowingly — `read_age_ar_test.dart` has a case that asserts
       omitting it works, and states why — versus by accident would close the
       last direction the family can rot in. That fits a tick.
+
+## Tick 2 Oct 2026 (12th) — a test that held a fake clock and dropped it, and
+      the sweep that would have caught it
+
+The previous tick closed the `lib/` half of the wall-clock family and left one
+question: *does every **test** that omits `now:` do so knowingly, or by
+accident?* A read-only census, it said, and it fit a tick.
+
+**Census, re-run rather than trusted — and the tool was wrong twice before the
+number was.** A first parser scanned one line at a time and reported **73**
+omissions out of 101 call sites. It was wrong: it never left the line it
+started on, so every multi-line call lost its arguments and read as a bare
+`(at!)`. A second version crossed lines but did not skip comments, so the two
+files that *describe* the defect in prose counted as offenders. Both numbers
+were published to me before I looked at a single one of them. **A census that
+is wrong about its own parser is worse than no census**, because the honest
+one costs a second and the wrong one costs a false item.
+
+**The answer: 9 real omissions, 101 call sites, and exactly one is a defect.**
+
+- **4 are knowing.** `read_age_ar_test.dart:105-107` is a whole group titled
+  *"the default clock is the wall clock"* whose comment says it *proves `now`
+  is an injection point, not a requirement* — it asserts the omission **works**,
+  and `readAgeAr(null) == ''` is an identity, not a lapse. `no_empty_text_site_test.dart:152`
+  is `relativeTimeAr(null)` again, the same identity.
+- **4 were prose.** Two of them are the *file headers* of this very family's
+  tests, quoting `chatDayLabel(at!)` and `readAgeAr(a, b)` to explain the bug
+  they were written for. A helper named in a comment is not a call site — the
+  file being extended already had `_commented()` for this, and my Python did not.
+- **1 is a defect**, and it is the most expensive kind, because nothing was red.
+
+**The defect: `stats_freshness_test.dart:319` read `statsAreStale(now)`.**
+
+`statsAreStale`'s first parameter is the moment the numbers were **read** —
+`worker_home_screen.dart:2525` sets `_readAt = widget.now()` on the first
+build, which in that test was `start`. The line handed the screen's *current*
+clock to the **`readAt`** slot and let the function fall back to the real wall
+clock for `now:`. It asserted `isTrue` and got `true` — from a **five-day**
+difference (27 Sep → today) instead of the **65 minutes** it meant.
+
+So it was a green assertion about a different quantity than the one named
+beside it, and it was stable only by luck of the calendar: the day the wall
+clock passed *backwards* over the fixture, `statsAreStale`'s own negative-skew
+guard returns `false` and a correct screen would have been reported broken for
+no reason on it. **A test that computes the wrong quantity and lands on the
+right answer is the one kind of test nobody notices is broken.** Fixed to
+`statsAreStale(start, now: now)`, with the reasoning recorded in the file, plus
+an assertion on the *quantity* (`statsFreshnessAr(start, now: now)` is not
+«الآن») so the case fails on the interval rather than only on a boolean.
+
+**The census itself is now a guard, because the answer was nearly all zero.**
+`wall_clock_seam_site_test.dart` already swept `lib/`; this adds the other
+direction. The rule is **not** "pass `now:`" — `read_age_ar_test.dart` proves
+the omission is legitimate. It is: *a call that drops the seam **in a test
+that holds an injected clock**.* A pure unit test may omit freely; a test that
+injected a clock into a widget and then called a seam helper without it is
+computing its assertion against the real machine's date.
+
+Derived from the source, both halves. The **dated arm** is the twelve seam
+functions whose first positional parameter is a `DateTime`, recognised by shape
+— so the seven `staleXLineWithAgeAr(String error, …)` are excluded because
+they have no stamp to date, and a new helper is covered without editing a list.
+
+**Mutation gate — four arms, three red and one green, and the green one is the
+honest answer:**
+
+- *the original defect reintroduced* (`statsAreStale(now)`) → **red**, named
+  `test/stats_freshness_test.dart:331` with the source line quoted back;
+- *a second omission in a **different** clock-holding file*
+  (`stale_catalogue_test.dart:153`, `readAgeAr(at)`) → **red**, same message, so
+  the sweep is not a rule that only knows about the file it was born in;
+- *four dated members reshaped at once* → **red**, the vacuity floor;
+- *one member reshaped* (`statsAreStale`'s parameter → `String`) → **green, and
+  correctly so**: the floor is **11, not 12**, so a single member leaving the
+  dated arm is tolerated. That gap is a judgment, so it is argued in the file
+  rather than left as a magic number, and it was verified that the tolerance
+  does not hide a real collapse (the third arm is red). A first attempt at that
+  third arm reshaped **one** member and passed, which looked like a broken
+  floor; it was a bad mutation, and re-running it with **four** settled it.
+
+*Gate.* `flutter analyze` → **No issues found!** (6.0 s). `tool/run_tests.py` →
+**+2047 ~3: All tests passed!** (12:49), up 1 from +2046, 0 failed.
+`tool/build_gate.py` → CLEAR before the run (1479 MB).
+
+**`lib/` is byte-identical to HEAD.** The shipped fix is to a *test*; the shipped
+guard is a *test*. Nothing a user sees changed — and saying so plainly is part
+of the report, because a diff that touches only assertions looks like a
+non-tick otherwise. Not visual: no pixel changed, and no screenshot is claimed.
+No APK, no release, no tag: founder-gated.
+
+**Next:** the family is now closed in **both** directions — `lib/` passes a clock
+it holds, `test/` drops one only knowingly — and this is the third tick to say
+"not another arm of this family", so it is closed for real. The untested
+direction is **neither** file: `tool/`. `run_tests.py`, `build_gate.py` and
+`remote_state.py` are the loop's own instruments and carry date logic of their
+own; a census of whether *they* read the wall clock where a test could pin it
+is the same question one level up, and it has never been asked.
+
+- [x] **A test that held a fake clock dropped it at a seam call site, and the
+      green assertion it produced was about five days instead of sixty-five
+      minutes.**  Shipped with the sweep that would have caught it, so the
+      family is closed in **both** directions — `lib/` passes a clock it holds,
+      `test/` drops one only knowingly.
+
+      Found by the read-only census the previous tick left for this one: *do
+      the tests that omit `now:` do so knowingly, or by accident?* The census is
+      in the tick note above. **101 call sites, 9 omissions, 1 defect** — 4
+      knowing (`read_age_ar_test.dart`'s group titled *"the default clock is the
+      wall clock"*, which asserts the omission **works** and says why), 4 in
+      prose (two of them this family's own file headers quoting `chatDayLabel(at!)`
+      to explain the bug), and 1 real.
+
+      **`stats_freshness_test.dart:319` read `statsAreStale(now)`** — the screen's
+      *current* clock in the **`readAt`** slot, with the function falling back to
+      the real wall clock. It asserted `isTrue` and got `true` from a five-day
+      difference rather than the 65 minutes the fixture meant, so it was a green
+      assertion about a different quantity than the name beside it claimed.
+      Nothing was red, and nothing would have been until the wall clock moved
+      *backwards* over the fixture and the negative-skew guard flipped it to
+      `false`, failing a correct screen for no reason on it.
+
+      Fixed to `statsAreStale(start, now: now)`, reasoning recorded in the file,
+      and pinned on the **quantity** rather than the boolean.
+
+      **The census became a guard** — a clean-ish answer is exactly what one
+      later edit erases unnoticed, and this one was 8-to-1 *not* zero, which is
+      the case a reader would assume had already been swept. The rule is not
+      "pass `now:`" (`read_age_ar_test.dart` proves omission is legitimate) but
+      *"a test that holds an injected clock must not drop it at a seam call
+      site."* The dated arm (**12** of 19) is derived from each helper's first
+      parameter rather than hardcoded, which is also what excludes the seven
+      `staleXLineWithAgeAr(String error, …)` that have no stamp to date.
+
+      **Mutation gate: three arms red, one green, and the green one argued
+      rather than tuned away.** The original defect, a second omission in a
+      *different* clock-holding file, and a four-member collapse each go red by
+      name and line. A *single* member leaving the dated arm stays green on
+      purpose — the floor is 11, not 12 — and that tolerance was checked against
+      the collapse so it is slack, not blindness.
+
+      *Gate:* `flutter analyze` → **No issues found!** (6.0 s);
+      `tool/run_tests.py` → **+2047 ~3: All tests passed!** (12:49), up 1 from
+      +2046, 0 failed; `build_gate.py` → CLEAR. **`lib/` byte-identical to
+      HEAD** — the fix and the guard are both tests, so nothing a user sees
+      changed. Not visual, no screenshot claimed. No APK, no release, no tag:
+      founder-gated.
