@@ -14856,3 +14856,98 @@ passes it to `relativeTimeAr`; the call site hands it `_now()`),
 The standing `as String?` family is **complete — all five files**. The next
 unchecked item is whatever phase order puts first below; the `created_at` census
 is closed and must not be re-opened on the old "28 across 9 files" number.
+
+---
+
+## Tick 2 Oct 2026 (10th) — the plan card dated itself on the wall clock: SHIPPED
+
+**Item: the same fuse `8480b42` opened on the chat tile, found on the money
+screen — `_CurrentPlanCard` answered "is my plan still running" from
+`DateTime.now()` while the band fourteen lines above it answered "how old is
+this data" from the clock the screen was handed. Shipped.**
+
+The backlog was at **0 unchecked items** on arrival, so this was seeded from
+an audit of the class the previous tick closed, not invented.
+
+### The defect, and why it is not only untestable
+
+`SubscriptionScreen` has carried a `clock` seam since the stale-catalogue tick
+(`subscription_screen.dart:45-54`), and `_StaleBanner` ages against it at
+`:477`. `_CurrentPlanCard` never received it — it builds from
+`SubscriptionStatus`, and all three of the getters it asks
+(`isExpired`, `daysUntilExpiry`, `expiryCountdownAr`) reach `DateTime.now()`
+inside `models/plan.dart:210` and `:285`.
+
+Invisible in the app (both clocks are the system clock) and invisible to every
+existing test (the card's output could not be aged). The part that is **real**:
+
+> The screen carries a **once-a-minute ageing timer** (`_ageTimer`), so a
+> contractor watching it across a midnight boundary sees the band move to
+> «قبل دقيقة» while the card underneath keeps the answer computed at build
+> time. Two truths on one screen, one of them about how long he has paid for.
+
+### Shipped
+
+`models/plan.dart` gains `daysUntilExpiryAt` / `expiryCountdownArAt` /
+`isExpiredAt`, each taking a `DateTime`. The old getters **delegate** to them
+against `DateTime.now()` and are documented as being for callers that have no
+clock of their own — so the next reader cannot add a fourth raw call site the
+way the first three were added. The card takes `now` and threads it through.
+
+**Left deliberately alone:** `profile_screen.dart:315` (`_planSummary`) reads
+the same two getters, but that screen has **no `clock` seam at all**, so there
+is nothing to inject. Changing it is a different and larger item, not a
+drive-by.
+
+### Evidence — one fixture, two clocks, red for the right reason
+
+Server row `expires_at 2026-09-30 21:00:00`; only the injected clock moves.
+
+    before  clock 29 Sep   «منتهي» + «انتهى الاشتراك في 2026-09-30»
+    after   clock 29 Sep   «مفعّل»  + «ينتهي الاشتراك بعد يوم — 2026-09-30»
+
+Before the fix both cases printed the wall clock's (2 Oct) answer, so the
+difference this file exists to prove **was not observable at all** — which is
+the definition of the fuse. The wrong string was measured, not assumed: the
+failure prints every `Text` on screen.
+
+**Mutation:** pointing the card back at `DateTime.now` turns the file **red
+again** (`+1 -1`), so the card is the load-bearing half and not the model seam
+alone. Restored afterwards.
+
+**A fixture of my own that was wrong, recorded because it nearly shipped a
+false pass.** The first draft put the clock on the expiry day itself and
+expected 1 day. `daysUntilExpiry` counts **midnights**, so a plan ending the
+same day is legitimately **0** and the card correctly degrades to the
+date-only sentence — the test failed against *correct* code. `subscription_clock_test.dart`
+records that exact trap twice; the third instance was mine.
+
+- `flutter analyze` -> **No issues found!** (6.8 s).
+- `tool/run_tests.py` -> **+2018 ~3: All tests passed!** in **12:44**, up two
+  from 2016, **zero drop**.
+- `tool/build_gate.py` on arrival -> **CLEAR** (1997 MB available, no JVM, no
+  tester, no leaked browser). Suite run in the **background** per the previous
+  tick's standing instruction.
+- **No screenshot and no layout claim** — no user-facing string changed, so
+  nothing renders differently.
+
+### Files
+
+`lib/src/models/plan.dart` (+30/-5), `lib/src/screens/worker/subscription_screen.dart`
+(+26/-6), `test/plan_card_clock_test.dart` (new, 2 cases).
+
+### Commits
+
+`52b3640` -> remote `aeaadf2`. Verified **IN SYNC** by `remote_state.py
+--files` on identical tree `47b25d9` — **3/3 blobs MATCH**, not the helper's
+green line. Forward-only.
+
+### Next
+
+**Still 0 unchecked** — this tick seeded its own item from the audit. The same
+fuse now has exactly one reader left in the app that has no seam to inject
+into: **`profile_screen.dart:_planSummary`**, which prints «نشط حتى …» or
+«انتهت في …» for the same row of the same table that `subscription_screen` now
+dates correctly. Giving *that* screen a `clock` is the natural continuation
+and is a real item, not a chore. Do **not** re-open the `created_at` census
+(closed, 14 inert stamps) or the `as String?` family (complete, 5/5).
