@@ -16591,3 +16591,63 @@ backslash does not simply blank the next character — `\{` was one, so look for
 the others the same way: instrument a counter, list the sequences that
 actually evaluate code, and check the silent direction each time. Do **not**
 re-raise raw strings; that is closed above.
+
+---
+
+## Tick 2 Oct 2026 (11th) — the triple-CLOSE branch was ungated, so a
+## single-quoted literal closed on a run of three quotes and a real clock
+## read on the NEXT line came back clean
+
+**The backlog had no unchecked item left (209/209). This tick did not invent
+one — it finished the tick before it, which had died mid-write.** The tree was
+dirty with an orphaned fixture (`adjacent_string_literals_desync.py.fixture`,
+unreferenced by any test). Protocol step 1 says commit or stash leftovers and
+say so; the right move was to *finish the work*, and its hypothesis turned out
+to be a real defect.
+
+**The defect.** In `_stripCommentsAndStrings`, the triple-CLOSE branch was
+ungated, so it fired inside a **single**-quoted string too. Python closes a
+single-quoted string at the **first** quote of a run and treats the leftover
+`''` as the opener of the next literal; the scanner consumed all three and
+landed mid-run on the *next* literal. On three adjacent literals sharing one
+physical line the desync crossed a newline, so `SENTINEL = time.time()` on the
+next line was blanked as prose — **the clock guard reported a CLEAN box over a
+live wall-clock read**, the exact false negative it exists to prevent.
+
+Measured, not inferred: `tokenize` on the fixture gives STRING spans
+`(2,8)-(2,14)`, `(2,14)-(2,17)`, `(2,17)-(2,25)` and reports line 3 as
+NAME/OP code. The Dart scanner produced `reads=[]`.
+
+**The gate polarity was measured, and the intuitive answer is wrong.** Gating
+on `!triple` — copying the sibling single-close branch's own guard, which looks
+like the consistent thing to do — breaks **8 existing tests**, because inside a
+triple `'''` **must** close it. Only the `triple` polarity is correct. Shipped
+with the reasoning in the source so the next tick does not re-derive it.
+
+**The witness is valid Python, asserted in the test** (`ast.parse` via
+`Process.runSync`), so "the reader got it wrong" and "Python never had a
+literal here" cannot be confused — the same discipline the dead tick's
+shell-mangled fixture would have needed.
+
+**The sweep that looked like 33 bugs and was 0.** A 55-case sweep of quote runs
+found 33 lines the scanner swallows. Every one is **invalid** Python, where
+nothing is lost. Cross-checked against `tokenize` rather than assumed, so the
+33 are not a to-do list. Recorded because "33 defects" would have been a
+headline and a waste of the next three ticks.
+
+*Red before green, same tick:* reverting the gate → RED (Expected `[3]`,
+Actual `[]`); restoring → **25/25** in the file.
+
+*Gate.* `flutter analyze` → **No issues found!** (6.4s).
+`tool/run_tests.py` → **+2072 ~3, PASS in 13:00**, 0 failed — up from +2071.
+No APK, no release, no tag: founder-gated.
+
+*Commits:* local `97b88af` → remote `426b7e4`. **2/2 blobs MATCH** the real
+remote tree (`tool/remote_state.py --files`).
+
+**Next:** the *opener* is symmetric and still unfixed — a run of four or more
+quotes is only tested through the closer's leftovers, and `""""a"""` (a
+quadruple opener) lexes as ONE STRING in CPython while the scanner sees a
+triple opener plus a stray quote. Measure with `tokenize` before touching the
+guard; a quadruple opener is rarer than the triple case, so check it is not
+already handled before deciding it is worth a tick.
