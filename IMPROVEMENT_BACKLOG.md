@@ -14197,6 +14197,99 @@ not changed.
 `060370c` → remote `441fd97`. Both blobs verified against the remote tree
 (`MATCH`), not the helper's exit code. Forward-only, no force.
 
+## Item: the `as String?` family, file 3 of 5 — `project.dart` — SHIPPED
+
+`f32fbbe` -> remote `2753f8e`. Both blobs verified against the remote tree
+(`MATCH`), not the helper's exit code.
+
+### What the audit had undercalled
+
+The backlog named this file by its five *nullable* casts. **Three more were not
+nullable** — `customer_id`, `title` and `category` were `as int` / `as String`
+— so there was no null to tolerate and any other shape threw. `customer_id` is
+the sharpest: a stringified column took the **whole market page** down, because
+`_rows` found nothing readable and re-threw, so the screen answered
+«حدث خطأ غير متوقع» over a market full of work.
+
+That is the worst of the four outcomes in this family, and the reason it is
+worth a tick of its own: a lost chat row is a message missing from a thread that
+still reads as a thread, a lost notification is never drawn at all, and a lost
+project is **a job the customer cannot open and the contractor cannot quote**,
+on the first screen either of them opens.
+
+### The rule that decided every fallback: the caller, not the field
+
+This is the part the other two files in the family do not have, because none of
+their fields is written back to the server.
+
+  * **`title` is never given a placeholder.** It is drawn verbatim on the card
+    and the detail page, and the same string seeds the edit form
+    (`project_new_screen.dart:118`), so an invented «مشروع بدون عنوان» would be
+    **written back as the customer's own words** the next time he saved an edit
+    — and would sail past the form's own `_title.text.trim().isEmpty` guard
+    (`:249`). An unreadable title stays empty, which is visibly unfinished
+    rather than confidently wrong.
+  * **`category` does get its fallback**, because it already has one:
+    `Taxonomy.categoryName` answers any unknown slug with «خدمات عامة» and
+    `canonical` never leaks a raw slug into the Arabic UI. `''` and `'7'` both
+    land there.
+  * **Budgets stay nullable.** `project_new_screen.dart:120` writes
+    `budgetMin?.toString() ?? ''`, so a fabricated `0` would render in the box
+    and save a zero floor the customer never typed.
+  * **A wilaya stays a code.** `wilayaNameOrNull` returns null for a blank or
+    unknown code and `project_card.dart:59` then draws no location row at all —
+    the fix the 26 Sep «published in الجزائر» bug produced. A number *is* a
+    valid code (`16` is Algiers), so flattening is right here and only here;
+    `'9999'` still names nothing.
+
+Eight hand-written casts replaced by four readers — `_int`, `_nullableInt`,
+`_wireText`, `_text` — the same code `chat.dart` and `notification.dart`
+already keep, on purpose: three files each growing their own version of "how do
+we read a column" is how they drift apart, and the drift would be invisible.
+
+### Evidence
+
+- **Red first against the unmodified parser: +8 -20.** 20 of the 28 new tests
+  discriminate; the other 8 pin behaviour that was already right (`wilaya: ''`
+  reaching null, a genuinely empty market, a null `selected_worker_id` staying
+  null) and would pass either way. Said plainly because a guard that passes
+  against the bug is decorative.
+- New file: **28/28** green.
+- The 11 project/wilaya/diagnostics/sweep files this touches: **163/163**,
+  including `payload_coverage_test.dart`, which greps `lib/` source and is the
+  one most likely to object to a new reader.
+- Full suite via `tool/run_tests.py`: **+1963 ~3: All tests passed!** in
+  **12:36**, previous run 1935/3/0 — the 28 new tests are exactly the delta.
+- `flutter analyze` -> **No issues found!** (4.0 s).
+- No user-facing string changed and nothing was rendered, so **no screenshot**
+  and no layout claim is made.
+
+### The boundary that got sharper, not looser
+
+The parser no longer refuses a shape, so `_rows`' "nothing readable is still a
+failure" rule has exactly **one** trigger left: a row that is not a map at all
+(`_asMap` throws). That case is now pinned explicitly, because it is the last
+thing standing between a 200 and «لا توجد مشاريع» — copy that says *there are
+none* where the truth is *we could not read them*.
+
+### Two of my own tests were wrong and were corrected, not weakened
+
+Worth recording, because both asserted the *old* drop semantics as though they
+were the contract:
+
+  * "one bad row among three costs that row" — now **nothing is lost at all**.
+    A project row that parses with the columns it could read is a card the
+    customer can open, so the drop path is unreachable for this model. The
+    stronger claim is the honest one.
+  * "an unreadable wilaya names nothing" — **16 is a valid code**. Flattening it
+    is the *correct* answer; a test that demanded a number never be a code
+    would have been a rule the server's own data breaks. What matters is that
+    `'9999'` still names nothing.
+
+### Next — the `as String?` family, file 4 of 5: `quote_review.dart`
+
+`quote_review.dart:98,102,114,115,184`, then `user.dart:28,30,31`.
+
 ### Next — the `as String?` family, file 3 of 5: `project.dart`
 
 `project.dart:234,240,241,244,245` is the bigger prize of the two remaining:
