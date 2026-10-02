@@ -625,8 +625,26 @@ def reap(browsers, dry_run=False, grace=6.0, poll=0.2):
             survivors.append(pid)          # not ours to signal; never force
             continue
         killed.append(pid)
-        deadline = time.time() + grace
-        while time.time() < deadline:
+        # monotonic, NOT time.time(). This wait is the only thing that makes
+        # the exit code mean what its own docstring claims ("the wait is what
+        # makes the exit code mean something" -- without it the caller re-runs
+        # the gate, reads NO ROOM on a browser it was just told it had killed,
+        # and concludes the gate is broken). A deadline measured on the wall
+        # clock is governed by something the gate does not control and cannot
+        # observe: NTP steps it forwards and backwards, and `settimeofday` can
+        # move it either way. Forward by more than `grace` and the loop
+        # compares against a deadline that is already in the past, so the
+        # *first* comparison fails and the wait is skipped entirely -- the
+        # function returns while the browser still holds ~600 MB, which is
+        # precisely the "gate says it reaped it, memory still gone" state the
+        # docstring was written to prevent. Backward by more than `grace` and
+        # the same wait never terminates inside its own budget. Neither needs
+        # the box to be loaded; it needs the host to be in sync, which is a
+        # normal condition and not a fault.
+        # `run_tests.py` already bounds its SIGTERM grace the same way, and
+        # the two instruments are read by the same tick.
+        deadline = time.monotonic() + grace
+        while time.monotonic() < deadline:
             if not os.path.exists('/proc/%d' % pid):
                 break
             time.sleep(poll)
