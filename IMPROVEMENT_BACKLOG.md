@@ -14004,3 +14004,108 @@ class of frozen-date bomb found 28 absolute timestamps in test fixtures across
 **created_at**, so they are inert while they only drive ordering and relative
 age, but the same reasoning says a `read_age`/notification-age test built on
 one is a bomb with the same fuse. Worth its own audit.
+
+## Tick 2 Oct 2026 (6th) — the chat parsers read the payload instead of casting it
+
+**Item: the `as String?` family, file 1 of 5 — `lib/src/models/chat.dart` — SHIPPED.**
+
+The tree was **dirty on arrival** with exactly this item half-written
+(`lib/src/models/chat.dart` +118/-15 and an untracked
+`test/chat_payload_shape_test.dart`) — the previous tick ran out of clock
+mid-item. Per the protocol the leftover was finished, not restarted, and not
+stashed. It was not another writer's work: the only dirty files were the two
+this item writes, and `pgrep -c java` / `pgrep -fc "[f]lutter"` were both zero
+once the self-match was excluded (`pgrep -af "[f]lutter"` on a box with no
+flutter running still reports **1**, because the pattern matches the
+`pgrep` invocation's own command line inside the tool wrapper. **Use `pgrep -af`
+and read the line, not the count** — the count lies on an idle box, and acting
+on that lie means skipping a tick that had nothing to skip).
+
+### What it was
+
+`Conversation.fromJson` and `Message.fromJson` cast the server's JSON by hand.
+`content: json['content'] as String?` (old chat.dart:120) sits on the chat
+timeline — the app's highest-traffic screen. The reason that is not a tidy-up:
+the chat read goes through `repository._rows`, which turns a model `TypeError`
+into an `ApiException` and **drops the row**. So one cast meeting an
+unexpected shape does not cost one field. When the server answers every row
+that way, the screen shows «حدث خطأ غير متوقع» where the user's messages should
+be — a screen whose entire job is showing messages, showing none.
+
+Two wrong shapes are real here, not hypothetical:
+
+  * **a column as a string.** `_asInt` in `data/repository.dart` names it in its
+    own doc comment — "a null from a LEFT JOIN, a string from SQLite". D1 hands
+    back strings, so `json['sender_id'] as int` fails on a real server answer.
+  * **copy that is not copy.** `as String?` succeeds on a `String` and on
+    `null` and throws on an int, a map or a list.
+
+### The fix
+
+Four readers, one rule: **an unreadable field is a MISSING field.** Nothing
+throws, because every caller of `fromJson` is a list of conversations or a list
+of messages, and one unreadable row must not become a hole in a conversation.
+
+| reader | for | shape |
+| --- | --- | --- |
+| `_int` / `_nullableInt` | id columns, counts | number from JSON, numeric string from SQLite |
+| `_wireText` | a **key** (`project_id`, `message_type`) | flattening minus the literal «null» |
+| `_text` | a **label** (name, preview) | trimmed; empty -> null; never flattened into digits |
+| `_verbatimText` | **copy** (`content`, `image_url`) | the server's bytes, or nothing |
+
+`_verbatimText` is the one whose discipline is load-bearing. `Message.content`
+and `Message.imageUrl` take part in an **exact** comparison in `threadHolds` —
+which is how the outbox decides a sent message really landed before deleting
+the user's only copy — and `imageUrl` is drawn on a `!= null` branch in
+`chat_screen`. Trimming either would break delivery detection and re-send a
+delivered message; letting `''` through would fetch a picture from the URL `''`.
+So a `content` that is not a string must be **absent**, which is also what
+stops a row from claiming to be a local message's copy — the `null == null` lie
+`thread_match.dart` was written to end.
+
+**One behaviour deliberately unchanged:** `Conversation.projectId` still reads
+`''` for an absent id, because `thread_open_outcome.dart:111` compares
+`(c.projectId ?? '') == (projectId ?? '')` and a null-to-`''` swap there would
+have been a silent behaviour change on the thread-open path.
+
+### Evidence
+
+**Red first:** `test/chat_payload_shape_test.dart` against the **unmodified**
+`chat.dart` — **+2 -7** (`Expected: null / Actual: '   '`). With the fix:
+**9/9**.
+
+**Chat blast radius:** all 10 chat/thread/outbox files in one run — **91/91
+green in 0:39** (`chat_payload_shape`, `chat_timeline`, `chat_outbox`,
+`thread_open_outcome`, `chat_preview_copy`, `chat_photo_identity`,
+`chat_photo_not_lost`, `chat_not_saved`, `chat_recheck_one_verdict`,
+`chat_unconfirmed_dup`).
+
+**Full suite: 1920 passed / 3 skipped / 0 failed** in **15:34**, previous run
+**1911/3/0** — the 9 new tests are the delta. `flutter analyze` → **No issues
+found!** (7.9s).
+
+### Files
+
+`lib/src/models/chat.dart`, `test/chat_payload_shape_test.dart`. All user-facing
+copy stayed Arabic; no visual change, so no screenshot is claimed — nothing was
+rendered and no layout claim is made.
+
+### Commits
+
+`cfffe08` → remote `040ae62` (`git diff HEAD origin/main` empty after fetch,
+tree clean). Forward-only, no force.
+
+### Next — the `as String?` family, file 2 of 5: `notification.dart`
+
+`notification.dart:29,30` is the next file, and it is worth saying why it is
+not the same risk as chat: a notification is read through the same `_rows`
+path, so a shape mismatch **drops the notification entirely** and the badge
+silently under-counts — the user is told there is nothing new when there is.
+`project.dart:234,240,241,244,245` is the bigger prize after that (the project
+card, and a dropped project row is a project the user cannot open), then
+`quote_review.dart:98,102,114,115,184` and `user.dart:28,30,31`.
+
+**Still not actioned** (out of scope for one tick, unchanged from the previous
+tick): the 28 absolute `created_at` fixtures across 9 test files, listed at the
+end of the previous entry. Inert while they only drive ordering; the same
+reasoning makes them a bomb the moment one feeds a "time ago" label.
