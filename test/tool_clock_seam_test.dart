@@ -169,9 +169,41 @@ String _stripCommentsAndStrings(String src) {
           if (i + 1 < src.length && src[i + 1] == '\n') {
             out.write(' ');
             out.write('\n');
-          } else {
-            out.write('  ');
+            i += 2;
+            continue;
           }
+          // `\{` inside an f-string is NOT an escaped brace. This branch used
+          // to consume both characters for every backslash, so the `{` of a
+          // live replacement field was erased as if it were literal text --
+          // and the field's code was never handed to the sweep.
+          //
+          // Measured, not inferred. `eval('f"\\{time.time()}"', ...)` calls
+          // `time.time()` once and yields `'\\' + <the value>`: the backslash
+          // is body text and the brace still opens a field. The guard read 0
+          // calls on that line. The same holds for a raw f-string
+          // (`rf"\{time.time()}"`), because a raw prefix exempts the backslash
+          // from ending a string, not the brace from opening a field.
+          //
+          // Only the BRACE is exempted, and the backslash is left to the very
+          // next iteration. `f"\\{time.time()}"` is a different sequence
+          // again -- the first backslash escapes the second, and the brace
+          // after it still opens a field -- so the exemption is checked BEFORE
+          // the pair is consumed, not after.
+          //
+          // This arm deliberately carries no `isF` gate. A gate looks more
+          // careful, but it is measured to be unobservable: on all five
+          // vectors (f, rf, plain, raw prose, double backslash) an
+          // unconditional exemption and a gated one produce byte-identical
+          // stripped source. In a plain string the brace falls through to the
+          // bottom branch and is blanked as body anyway, because the field
+          // opener further down is already gated on `isF`. Two gates for one
+          // decision is one gate too many; the load-bearing one is kept.
+          if (i + 1 < src.length && src[i + 1] == '{') {
+            out.write(' ');
+            i += 1;
+            continue;
+          }
+          out.write('  ');
           i += 2;
           continue;
         }
@@ -228,6 +260,13 @@ String _stripCommentsAndStrings(String src) {
 /// unrelated earlier word. Raw (`r`) and bytes (`b`) prefixes need no
 /// handling here -- a backslash does not end a raw string's quote, which is
 /// exactly what the escape branch above already does.
+///
+/// That claim is now measured rather than assumed. `eval('r"\\""')` yields
+/// `'\\"'`, not `'"'`: the backslash and the quote together reach the
+/// compiler, so a raw string's quote IS escaped. The rule this function
+/// documents therefore stays unconditional, and the raw-string hypothesis the
+/// previous tick queued up is dead. The real defect was one level in: `\{`
+/// consuming the `{` of a live f-field.
 String _prefixFlags(String src, int quote) {
   var j = quote - 1;
   final end = j + 1;
@@ -1542,6 +1581,79 @@ x = time.time()
         reason: 'a lone quote is BODY inside a triple, not a terminator. This '
             'is the witness that turns the single-quote-closes arm red; '
             'without it that rule is untested and the whole fix is untested.');
+
+    // The defect this arm fixes, and the hypothesis it killed.
+    //
+    // The previous tick queued a raw-string worry: it believed `r"\""` is one
+    // string holding an escaped quote, so the unconditional escape branch was
+    // wrong for raw literals and only worked by luck. Measured on CPython
+    // 3.14: `eval('r"\""')` is `'\\"'` -- the backslash and the quote both
+    // survive to the compiler, which is exactly what the branch assumes. The
+    // hypothesis is dead, and the rule it wanted to change is correct.
+    //
+    // The real defect was one level in. Inside an f-string `\{` is not an
+    // escaped brace: `eval('f"\{time.time()}"')` calls `time.time()` once. The
+    // branch consumed both characters, so the `{` was erased and a live read
+    // was invisible to the guard.
+    //
+    // Every vector below uses Dart RAW strings, so the backslashes reach the
+    // reader exactly as Python would see them. Written as ordinary Dart
+    // strings they came out as `'\\n'` -- a literal backslash-n, not a newline
+    // -- and the case silently tested a single line.
+    const escapedBrace = r'import time' '\n' r'v = f"\{time.time()}"' '\n';
+    expect(_wallClockReadsFrom(_stripCommentsAndStrings(escapedBrace))
+            .map((h) => h.line),
+        equals([2]),
+        reason: 'the backslash is body text; the brace still opens a field, so '
+            'this is a real read on line 2. Measured on CPython 3.14: the '
+            'expression evaluates `time.time()` exactly once.');
+
+    // Same rule in a raw f-string: a raw prefix stops a backslash from ending
+    // the string, it does not stop `{` from opening a field.
+    const rawEscapedBrace =
+        r'import time' '\n' r'v = rf"\{time.time()}"' '\n';
+    expect(_wallClockReadsFrom(_stripCommentsAndStrings(rawEscapedBrace))
+            .map((h) => h.line),
+        equals([2]),
+        reason: '`rf"{...}"` (backslash-brace) evaluates the field once on '
+            'CPython 3.14, so the '
+            'guard must see it exactly like the non-raw form.');
+
+    // The exemption is scoped to `f`. Without it `\{` is an invalid escape and
+    // the whole literal is body text -- this is the false-positive direction,
+    // and it is why the arm cannot be written as an unconditional rule.
+    const plainBrace = r'x = "\{time.time()}"' '\n';
+    expect(_wallClockReadsFrom(_stripCommentsAndStrings(plainBrace)), isEmpty,
+        reason: 'a plain string never evaluates a field; a backslash-brace is '
+            'body text there. '
+            'Exempting the brace unconditionally would invent a call here.');
+
+    // And a raw string that merely NAMES the call stays prose, which is the
+    // false positive the previous tick asked me to check.
+    const rawProse = r'x = r"time.time()"' '\n';
+    expect(_wallClockReadsFrom(_stripCommentsAndStrings(rawProse)), isEmpty,
+        reason: 'a raw string literal is data, not code; nothing is evaluated.');
+
+    // A double backslash is a different sequence: the first escapes the second,
+    // and the brace after it still opens a field.
+    const dblBackslash = r'import time' '\n' r'v = f"\\{time.time()}"' '\n';
+    expect(_wallClockReadsFrom(_stripCommentsAndStrings(dblBackslash))
+            .map((h) => h.line),
+        equals([2]),
+        reason: '`f"\\{...}"` calls `time.time()` once on CPython 3.14. The '
+            'exemption must be checked before the pair is consumed, or this '
+            'reads as prose and the field is lost.');
+
+    // The same rule through a real file read, because an inline string would
+    // not exercise the reader against disk -- which is how the original defect
+    // hid. Line 9 of the fixture is a raw string NAMING the call: prose, and
+    // the guard must stay silent on it.
+    final rawFixture = _fixture('raw_fstring_escaped_brace.py.fixture');
+    expect(_wallClockReads(rawFixture).map((h) => h.line), equals([7, 8]),
+        reason: 'lines 7 and 8 are f-strings whose backslash-brace opens a '
+            'live field; '
+            'line 9 is a raw string naming the call, which is prose.\n'
+            'found ${_wallClockReads(rawFixture).map((h) => h.line)}');
 
     const foldedField = 'import time\n'
         'v = f"""x {time.\n'

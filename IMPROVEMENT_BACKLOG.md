@@ -16508,3 +16508,86 @@ contains none of them — so it has to be a fixture.
       same line, or a raw f-string. Measure before fixing, and check the
       false-positive direction (a raw string naming `time.time()` must still
       read as prose).
+
+---
+
+## Tick 2 Oct 2026 (10th) — the f-string escape rule ate the brace of a
+## live field, so a real clock read came back CLEAN
+
+**Took the last tick's `Next:` and the hypothesis in it was wrong. The bug it
+was looking for does not exist; the bug next to it did.**
+
+*Measured first, so the queued-up fear is closed rather than carried.*
+
+    exec(r'v = r"\""', {})        -> v == '\\"'    # backslash-quote, ONE string
+    exec(r'v = r"a\"b"', {})      -> v == 'a\\"b'
+    exec(r'v = r"\\"', {})        -> v == '\\\\'
+
+`r"\""` **is** one string whose body is backslash-then-quote. The escape rule is
+unconditional, and it is **correct**: the previous tick's belief that a raw
+prefix exempts the backslash was never measured, and the "works today by luck"
+framing is wrong — it works because the rule is right. The raw-string arm dies
+here, on CPython 3.14.7.
+
+*One shell-quoting trap worth writing down, because it nearly became a second
+false finding.* `eval('r"\\""')` run straight from a shell raised
+`SyntaxError: unterminated string literal` — the backslash had already been
+eaten by the shell before Python saw it. Read through `exec()` from a file, the
+same construct is valid. A negative result measured through a quoting layer is
+evidence about the quoting layer.
+
+*The real defect was one level in.* Inside an f-string `\{` is **not** an
+escaped brace. The escape branch consumed both characters for every backslash,
+so the `{` opening a replacement field was erased as literal body text and the
+field's code never reached the sweep. Six vectors, instrumented with a call
+counter, not read off a debugger:
+
+| source | evaluated `time.time()` | the guard must |
+| --- | --- | --- |
+| `f"\{time.time()}"` | **1** | catch it |
+| `rf"\{time.time()}"` | **1** | catch it |
+| `f"\\{time.time()}"` | **1** | catch it |
+| `f"{time.time()}"` (control) | 1 | catch it |
+| `"\{time.time()}"` | 0 | stay silent |
+| `r"{time.time()}"` | 0 | stay silent |
+
+All six confirm on 3.14.7. The fix exempts **only the brace** and leaves the
+backslash to the next iteration, so `f"\\{...}"` still opens its field — the
+check has to happen *before* the pair is consumed, which is the whole ordering
+of the arm.
+
+**No `isF` gate, deliberately.** Gated and ungated produce byte-identical
+stripped source on all five vectors, because the field opener further down is
+already gated on `isF` and a plain string's brace is blanked as body anyway.
+Two gates for one decision is one gate too many; the load-bearing one is kept
+and the reason is in the source.
+
+*Red before green, this time in the same tick.* The previous tick died after
+writing the fix and before gating it, so nothing here had ever been run.
+Removing the brace arm turns the vector red — `Expected: [2]`,
+`Actual: MappedListIterable<_Read, int>:[]` — and restoring it returns the file
+to **24/24**. The gate is green *and* the arm is proven load-bearing; neither
+claim rests on the other.
+
+*New fixture* `test/fixtures/raw_fstring_escaped_brace.py.fixture`, read from
+disk because an inline string would not exercise the reader against a real file
+read — which is how the original defect hid. Asserted to parse with `ast.parse`
+and its calls to land on lines 7 and 8, with line 9 a raw string naming the
+call that must stay prose.
+
+`lib/` **byte-identical to HEAD** — test-harness change, no user-visible pixels,
+no screenshot claimed. No APK, no release, no tag: founder-gated.
+
+*Gate.* `flutter analyze` -> **No issues found!** (8.6s).
+`tool/run_tests.py` -> **+2071 ~3, PASS in 16:06**, 0 failed — unchanged, not
+merely not-dropped. `tool_clock_seam_test.dart` -> **24/24**.
+
+*Commits:* code `2041959`; this note to follow. Trees/blobs verified with
+`tool/remote_state.py --files`.
+
+**Next:** the escape arm still collapses `\X` into two spaces for **every**
+`X`, and the only exception carved out is `{`. Python has more cases where a
+backslash does not simply blank the next character — `\{` was one, so look for
+the others the same way: instrument a counter, list the sequences that
+actually evaluate code, and check the silent direction each time. Do **not**
+re-raise raw strings; that is closed above.

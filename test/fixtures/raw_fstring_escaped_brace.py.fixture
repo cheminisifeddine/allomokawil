@@ -1,0 +1,10 @@
+import time
+
+
+def probe():
+    # A raw f-string: the backslash is body text, the brace still opens a
+    # field, so `time.time()` below is really called.
+    v = rf"\{time.time()}"
+    w = f"\{time.time()}"
+    prose = r"time.time()"
+    return v, w, prose
