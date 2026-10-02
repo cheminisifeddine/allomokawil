@@ -207,7 +207,27 @@ String _stripCommentsAndStrings(String src) {
           i += 2;
           continue;
         }
-        if (src.startsWith(quote * 3, i)) {
+        // A triple CLOSE only ever closes a triple, so this branch is gated
+        // on `triple`. Ungated it also fired inside a SINGLE-quoted string,
+        // where Python closes at the FIRST quote of the run -- so a run of
+        // three quotes was read as a close even though the literal standing
+        // in was opened by exactly one.
+        //
+        // Measured on `L = ''''''"'''''a'''` (three ADJACENT literals on
+        // one line, which `tokenize` reads as `''''''`, `'"'` and
+        // `''''a'''`). Inside the second literal -- a single-quoted string
+        // holding one double quote -- the scanner met `'''` and closed the
+        // literal three quotes early, landing mid-run on the next literal.
+        // Everything after it on the line was consumed as string body, and
+        // the real `SENTINEL = time.time()` on the next line was blanked as
+        // prose: the guard read CLEAN on a live wall-clock call.
+        //
+        // The direction matters. Python closes the single-quoted string at
+        // its FIRST quote and treats the leftover `''` as the opener of the
+        // next literal, so the closer has to be checked before the leftover
+        // run can be re-entered as a fresh triple. Ordering, not the guard,
+        // is what makes the two agree.
+        if (triple && src.startsWith(quote * 3, i)) {
           out.write(quote * 3);
           i += 3;
           break;
@@ -1782,5 +1802,33 @@ x = time.time()
         reason: 'time_ns is the wall clock at ns resolution and must be in '
             'the table.');
   });
+
+  test('three adjacent literals on one line did not swallow the next line', () {
+    // The fixture is three ADJACENT string literals sharing one physical
+    // line, which is legal Python and which `ast.parse` accepts -- verified
+    // from the fixture, not asserted here, so the witness cannot drift into
+    // a program the interpreter would reject.
+    final f = _fixture('adjacent_string_literals_desync.py.fixture');
+    expect(f.existsSync(), isTrue,
+        reason: 'the fixture must exist; if it was edited this case no '
+            'longer tests what it says.');
+
+    // It has to parse, or "the reader got it wrong" and "Python never had a
+    // literal here" are indistinguishable.
+    final probe = Process.runSync('python3',
+        ['-c', 'import ast,sys; ast.parse(open(sys.argv[1]).read())', f.path]);
+    expect(probe.exitCode, 0,
+        reason: 'the fixture must be VALID Python, otherwise a swallowed '
+            'line proves nothing: ${probe.stderr}');
+
+    final hits = _wallClockReads(f);
+    expect(hits.map((h) => h.line), equals([3]),
+        reason: 'SENTINEL = time.time() is real code on line 3 -- tokenize '
+            'reports it as NAME/OP tokens, not string body. Reading zero '
+            'means the string scanner closed a single-quoted literal early '
+            'and blanked the next line as prose, which is the exact '
+            'false-negative this guard exists to prevent.');
+  });
+
 }
 
