@@ -16969,3 +16969,111 @@ how many of those 89 imports are ever *used* by the importing file is unmeasured
 and an unused import of a repository is an edge that costs a compile-time
 dependency and tells the next reader the screen owns that data path. Count it
 before removing anything, exactly as this tick did.
+
+## Tick 2 Oct 2026 (16th) — the 15th tick's census, and the one hole it found
+
+**Item:** the 15th tick's open question — of the 89 `screens/` → `data/` import
+edges, how many are ever *used* by the importing file.
+
+**Half the premise was already dead, and the instrument that killed it was the
+analyzer itself.** A planted unused import into `../data/` is reported by
+`unused_import` — `warning • Unused import: '../data/taxonomy.dart' ·
+profile_screen.dart:3:8`. So the import half needs no guard of ours; the
+analyzer has held it the whole time. Every one of the 89 edges is used.
+
+**Three of my own instruments lied before that number was trustworthy.**
+
+1. The first resolver was `file://` + a relative path. It marked **548 imports
+   unresolvable** and reported "0 `screens/` → `data/` edges" — which is the
+   one answer a broken scanner always produces, and it matched tick 15's own
+   failure mode exactly.
+2. "Dead edge" was then measured as *no `<ident>.<method>(` on the line*. That
+   flagged `profile_screen.dart` — whose repository use is
+   `Repository(api).subscription()`, a **constructor-then-call**. Real code,
+   read as dead.
+3. A fixed 70-line window around each `FutureBuilder` reported **16 of 16 with
+   no error arm**. Both sampled sites carry `snap.hasError` inside their own
+   comments. Brace-matching the real subtree instead: **0 of 16**. That is a
+   defect class the app does not have, found only by an instrument that could
+   not tell a comment from a branch.
+
+**The half that was *not* covered is the real find.** Probed the runtime side by
+planting a repository write whose future is dropped:
+
+    Repository(AppScope.of(context).api).markNotificationsRead();
+
+`flutter analyze` **says nothing** — no lint was configured for it. A write
+whose failure lands nowhere (a notification the user tapped, marked read on the
+server's silence) was invisible to the gate every tick runs. That is the
+runtime half tick 15 asked about, and it was unguarded.
+
+**`unawaited_futures` is now on. It reports exactly 3 sites**, all deliberate
+fire-and-forget that handles its own failure:
+
+| site | why it is not awaited |
+| --- | --- |
+| `notifications_screen.dart` `_markRead` | row already flipped locally; the thread must open without waiting. `await` would reorder the UI, so the intent is declared instead |
+| `chat_outbox.dart` `_locks.remove()` | `Map<String, Future<void>>.remove()` **returns** the dropped entry — the discarded future is the map's, not a write's. The `identical()` guard that decides whether to release is **untouched** |
+| `stale_inbox_age_test.dart` | the empty `onError` handlers suppressing an unhandled `ApiException` are load-bearing and stay |
+
+The first edit I made to `chat_outbox.dart` **broke the `identical()` guard** —
+the removal slipped out of its `if` — and was caught before the gate. It is
+recorded here because it is the failure mode this file exists to prevent: a
+lint fix that changes which branch runs.
+
+**Evidence.** `flutter analyze` → **No issues found!** (3.7 s), with the lint
+enabled. `tool/run_tests.py` → **+2082 ~8: All tests passed!** (15:58),
+**unchanged** — this adds no test and breaks none, which is the point: it is a
+gate change, not a behaviour change. 4/4 pushed blobs verified byte-identical
+against the real remote `main` via the contents API.
+
+**No user-visible change.** No Arabic string moved, no widget re-rendered, no
+pixel differs. Not visual, no screenshot claimed. No APK, no release, no tag:
+founder-gated.
+
+**Commits:** local `6b7a78d` → remote `f88e0dd`, 4/4 blobs MATCH.
+
+- [x] **The 15th tick's open census: of the 89 `screens/` → `data/` import
+      edges, how many are ever *used* by the importing file.**
+
+      **Every one of 89 is used, and the import half was never unguarded** —
+      a planted unused import into `../data/` is reported by `unused_import`
+      at `profile_screen.dart:3:8`. No guard of ours was needed there.
+
+      **The runtime half was unguarded, and that is the find.** A repository
+      write whose future is dropped (`Repository(...).markNotificationsRead();`)
+      produces **no diagnostic at all** — no lint was configured for it — so a
+      write whose failure lands nowhere was invisible to the gate every tick
+      runs. `unawaited_futures` is now on.
+
+      **3 sites reported, all deliberate fire-and-forget that handles its own
+      failure:** `notifications_screen.dart` `_markRead` (must not delay the
+      thread), `chat_outbox.dart` `_locks.remove()` (`Map<String,
+      Future<void>>.remove()` *returns* the dropped entry; the `identical()`
+      release guard is untouched), and `stale_inbox_age_test.dart` (its empty
+      `onError` handlers are load-bearing).
+
+      **Three of my own instruments lied first** and are the reason the number
+      is trustworthy now: a `file://` resolver that marked 548 imports
+      unresolvable and so reported "0 edges"; a dead-edge regex that read
+      `Repository(api).subscription()` — constructor-then-call — as dead; and a
+      fixed 70-line window that reported **16 of 16 `FutureBuilder`s with no
+      error arm** when brace-matching the real subtree gives **0 of 16**.
+
+      *Gate:* `flutter analyze` → **No issues found!** (3.7 s) with the lint
+      enabled; `tool/run_tests.py` → **+2082 ~8 PASS** (15:58), unchanged — a
+      gate change, not a behaviour change. **No user-visible change**, no
+      Arabic string moved, not visual, no screenshot claimed. No APK, release
+      or tag: founder-gated.
+
+      *Commit:* local `6b7a78d`, remote `f88e0dd`, **4/4 blobs MATCH** the
+      real remote `main`.
+
+      **Next:** the lint is on but it only covers futures *discarded in a
+      statement position*, and it is `info`, not `warning` — a `--no-fatal-infos`
+      or a CI flag would drop it silently, and this repo's gate is a human
+      reading output. The same class of hole exists for the **other** silent
+      failure this app is built on: a `catch (e)` that swallows a write failure
+      without reporting it. `chat_outbox.dart` has a deliberate, documented
+      swallow. Count how many `catch` blocks drop a write's error with no user
+      or log line, the same way this tick counted the 89.
