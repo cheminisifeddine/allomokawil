@@ -3446,6 +3446,57 @@ it is a correctness gap that duplicates a user's data.
 ## Completed
 ## Completed
 
+## Tick 2 Oct 2026 (`a87647e`) — the notification centre dates its rows,
+## and ages them while it sits open
+
+- [x] **The one screen that already had a `clock` seam had solved only the
+      test's half of the problem with it.** The last tick closed the
+      `DateTime.now()` family behind rendered *plan* answers and predicted the
+      next item would be "a read of one specific screen, not a sweep". It was
+      right about the shape and wrong about which screen: the interesting
+      screen was not one that lacked the seam but one that **had** it.
+      `[NotificationsScreen.clock]` was added so the `15_notifications` golden
+      would stop drifting on an hour boundary and taking the whole
+      `flutter test` gate red with it — that was its whole job. Production
+      leaves it null, `_tile` calls `relativeTimeAr` against the real wall
+      clock **at build time**, and this screen rebuilds on exactly three
+      things: the first `_load`, a pull-to-refresh, and a row being marked
+      read. **None of them is "a minute passed."**
+      So the centre showed «قبل 12 دقيقة» and kept showing it to a contractor
+      reading for twenty minutes, while messages landing *during* those twenty
+      pushed the newest row's stamp forward — two rows on one screen
+      disagreeing about when they arrived, both frozen from the same build.
+      *Shipped:* `notifications_screen.dart` (+57) gains `dart:async`, a
+      `Timer? _ageTimer`, `_armAgeTick()` **re-armed from `_load`'s success**
+      rather than `initState` (before the first read there are no rows to age,
+      and re-arming rather than arming is what stops a pull-to-refresh leaving
+      two live timers), a fieldless `setState` as the whole mechanism, and the
+      cancel in `dispose` — the bell pushes this route and it can sit under the
+      project screen it opened. `test/notification_centre_clock_test.dart`
+      (new, 4 cases). No new strings.
+      *Evidence:* **one fixture, two clocks** — byte-identical payload, only the
+      clock moves 10:00 -> 12:05, and «قبل 12 دقيقة» becomes «قبل ساعتين» on a
+      row that never changed. The third case moves **only** the clock, no
+      `pumpWidget`, no key change, no `setState`, because that is what actually
+      happens when the centre sits open; before the fix that pump was a no-op.
+      *Mutation:* dropping `_armAgeTick()` from `_load` -> **+1 -2** (fails on
+      the assertion, not on a leaked timer); dropping the `dispose` cancel ->
+      **+0 -4** ("A Timer is still pending even after the widget tree was
+      disposed"). Both arms load-bearing.
+      *Gate:* `flutter analyze` -> **No issues found!** (6.4s);
+      `tool/run_tests.py` -> **+2026 ~3: All tests passed!** (14:12), up 4 from
+      2022, no drop. Commit `a87647e` -> remote `3d4f4b7`, **2/2 blobs
+      MATCH**.
+      *Not a visual change and deliberately unrendered:* no new pixels, strings
+      or layout, and `15_notifications` captures with a pinned clock
+      (`design_shots_test.dart:562`), so the tick cannot drift the baseline. A
+      screenshot would have shown the same PNG before and after; the thing that
+      changed is invisible to a screenshot by construction.
+      *The family is closed again.* `worker_profile_screen.dart`'s `_ReviewCard`
+      is the last reader with a seam and no timer — same shape, pushed route
+      rather than an `IndexedStack` child, so it rebuilds on entry but not
+      while open. That is the next item.
+
 ## Tick 2 Oct 2026 (8th) — the account row dates the plan line, and ages it
 
 - [x] **The last reader of the wall-clock getters had no `clock` seam to
