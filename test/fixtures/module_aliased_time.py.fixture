@@ -1,0 +1,5 @@
+import time as t
+import datetime as dt
+
+print(t.time())
+print(dt.datetime.now())

@@ -1,0 +1,10 @@
+from time import time as wall
+
+
+def elapsed(wall):
+    """A parameter named `wall` is not the imported clock.
+
+    The docstring quotes `wall()` on purpose: prose must not be counted here,
+    exactly as a comment quoting `time.time()` is not.
+    """
+    return wall()

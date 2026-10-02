@@ -1,0 +1,7 @@
+from time import time as wall
+from time import monotonic as mono
+from time import perf_counter as fast
+
+started = wall()
+elapsed = mono()
+measured = fast()

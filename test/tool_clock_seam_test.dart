@@ -69,6 +69,7 @@
 // (1,4)-(2,2), which is why the continuation branch is not gated on the
 // `r` prefix. An earlier draft of this fix added a raw-string escape rule and
 // the oracle killed it.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -90,7 +91,8 @@ import 'package:flutter_test/flutter_test.dart';
 /// non-empty, and the directories the loop actually runs must still be in it.
 List<File> _instruments() {
   final result = Process.runSync(
-    'git', ['ls-files', '--', '*.py'],
+    'git',
+    ['ls-files', '--', '*.py'],
     workingDirectory: Directory.current.path,
   );
   expect(result.exitCode, 0,
@@ -102,9 +104,7 @@ List<File> _instruments() {
       .where((l) => l.endsWith('.py'))
       .toList()
     ..sort();
-  return paths
-      .map((rel) => File('${Directory.current.path}/$rel'))
-      .toList();
+  return paths.map((rel) => File('${Directory.current.path}/$rel')).toList();
 }
 
 /// The directories the loop protocol actually runs Python out of.
@@ -287,15 +287,200 @@ class _Read {
   final String text;
 }
 
+/// A wall-clock read, as the **dotted attribute path that reaches it**.
+///
+/// Modelled as a path instead of a regex so that the three ways Python lets
+/// you spell the same read land on the same entry:
+///
+///     import time                        time.time()
+///     import time as t                   t.time()
+///     from time import time              time()
+///     from time import time as wall      wall()
+///
+/// The last two were invisible: the guard recognised clocks by *literal
+/// spelling*, so `from time import time as wall` followed by `wall()` was a
+/// real wall-clock read the sweep reported as clean. Same false-negative
+/// direction as the two reader defects above -- the guard finding nothing.
+///
+/// `time.perf_counter` was in this list and is not any more. It is not a wall
+/// clock: `time.get_clock_info('perf_counter')` reports `monotonic=True,
+/// adjustable=False`. Banning it pushes the *fix* for a wall-clock bug onto
+/// the wall clock. A case below checks this table against the Python on this
+/// box, so the table is pinned by the interpreter rather than by this comment.
+const _wallClockPaths = <String>{
+  'time.time',
+  'time.time_ns',
+  'time.localtime',
+  'time.mktime',
+  'datetime.datetime.now',
+  'datetime.datetime.utcnow',
+  'datetime.datetime.today',
+  'datetime.date.today',
+};
+
+/// Modules whose functions this guard has an opinion about.
+///
+/// Bounded on purpose. Resolving an alias from an unrecognised module would
+/// mean claiming the guard knows what some third-party `now()` does, and a
+/// guard that claims more than it checks is worse than one that admits its
+/// edge.
+const _clockModules = {'time', 'datetime', 'date'};
+
+/// `moduleAlias` maps `import X as A` to `X`; `nameAlias` maps
+/// `from X import Y as A` to the path `X.Y`.
+///
+/// Collected over the **whole file**, not in order: a function body may call
+/// an alias imported below it, and that call resolves at call time, after
+/// every module-level import has run. Module-level code that used a name
+/// before importing it would be a `NameError` anyway.
+({Map<String, String> moduleAlias, Map<String, String> nameAlias})
+    _importAliases(String stripped) {
+  final moduleAlias = <String, String>{};
+  final nameAlias = <String, String>{};
+  final fromImport = RegExp(r'^\s*from\s+([A-Za-z_][\w.]*)\s+import\s+'
+      r'([A-Za-z_][\w]*)'
+      r'(?:\s+as\s+([A-Za-z_][\w]*))?');
+  final plainImport = RegExp(
+      r'^\s*import\s+([A-Za-z_][\w.]*)\s*(?:as\s+([A-Za-z_][\w]*))?\s*$');
+  for (final line in stripped.split('\n')) {
+    final m = fromImport.firstMatch(line);
+    if (m != null) {
+      final module = m.group(1)!;
+      final name = m.group(2)!;
+      final bound = m.group(3) ?? name;
+      if (_clockModules.contains(module)) {
+        nameAlias[bound] = '$module.$name';
+      }
+      continue;
+    }
+    final i = plainImport.firstMatch(line);
+    if (i != null) {
+      final module = i.group(1)!;
+      if (_clockModules.contains(module)) {
+        moduleAlias[i.group(2) ?? module] = module;
+      }
+    }
+  }
+  return (moduleAlias: moduleAlias, nameAlias: nameAlias);
+}
+
+/// Names bound a second time by something other than an import.
+///
+/// If a clock alias is also a function parameter, a local, a loop target or
+/// any other binding, `wall()` is *that* binding and the guard cannot say
+/// what it calls. It must then refuse to claim the file is clean -- see
+/// [_clockAliasSuspicion], which is the whole point of computing this.
+Set<String> _reboundNames(String stripped) {
+  final out = <String>{};
+  final param =
+      RegExp(r'^\s*def\s+[A-Za-z_][\w]*\s*\(([^)]*)\)', multiLine: true);
+  for (final m in param.allMatches(stripped)) {
+    for (final raw in m.group(1)!.split(',')) {
+      final name = raw.trim().split(RegExp(r'[:=\s]')).first;
+      if (name.isNotEmpty && RegExp(r'^[A-Za-z_]\w*$').hasMatch(name)) {
+        out.add(name);
+      }
+    }
+  }
+  final binders = [
+    RegExp(r'^\s*def\s+([A-Za-z_]\w*)\s*\(', multiLine: true),
+    RegExp(r'^\s*class\s+([A-Za-z_]\w*)', multiLine: true),
+    RegExp(r'^\s*([A-Za-z_]\w*)\s*(?:=[^=]|\+=|-=)', multiLine: true),
+    RegExp(r'\bfor\s+([A-Za-z_]\w*)\s+in\b'),
+    RegExp(r'\bas\s+([A-Za-z_]\w*)\s*:'),
+    RegExp(r'\blambda\b[^:]*\b([A-Za-z_]\w*)\s*[:,)]'),
+  ];
+  for (final re in binders) {
+    for (final m in re.allMatches(stripped)) {
+      out.add(m.group(1)!);
+    }
+  }
+  return out;
+}
+
+/// Every wall-clock read in [stripped], plus what the guard could not decide.
+///
+/// A [_ClockScan] carries both because "found nothing" and "could not tell"
+/// must not collapse into the same answer: the first is a clean file, the
+/// second is a file the sweep is blind to, and reporting the second as the
+/// first is how this guard was wrong twice already.
+class _ClockScan {
+  _ClockScan(this.hits, this.suspicions);
+  final List<_Read> hits;
+  final List<String> suspicions;
+
+  bool get isClean => hits.isEmpty && suspicions.isEmpty;
+}
+
+/// Scan already-stripped source for wall-clock reads, resolving aliases.
+_ClockScan _clockScanFrom(String stripped, [File? f]) {
+  final file = f ?? File('<source>');
+  final aliases = _importAliases(stripped);
+  final rebound = _reboundNames(stripped);
+
+  // A clock alias that is also rebound somewhere is not a clock read we can
+  // claim -- and neither is it a clean bill of health.
+  final blind = <String, String>{};
+  for (final entry in aliases.nameAlias.entries) {
+    if (rebound.contains(entry.key)) {
+      blind[entry.key] = entry.value;
+    }
+  }
+
+  final lines = stripped.split('\n');
+  final hits = <_Read>[];
+  final suspicions = <String>[];
+  final attr = RegExp(r'\b([A-Za-z_]\w*)((?:\.[A-Za-z_]\w*)+)');
+  final call = RegExp(r'\b([A-Za-z_]\w*)\s*\(');
+
+  for (var i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    var matched = false;
+
+    for (final m in attr.allMatches(line)) {
+      final root = m.group(1)!;
+      final module = aliases.moduleAlias[root] ?? root;
+      final path = '$module${m.group(2)!}';
+      if (_wallClockPaths.contains(path)) {
+        hits.add(_Read(file, i + 1, line.trim()));
+        matched = true;
+      }
+    }
+
+    // Bare `name(` only ever means something for a name we bound above from a
+    // module this guard knows -- otherwise every call in the file would be
+    // tested against the clock table.
+    for (final m in call.allMatches(line)) {
+      final name = m.group(1)!;
+      if (blind.containsKey(name)) {
+        suspicions.add('${file.path}:${i + 1}: `$name` is bound both to '
+            '${blind[name]} and to another binding on this file, so '
+            '${blind[name]} may be called as `$name()`. Looked at it by hand: '
+            '${line.trim()}');
+      } else if (aliases.nameAlias[name] != null &&
+          _wallClockPaths.contains(aliases.nameAlias[name])) {
+        hits.add(_Read(file, i + 1, line.trim()));
+        matched = true;
+      }
+    }
+    if (matched) continue;
+  }
+  return _ClockScan(hits, suspicions);
+}
+
+/// Aliases the sweep could not resolve -- never reported as clean.
+List<String> _clockAliasSuspicion(File f) =>
+    _clockScanFrom(_stripCommentsAndStrings(f.readAsStringSync()), f)
+        .suspicions;
+
 /// A wall-clock read: `time.time()`, `datetime.now()`, `date.today()`, ...
 ///
-/// Recognised by shape — the attribute/call pair — so an alias or an import
-/// that is not spelled this way is not silently claimed to be covered. The
-/// check is deliberately blind to the *module*: `time.time()` is the wall
-/// clock and `time.monotonic()` is not, and the distinction that matters is
-/// the function, not where it came from.
+/// Recognised by the **path that reaches the function**, so an import written
+/// as `from time import time as wall` counts exactly like `time.time()`, and
+/// the module a name was imported under no longer decides whether the guard
+/// can see it.
 List<_Read> _wallClockReads(File f) =>
-    _wallClockReadsFrom(_stripCommentsAndStrings(f.readAsStringSync()), f);
+    _clockScanFrom(_stripCommentsAndStrings(f.readAsStringSync()), f).hits;
 
 /// The sweep proper, over already-stripped source.
 ///
@@ -303,21 +488,8 @@ List<_Read> _wallClockReads(File f) =>
 /// produced without going back to disk -- the reader is what is under test
 /// here, and routing through a file would make every assertion in this file a
 /// test of the filesystem as well.
-List<_Read> _wallClockReadsFrom(String stripped, [File? f]) {
-  final lines = stripped.split('\n');
-  final hits = <_Read>[];
-  final readsWallClock = RegExp(
-      r'\b(?:time\.time|datetime\.now|datetime\.utcnow'
-      r'|datetime\.today|date\.today|time\.localtime|time\.mktime'
-      r'|time\.time_ns|time\.perf_counter)\b');
-  for (var i = 0; i < lines.length; i++) {
-    final line = lines[i];
-    if (readsWallClock.hasMatch(line)) {
-      hits.add(_Read(f ?? File('<source>'), i + 1, line.trim()));
-    }
-  }
-  return hits;
-}
+List<_Read> _wallClockReadsFrom(String stripped, [File? f]) =>
+    _clockScanFrom(stripped, f).hits;
 
 /// `reap()`'s own source, comments and docstrings removed.
 ///
@@ -328,8 +500,7 @@ List<_Read> _wallClockReadsFrom(String stripped, [File? f]) {
 /// this family made twice, and it is worth the three lines to never make it a
 /// third time in the same repo.
 String _reapCode() => _stripCommentsAndStrings(
-      File('${Directory.current.path}/tool/build_gate.py')
-          .readAsStringSync(),
+      File('${Directory.current.path}/tool/build_gate.py').readAsStringSync(),
     ).split('def reap(').last;
 
 void main() {
@@ -416,8 +587,7 @@ void main() {
     // Not merely "clean" — the wait must still be there, or a file with the
     // reads deleted entirely would pass this case for the wrong reason.
     final src = _stripCommentsAndStrings(f.readAsStringSync());
-    expect(RegExp(r'deadline\s*=\s*time\.monotonic\(\)').hasMatch(src),
-        isTrue,
+    expect(RegExp(r'deadline\s*=\s*time\.monotonic\(\)').hasMatch(src), isTrue,
         reason: 'the argv-read wait must still exist and be bounded on the '
             'monotonic clock; case 13 depends on it.');
   });
@@ -445,7 +615,8 @@ x = time.time()
     }
   });
 
-  test('the reader keeps a line continuation instead of eating the newline', () {
+  test('the reader keeps a line continuation instead of eating the newline',
+      () {
     // A backslash immediately before a newline is a Python line continuation:
     // the string continues and the physical line ends. The reader emitted two
     // spaces for it, which DELETED the newline, so every line after it was
@@ -479,16 +650,15 @@ x = time.time()
     // the source rather than hardcoded: the file's trailing newline makes that
     // line 3, not 2, and an assertion that hardcoded the wrong constant would
     // have failed for a reason that had nothing to do with the reader.
-    final realLine = src
-        .split('\n')
-        .indexWhere((l) => l.contains('time.time()')) +
-        1;
+    final realLine =
+        src.split('\n').indexWhere((l) => l.contains('time.time()')) + 1;
     expect(realLine, greaterThan(1),
         reason: 'the fixture must put the read AFTER the continuation.');
 
     final hits = _wallClockReads(f);
-    expect(hits.length, 1, reason: 'the wall-clock read must be found.\n'
-        '${hits.map((h) => '  ${h.line}: ${h.text}').join('\n')}');
+    expect(hits.length, 1,
+        reason: 'the wall-clock read must be found.\n'
+            '${hits.map((h) => '  ${h.line}: ${h.text}').join('\n')}');
     expect(hits.single.line, realLine,
         reason: 'a line continuation inside a string shifted every later line '
             'number down by one: the read is on source line $realLine and was '
@@ -518,7 +688,8 @@ x = time.time()
     // `{{` is an escaped brace -- literal TEXT -- and must not be mistaken for
     // the start of a field, or the brace scan runs past the end of the string
     // and eats real code that follows.
-    final braced = _stripCommentsAndStrings('x = f"{{literal}} {time.time()}"\n');
+    final braced =
+        _stripCommentsAndStrings('x = f"{{literal}} {time.time()}"\n');
     final lines = braced.split('\n');
     expect(lines[0], contains('time.time()'),
         reason: 'the real field after an escaped brace must still be seen.');
@@ -526,7 +697,8 @@ x = time.time()
         reason: 'exactly one read, not two and not zero.');
   });
 
-  test('a raw string that spans a continuation is still one line-accurate span', () {
+  test('a raw string that spans a continuation is still one line-accurate span',
+      () {
     // In `r"a\` + newline + `b"` the backslash does NOT escape anything, so
     // the literal runs to the next `"` -- across the physical line break. That
     // was verified against Python's own tokenizer rather than assumed:
@@ -537,7 +709,8 @@ x = time.time()
     // later adds a "raw strings ignore escapes" shortcut here, this goes red.
     final f = _fixture('raw_string_backslash_quote.py.fixture');
     final src = f.readAsStringSync();
-    final realLine = src.split('\n').indexWhere((l) => l.contains('time.time()')) + 1;
+    final realLine =
+        src.split('\n').indexWhere((l) => l.contains('time.time()')) + 1;
     expect(src.contains('r"a\\"b"'), isTrue,
         reason: 'the fixture must be the raw string that spans a continuation; '
             'if it was edited this case no longer tests what it says.');
@@ -550,8 +723,9 @@ x = time.time()
     // The backslash must not have been read as an escape of the closing quote,
     // which would end the string early and leak the rest of the file as code.
     final hits = _wallClockReads(f);
-    expect(hits.length, 1, reason: 'the read must still be found; ending the '
-        'raw string early would either drop it or invent others.');
+    expect(hits.length, 1,
+        reason: 'the read must still be found; ending the '
+            'raw string early would either drop it or invent others.');
     expect(hits.single.line, realLine,
         reason: 'the raw string spans the continuation, so the read after it '
             'must keep its own line number.');
@@ -575,9 +749,14 @@ x = time.time()
             'this test -- they are the shapes no tracked .py contains.');
 
     for (final f in fixtures) {
-      final tmp = File('${Directory.systemTemp.path}/${f.uri.pathSegments.last}');
+      final tmp =
+          File('${Directory.systemTemp.path}/${f.uri.pathSegments.last}');
       tmp.writeAsStringSync(f.readAsStringSync());
-      final res = Process.runSync('python3', ['-c', 'compile(open(__import__("sys").argv[1]).read(), "f", "exec")', tmp.path]);
+      final res = Process.runSync('python3', [
+        '-c',
+        'compile(open(__import__("sys").argv[1]).read(), "f", "exec")',
+        tmp.path
+      ]);
       expect(res.exitCode, 0,
           reason: '${f.path} must be valid Python (it is a fixture, not '
               'pseudocode): ${res.stderr}');
@@ -623,5 +802,151 @@ x = time.time()
     expect(body, contains('time.sleep(poll)'),
         reason: 'the poll must pace itself, not spin the box this gate exists '
             'to protect.');
+  });
+
+  test('a clock imported under another name is still a wall-clock read', () {
+    // The gap this tick closed. The guard recognised clocks by *literal
+    // spelling* -- `time.time`, `datetime.now` -- so these three lines, which
+    // are the same reads written the way Python's own docs write them, were
+    // invisible to a sweep that reported the file clean.
+    //
+    // False negative, again. The direction that hides bugs: two ticks running,
+    // both on the guard's blind spot rather than on the app.
+    //
+    // The fixture also carries the two aliases that are CORRECT code --
+    // `mono` and `fast` -- because a resolver that simply banned every
+    // aliased import would pass this case while making the guard useless. The
+    // one read must be found; the two correct ones must not.
+    final f = _fixture('aliased_wall_clock.py.fixture');
+    final src = f.readAsStringSync();
+    final realLine =
+        src.split('\n').indexWhere((l) => l.contains('= wall()')) + 1;
+    expect(realLine, greaterThan(1),
+        reason: 'the read must come after the imports it is bound by.');
+
+    final hits = _wallClockReads(f);
+    expect(hits.length, 1,
+        reason: 'exactly one real wall-clock read is in this fixture: '
+            '`wall()`. `mono()` and `fast()` are monotonic and must NOT count '
+            '-- banning them would push the fix for a wall-clock bug onto '
+            'another wall clock.\nfound ${hits.length}: '
+            '${hits.map((h) => '${h.line}: ${h.text}').join(' | ')}');
+    expect(hits.single.line, realLine,
+        reason: 'the read must be reported on the line it is actually on.');
+    expect(hits.single.text, contains('wall()'));
+  });
+
+  test('the module itself, imported under another name, is still seen', () {
+    // `import time as t; t.time()` is the same read as `import time;
+    // time.time()`, and the guard keyed on the module *spelling*, so the
+    // first was a wall-clock read it could not see.
+    final f = _fixture('module_aliased_time.py.fixture');
+    final src = f.readAsStringSync();
+    final hits = _wallClockReads(f);
+    expect(hits.length, 2,
+        reason: 'both `t.time()` and `dt.datetime.now()` are wall-clock '
+            'reads; the module alias must not hide either.\nfound '
+            '${hits.length}: '
+            '${hits.map((h) => '${h.line}: ${h.text}').join(' | ')}');
+    expect(
+        hits.map((h) => h.line),
+        containsAll(<int>[
+          src.split('\n').indexWhere((l) => l.contains('t.time()')) + 1,
+          src.split('\n').indexWhere((l) => l.contains('dt.datetime.now()')) +
+              1,
+        ]),
+        reason: 'each read must be named on its own source line.');
+  });
+
+  test('a shadowed clock alias is never reported as clean', () {
+    // The half that matters. Resolving aliases means the guard can now be
+    // wrong in a NEW way: `wall` is a parameter in this fixture, so `wall()`
+    // calls whatever was passed in -- the imported clock or not, the guard
+    // cannot say. It is therefore not a read, and it is ALSO not a clean file.
+    //
+    // Reporting it as clean would be a false negative worse than the original:
+    // the guard would be asserting coverage of a call it had just decided it
+    // could not understand. So a shadowed alias becomes a *suspicion* -- a
+    // named, human-checkable line -- instead of silence.
+    final f = _fixture('shadowed_clock_alias.py.fixture');
+    final hits = _wallClockReads(f);
+    expect(hits, isEmpty,
+        reason: 'a parameter named `wall` is not the imported clock, so this '
+            'is not a read the guard may claim.');
+
+    final blind = _clockAliasSuspicion(f);
+    expect(blind.length, 1,
+        reason: 'the guard cannot resolve this call and must say so on '
+            'exactly one line -- not read as clean.\nfound $blind');
+    expect(blind.single, contains('wall'),
+        reason: 'the report must name the binding it could not resolve.');
+    expect(blind.single, contains('${f.path}'),
+        reason: 'a suspicion with no file:line is a feeling, not a finding.');
+    // The docstring quotes `wall()` on purpose: prose is not a call.
+    expect(blind.where((b) => b.contains('The docstring quotes')), isEmpty);
+  });
+
+  test('the clock table agrees with the Python running this test', () {
+    // `_wallClockPaths` is a claim about what the wall clock is. Made from
+    // memory, it was wrong on the very first entry that could be checked:
+    // `time.perf_counter` was in the ban and is not a wall clock --
+    // `get_clock_info` reports it monotonic and non-adjustable.
+    //
+    // That matters in the real direction, not just for tidiness: a guard that
+    // bans `perf_counter` pushes the fix for a wall-clock bug onto a monotonic
+    // clock (fine) -- and a guard that trusted that list to *find* reads would
+    // have been searching for something that is not there.
+    //
+    // So the table is checked against the interpreter, not against this
+    // comment. If a future Python changes what any of these is, this goes red.
+    final res = Process.runSync('python3', [
+      '-c',
+      'import time,json\n'
+          'out={}\n'
+          'for n in ["time","perf_counter","monotonic","process_time",'
+          '"thread_time"]:\n'
+          '    ci=time.get_clock_info(n)\n'
+          '    out[n]=[ci.monotonic,ci.adjustable]\n'
+          'print(json.dumps(out))\n',
+    ]);
+    expect(res.exitCode, 0, reason: 'python3 probe failed: ${res.stderr}');
+
+    final table =
+        (jsonDecode((res.stdout as String).trim()) as Map).cast<String, List>();
+    bool isWall(String name) {
+      final row = table[name]!;
+      return row[0] == false && row[1] == true;
+    }
+
+    // A wall clock is neither monotonic nor free of a host that can step it.
+    // `time.time` is exactly that; the four below are not.
+    expect(isWall('time'), isTrue,
+        reason: 'time.time must be the wall clock: '
+            'monotonic=${table['time']![0]}, adjustable=${table['time']![1]}. '
+            'If this ever reports otherwise the guard is wrong at its root.');
+
+    for (final safe in const [
+      'perf_counter',
+      'monotonic',
+      'process_time',
+      'thread_time',
+    ]) {
+      expect(isWall(safe), isFalse,
+          reason: 'time.$safe is not a wall clock (monotonic='
+              '${table[safe]![0]}, adjustable=${table[safe]![1]}). '
+              '${safe == 'perf_counter' ? 'It WAS on the ban list until this '
+                  'tick checked it against the interpreter, and a guard that '
+                  'forbids the safe clock pushes the fix for a wall-clock bug '
+                  'onto a wall clock.' : ''}');
+      expect(_wallClockPaths.contains('time.$safe'), isFalse,
+          reason: 'time.$safe must stay off the wall-clock table.');
+    }
+
+    // `time_ns` is the same clock as `time` at nanosecond resolution, and
+    // `get_clock_info` has no entry under that name -- so it is checked by
+    // construction against `time`, not asked about directly.
+    expect(_wallClockPaths.contains('time.time_ns'), isTrue,
+        reason: 'time_ns is the wall clock at ns resolution and must be in '
+            'the table.');
   });
 }
