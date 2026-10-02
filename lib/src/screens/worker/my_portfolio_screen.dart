@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -82,6 +83,18 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
   /// very second.
   DateTime? _readAt;
 
+  /// The once-a-minute tick that re-labels the band. See [_armAgeTick].
+  ///
+  /// Null in production until the band exists, and null again the moment it is
+  /// withdrawn — this screen holds **no** timer in the healthy state, which is
+  /// the one structural difference from the nine siblings in this family and is
+  /// the reason the field lives next to [_readAt] rather than with the other
+  /// loading flags. Every one of those arms its tick the moment its first read
+  /// settles and then guards inside it; here the thing being aged is born in a
+  /// **failure**, so the tick is derived from [_stale] instead of from the
+  /// lifecycle.
+  Timer? _ageTimer;
+
   /// Whether the photos under the band are the ones the server last sent.
   ///
   /// **The field that was missing, and the whole reason this screen belonged
@@ -153,6 +166,55 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
   /// The wall clock, injectable for tests. See [MyPortfolioScreen.clock].
   DateTime _now() => (widget.clock ?? DateTime.now)();
 
+  /// Starts — or **stops** — the tick that keeps the band's age honest.
+  ///
+  /// Called from *both* ends of [_load] and derived from [_stale] rather than
+  /// from the branch that reached it, because those are the only two places
+  /// the band's existence can change, and a tick that outlived a withdrawn band
+  /// would rebuild a healthy gallery once a minute for nothing. Cancel-first,
+  /// then arm: one call site, and exactly one live timer whichever path [_load]
+  /// took, so a «تحديث» that fails and then succeeds cannot leave two of them
+  /// running.
+  ///
+  /// **The arm site is the load-bearing part of this tick.** [_armAgeTick] on
+  /// the *success* path is copied from nine siblings and is wrong here: on
+  /// success `_error` is null, so [_stale] is false and there is no band to
+  /// age. The band is drawn by the **catch** — a re-read that failed with
+  /// photos already on screen — which is the only way this screen reaches the
+  /// state it exists to render. A tick armed the sibling way would be armed
+  /// exactly when there is nothing to say and cancelled exactly when there is.
+  void _armAgeTick() {
+    _ageTimer?.cancel();
+    _ageTimer = null;
+    if (!mounted || !_stale) return;
+    _ageTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted) return;
+      // A `setState` with no fields changed is the whole mechanism: the band
+      // composes `staleGalleryLineWithAgeAr(..., now: _now())` in `build`, so
+      // re-running the build is what re-reads the clock. Not written in `build`
+      // — a timer made in `build` is a new timer every frame, and the tick
+      // multiplies.
+      //
+      // The re-check is belt to [_armAgeTick]'s braces: a pending re-read clears
+      // `_error` only when it settles, so for the length of a round trip the
+      // band is on screen and should keep ageing; a settled success has already
+      // cancelled the timer, and this only keeps the two ends agreeing.
+      if (!_stale) return;
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    // Three callers push this route (worker home twice, profile once) and it is
+    // a pushed route rather than an IndexedStack child, so an uncancelled timer
+    // outlives the trip back and fires `setState` on a dead State — the same
+    // "A Timer is still pending" failure every widget test in this repo inherits
+    // from whoever adds the timer first.
+    _ageTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -170,6 +232,10 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
         // flight for forty seconds is dated when it actually landed.
         _readAt = _now();
       });
+      // Re-armed, not armed: a «تحديث» that succeeds withdraws the band, so this
+      // call is the *cancel* in the normal case, and the re-arm only after a
+      // later read fails again.
+      _armAgeTick();
       // Read **after** the gallery is on screen, so a plan that never loads is
       // a missing progress line and not a spinner that never resolves. The two
       // are separate requests and the gallery is the one the contractor came
@@ -181,6 +247,10 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
         _loading = false;
         _error = errorCopy(e);
       });
+      // **The arm site that matters.** A failed re-read with photos on screen is
+      // the one state this screen was written for, and it is born here. See
+      // [_armAgeTick].
+      _armAgeTick();
     }
   }
 

@@ -15223,3 +15223,103 @@ No APK, no release, no tag: release stays founder-gated.
 defect, lower traffic. `worker/worker_profile_screen.dart` (`:817`, «قبل …» on
 every review card) follows it. Both are one grep from `f35c4d4`'s census, and
 both are already written four times over in this repo.
+
+---
+
+## 2 Oct 2026 — the stale-gallery band, aged (`4a9193b`)
+
+- [x] **The stale-gallery band told a contractor how old his photos were, once,
+      and then never again.** `worker/my_portfolio_screen.dart`, the stale band
+      above the gallery (`_StaleGalleryBanner`, `:458` band / `:524` compose).
+
+      **[MyPortfolioScreen.clock] was already here**, on the same terms as the
+      other nine members of this family: a screen that reads the real clock is a
+      screen whose pixels depend on when the test ran, so the seam exists to pin
+      the answer. That is all it was ever wired to. The band composes
+      `staleGalleryLineWithAgeAr(_error!, _readAt, now: _now())` **at build
+      time**, and this screen rebuilds on exactly two things: the first pair of
+      reads, and `_load()` when the user presses «تحديث». Neither of those is "a
+      minute passed".
+
+      So a contractor whose refresh failed on hotel wifi — **the one state this
+      screen exists to render** — sat reading a band that said «الصور المعروضة
+      قبل 12 دقيقة» and watched it stay «قبل 12 دقيقة» for as long as he sat
+      there. The band exists to tell him how old the photos under it are, and it
+      is the one line on the page whose answer gets *worse* the longer he looks
+      at it. He is deciding whether to spend his evening re-uploading every photo
+      he has, from a band whose timestamp is frozen at the moment he pressed the
+      button.
+
+      **Shipped:** `dart:async`, `Timer? _ageTimer`, `_armAgeTick()` from **both**
+      ends of `_load`, cancel in `dispose`.
+
+      **The arm site is the whole design of this tick, and it is the one place
+      this screen is not a copy of its nine siblings.** The band is born in a
+      **failure**, not in a read: `_stale` is `_error != null && _images
+      .isNotEmpty`, so on the success path `_error` is null, `_stale` is false,
+      and there is no band. A tick armed from the lifecycle the way nine
+      siblings arm theirs would be armed **exactly when there is nothing to say**
+      and cancelled exactly when there is. So `_armAgeTick` is derived from
+      `_stale` — the only predicate that answers "is there a band on screen right
+      now" — and called from both ends of `_load`. Cancel-first, so a «تحديث»
+      that fails and then succeeds cannot leave two live timers, which is the
+      leak this family keeps creating. The tick body also re-checks `_stale`,
+      because a pending re-read clears `_error` only when it settles and the band
+      should keep ageing for the length of a round trip.
+
+      No `initState` arm, deliberately: this screen loads from
+      `didChangeDependencies` (AppScope is an `InheritedWidget`) and the healthy
+      state holds **no** timer at all. Nine siblings hold one; this one holds zero
+      until something goes wrong.
+
+      *Two harness facts designed in rather than rediscovered:*
+      - **`_readAt` is stamped when the first read SETTLED**, so the band's age is
+        (clock at the failed refresh) − (clock at the first read). The first
+        version of this file raised the band and *then* moved the clock, which was
+        measuring a build that had already happened — nothing dirties this screen
+        between a read and the next, so the second clock was never observed at
+        all and 4 of 5 cases failed with a band carrying no age. `atRefresh` is a
+        parameter now, set **before** the tap.
+      - **`pumpAndSettle` is unusable here**, for two independent reasons: the
+        loading skeleton animates forever, and an armed periodic timer is a
+        permanent pending timer. Bounded pumps only, as the rest of this family.
+
+      **The mutation gate failed once and the fix is in the test.**
+      - *Tick never armed* → **2 cases red.** The arm-site case earns its place: it
+        asserts the tick is live *before* the success path runs, measured the same
+        way the leak is measured after, so both are numbers rather than two kinds
+        of claim.
+      - *Delete the `!_stale` guard on the arm site* → **still 5 green.** The tick's
+        own body also guards on `_stale` and returns without dirtying the tree, so
+        a leaked timer wakes once a minute and does nothing observable. The natural
+        probe — `fakeAsync.periodicTimerCount` — **does not compile**: on this
+        Flutter version `_currentFakeAsync` is private on
+        `AutomatedTestWidgetsFlutterBinding` and the framework only surfaces the
+        count in a teardown assert. So the leak is pinned as a *composition*
+        (arm-site guard **and** body guard both removed → 1 frame across 3
+        minutes, measured with a post-frame watch, not inferred from pixels), and
+        **the limit is written into the test rather than dressed up: the single
+        `!_stale` guard is not pinned by any case here.** That is the honest
+        state of it, and a future tick with time to kill should pin it properly.
+
+      Copy is asserted through the app's own `staleGalleryLineWithAgeAr` and
+      `portfolioCountLineAr`, not Arabic typed into the test — `stale_gallery_test
+      .dart` recorded the hard way what happens when a test names words the app
+      never prints.
+
+      **Gate:** `flutter analyze` -> **No issues found!** (8.5 s).
+      `tool/run_tests.py` -> **+2035 ~3: All tests passed!** (12:52), up 5 from
+      +2030, 0 failed.
+
+      **Not visual:** no pixel changed at any single instant. The label this tick
+      re-reads is one the band already drew; what changed is that a second minute
+      now renders a different sentence. The screenshot half of the protocol does
+      not apply to a screen whose bug is the *absence* of a redraw, and no
+      screenshot is claimed. No APK, no release, no tag: founder-gated.
+
+**Next:** `worker/worker_profile_screen.dart` (`:817`, «قبل …» on every review
+card) — the **last** of the three `f35c4d4` named, so the family is closed when
+it lands. Same defect, same shape written ten times over in this repo, and it has
+the same pushed-route `dispose` obligation. Its reviews are held as a parsed
+field rather than inside a `Future`, so unlike this screen it **can** guard inside
+the tick, and should.
