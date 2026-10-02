@@ -15323,3 +15323,105 @@ it lands. Same defect, same shape written ten times over in this repo, and it ha
 the same pushed-route `dispose` obligation. Its reviews are held as a parsed
 field rather than inside a `Future`, so unlike this screen it **can** guard inside
 the tick, and should.
+
+---
+
+## 2 Oct 2026 — the review dates, aged (`19a4f85`)
+
+- [x] **The contractor profile's review dates were the last frozen surface in
+      the app — on the page a customer picks a man from.**
+      `worker/worker_profile_screen.dart` (`:817`, «قبل …» on every review card).
+
+      **[WorkerProfileScreen.clock] was already here**, added so the profile
+      golden would stop drifting on an hour boundary and taking the whole
+      `flutter test` gate red with it — exactly as it was to
+      `NotificationsScreen` in `a87647e`. So this screen was one that *looked*
+      like it had solved wall-clock rendering, and it had solved only the test's
+      half of the problem. `_ReviewCard` composes `relativeTimeAr(review.createdAt,
+      now: clock?.call())` **at build time**, and the screen rebuilds on exactly
+      three things: the first pair of reads in `didChangeDependencies`,
+      «إعادة المحاولة» on the header, and either section's own retry. **None of
+      them is "a minute passed."** A customer comparing two contractors on a
+      phone — this is the page he picks one from, and the reviews are the
+      evidence he weighs — left it open twenty minutes and came back to «قبل 12
+      دقيقة» on reviews that were now forty minutes old, every card frozen from
+      the single frame the page opened on.
+
+      *Shipped:* `dart:async`, `Timer? _ageTimer`, `_armAgeTick()` from
+      `initState`, a fieldless `setState` as the whole mechanism, and the cancel
+      in `dispose`. No new strings; `_ReviewCard` stays a `StatelessWidget` —
+      the timer belongs to the page, not to a row that would each need their own.
+      `test/profile_review_age_clock_test.dart` (new, 4 cases).
+
+      **The shape question the last two ticks disagreed about, settled by
+      mutation rather than by reading.** The previous tick predicted the reviews
+      here are "a parsed field, not a `Future`" and that this screen could
+      therefore guard inside the tick. That is **false**: `_reviews` is
+      `late Future<List<Review>>` behind a `FutureBuilder`, exactly as
+      `project_detail_screen.dart`'s quotes are. So the arm belongs where
+      `project_detail` put it, and a minute spent over the reviews skeleton
+      costs one free redraw. The previous tick's *sibling* prediction
+      (`_stale`-style guard) was right for `my_portfolio`, which really does hold
+      parsed fields and really is born in a failure — the two shapes are
+      different and the note conflated them.
+
+      **A sibling arm deleted because no mutation could see it, which is the
+      point of running the gate.** The obvious shape is `project_detail`'s
+      re-arm from `_reload`, and the obvious shape **does nothing here**: nothing
+      between `initState` and `dispose` cancels the timer, so every re-arm
+      replaces a live one-minute timer with an identical one. Deleting both retry
+      arms left **all four tests green**, so they are not in the source — a call
+      no mutation can distinguish from its absence is a line that costs a reader
+      a question and answers none. `cancel`-first is kept anyway, so the next
+      screen to copy this arm inherits the safe half.
+
+      *Mutation gate, honestly counted — two arms load-bearing, one not:*
+      - `initState` arm removed -> **-1** (the tick case, on its assertion).
+      - `dispose` cancel removed -> **3 red**.
+      - tick-body `!mounted` guard removed -> **still 4 green**. Not pinned alone:
+        `dispose` already cancels, so the two are redundant by construction and
+        only one can be observed. Worth a future tick with time to kill; the
+        guard is kept as belt to the cancel's braces, exactly as
+        `project_detail_screen.dart` keeps its own.
+      - `cancel`-first removed -> **still 4 green**, for the same reason the
+        retry arms were: with one caller, cancel-first has nothing to cancel.
+
+      **The test file's own first version was wrong, and it is recorded in the
+      file.** It scanned every `Text` on the page for «ساعتين» — and
+      `response_time_hours: 2` renders «12 مشروع منجز • استجابة خلال ساعتين» in
+      the work-facts row, so the sentinel was **true on the very first build**,
+      and the case whose whole purpose is proving the timer fires passed against
+      a screen with no timer at all. It was measuring the response-time promise.
+      Assertions now read the `Key('review-when')` widget — which `_ReviewCard`
+      already carries — and `_dump` keeps the full page text for the failure
+      message. **A sentinel that also appears elsewhere on the page is not a
+      sentinel**, which is the same lesson `portfolio_stale_age_clock_test.dart`
+      learned by typing Arabic a test owned instead of calling
+      `staleGalleryLineAr`.
+
+      *Evidence.* **One fixture, two clocks** — byte-identical payload, only the
+      injected clock moves 10:00 -> 12:05. The third case moves **only** the
+      clock, no `pumpWidget`, no key change, no `setState`, because that is what
+      actually happens when the page sits open; before the fix that pump was a
+      no-op. Unauthenticated on purpose: the screen is reachable by anyone
+      browsing, so the ageing path must not depend on a signed-in session.
+
+      *Gate:* `flutter analyze` -> **No issues found!** (8.6 s).
+      `tool/run_tests.py` -> **+2039 ~3: All tests passed!** (12:32), up 4 from
+      +2035, 0 failed. `tool/build_gate.py` -> CLEAR before the run.
+
+      *Not visual:* no pixel changed at any single instant — the label this tick
+      re-reads is one the page already drew, and the bug is the *absence* of a
+      redraw. The screenshot half of the protocol does not apply, and no
+      screenshot is claimed. No APK, no release, no tag: founder-gated.
+
+      **The family is closed — all three of `f35c4d4`'s census accounted for.**
+      `project_detail_screen.dart`, `my_portfolio_screen.dart` and
+      `worker_profile_screen.dart` are the last three screens in `lib/` that
+      render a relative time without a tick; the other ten self-age and
+      `lib/src/widgets/` holds zero timers, so nothing ages anything on its own.
+      **A census is worth re-running rather than trusting: this file found the
+      previous tick's shape prediction wrong in the first five minutes.** The
+      next tick should either re-run the census for a *fourth* straggler or take
+      a non-clock item — the fuse this family was built to kill is spent, and
+      repeating the arm a sixth time is how a loop stops finding defects.

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
@@ -60,6 +62,86 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
 
   bool _scopeReady = false;
 
+  /// The once-a-minute tick that re-labels every review card.
+  ///
+  /// [_ReviewCard] composes `relativeTimeAr(review.createdAt, now:
+  /// clock?.call())` **at build time** (:817), and this screen rebuilds on
+  /// exactly three things: the first pair of reads, «إعادة المحاولة» on the
+  /// header, and either section's own retry. **None of them is "a minute
+  /// passed."**
+  ///
+  /// So a customer comparing two contractors on a phone — this is the page he
+  /// picks one from, and the reviews are the evidence he weighs — left the
+  /// profile open, came back twenty minutes later, and read «قبل 12 دقيقة» on
+  /// reviews that were now forty minutes old. Every card frozen from the
+  /// single frame the page opened on, with the header's own count and the
+  /// gallery beside them telling a different story.
+  ///
+  /// The **seam was already here** and was never the missing half: `clock` was
+  /// added to stop the profile golden drifting on an hour boundary, exactly as
+  /// it was to `NotificationsScreen`. Same fuse as the ten siblings this family
+  /// has closed so far (`profile_screen`, `subscription_screen`,
+  /// `notifications_screen`, `project_detail_screen`, `my_portfolio_screen`) —
+  /// and the last of them. A computed answer whose screen never asks the
+  /// question again.
+  ///
+  /// **Armed from the lifecycle, not from a load callback, and that is the
+  /// shape question this file had to answer.** The review list is a `Future`
+  /// behind a [FutureBuilder] — [reviews] is `_reviews`, exactly as the bid
+  /// list is a `Future` on `project_detail_screen.dart`. So the State cannot
+  /// ask "did a card land?" without duplicating the parse the builder already
+  /// does, and the arm belongs where `project_detail_screen.dart` put it:
+  /// [initState] and the retry. Arming from a hypothetical "first card arrived"
+  /// callback would parse the payload a second time to learn something the
+  /// builder already knows.
+  ///
+  /// There is no `_stale`-style predicate to gate on, and that is deliberate:
+  /// a minute spent over the reviews skeleton costs one redraw and nothing
+  /// else, because a `setState` with no fields changed is free when there is
+  /// nothing to redraw.
+  Timer? _ageTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _armAgeTick();
+  }
+
+  /// Starts the tick that keeps the review dates honest.
+  ///
+  /// **Called from [initState] and nowhere else, and that was a measured
+  /// decision rather than a tidy one.** The obvious shape is the sibling's —
+  /// `project_detail_screen.dart` re-arms from `_reload` — and the obvious
+  /// shape is wrong here, or at least does nothing: this screen has exactly
+  /// three retries (`_retry`, `_retryReviews`, `_retryPortfolio`) and **none of
+  /// them can stop the timer**, because the only place it is cancelled is
+  /// [dispose]. A tick armed once in [initState] already fires for the whole
+  /// life of the page, so every re-arm on a retry replaces a live one-minute
+  /// timer with an identical one.
+  ///
+  /// Deleting both retry arms was tried and **all four tests stayed green**
+  /// (`test/profile_review_age_clock_test.dart`), which is the only reason
+  /// they are not in the source: a call no mutation can distinguish from its
+  /// absence is a line that costs a reader a question and answers none.
+  /// Cancel-first is kept anyway, so the one caller that exists today cannot
+  /// grow a second by accident and the next screen to copy this arm has the
+  /// safe half already written.
+  ///
+  /// Not written in `build` — a timer made in `build` is a new timer every
+  /// frame and the tick multiplies.
+  void _armAgeTick() {
+    if (!mounted) return;
+    _ageTimer?.cancel();
+    _ageTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted) return;
+      // A `setState` with no fields changed is the whole mechanism: _ReviewCard
+      // reads the clock in `build`, so re-running the build is what re-reads
+      // it. The card is a `StatelessWidget` and stays one — the timer belongs
+      // to the page, not to a row that would each need their own.
+      setState(() {});
+    });
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -117,6 +199,17 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
     _portfolio = _repo.portfolioImages(widget.workerId);
     _reviews.ignore();
     _portfolio.ignore();
+  }
+
+  @override
+  void dispose() {
+    // This is a pushed route, not an `IndexedStack` child: browse, search and
+    // the chat header all push it. An uncancelled timer outlives the trip back
+    // and fires `setState` on a dead State, and the nine widget tests that
+    // drive this screen without unmounting it inherit the "A Timer is still
+    // pending" failure from whoever adds the timer first.
+    _ageTimer?.cancel();
+    super.dispose();
   }
 
   void _openChat(WorkerProfile w) {
