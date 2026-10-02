@@ -15938,3 +15938,137 @@ That is a census question, it is small, and it has never been asked.
 
       *Commit:* local `0fe5c1a`, remote `b82d60a`. **2/2 blobs MATCH** the real
       remote tree (`72a9d08…`, `d95ed078…`), read off the contents API.
+
+## Tick 2 Oct 2026 (14th) — the sweep proved a rule over a *directory*, and
+## the gate suite was outside it
+
+The 13th tick closed the wall-clock family at all three levels and named the
+question it could not answer about itself: *the sweep enumerates `tool/*.py`,
+and nothing asserts the loop's real instruments are all in `tool/`.* Read-only
+census first, as this family has taught three times now.
+
+**Census by AST walk over every tracked `.py`: 9 clock reads across 17 files,
+8 already `time.monotonic()`, 1 defect. Every one of the 8 correct ones was in
+`tool/`.** A `grep` is not a census — it counts the comment a fix writes about
+itself, and two ticks of this family published a wrong number on exactly that.
+
+**The defect: `test/build_gate_test.py:829` bounded its post-fork argv wait on
+`time.time()`.**
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
+
+Step the clock forward by more than the 5 s window *between the two reads* and
+the comparison is false on the **first** evaluation: the loop never runs,
+`port13` stays `None`, and case 13 reports `port13=None` — "the argv guard is
+broken" when the argv guard is fine and the measurement was. Measured
+directly: step 0 s → wait runs; step 5 s → skipped; step 60 s → skipped.
+Backward by more than the window and the same wait outlasts its budget.
+
+No bug is required — NTP stepping is a normal condition, which is exactly why
+no test on this box could ever have seen it. And the shape is the *same* as
+the `exec`-race that wait was originally written to fix (`Popen` returns at
+fork, and the child carries the parent's argv), reached from the clock instead
+of from the fork.
+
+**The guard was green and incomplete at the same time.** `tool/*.py` is a claim
+about where instruments are *supposed* to live, not a fact about where they
+*do*. The suite every tick runs against real processes sat 400 lines outside
+the watched directory.
+
+**Fixed to `time.monotonic()`.** The sweep now enumerates every tracked `.py`
+via `git ls-files`, not a glob — a glob also collects
+`ios/Flutter/ephemeral/flutter_lldb_helper.py`, SDK scaffolding this repo does
+not own (gitignored) and must not police. The rule is now *no wall-clock read
+in any tracked Python*, so an instrument added anywhere is covered **by
+construction** rather than by remembering to widen the glob.
+
+**A second case asserts the loop's actual instrument directories are still in
+the sweep's set.** Arm 2 is why it is needed and not decoration: narrowed back
+to `tool/*.py`, the file sweep stays **GREEN** while coverage goes red. The two
+cases catch opposite things and neither subsumes the other.
+
+**Mutation gate — four arms, all red, all catching different things:**
+
+| arm | what went red |
+| --- | --- |
+| revert the fix | **2** cases, naming `test/build_gate_test.py:845` — the file sweep *and* the pin |
+| narrow sweep to `tool/*.py` | coverage case red; **file sweep still green** |
+| new `.py` in `scripts/` | file sweep red, naming file + line |
+| delete the wait outright | red on "must still exist" — not a vacuous pass |
+
+The fourth arm exists because a case that only asserts "no wall-clock read"
+would go green the moment the reads were deleted, proving nothing about whether
+the wait survives. Pinning the *existence* of the monotonic deadline as well is
+what makes it a real contract.
+
+**Evidence.** `flutter analyze` → **No issues found!** (6.6 s).
+`tool/run_tests.py` → **+2053 ~3: All tests passed!** (15:03), up 2 from
++2051, 0 failed — exactly the two new cases. `python3 test/build_gate_test.py`
+→ **17/17 ALL PASS**, so the suite still works after being edited.
+`build_gate.py --quiet` → exit 0 before the run.
+
+**`lib/` is byte-identical to HEAD.** Defect and fix were both in `test/` — the
+guard is a test, so nothing a user sees changed and a report implying a pixel
+diff would be lying. Not visual, no screenshot claimed. No APK, no release, no
+tag: founder-gated.
+
+*Pushed and verified.* Helper printed `Pushed 2 changed -> f469396`; both blobs
+checked against the real GitHub tree off the contents API — `6816c513…`
+(`test/build_gate_test.py`) and `0ea793b2…` (`test/tool_clock_seam_test.dart`),
+**2/2 MATCH**.
+
+**Next.** The sweep is now complete by construction — every tracked `.py`, any
+directory. What it still assumes is the thing that makes it a *reader*:
+`lib/`'s half of this family was proved by a probe file, and this half still
+is, but neither half proves the **tokenizer** is sound on Python it has not
+seen. `_stripCommentsAndStrings` handles `'`/`"`/`'''`/`"""` and keeps line
+numbers; a raw string (`r"..."`), an f-string, or a backslash-continuation
+inside a docstring are shapes it may not have been exercised on. That is a
+mutation you cannot run against real code, because the code being guarded
+contains none of them — so it has to be a fixture.
+
+- [x] **The clock census's own scope was a directory, so the sweep that
+      enforced the rule could not see the gate suite — the one runner every
+      tick drives against real processes — reading the wall clock inside it.**
+
+      AST census of every tracked `.py`: **9 reads / 17 files, 8 already
+      monotonic, 1 defect.** All 8 correct reads were inside `tool/`, which is
+      why the answer looked clean.
+
+      **`test/build_gate_test.py:829` bounded its argv-read wait on
+      `time.time()`.** Forward step > 5 s between the two reads → the first
+      comparison is already false, the loop never runs, `port13` stays `None`
+      and case 13 fails as a broken argv guard when the measurement was at
+      fault. Backward step → the wait overruns. No bug needed; NTP sync is
+      normal, which is why no test here could see it.
+
+      Same shape as the `exec`-race the wait was written to fix, reached from
+      the clock instead of from the fork.
+
+      Fixed to `time.monotonic()`. Sweep widened from a `tool/*.py` glob to
+      **`git ls-files '*.py'`** — a glob would also collect
+      `ios/Flutter/ephemeral/flutter_lldb_helper.py`, gitignored SDK
+      scaffolding the repo does not own. Coverage is now by construction.
+
+      Added a case asserting the loop's instrument directories are still inside
+      the sweep's set, so an incomplete sweep **fails** rather than reading as
+      a clean box.
+
+      **Mutation: four arms, all red.** Revert → 2 cases red naming the file
+      and line. Narrow to `tool/*.py` → coverage red while the file sweep stays
+      **green**. New `.py` in `scripts/` → file sweep red. Delete the wait →
+      red, not a vacuous pass.
+
+      *Gate:* `flutter analyze` → **No issues found!** (6.6 s); `tool/run_tests.py`
+      → **+2053 ~3: All tests passed!** (15:03), up 2 from +2051, 0 failed;
+      `test/build_gate_test.py` → **17/17 ALL PASS**. **`lib/` byte-identical to
+      HEAD** — defect and fix both in `test/`, nothing a user sees changed. Not
+      visual, no screenshot claimed. No APK, no release, no tag: founder-gated.
+
+      *Commit:* local `7ab1382`, remote `f469396`. **2/2 blobs MATCH** the real
+      remote tree (`6816c513…`, `0ea793b2…`), read off the contents API.
+
+      **Next:** the tokenizer itself — `r"..."`, f-strings, backslash
+      continuations inside docstrings are shapes no guarded file contains, so
+      the reader has never been exercised on them.
