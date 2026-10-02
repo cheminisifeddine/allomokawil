@@ -16651,3 +16651,99 @@ quadruple opener) lexes as ONE STRING in CPython while the scanner sees a
 triple opener plus a stray quote. Measure with `tokenize` before touching the
 guard; a quadruple opener is rarer than the triple case, so check it is not
 already handled before deciding it is worth a tick.
+
+---
+
+## Tick 2 Oct 2026 (12th) — the subscription countdown counted 24-hour
+## PERIODS, so across a spring-forward day a contractor with three midnights
+## of paid cover left was told he had two
+
+**The backlog had no unchecked item (209/209) and this tick did not invent one.
+It audited the hint the previous tick left, found that hypothesis DEAD by
+measurement, and then went looking in the app instead of in the loop.**
+
+**First: the queued quadruple-opener hypothesis is dead.** The 11th tick left
+"a run of four quotes lexes as ONE STRING while the scanner sees a triple
+opener plus a stray quote — measure before spending a tick." Measured with
+`tokenize`: `""""a"""` *is* one STRING token, so the premise held — and the
+scanner still gets it right. Two differential sweeps, the real Dart scanner
+extracted **verbatim** into a harness (never hand-copied, so it cannot drift):
+
+* 288 exhaustive quote-run shapes (opener 1–6 × closer 1–6 × both quote chars ×
+  4 bodies × 3 trailers) — **0 mismatches**.
+* 6,000 random fuzz cases → 1,416 that are valid Python — **0 mismatches**.
+* A second, sharper oracle: "does `time.time()` survive the strip", over 2,419
+  valid cases — **0 missed, 0 spurious**.
+
+Two traps in the oracle itself, both recorded because each first produced a
+fake headline: (1) Python 3.12+ tokenises f-strings into
+`FSTRING_START/MIDDLE/END`, **not** `STRING`, so an oracle keyed on `STRING`
+alone classifies a whole f-string as code; (2) a `COMMENT` token is not
+`STRING`, so every comment line read as "code" and produced 246 false
+positives on the first fuzz run. An oracle that is wrong makes a correct
+implementation look broken — the 246 had to be killed before the 0 meant
+anything.
+
+**Then the real item.** `SubscriptionStatus.daysUntilExpiryAt` (`plan.dart`)
+did the one thing `chat_time.dart` was opened to stop:
+
+```dart
+final today   = DateTime(now.year, now.month, now.day);
+final lastDay = DateTime(end.year, end.month, end.day);
+return lastDay.difference(today).inDays;   // <- a 24-hour PERIOD count
+```
+
+Stripping the clock is necessary but **not sufficient**. On a spring-forward
+day the span between two local midnights is **23 hours**, and `.inDays`
+truncates towards zero, so every span containing a clock change floors a day
+early. Measured on `TZ=Europe/Paris`, 29 Mar → 1 Apr 2026: **2 where the
+calendar says 3**. `expiryCountdownArAt` printed that number straight onto the
+subscription card.
+
+*The user-visible symptom, verbatim from the red run:*
+`Actual: 'ينتهي الاشتراك بعد يومين — 2026-04-01'` — a paying contractor told he
+has two days of cover when he has three. A one-day span across the transition
+reads **0**, which drops the countdown to the date-only sentence. This is the
+number deciding how much paid cover a man believes he has left.
+
+**Shipped as a reuse, not a rewrite.** `chat_time.dart` already answered this
+exact question in the other direction and named DST as the reason it threw away
+its own hand-rolled day index for a Julian Day Number. That rule is now the one
+held here, so one rule for "how many calendar days" is held once and the
+subscription card cannot disagree with the chat list about the same two dates.
+The regression test asserts that agreement by construction, swept across the
+whole transition window rather than at two named dates.
+
+**A test that cannot fail is not a guard, and this one nearly was.** The loop's
+gate runs on **UTC**, where two midnights are exactly 24 hours apart and the old
+rule is *accidentally correct*. Asserting there would have been green against
+the very code it exists to catch. So the DST group **skips with a reason
+naming the command that does exercise it**, and the zone is detected **by probe
+(`end.difference(start).inHours != 24`) rather than by name**. Two things this
+learned the hard way, both in the file: the short window in Europe/Paris is
+**29 → 30**, not 28 → 29 (the transition is at 02:00 on the 29th) — a first
+draft tested 28→29, which is a full 24 h, and went green in Paris while
+proving nothing. And `skip:` is typed `Object`, not `String`, because it takes
+`false` on a DST host.
+
+*Red before green:* on the reverted rule → 5 red, with `Expected: <3> Actual:
+<2>`, `Expected: <1> Actual: <0>`, and the countdown sentence quoted above.
+Restored → **9/9** in `TZ=Europe/Paris`, **4 passed + 5 skipped** on UTC.
+
+*Gate.* `flutter analyze` → **No issues found!** (3.1s).
+`tool/run_tests.py` → **+2076 ~8, PASS in 12:52**, 0 failed — up from +2072.
+
+**Files:** `lib/src/models/plan.dart` (+22/−1), new `test/plan_expiry_dst_test.dart`.
+
+**Next:** `plan.dart` imports `../data/chat_time.dart` — the **first** `models/`
+→ `data/` edge in the app (`data/chat_outbox.dart` → `models/chat.dart` is the
+other way). Legal in Dart and the analyzer is happy, but it is a new direction
+for the dependency graph and worth a deliberate decision rather than one
+inherited from a fix. Either `calendarDaysBetween` moves down to `core/` where
+both can reach it, or the edge is accepted and written down. Also unexamined:
+`isExpiredAt` compares **full instants** while `daysUntilExpiryAt` strips
+time-of-day, so on the expiry day itself the two can disagree about whether a
+paid plan is still running — untested, and it is a money surface.
+
+Commits: code `aff4d63`, this note to follow. No APK, no release, no tag:
+founder-gated.

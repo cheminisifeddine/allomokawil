@@ -14,6 +14,7 @@ library;
 
 import '../core/format/money.dart';
 import '../core/l10n/arabic_agreement.dart';
+import '../data/chat_time.dart' show calendarDaysBetween;
 import 'notification.dart' show parseServerTime;
 import 'plan_id.dart' show PlanId;
 
@@ -204,14 +205,29 @@ class SubscriptionStatus {
   ///
   /// Calendar days, not elapsed hours: the user is asking "how many days do I
   /// still have", and the answer has to be the number of midnights he crosses.
+  ///
+  /// **Counted on the calendar, not on a 24-hour period.** This used to be
+  /// `lastDay.difference(today).inDays` over two midnight-normalised dates, and
+  /// stripping the clock is necessary but not sufficient: on a spring-forward
+  /// day that span is **23 hours**, and `.inDays` truncates towards zero, so a
+  /// contractor with three midnights left was told he had **two**. Measured on
+  /// `TZ=Europe/Paris`, 28 Mar -> 31 Mar 2026: `inDays` = 2 where the calendar
+  /// says 3. [expiryCountdownArAt] printed that number straight onto the
+  /// subscription card, which is the one number deciding how much paid cover a
+  /// man believes he has left.
+  ///
+  /// `chat_time.dart` already answered this exact question, in the other
+  /// direction, and named DST as the reason its own hand-rolled index was thrown
+  /// away for a Julian Day Number. This is that file's rule, so the two do not
+  /// drift: one rule for "how many calendar days", held once.
   int? daysUntilExpiryAt(DateTime now) {
     final end = expiresAtLocal;
     if (end == null) return null;
-    // Both are local, and both are stripped of their time, so the difference
-    // cannot be pushed off by the hour the raw timestamps disagree about.
+    // Both are local, and both are stripped of their time, so the answer cannot
+    // be pushed off by the hour the raw timestamps disagree about.
     final today = DateTime(now.year, now.month, now.day);
     final lastDay = DateTime(end.year, end.month, end.day);
-    return lastDay.difference(today).inDays;
+    return calendarDaysBetween(today, lastDay);
   }
 
   /// [daysUntilExpiryAt] against the wall clock.
