@@ -14425,3 +14425,110 @@ longer than one 10-minute tick's foreground budget. It must be started with
 `background=true` and polled with `process(action='wait')` (the wait itself is
 clamped to 180 s, so it needs ~5 polls). A foreground run is killed by the tool
 at ~7 minutes and reports nothing.
+
+---
+
+## Tick 2 Oct 2026 (7th) — file 5 of 5 is **written but unvalidated**; the box
+## cannot host the gate that would let it ship
+
+**Item: the `as String?` family, file 5 of 5 — `user.dart:26-33` — TESTS
+WRITTEN, NOT SHIPPED. The parser is deliberately still the original.**
+
+### What happened
+
+The eight casts are read and the test file exists
+(`test/user_payload_shape_test.dart`, 347 lines, untracked). But
+`tool/build_gate.py` answers **NO ROOM**, so neither the red baseline nor the
+fix could be run this tick, and **nothing was committed**.
+
+```
+$ python3 tool/build_gate.py
+Memory: 700 MB available of 7936 MB, no swap; a build needs >= 900 MB
+NO ROOM — nothing is building, but only 700 MB is reclaimable and a run of
+this suite was measured to bottom out at 1177 MB. Do not start a build here.
+```
+
+This is the gate's **third** answer and it is deliberately not the same as
+`busy`. Nothing is building: `ps` shows only `hermes` (494 MB) and
+`hatch daemon` (382 MB), `pgrep -c java` is 0, there is no leaked tester and
+no leaked browser. `drop_caches` is refused (read-only `/proc`, not root), and
+memory **fell** across the tick — 889 MB -> 721 MB — so waiting does not
+reliably clear it either. The box is simply starved, and the loop's own
+build-safety rule exists to stop exactly this: a run started here would be
+OOM-killed.
+
+**The fix is NOT the gate being conservative.** A suite run is measured at
+bottoming out 1177 MB and the threshold is 900 MB; the box is 200 MB short of
+a floor it was previously passing. Two processes I did not start hold 876 MB
+between them and I did not kill either — `hatch daemon` is the host's own
+supervisor (PPID 0) and `hermes` is the agent running this tick.
+
+### Next tick: finish this item, do not restart it
+
+The staged tests are at
+`/home/hatch/.hermes/profiles/finili/cache/scratch/user_payload_shape_test.dart.staged`
+(also still untracked in the repo). Once `build_gate.py --quiet` exits 0:
+
+1. graft **only** `class UnreadableUser` onto the pristine `user.dart` so the
+   file compiles, take the **red** count against the untouched casts, then
+   discard the graft. (Stashing the model outright gives a *compile* error, not
+   reds — the same trap that made the file-4 baseline worthless.)
+2. implement the parser, run `tool/run_tests.py` **in background** (it is
+   ~12:45 and needs ~5 polls at the 180 s clamp), commit, push, tick this box.
+
+### The finding that made this file the most important of the five
+
+**`user.dart` is the only file in the family that is NOT read through
+`repository._rows`.** It has two callers and both are whole-account:
+`AuthState._session` (auth_state.dart:527) for `/api/login` and
+`/api/register`, and `AuthState._readUser` (auth_state.dart:362) for the
+session envelope read on **every launch**. So the loss is never a row — it is
+the session. "One unreadable row costs that row" is false here, which is the
+one thing the other four files' header comment would have implied.
+
+And that inverts the family rule. `quote_review.dart` put the guard at the
+draw site because the reader's `0` was a printed lie. Here the reader's `0` is
+worse: `id` is what `app.dart:90` keys the signed-in subtree on,
+`chat_screen.dart:81` compares `_me` against, and
+`notifications_screen.dart:308` resolves which side of a conversation the
+user is. **A parser that answered an unreadable `id` with `0` would restore a
+signed-in user who is nobody** — the session looks valid, every comparison is
+silently false, and nothing on screen shows it. That is worse than being
+signed out, because it is invisible. Hence `id`, `phone` and `type` throw
+`UnreadableUser`; only the optional columns are tolerant.
+
+`UserRole.from(null)` answers `customer`, and a customer is what a signed-out
+visitor is: `profile_screen.dart:87` shows a contractor his portfolio only
+when `u.type == UserRole.worker`. Defaulting a drifted role would sign a
+contractor into the wrong half of the app on every launch — so an unknown role
+is refused rather than defaulted, even though the same default is *correct* for
+a guest picking from two buttons.
+
+### Verified live, 2 Oct (this is why the tolerances are not hypothetical)
+
+```
+$ curl -s -X POST https://allomokawil.com/api/register -d '{"phone":"0550000000",
+   "email":"","full_name":"Probe Test","password":"Test12345!","role":"customer"}'
+{"token":"5db3757c…","user":{"id":430,"phone":"0550000000","email":null,
+ "full_name":"Probe Test","type":"customer","avatar_url":null,"wilaya":null,
+ "commune":null,"created_at":"2026-10-02 04:12:10"}}
+```
+
+`/api/login` answers the same shape. Two facts came out of it: the payload
+matches what `user.dart` casts, and **the server needs `full_name`, not
+`fullName`** — the app already sends the right key (`auth_state.dart:239`), so
+that is correct today, but it is the kind of drift this family is about. The
+probe account (id 430, `0550000000`) is a throwaway left on the live DB; there
+is no delete endpoint on `/api/users`, so it stays until the founder prunes it.
+
+### Not verified this tick, stated plainly
+
+No red baseline, no green run, no analyzer output, no screenshot. The parser
+in `lib/src/models/user.dart` is **byte-identical to the committed version** —
+`git checkout --` restored it after the graft was removed — so the repo's
+behaviour is unchanged and the deployed app is untouched. The 8 casts and the
+347-line test file are the only work product.
+
+**Tree IN SYNC** (`ba62d8e` local = remote, `remote_state.py` exit 0; the
+"ahead 38, behind 30" line is commit counts, not content). `allomokawil.com`
+200, API 200.
