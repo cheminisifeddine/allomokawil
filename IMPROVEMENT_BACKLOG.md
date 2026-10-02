@@ -3446,6 +3446,54 @@ it is a correctness gap that duplicates a user's data.
 ## Completed
 ## Completed
 
+## Tick 2 Oct 2026 (8th) — the account row dates the plan line, and ages it
+
+- [x] **The last reader of the wall-clock getters had no `clock` seam to
+      inject — and, worse, no timer at all.** `52b3640` closed the fuse on
+      `subscription_screen.dart`'s card and its note named this row as what was
+      left. What it did not say, because the row had no clock to give, is that
+      the seam on its own would have been **inert**: `ProfileScreen` is a child
+      of the shell's `IndexedStack` (`worker_home_screen.dart:214`), so it is
+      built once and stays mounted for the whole session and tab switches do not
+      rebuild it; `_PlanAccountRowState` issues its read exactly once, in
+      `didChangeDependencies`, and never again. `_planSummary` therefore
+      printed the answer that was true when the read landed, for as long as the
+      app stayed open — a plan that ended *during* a session kept reading
+      «نشط حتى 2026-10-01» on the one row whose entire job is to send the
+      contractor to the renewal screen. Same failure as the sibling screen, one
+      step further from a rebuild.
+      *Shipped:* `profile_screen.dart` (+63/-6) gains a `clock` seam on the
+      screen, forwarded to `_PlanAccountRow`; `_planSummary` now takes a
+      required `now:` and asks `isExpiredAt(now)`; a once-a-minute age tick is
+      armed from `initState` **and** from the retry path and cancelled in
+      `dispose`. Armed from `initState` because the row's *first* read is the
+      one that never re-issues, so a contractor who never presses retry is
+      exactly the one whose line would otherwise sit frozen all session.
+      `test/plan_row_clock_test.dart` (new, 4 cases).
+      *Evidence — one fixture, two clocks,* plus the case no screenshot can
+      show: the tick case moves **only** the clock, with no `pumpWidget`, no key
+      change and no `setState`, because that is what happens when a tab stays
+      mounted. Before the fix that pump was a no-op and the row kept the first
+      frame's sentence for the rest of the session.
+      *Mutation:* `isExpiredAt(now)` → `isExpired` → **+1 -2**; dropping
+      `_armAgeTick()` from `initState` → **+3 -1**. Both arms are load-bearing,
+      which is the answer to the seam-vs-timer question the previous tick's note
+      left open.
+      *Gate:* `flutter analyze` → **No issues found!** (8.6s);
+      `tool/run_tests.py` → **+2022 ~3: All tests passed!** (12:50), up 4 from
+      2018, no drop. `tool/build_gate.py` → **CLEAR** (1009 MB on arrival,
+      1874 MB before the suite). Commit `80a0e65` → remote `02b7324`,
+      **2/2 blobs MATCH** on tree `e7b13d8`; `remote_state.py` **IN SYNC**.
+      *The family is closed.* These are the last two `DateTime.now()` callers
+      behind a rendered plan answer: `subscription_screen.dart`'s card
+      (`52b3640`) and this row. Do not re-open `plan.dart`'s getters — they are
+      the seam, and the readers are what got fixed.
+      *Next:* there is no queued reader of a computed date left on a mounted
+      screen. A census would be the right way to find the next one, but a
+      census has already been tried twice here (`created_at`, 14 findings, and
+      the `as String?` family, 5/5) and both were closures rather than fuel —
+      so the next item is a **read** of a specific screen, not a sweep.
+
 ### Phase 0 — first-run experience: CLOSED 12 Sep
 
 All six items stay ticked in place above with their own evidence, so the detail
