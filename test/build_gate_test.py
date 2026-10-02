@@ -826,8 +826,24 @@ def main():
         # `_free_port`, reached from a different direction.
         cmd13 = ""
         port13 = None
-        deadline = time.time() + 5
-        while time.time() < deadline:
+        # monotonic, NOT time.time(). This is the same wall-clock defect that
+        # `tool/build_gate.py` had in `reap()`, found here by the census that
+        # asks the question one level above the one the guard already watched:
+        # the sweep that covers `tool/` cannot see a runner living in `test/`.
+        # A deadline measured on the wall clock is governed by something this
+        # process does not control and cannot observe -- NTP steps it forwards
+        # and backwards, and `settimeofday` can move it either way. Step
+        # forward by more than the 5 s window and `time.time() < deadline` is
+        # false on the FIRST comparison, so the loop never runs, `port13`
+        # stays None and case 13 fails with `port13=None` -- reported as
+        # "the argv guard is broken" when the argv guard is fine and the
+        # measurement was. Step backwards and the wait outlasts its budget.
+        # The failure needs no bug: it needs the host to be in sync, which is
+        # a normal condition. Note the shape is the SAME as the `exec`-race
+        # this wait was originally written to fix, reached from the clock
+        # instead of from the fork.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
             cmd13 = mod13._cmdline(launcher.pid)
             port13 = mod13._debug_port(cmd13)
             if port13 is not None:

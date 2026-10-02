@@ -31,27 +31,67 @@
 // on `time.monotonic()` already — the two instruments disagreed about what a
 // wait is, one directory apart.
 //
-// The rule enforced here is **"no wall-clock read anywhere in `tool/`"**, not
+// The rule enforced here is **"no wall-clock read in any tracked Python"**, not
 // "don't measure waits on the wall clock": the loop's instruments must never
 // read the wall clock at all, so there is no shape in which one of them can
 // come to depend on the host's time sync. Reads are located with a real
 // tokenizer rather than a regex, because the file that documents this bug
 // quotes `time.time()` in its own comment, and a regex would count prose as
 // code — the same mistake the `test/` half of this family made twice.
+//
+// The sweep was scoped to `tool/*.py` when it was born, and that scope was the
+// defect it could not see: `test/build_gate_test.py` — the suite every tick
+// runs against real processes — bounded the same kind of wait on `time.time()`
+// and sat outside it. A rule over a *directory* is a claim about where
+// instruments are supposed to live, not a fact about where they live, so it
+// was green and incomplete at the same time. The sweep now enumerates every
+// tracked `.py`, and a second case asserts that the directories the loop
+// actually runs out of are still inside it, so an incomplete sweep fails
+// instead of passing for a clean box.
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-/// Every `.py` under `tool/` — the loop's own instruments.
+/// Every `.py` the repository actually tracks — the loop's own instruments.
+///
+/// This was `tool/*.py` only, and that was the whole point of this case: the
+/// guard proved a rule over a *directory*, which is a decision about where
+/// instruments are supposed to live, not a fact about where they live. A
+/// runner outside `tool/` was invisible to it. `test/build_gate_test.py` is
+/// one — the suite every tick runs against real processes, carrying the same
+/// `deadline = time.time() + 5` wait the guard existed to prevent, 400 lines
+/// past the last file it watched.
+///
+/// Enumerated through `git ls-files`, not by globbing the filesystem, because
+/// a glob also collects `ios/Flutter/ephemeral/flutter_lldb_helper.py` — SDK
+/// scaffolding the repo does not own and must not police (it is gitignored).
+/// And it is a positive contract, not a filter: the set must still be
+/// non-empty, and the directories the loop actually runs must still be in it.
 List<File> _instruments() {
-  final dir = Directory('${Directory.current.path}/tool');
-  return dir
-      .listSync()
-      .whereType<File>()
-      .where((f) => f.path.endsWith('.py'))
+  final result = Process.runSync(
+    'git', ['ls-files', '--', '*.py'],
+    workingDirectory: Directory.current.path,
+  );
+  expect(result.exitCode, 0,
+      reason: 'git ls-files failed (${result.stderr}) — without it the sweep '
+          'would silently watch nothing and read as a clean box.');
+  final paths = (result.stdout as String)
+      .split('\n')
+      .map((l) => l.trim())
+      .where((l) => l.endsWith('.py'))
       .toList()
-    ..sort((a, b) => a.path.compareTo(b.path));
+    ..sort();
+  return paths
+      .map((rel) => File('${Directory.current.path}/$rel'))
+      .toList();
 }
+
+/// The directories the loop protocol actually runs Python out of.
+///
+/// The point of a positive contract is that it fails when the rule stops
+/// describing the box. If the loop ever grew an instrument outside these two,
+/// the sweep would still be green and still be incomplete.
+const _watchedDirs = ['tool', 'test'];
 
 /// Remove comments and string literals, keeping line numbering intact.
 ///
@@ -181,6 +221,61 @@ void main() {
       why.write(b.toString());
     }
     expect(hits, isEmpty, reason: why.toString());
+  });
+
+  test('the sweep covers every directory the loop runs Python out of', () {
+    // The rule above is "no instrument reads the wall clock". A rule with no
+    // statement of *which* files it governs cannot tell an incomplete sweep
+    // from a clean box — which is exactly how the defect this case was written
+    // for survived: `tool/*.py` was a complete-looking answer to a question
+    // nobody asked, and `test/build_gate_test.py` sat outside it for a month.
+    final files = _instruments();
+    expect(files, isNotEmpty,
+        reason: 'the sweep must fail loudly if it ever stops seeing Python.');
+
+    for (final dir in _watchedDirs) {
+      final any = files.any((f) => f.path.contains('/$dir/'));
+      expect(any, isTrue,
+          reason: 'no tracked .py under $dir/ — the loop runs instruments '
+              'from there, so the sweep is no longer describing the box it '
+              'is meant to police.\nfound: '
+              '${files.map((f) => f.path).join(', ')}');
+    }
+
+    // And the specific file that hid the defect is in the sweep's set, named
+    // so that moving or deleting it is a loud failure rather than a silent
+    // reduction in coverage.
+    expect(
+        files.any((f) => f.path.endsWith('/test/build_gate_test.py')), isTrue,
+        reason: 'the gate suite must stay under the sweep: it is the runner '
+            'every tick drives against real processes.');
+  });
+
+  test('the sweep would have caught the wall-clock read outside tool/', () {
+    // Pin the fix at the level it was made. `build_gate_test.py` bounded its
+    // argv-read wait on the wall clock; the defect is gone, so this case
+    // asserts the *sweep reaches it* rather than asserting the clock, which
+    // would go green the moment the fix landed and stop proving anything.
+    //
+    // Mutation-verified: reverting the two lines to `time.time()` puts this
+    // red with `test/build_gate_test.py:829` named, even though the file is
+    // outside `tool/`.
+    final f = File('${Directory.current.path}/test/build_gate_test.py');
+    expect(f.existsSync(), isTrue, reason: 'the gate suite must exist.');
+
+    final hits = _wallClockReads(f);
+    expect(hits, isEmpty,
+        reason: 'test/build_gate_test.py reads the wall clock. It is outside '
+            'tool/, which is why it survived the tool/ sweep.\n'
+            '${hits.map((h) => '  ${h.file.path}:${h.line}: ${h.text}').join('\n')}');
+
+    // Not merely "clean" — the wait must still be there, or a file with the
+    // reads deleted entirely would pass this case for the wrong reason.
+    final src = _stripCommentsAndStrings(f.readAsStringSync());
+    expect(RegExp(r'deadline\s*=\s*time\.monotonic\(\)').hasMatch(src),
+        isTrue,
+        reason: 'the argv-read wait must still exist and be bounded on the '
+            'monotonic clock; case 13 depends on it.');
   });
 
   test('the sweep still reads files, so a broken sweep is not a clean box', () {
