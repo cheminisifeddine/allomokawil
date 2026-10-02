@@ -137,10 +137,25 @@ String _stripCommentsAndStrings(String src) {
       // character immediately before the quote so `foo(bar)"` does not
       // inherit an unrelated `f` from a nearby word.
       final isF = _prefixFlags(src, i).contains('f');
+      // The triple test has to happen BEFORE the first quote is written and
+      // consumed. It did not, and the two halves of that are both false
+      // negatives.
+      //
+      // `out.write(quote); i++;` consumed quote 1 and then asked "is a triple
+      // here?" -- so `"""` was lexed as `""` (an EMPTY string, closed at
+      // quote 2) followed by a SECOND literal that starts at quote 3. Python
+      // says `"""..."""` is ONE string; measured with `tokenize`, the lone
+      // `"` inside it is part of the body, not a terminator.
+      //
+      // The leftover quote 3 was re-entered as a fresh opener, and its prefix
+      // flags were read from whatever identifier characters precede it, which
+      // for `f"""` is the literal's own body -- so the `f` was LOST and every
+      // `{...}` field in an f-triple-quoted string was blanked as prose.
+      final triple = src.startsWith(quote * 3, i);
       // Keep the quotes themselves so `'''` and `"""` docstrings, which contain
       // any code at all, are handled as one unit.
-      out.write(quote);
-      i++;
+      out.write(triple ? quote * 3 : quote);
+      i += triple ? 3 : 1;
       while (i < src.length) {
         if (src[i] == '\\') {
           // A backslash immediately before a newline is a LINE CONTINUATION:
@@ -165,7 +180,13 @@ String _stripCommentsAndStrings(String src) {
           i += 3;
           break;
         }
-        if (src[i] == quote) {
+        // Inside a triple, a single quote is BODY. `tokenize` on
+        // `x = """a " b\nc"""` gives one STRING token holding the lone
+        // quote, so letting it close here is what desynchronised the scanner:
+        // the literal ended early, the rest of the docstring was read as CODE,
+        // and the next quote pair opened a string that swallowed whatever
+        // followed it -- including real wall-clock reads.
+        if (!triple && src[i] == quote) {
           out.write(quote);
           i++;
           break;
@@ -1435,6 +1456,104 @@ x = time.time()
             'found ${hits.length}: '
             '${hits.map((h) => '${h.line}: ${h.text}').join(' | ')}');
     expect(hits.single.line, 6, reason: 'and it is reported on its own line.');
+  });
+
+  test('a triple-quoted literal opened before its own quotes were counted', () {
+    // The stripper consumed the first quote and only THEN asked whether a
+    // triple was there. So `"""` was lexed as `"` + `"` -- an empty string
+    // closed at quote 2 -- and quote 3 re-entered the loop as a FRESH opener.
+    //
+    // Both halves of that are false negatives, which is why this took a census
+    // of shapes to find rather than a reading:
+    //
+    //   * Inside the body, a lone `"` closed the (already-short) literal, so
+    //     the rest of the docstring was read as CODE and the next quote pair
+    //     opened a string that ran to the end of the file. Measured: a file
+    //     whose last line is a live `time.time()` came back with **0 hits** --
+    //     the guard reporting a file with a real read as CLEAN. Odd parity of
+    //     lone quotes missed (1 and 3), even parity (0 and 2) was fine, which
+    //     is the signature of a scanner that lost track of its own quoting.
+    //   * For `f"""`, the leftover quote's prefix flags were read off the
+    //     literal's own body, so the `f` was LOST and every `{...}` field was
+    //     blanked as prose. `f"{time.time()}"` was caught; `f"""{time.time()}"""`
+    //     was not.
+    //
+    // Python agrees with the fix and not with the reader, measured with
+    // `tokenize`: `x = """a " b\nc"""` is ONE STRING token holding the lone
+    // quote, and `v = f"""x {time.\n   time()} y"""` is FSTRING_START, real
+    // code tokens inside the field, FSTRING_END. A single quote is BODY.
+    final f = _fixture('docstring_with_lone_quote.py.fixture');
+    final hits = _wallClockReads(f);
+
+    expect(hits.map((h) => h.line).toList(), equals([14, 16]),
+        reason: 'both reads must be found and named on their own lines: 14 is '
+            'inside an f-triple-quoted field, 16 is the plain call below it.\n'
+            'found ${hits.map((h) => '${h.line}: ${h.text}').join(' | ')}');
+
+    // The false-positive direction, which is the one the fix could have broken
+    // while fixing the miss: prose must still be prose. A guard that stopped
+    // blanking literal bodies would report every docstring in the corpus.
+    const prose = 'import time\n'
+        'def f():\n'
+        '    """Never call time.time() here, he said "politely"."""\n'
+        '    return 1\n';
+    expect(_wallClockReadsFrom(_stripCommentsAndStrings(prose)), isEmpty,
+        reason: 'a docstring naming the clock is prose, not code -- including '
+            'when it holds a lone quote.');
+
+    // Six lines: the call is on 6. (The first version of this asserted [6]
+    // on a five-line vector and failed at [5] -- my arithmetic, not the
+    // reader, which is why the whole file was re-gated instead of trusted.)
+    const evenQuotes = 'import time\n'
+        's = """a " b\n'
+        'c " d\n'
+        '"""\n'
+        't = time.time()\n';
+    expect(_wallClockReadsFrom(_stripCommentsAndStrings(evenQuotes))
+            .map((h) => h.line),
+        equals([5]),
+        reason: 'even parity was the only case that already worked; it must '
+            'keep working, so the fix cannot have been the accident.');
+
+    // The witness that makes arm B red. Measured across the three readers:
+    //
+    //   fixed   -> [5]      armB (lone quote closes a triple) -> []   MISS
+    //   fixed   -> [5]      armA (old opener order)             -> [5] same
+    //
+    // Arm A is the one arm here that cannot fail, and it is not because the
+    // change is untested -- it is because the two edits are REDUNDANT under
+    // any literal the opener still recognises as a triple. Advancing by 3
+    // while writing 3 quotes, versus writing 1 and advancing 1, differ only
+    // in where the *closing* search starts, and the closing rule below
+    // already refuses to close on a lone quote. Both are kept: the opener
+    // decides what a literal IS, the closer decides where it ENDS.
+    //
+    // The fixture alone did not separate them, and it was the fixture that
+    // proved the miss in the first place -- so the witness is separate and
+    // named. A vector that cannot fail is a vector that proves nothing.
+    const loneQuote = 'import time\n'
+        's = """\n'
+        'a " b\n'
+        'c"""\n'
+        't = time.time()\n';
+    expect(_wallClockReadsFrom(_stripCommentsAndStrings(loneQuote))
+            .map((h) => h.line),
+        equals([5]),
+        reason: 'a lone quote is BODY inside a triple, not a terminator. This '
+            'is the witness that turns the single-quote-closes arm red; '
+            'without it that rule is untested and the whole fix is untested.');
+
+    const foldedField = 'import time\n'
+        'v = f"""x {time.\n'
+        '   time()} y"""\n'
+        'w = time.time()\n';
+    expect(_wallClockReadsFrom(_stripCommentsAndStrings(foldedField))
+            .map((h) => h.line),
+        equals([2, 4]),
+        reason: 'tokenize calls the folded field CODE: FSTRING_START, '
+            '`time`, `.`, NL, `time`, `(`, `)`, `}`, FSTRING_END. So line 2 is '
+            'a real read and must be reported on line 2, where the field '
+            'opens, alongside the plain call on line 4.');
   });
 
   test('a seam that must join tight does, and one that must not cannot', () {

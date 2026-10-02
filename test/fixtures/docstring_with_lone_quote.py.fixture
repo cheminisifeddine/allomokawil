@@ -1,0 +1,17 @@
+import time
+
+# The comment must not be read as a string opener either.
+note = """He said "hi" to the crew
+and then left without
+saying anything else."""
+
+# ODD number of lone quotes inside the docstring above. Before this tick the
+# stripper lexed `"""` as quote + quote (an empty string) and then re-entered
+# at the third quote, so the literal ended on the next lone quote -- the rest
+# of the body was read as CODE, and the quote pair after it opened a string
+# that swallowed the rest of the file. A live wall-clock read on the last line
+# came back CLEAN.
+later = f"""elapsed {time.time()}"""
+
+t = time.time()
+print(note, later, t)
