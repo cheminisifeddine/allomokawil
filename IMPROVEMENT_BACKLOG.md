@@ -14109,3 +14109,109 @@ card, and a dropped project row is a project the user cannot open), then
 tick): the 28 absolute `created_at` fixtures across 9 test files, listed at the
 end of the previous entry. Inert while they only drive ordering; the same
 reasoning makes them a bomb the moment one feeds a "time ago" label.
+
+---
+
+## Item: the `as String?` family, file 2 of 5 — `notification.dart` — SHIPPED
+
+`AppNotification.fromJson` cast six columns by hand (`id`, `type`, `title`,
+`body`, `link`, `is_read`). It reaches the screen through `repository._rows`,
+which turns a model `TypeError` into an `ApiException` and **drops the row** —
+and here the cost is worse than it was for chat, which is why this file is not
+the same item repeated:
+
+  * a chat row that is lost is one message missing from a thread, and the
+    thread still reads as a thread;
+  * a **notification** row that is lost is never drawn at all. `_unread` counts
+    one fewer, and the user is told «لا إشعارات جديدة» — "nothing new" — while a
+    quote he is waiting for sits in the database. Nothing on that screen looks
+    broken. It is simply wrong, and the badge whose whole job is to contradict
+    that silently under-counts.
+
+That is why the three repository-level tests in the new file are the load-bearing
+ones and the model-only ones are not: **the drop lives in `_rows`, not in the
+model**, so a parser-only test could pass while the centre still lost the row.
+The three drive the real `Repository` against a fake HTTP client and assert the
+row is *in the list*.
+
+### What changed
+
+- `lib/src/models/notification.dart` — six readers, one rule: an unreadable
+  field is a missing field, and nothing throws. The four are `_int`,
+  `_nullableInt`, `_wireText`, `_text`, deliberately the same four `chat.dart`
+  keeps and with the same rules, so the two files can be read together instead
+  of a fifth private version drifting in a third. What is **not** copied is the
+  tolerance: a notification body is not an identity field the way
+  `Message.content` is, so it is trimmed, and `notificationBodyCopy` trims it
+  again before drawing.
+- `test/notification_payload_shape_test.dart` — 15 tests, 4 groups.
+
+### Two deliberate non-changes, both pinned
+
+- `body` is **absent** when unreadable, never flattened. `notificationBodyCopy`
+  has a type-aware answer for a missing body — «افتح الرسائل للاطلاع عليها» on a
+  `new_message`, «لا تفاصيل» elsewhere — and that answer is reached only by an
+  *absent* field. A printed «5» is a sentence nobody wrote. This is the one
+  place the chat file's "never flatten copy" rule and this file's "trim" rule
+  disagree, and the disagreement is the point: chat's copy is an identity field
+  compared byte for byte by `threadHolds`, a notification body is prose.
+- `link` is a **routing** key. `notificationTarget` treats a non-null link as the
+  exact destination, so an unreadable or whitespace-only one must become `none`
+  and let the type's own destination place the row — the rule the founder's
+  «when i get a notification they are not clickble» report was fixed by.
+
+### FOR PRODUCT — an unanswered fork, deliberately not settled here
+
+`is_read` absent (or unreadable) defaults to **0**, which is what it has always
+done, and this refactor left it alone. It is a real fork and both sides are bad:
+
+  * `0` paints the gold «جديد» pip on a row the app cannot prove is unread — the
+    badge **over-counts**, showing something new when the server may have cleared
+    it;
+  * `1` hides a genuinely new one — the badge **under-counts**, which is the
+    failure this whole family of items exists to stop.
+
+Picking either is a product decision about which lie to tell on a field the API
+is supposed to always send, not a shape fix, so it is recorded here rather than
+decided by a refactor nobody asked for. No test currently pins the choice
+against the other answer; the one test that touches it asserts only that it has
+not changed.
+
+### Evidence
+
+- Red first against the **unmodified** parser: **+3 -12**. Three of the
+  failures were the real `«حدث خطأ غير متوقع»` thrown out of
+  `repository._rows` — which is the production failure being fixed, observed
+  rather than asserted.
+- New file: **15/15** green.
+- The 9 notification/tap/payload-copy files touched by this model: **105/105**
+  green.
+- Full suite: **1935 passed / 3 skipped / 0 failed** in **12:13**, previous run
+  1920/3/0 — the 15 new tests are exactly the delta.
+- `flutter analyze` → **No issues found!** (7.9s).
+- No user-facing string changed and nothing was rendered, so **no screenshot**
+  and no layout claim is made.
+
+### Commits
+
+`060370c` → remote `441fd97`. Both blobs verified against the remote tree
+(`MATCH`), not the helper's exit code. Forward-only, no force.
+
+### Next — the `as String?` family, file 3 of 5: `project.dart`
+
+`project.dart:234,240,241,244,245` is the bigger prize of the two remaining:
+the project card, and **a dropped project row is a project the user cannot
+open** — the worst of the four outcomes, because browsing is the first thing a
+customer does. Then `quote_review.dart:98,102,114,115,184` and
+`user.dart:28,30,31`.
+
+**Still not actioned** (out of scope for one tick, unchanged from the previous
+two entries): the 28 absolute `created_at` fixtures across 9 test files. Inert
+while they only drive ordering; the same reasoning makes them a bomb the moment
+one feeds a "time ago" label.
+
+**One tick-level note.** `run_tests.py` takes ~12 minutes, which is longer than
+one 10-minute tick's foreground budget: a foreground run of it is killed by the
+tool at ~7 minutes and reports nothing. It has to be started with
+`background=true` and polled. Recording it here because the protocol's step 4
+lists the runner without saying which.
