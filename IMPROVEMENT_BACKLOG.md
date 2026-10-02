@@ -16311,3 +16311,106 @@ contains none of them — so it has to be a fixture.
       and pin the answer in a test the way the backslash-newline case was
       pinned — the first fix here assumed a raw-string exemption that the
       tokenizer disproved.
+
+- [x] **The clock guard scanned physical lines, so a call or an import folded
+      over two lines disappeared — and a dropped alias reads as *clean*, not as
+      unresolved.**
+
+      The previous tick's `Next` said to measure with `tokenize` before touching
+      the reader. Measured, on the Python running the suite, first:
+
+          x = (wall   + NL +  ())       ONE NAME token, ONE OP token
+                                       the `(` is NOT on the NAME's line
+          from time import \  + NL +  time as wall
+                                       ONE statement; the `\` emits no token
+
+      `_clockScanFrom` walked physical lines and looked for `name` followed by
+      a `(` **on the same line**, so it saw a NAME with no `(` after it and
+      reported the file **clean**. `_importAliases` did the same walk, so the
+      split import bound nothing at all.
+
+      *The second half is the worse defect, and it was invisible from the
+      outside.* A dropped binding removes the alias from the resolver
+      entirely — the call is then neither a read nor a suspicion. Before this
+      tick, **deleting alias resolution altogether would have passed every
+      case in this file.** Same false-negative direction as every other defect
+      in this guard, but one step further out: the reader could not see the
+      *binding* the call depends on.
+
+      **The census, measured rather than asserted.** `paren_next_line` occurs
+      **0** times across the 16 tracked `.py`, and a backslash-split import 0
+      times. That is the same "no tracked instrument does this" argument this
+      file has refuted **five** times now, and the count is recorded here
+      because it will tempt the next tick too. A corpus census finds nothing
+      when the corpus is clean and the reader is still wrong.
+
+      *Shipped:* `_LogicalLine` + `_logicalLines`. A logical line is joined on
+      a trailing backslash or an **unclosed bracket**, and those are the only
+      two ways Python continues a line. The import table, the binder and the
+      scanner all walk logical lines. A hit is reported on the physical line
+      its **match** is on (`lineAt`), not the line the statement opened on —
+      because a folded call's NAME can sit on the *continuation* line, which
+      the fixture now holds as its own case.
+
+      *The seam rule was measured, and the intuition is wrong on one side:*
+      `time.` + `time()` **compiles** and must join **tight** or the dotted
+      path stops existing and the read vanishes; `foo` + `bar` is a
+      **SyntaxError**. A space goes in only when both sides of the seam can
+      extend a token. Written because I would have written it the other way.
+
+      *A bug the fix introduced, caught before it shipped.* Continuation lines
+      kept their **leading indentation**, so `return time.` + `        time()`
+      folded to `time.        time()` — the same defect the function exists to
+      close, reintroduced by the fix. Found by **printing the folded units**,
+      not by reading the rule, and by a test that was failing for a second
+      reason too: it handed raw source to `_wallClockReadsFrom`, which takes
+      already-stripped input by contract, so the docstring's `wall()` counted.
+      Both were fixed before anything was committed; neither was reported as a
+      passing suite.
+
+      *Gate:* `flutter analyze` -> **No issues found!** (7.5 s);
+      `tool/run_tests.py` -> **+2070 ~3: All tests passed!** (12:41), up 3
+      from +2067, 0 failed, same 3 skips. `tool_clock_seam_test.dart` ->
+      **23/23**, up from 20. New fixture
+      `split_call_across_lines.py.fixture` (4 folded calls + 1 monotonic that
+      must not count + a docstring naming `wall()`).
+
+      **Mutation: 8 arms. 6 red, 2 GREEN and recorded as unreachable.**
+      Reverting the fold -> 3 red; drop the backslash rule -> 3 red; drop the
+      bracket rule -> 3 red; always-space seam -> red; keep the indentation
+      -> red; report the statement's first line instead of the match's -> red
+      (`Set:[12, 18, 29, 24]` vs `Set:[12, 18, 23, 29]` — line 24 for line 23,
+      the wrong source line). The two that stayed green have **no valid-Python
+      witness**: no Python fuses two identifiers across a continuation (`foo` +
+      `bar`, `foo` + `bar()`, and all three string prefixes are SyntaxError)
+      and a stray `)` is always a SyntaxError. A green arm proves nothing
+      here, so both are written into the source as measured-unreachable
+      instead of counted as passing — the same rule the bare-annotation arm
+      was deleted under, and this time it is known before the report.
+
+      *One arm had to be repaired before it could fail.* Mutating `lineAt` to
+      the statement's first line went green at first, because every fixture
+      call had its NAME on the statement's first line. A witness was added
+      (`total = (0 +` + `wall())`, NAME on line 24, statement on line 23), and
+      the mutation then failed on the exact wrong line.
+
+      `lib/` **byte-identical to HEAD** — this is a test-harness change; no
+      user-visible pixels, no screenshot claimed. No APK, no release, no tag:
+      founder-gated.
+
+      *Commits:* local `5991641` -> remote `9d5f817`. **Trees identical**
+      (`tool/remote_state.py`: local tree `3e6173c` == remote tree `3e6173c`).
+
+      **Next:** the join is driven by a hand-rolled bracket counter over
+      *stripped* source, and the stripper blanks string bodies to spaces — so
+      a bracket inside a literal is gone (good), but a **bracket that was
+      split across the stripper's own boundary** may not be. More concretely:
+      `_logicalLines` is now the single place that decides what one statement
+      is, and the **line-number offset it carries is only as good as
+      `starts`** — it is recorded per physical line, and a hit's line comes
+      from `lineAt(m.start)`. Next tick should check the *other* direction the
+      numbers can be wrong: a continuation inside an f-string field or a
+      multi-line docstring that has been blanked, where the joined text is
+      longer than the source span and a match could be attributed to the wrong
+      line. Measure it: build a fixture whose clock call sits inside a
+      blanked multi-line span and assert the reported line by hand.
