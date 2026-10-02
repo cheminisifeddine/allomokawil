@@ -69,9 +69,19 @@ Map<String, Object?> _worker() => {
       'avatar_url': null,
     };
 
+/// The `/api/login` answer, in the shape the deployed API actually sends —
+/// observed live 2 Oct 2026. The key is **`type`**, not `role`.
+///
+/// It was `role` here until 2 Oct, and it passed for a long time for the worst
+/// possible reason: `User.fromJson` ignored every column it did not cast, so
+/// the role arrived as `null`, `UserRole.from(null)` defaulted it to
+/// `customer`, and this test — which only asserts on the trade line under the
+/// name — never noticed that the session it logged in was a **customer**
+/// looking at the worker's market. A fixture that lies about the wire cannot
+/// catch a parser that has gone strict, which is exactly what it was doing.
 Map<String, Object?> _user() => {
       'id': 31,
-      'role': 'worker',
+      'type': 'worker',
       'full_name': 'خالد رحماني',
       'phone': '0773000000',
       'user_wilaya': '16',
