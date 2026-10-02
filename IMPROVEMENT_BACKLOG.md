@@ -14780,3 +14780,79 @@ into `_ConversationTile`, confirm green, run `tool/run_tests.py` **in the
 background** (12 min > the 7-minute foreground budget), and only then tick this
 item. The fixture census above needs no Dart — 14 inert stamps on columns no
 surface renders — and is **closed**, not deferred.
+
+---
+
+## Tick 2 Oct 2026 (9th) — the tile that ignored its own clock: SHIPPED
+
+**Item: the `created_at` audit's real finding — `chat_list_screen.dart:529`
+dating a conversation row on the *system* clock on a screen handed another
+one. Shipped.** The fixture census it sat next to stays **closed** (14 inert
+stamps, measured in the previous tick); this tick shipped the defect the audit
+found next to it.
+
+### Why it was invisible in both directions
+
+`relativeTimeAr(conv.lastMessageAt)` passed no `now:`, so `relativeTimeAr` fell
+back to `DateTime.now()` — while `staleInboxLineWithAgeAr(..., now: _now())`,
+**eleven lines above it in the same widget**, measured against the screen's own
+injected `clock`. That clock exists and is documented for exactly this reason
+(`chat_list_screen.dart:60-66`): *"The band has to say how old its rows are, and
+a widget test that could only photograph the silent case would pass against a
+screen that never dated anything at all."*
+
+Two reasons it survived: in the app `clock` is null, so both readings are the
+system clock and nothing differs; and no file pumps `ChatListScreen` and asserts
+the tile's timestamp, so nothing could fail. The age was the one thing on that row
+that **could not be tested**, which is the same fuse the `created_at` audit was
+opened to defuse — on the surface the audit was aimed at.
+
+### Red before, green after — the same test, both numbers
+
+Fixture row stamped `2026-09-29T10:00:00Z`, injected clock `2026-09-29 11:00`,
+so the honest answer is the singular hour arm, «قبل ساعة». Today is the 2nd:
+
+    before   +8 -1   «قبل 3 أيام»   <- the wall clock, 2 Oct vs a 29 Sep fixture
+    after    +9      «قبل ساعة»    <- the clock the screen was handed
+
+The wrong string was **measured, not assumed**: a probe printing every `Text`
+widget on screen returned `PROBE_TEXTS=قبل 3 أيام` before the fix, so the test
+fails because the wrong clock answered, not because the arithmetic is wrong.
+The probe was removed; only the assertion is committed.
+
+`chat_screen.dart:1000` has the same shape and is **not** a defect — its
+injectable is `clockFormat`, a `String Function(DateTime)` for the bubble's own
+hour, a different seam. Left alone deliberately, as the previous tick recorded.
+
+### Evidence
+
+- `flutter analyze` -> **No issues found!** (7.3 s).
+- `tool/run_tests.py` -> **+2016 ~3: All tests passed!** in **12:08**, up one
+  from 2015, **zero drop**. Ran in the **background**, as the previous tick's
+  next-step required: it is 12 minutes against a 7-minute foreground budget, so
+  a foreground run cannot finish inside a tick and would have been cut off
+  mid-suite.
+- The gate was clear when the tick started (`pgrep -c java` 0, `pgrep -fc
+  "[f]lutter"` 0, 4285 MB available). The previous four ticks read `NO ROOM`;
+  memory was falling for twenty minutes while nothing was building, and it had
+  recovered on its own by the time this tick started.
+- **No user-facing string changed and nothing renders differently** — in the
+  app both clocks are the same clock — so **no screenshot and no layout claim**
+  is made.
+
+### Files
+
+`lib/src/screens/chat/chat_list_screen.dart` (the tile now takes `now` and
+passes it to `relativeTimeAr`; the call site hands it `_now()`),
+`test/stale_inbox_age_test.dart` (+29).
+
+### Commits
+
+`8480b42` -> remote `14bbb58`. Verified **IN SYNC** by `remote_state.py --files`
+— identical tree `0258159`, not the helper's green line. Forward-only.
+
+### Next
+
+The standing `as String?` family is **complete — all five files**. The next
+unchecked item is whatever phase order puts first below; the `created_at` census
+is closed and must not be re-opened on the old "28 across 9 files" number.
