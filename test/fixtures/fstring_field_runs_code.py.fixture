@@ -1,0 +1,2 @@
+print(f"gate finished at {time.time() - t0}s")
+y = 1

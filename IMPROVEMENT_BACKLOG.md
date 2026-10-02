@@ -16072,3 +16072,64 @@ contains none of them — so it has to be a fixture.
       **Next:** the tokenizer itself — `r"..."`, f-strings, backslash
       continuations inside docstrings are shapes no guarded file contains, so
       the reader has never been exercised on them.
+
+- [x] **The reader that enforces the clock rule had two false negatives of its
+      own, and no instrument in the repo contained the shapes that proved it.**
+
+      `_stripCommentsAndStrings` is the tokenizer the whole clock guard runs
+      through. Sweeping the corpus with it proves nothing if the corpus has no
+      shape the tokenizer gets wrong -- and **every tracked `.py` was clean**:
+      AST census, 0 line drift against Python's own `tokenize`, 0 missed reads.
+      A clean sweep was never evidence the reader was sound.
+
+      **Defect 1 -- a backslash-newline inside a string DELETED the newline.**
+      `\` + newline is a Python *line continuation*: the string continues, the
+      physical line ends. The reader emitted two spaces, shifting every later
+      line number **down by one**. `_wallClockReads` reports `file:line`, so a
+      defect would be named against the wrong source line -- and a read at the
+      end of a file could drop out entirely. The direction that hides bugs.
+
+      **Defect 2 -- an f-string replacement field was erased with its literal.**
+      `f"{time.time() - t0}"` is *code*, evaluated at runtime. The span was
+      blanked whole, so the sweep reported the file clean while the wall clock
+      was being read. A guard for wall-clock reads, blind to one written in the
+      most compact form Python has.
+
+      **Checked against Python's `tokenize`, not against intuition.** For
+      `r"a\` + newline + `b"` the tokenizer reports **one** STRING token
+      spanning (1,4)-(2,2) -- a raw string does **not** exempt the continuation.
+      So the fix is not gated on the `r` prefix. **An earlier draft of this fix
+      added a raw-string escape rule and the oracle killed it**; a fixture I
+      first wrote for raw strings turned out to be handled correctly already and
+      was dropped rather than shipped as a defect.
+
+      Fixtures are **committed files** (`test/fixtures/*.py.fixture`), not
+      inline strings, and each is asserted to still be valid Python via
+      `python3 -c compile` -- a vector no longer parsing is a vector describing
+      a language that does not exist. They are named `.py.fixture` on purpose:
+      the instrument sweep is `git ls-files '*.py'`, these **deliberately read
+      the wall clock**, and as `*.py` they would turn the guard red on its own
+      test data. Verified the pathspec excludes them.
+
+      **Mutation: four arms, all red.** Revert the continuation (back to two
+      spaces) -> red, `Expected <4> Actual <3>`. Delete the f-string field branch
+      -> red, `Expected <1> Actual <0>`. Break f-prefix detection (`isF = false`)
+      -> red, same. Over-eager field end, no nested-string skip -> red at load.
+
+      One case was **red for the wrong reason first**: it asserted a hardcoded
+      `3` lines and the fixture's trailing newline makes it 4. That was the
+      assertion being wrong, not the fix -- the expected line number is now read
+      from the source instead of hardcoded, so the case states the real contract.
+
+      *Gate:* `flutter analyze` -> **No issues found!** (9.7 s);
+      `tool/run_tests.py` -> **+2057 ~3: All tests passed!** (12:52), up 4 from
+      +2053, 0 failed, same 3 skips and same wall clock as the previous run.
+      `test/tool_clock_seam_test.dart` -> **10/10**. **lib/ byte-identical to
+      HEAD** -- defect and fix both in `test/`, nothing a user sees changed. Not
+      visual, no screenshot claimed. No APK, no release, no tag: founder-gated.
+
+      **Next:** the guard is now sound on the shapes that could be checked, but
+      `_wallClockReads` still recognises clocks **by literal spelling**
+      (`time.time`, `datetime.now`, ...). An alias -- `from time import time as
+      wall`, then `wall()` -- is a real wall-clock read the sweep cannot see,
+      and by construction the corpus has none to prove either way.

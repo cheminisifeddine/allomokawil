@@ -48,6 +48,27 @@
 // tracked `.py`, and a second case asserts that the directories the loop
 // actually runs out of are still inside it, so an incomplete sweep fails
 // instead of passing for a clean box.
+//
+// The reader itself was the next layer, and it had two defects, both
+// **false negatives** -- the direction that hides bugs. A rule that reports
+// prose as code is noisy; a rule that erases real code is silent. Neither shape
+// existed in any tracked `.py`, which is exactly why a census over the corpus
+// could not find them: the corpus was clean and the reader was still wrong.
+// They are fixtures now, committed under `test/fixtures/` as `*.py.fixture`.
+//
+//   * **A backslash-newline inside a string deleted the newline.** It is a
+//     Python line continuation -- the string continues, the physical line ends
+//     -- and the reader emitted two spaces, shifting every later line number
+//     down by one. A defect would be reported against the wrong source line.
+//   * **An f-string replacement field was erased with its literal.**
+//     `f"{time.time() - t0}"` reads the wall clock at runtime and the sweep
+//     reported the file clean.
+//
+// Both were checked against Python's own `tokenize`, not against intuition:
+// for `r"a\` + newline + `b"` the tokenizer reports ONE STRING token spanning
+// (1,4)-(2,2), which is why the continuation branch is not gated on the
+// `r` prefix. An earlier draft of this fix added a raw-string escape rule and
+// the oracle killed it.
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -111,13 +132,31 @@ String _stripCommentsAndStrings(String src) {
       }
     } else if (c == '"' || c == "'") {
       final quote = c;
+      // The one prefix flag that changes how this literal is read: `f` makes
+      // the `{...}` fields real code, evaluated at runtime. Read from the
+      // character immediately before the quote so `foo(bar)"` does not
+      // inherit an unrelated `f` from a nearby word.
+      final isF = _prefixFlags(src, i).contains('f');
       // Keep the quotes themselves so `'''` and `"""` docstrings, which contain
       // any code at all, are handled as one unit.
       out.write(quote);
       i++;
       while (i < src.length) {
         if (src[i] == '\\') {
-          out.write('  ');
+          // A backslash immediately before a newline is a LINE CONTINUATION:
+          // the string does not end, and the physical line does. The reader
+          // used to emit two spaces here, which deleted the newline and
+          // shifted every later line number down by one -- so a wall-clock
+          // read was reported against the wrong line, or missed outright.
+          // Verified against Python's own tokenizer: a raw string does NOT
+          // exempt this case (`r"a\` + newline + `b"` is one STRING token
+          // spanning two lines), so the rule stays unconditional.
+          if (i + 1 < src.length && src[i + 1] == '\n') {
+            out.write(' ');
+            out.write('\n');
+          } else {
+            out.write('  ');
+          }
           i += 2;
           continue;
         }
@@ -131,6 +170,22 @@ String _stripCommentsAndStrings(String src) {
           i++;
           break;
         }
+        if (isF && src[i] == '{') {
+          if (src.startsWith('{{', i)) {
+            // `{{` is an escaped brace: literal text, not code.
+            out.write('  ');
+            i += 2;
+            continue;
+          }
+          // A replacement field is CODE. `f"{time.time() - t0}"` reads the
+          // wall clock, and erasing the span made this guard blind to it --
+          // the exact class of defect it exists to catch. The field is copied
+          // through verbatim so the sweep can see the call.
+          final end = _fFieldEnd(src, i);
+          out.write(src.substring(i, end));
+          i = end;
+          continue;
+        }
         // Newlines inside a triple-quoted docstring must survive or every
         // following line number is wrong.
         out.write(src[i] == '\n' ? '\n' : ' ');
@@ -142,6 +197,87 @@ String _stripCommentsAndStrings(String src) {
     }
   }
   return out.toString();
+}
+
+/// The Python string-prefix flags on the literal whose opening quote is at
+/// [quote].
+///
+/// Read backwards over the identifier run that ends at the quote, lowercased.
+/// Only those characters count: `foo(bar)"` must not inherit the `f` of an
+/// unrelated earlier word. Raw (`r`) and bytes (`b`) prefixes need no
+/// handling here -- a backslash does not end a raw string's quote, which is
+/// exactly what the escape branch above already does.
+String _prefixFlags(String src, int quote) {
+  var j = quote - 1;
+  final end = j + 1;
+  while (j >= 0 && _isIdentChar(src[j])) {
+    j--;
+  }
+  return src.substring(j + 1, end).toLowerCase();
+}
+
+bool _isIdentChar(String c) {
+  final code = c.codeUnitAt(0);
+  return (code >= 0x30 && code <= 0x39) || // 0-9
+      (code >= 0x41 && code <= 0x5a) || // A-Z
+      (code >= 0x61 && code <= 0x7a) || // a-z
+      code == 0x5f; // _
+}
+
+/// Index just past the `}` closing the f-string replacement field at [open].
+///
+/// Brace nesting is counted and a nested string is skipped whole, so neither
+/// `d["}"]` nor a `}` inside a nested literal can end the field early. An
+/// unterminated field runs to end-of-input rather than looping forever.
+int _fFieldEnd(String src, int open) {
+  var j = open + 1;
+  var depth = 0;
+  while (j < src.length) {
+    final c = src[j];
+    if (c == '{') {
+      depth++;
+      j++;
+    } else if (c == '}') {
+      if (depth == 0) {
+        return j + 1;
+      }
+      depth--;
+      j++;
+    } else if (c == '"' || c == "'") {
+      final quote = c;
+      j++;
+      while (j < src.length) {
+        if (src[j] == '\\') {
+          j += 2;
+          continue;
+        }
+        if (src[j] == quote) {
+          j++;
+          break;
+        }
+        j++;
+      }
+    } else {
+      j++;
+    }
+  }
+  return src.length;
+}
+
+/// A committed Python **fixture** -- a shape no tracked instrument contains.
+///
+/// These are vectors for the reader, not instruments the loop runs: they
+/// deliberately read the wall clock, which is exactly what the sweep above
+/// fails on. So they are named `*.py.fixture`, and the `git ls-files '*.py'`
+/// enumeration cannot collect them. A fixture written as `*.py` would make the
+/// guard red on its own test data.
+File _fixture(String name) {
+  final f = File('${Directory.current.path}/test/fixtures/$name');
+  expect(f.existsSync(), isTrue,
+      reason: 'fixture $name must exist under test/fixtures/ as a committed '
+          'file. Inline strings would not exercise the reader against a real '
+          'file read, which is how the defect was originally hidden.');
+  return f;
 }
 
 class _Read {
@@ -158,18 +294,26 @@ class _Read {
 /// check is deliberately blind to the *module*: `time.time()` is the wall
 /// clock and `time.monotonic()` is not, and the distinction that matters is
 /// the function, not where it came from.
-List<_Read> _wallClockReads(File f) {
-  final lines = _stripCommentsAndStrings(f.readAsStringSync())
-      .split('\n');
+List<_Read> _wallClockReads(File f) =>
+    _wallClockReadsFrom(_stripCommentsAndStrings(f.readAsStringSync()), f);
+
+/// The sweep proper, over already-stripped source.
+///
+/// Split out from [_wallClockReads] so a case can assert on a *span* the reader
+/// produced without going back to disk -- the reader is what is under test
+/// here, and routing through a file would make every assertion in this file a
+/// test of the filesystem as well.
+List<_Read> _wallClockReadsFrom(String stripped, [File? f]) {
+  final lines = stripped.split('\n');
   final hits = <_Read>[];
+  final readsWallClock = RegExp(
+      r'\b(?:time\.time|datetime\.now|datetime\.utcnow'
+      r'|datetime\.today|date\.today|time\.localtime|time\.mktime'
+      r'|time\.time_ns|time\.perf_counter)\b');
   for (var i = 0; i < lines.length; i++) {
     final line = lines[i];
-    final readsWallClock = RegExp(
-        r'\b(?:time\.time|datetime\.now|datetime\.utcnow'
-        r'|datetime\.today|date\.today|time\.localtime|time\.mktime'
-        r'|time\.time_ns|time\.perf_counter)\b');
     if (readsWallClock.hasMatch(line)) {
-      hits.add(_Read(f, i + 1, line.trim()));
+      hits.add(_Read(f ?? File('<source>'), i + 1, line.trim()));
     }
   }
   return hits;
@@ -298,6 +442,146 @@ x = time.time()
           reason: 'the docstring and the comment must not count.');
     } finally {
       probe.deleteSync();
+    }
+  });
+
+  test('the reader keeps a line continuation instead of eating the newline', () {
+    // A backslash immediately before a newline is a Python line continuation:
+    // the string continues and the physical line ends. The reader emitted two
+    // spaces for it, which DELETED the newline, so every line after it was
+    // numbered one too low.
+    //
+    // The failure this buys is not cosmetic. `_wallClockReads` reports
+    // `file:line`, and a sweep that shifts lines reports a defect against the
+    // wrong source line -- or, at the end of a file, drops the read entirely.
+    // That is the guard being wrong in the direction that hides bugs.
+    //
+    // Fixtures, not a mutation against real code: no tracked .py in this repo
+    // contains a line continuation inside a string literal, so this shape had
+    // never been exercised. They are committed as `*.py.fixture` because the
+    // instrument sweep enumerates `git ls-files '*.py'` and these deliberately
+    // read the wall clock -- a vector, not an instrument.
+    final f = _fixture('backslash_newline_in_string.py.fixture');
+    final src = f.readAsStringSync();
+
+    expect(src.contains('\\\n'), isTrue,
+        reason: 'the fixture must contain a backslash-newline inside a string, '
+            'or the case passes without exercising anything.');
+
+    // The property the guard depends on: stripped output has exactly as many
+    // lines as the source, so a reported line number is a source line number.
+    final stripped = _stripCommentsAndStrings(src);
+    expect(stripped.split('\n').length, src.split('\n').length,
+        reason: 'line numbers must survive tokenizing:\n'
+            'source:\n$src\nstripped:\n$stripped');
+
+    // And the read must be reported at the line it is ACTUALLY on, taken from
+    // the source rather than hardcoded: the file's trailing newline makes that
+    // line 3, not 2, and an assertion that hardcoded the wrong constant would
+    // have failed for a reason that had nothing to do with the reader.
+    final realLine = src
+        .split('\n')
+        .indexWhere((l) => l.contains('time.time()')) +
+        1;
+    expect(realLine, greaterThan(1),
+        reason: 'the fixture must put the read AFTER the continuation.');
+
+    final hits = _wallClockReads(f);
+    expect(hits.length, 1, reason: 'the wall-clock read must be found.\n'
+        '${hits.map((h) => '  ${h.line}: ${h.text}').join('\n')}');
+    expect(hits.single.line, realLine,
+        reason: 'a line continuation inside a string shifted every later line '
+            'number down by one: the read is on source line $realLine and was '
+            'reported at ${hits.single.line}.');
+  });
+
+  test('the reader sees through an f-string field, because it is code', () {
+    // `f"{...}"` replacement fields are evaluated at runtime. A field holding
+    // `time.time()` IS a wall-clock read -- and the reader erased the entire
+    // literal, span and all, so the sweep reported the file clean.
+    //
+    // This is a false negative in the exact direction that matters: the guard
+    // that exists to find wall-clock reads was blind to one written in the
+    // most compact form Python has.
+    final f = _fixture('fstring_field_runs_code.py.fixture');
+    final hits = _wallClockReads(f);
+    expect(hits.length, 1,
+        reason: 'a wall-clock read inside an f-string field is real code and '
+            'must be found.\nfound ${hits.length}.');
+
+    // Not merely "one hit somewhere": the exact line, because a reader that
+    // found it on the wrong line would still have been useful but wrong.
+    expect(hits.single.line, 1);
+    expect(hits.single.text, contains('time.time()'),
+        reason: 'the reported text must be the code line, not a blanked span.');
+
+    // `{{` is an escaped brace -- literal TEXT -- and must not be mistaken for
+    // the start of a field, or the brace scan runs past the end of the string
+    // and eats real code that follows.
+    final braced = _stripCommentsAndStrings('x = f"{{literal}} {time.time()}"\n');
+    final lines = braced.split('\n');
+    expect(lines[0], contains('time.time()'),
+        reason: 'the real field after an escaped brace must still be seen.');
+    expect(_wallClockReadsFrom(braced).length, 1,
+        reason: 'exactly one read, not two and not zero.');
+  });
+
+  test('a raw string that spans a continuation is still one line-accurate span', () {
+    // In `r"a\` + newline + `b"` the backslash does NOT escape anything, so
+    // the literal runs to the next `"` -- across the physical line break. That
+    // was verified against Python's own tokenizer rather than assumed:
+    // `tokenize` reports ONE STRING token from (1,4) to (2,2).
+    //
+    // The reader therefore must keep the newline even in a raw string, which
+    // is why the continuation branch is not gated on the prefix. If someone
+    // later adds a "raw strings ignore escapes" shortcut here, this goes red.
+    final f = _fixture('raw_string_backslash_quote.py.fixture');
+    final src = f.readAsStringSync();
+    final realLine = src.split('\n').indexWhere((l) => l.contains('time.time()')) + 1;
+    expect(src.contains('r"a\\"b"'), isTrue,
+        reason: 'the fixture must be the raw string that spans a continuation; '
+            'if it was edited this case no longer tests what it says.');
+
+    final stripped = _stripCommentsAndStrings(src);
+    expect(stripped.split('\n').length, src.split('\n').length,
+        reason: 'a raw string spanning a continuation must not lose a line:\n'
+            'source:\n$src\nstripped:\n$stripped');
+
+    // The backslash must not have been read as an escape of the closing quote,
+    // which would end the string early and leak the rest of the file as code.
+    final hits = _wallClockReads(f);
+    expect(hits.length, 1, reason: 'the read must still be found; ending the '
+        'raw string early would either drop it or invent others.');
+    expect(hits.single.line, realLine,
+        reason: 'the raw string spans the continuation, so the read after it '
+            'must keep its own line number.');
+  });
+
+  test('every fixture is still valid Python the reader must agree with', () {
+    // The fixtures are test vectors, and a vector that no longer parses is a
+    // vector describing a language that does not exist. `python3 -c compile`
+    // is the oracle: if the Python on this box rejects a fixture, the reader
+    // is being asked to agree with fiction.
+    final dir = Directory('${Directory.current.path}/test/fixtures');
+    final fixtures = dir
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.py.fixture'))
+        .toList()
+      ..sort((a, b) => a.path.compareTo(b.path));
+
+    expect(fixtures, isNotEmpty,
+        reason: 'the fixtures must be committed files, not strings inline in '
+            'this test -- they are the shapes no tracked .py contains.');
+
+    for (final f in fixtures) {
+      final tmp = File('${Directory.systemTemp.path}/${f.uri.pathSegments.last}');
+      tmp.writeAsStringSync(f.readAsStringSync());
+      final res = Process.runSync('python3', ['-c', 'compile(open(__import__("sys").argv[1]).read(), "f", "exec")', tmp.path]);
+      expect(res.exitCode, 0,
+          reason: '${f.path} must be valid Python (it is a fixture, not '
+              'pseudocode): ${res.stderr}');
+      tmp.deleteSync();
     }
   });
 

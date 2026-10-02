@@ -1,0 +1,3 @@
+x = "abc\
+def"
+y = time.time()
