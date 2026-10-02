@@ -16028,6 +16028,23 @@ inside a docstring are shapes it may not have been exercised on. That is a
 mutation you cannot run against real code, because the code being guarded
 contains none of them — so it has to be a fixture.
 
+- [x] **The 13th tick's open census: every `data/` <-> `screens/` edge, counted
+      before anything was refactored.** `data/` -> `screens/` and `data/` ->
+      `widgets/` is **0 edges** over 557 app-internal imports in 130 files, so
+      the feared inversion does not exist and no refactor is justified. 12
+      upward edges exist, all deliberate, now enumerated one by one so a 13th
+      fails by name.
+
+      Shipped `575da9f` -> remote `f09d405`, **+2082 passed** (up 3 from
+      +2079), `lib/` byte-identical to HEAD. Two instruments of mine lied on
+      the way: one resolved only `../x.dart` and read half the graph (all 557
+      imports actually resolve relative to the importing file), and one kept
+      `..` in the path so `_layerOf` reported the *importing* layer and every
+      inversion looked downward. `Uri.resolve` + throw-on-unresolved now make a
+      dropped edge impossible to mistake for a clean graph. Six mutation arms,
+      five red; the green `StateError` arm is recorded as dormant rather than
+      passing.
+
 - [x] **The clock census's own scope was a directory, so the sweep that
       enforced the rule could not see the gate suite — the one runner every
       tick drives against real processes — reading the wall clock inside it.**
@@ -16858,3 +16875,97 @@ graph**, and the honest next step is a *read-only* census of every `data/` →
 `data/repository.dart` is screen-facing and `screens/` imports it heavily; if
 that direction has inverted anywhere it is the same class of defect as the one
 just fixed, and it should be **counted before** anything is refactored.
+
+## Tick 2 Oct 2026 (15th) — the census the 13th tick asked for: `data/`
+## reaches no screen, and the layer graph is now asserted
+
+**Backlog was 213/213 ticked with no unchecked item, so this tick did the one
+open thing tick 13 left in writing: a read-only census of every `data/` →
+`screens/` and `screens/` → `data/` edge. It ran, and the answer is 0.**
+
+**The feared inversion does not exist.** Over all **557 app-internal imports**
+in **130 files** across 5 layers, `data/` → `screens/` and `data/` →
+`widgets/` is **0 edges**. So there is nothing to refactor, and no refactor was
+attempted — a 13th tick asking for a fix would be asking for a change nobody
+needs. (`grep` reports two hits under `data/`; both are comments in
+`urgency_copy.dart` naming the screens that consume it, not imports. A grep was
+not used as the census for exactly the reason the 14th tick learned.)
+
+**12 upward edges exist and every one is deliberate** — 8 from `core/` (the DI
+scope, the auth gate, the locator) and 1 from `widgets/` (the bell navigates to
+the notification centre). They are now listed one by one in the test, so a 13th
+fails and names the file rather than being absorbed into a moving allow-list.
+
+**`models/` → `core/` is DOWNWARD and therefore correct.** `plan.dart`'s three
+`core/format/` imports — the ones moved there an hour before this tick — are the
+intended direction, not violations. That is the one thing the rank table has to
+get right, and getting it wrong in *either* direction produces a confident
+wrong answer.
+
+**Two of my own instruments lied before the number was trustworthy, and the
+guard is built around both failures rather than around the answer.**
+
+1. **The first scanner resolved only `../x.dart`** and marked all 192
+   lib-root-relative imports unresolvable, then reported *"0 upward edges"* —
+   the one answer a half-read graph is guaranteed to produce. Measured, the
+   assumption is simply false: **all 557 app-internal imports resolve relative
+   to the importing file**; none need the `lib/src` root. The fallback was
+   deleted rather than kept as decoration.
+2. **Hand-built path strings keep their `..` segments.** `lib/src/core/../data/
+   x.dart` reached `_layerOf`, whose regex matches the *first* `core|data|…`
+   segment — the **importing** layer, not the target. Every upward edge
+   therefore looked downward, and the offender list came back **empty**. That is
+   the failure this whole family keeps hitting: an instrument that reads half a
+   system and reports "clean". `Uri.resolve` collapses `..` per RFC 3986, and
+   the scanner now **throws** on an import that does not land on a file, because
+   a dropped edge and a clean graph are the same observation.
+
+**Mutation gate, six arms, five red and one honestly green.**
+
+| arm | result |
+| --- | --- |
+| plant `data/` → `widgets/` import | red, `Actual: ['lib/src/data/taxonomy.dart -> ../widgets/ui.dart']` |
+| remove `..` collapsing | **3** cases red |
+| make the walk non-recursive | **2** cases red |
+| shorten the baseline by one | red |
+| delete the `StateError` | **GREEN** — see below |
+| delete the lib/src fallback | green, because no import needs it (ARM 2's original claim, now re-measured) |
+
+The green `StateError` arm is **recorded, not glossed**: with today's tree every
+import resolves, so `null` is never reached and removing the throw changes
+nothing. That risk is **dormant, not absent** — it fires the day a path
+resolves wrongly, which is precisely why the throw exists and why it is kept on
+the strength of an argument rather than a red test.
+
+**The most useful thing in the tick: the anti-vacuous guard was wrong on arrival
+and its own mutation arm passed against the bug it was written to catch.** The
+first version counted "dotless imports" to prove the scanner could resolve them —
+but only **9 of 85** need the `lib/src` fallback, so removing that fallback left
+the suite fully green. The guard was asserting a population that does not exist.
+It now asserts the property that actually distinguishes a working scanner: that
+`core/auth_gate.dart`'s `'../models/enums.dart'` resolves to a file that exists
+**and reports layer `models`, not `core`**. That is the `..` bug in its most
+directly checkable form.
+
+**Evidence.** `flutter analyze` → **No issues found!** (2.3s).
+`tool/run_tests.py` → **`+2082 ~8`, `PASS in 13:18`**, 0 failed — up from
++2079, exactly the three new tests.
+
+**`lib/` is byte-identical to HEAD.** The census changed no product code and no
+Arabic string; a report implying a pixel diff would be lying. Not visual, no
+screenshot claimed. No APK, no release, no tag: founder-gated.
+
+**Commits:** local `575da9f` → remote `f09d405`. **IN SYNC, identical tree**
+(`tool/remote_state.py --files`: both trees `7c2d91c`).
+
+**Next:** the graph is now measured and held, which closes the layering family
+for now — every remaining question about it is "should one of the 12 be
+removed", and each is a refactor nobody has asked for. The open item is
+**different in kind and is now the oldest unaudited thing in the app**: the
+guard resolves imports by walking `lib/src`, so it says nothing about the
+**runtime** half of the layer contract — whether a screen actually *calls* the
+repository method its import implies. `screens/` → `data/` is 89 import edges;
+how many of those 89 imports are ever *used* by the importing file is unmeasured,
+and an unused import of a repository is an edge that costs a compile-time
+dependency and tells the next reader the screen owns that data path. Count it
+before removing anything, exactly as this tick did.
