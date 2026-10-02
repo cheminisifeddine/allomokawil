@@ -16414,3 +16414,97 @@ contains none of them — so it has to be a fixture.
       longer than the source span and a match could be attributed to the wrong
       line. Measure it: build a fixture whose clock call sits inside a
       blanked multi-line span and assert the reported line by hand.
+
+- [x] **The clock guard lexed `"""` as `""` -- so a docstring swallowed the
+      code after it, and a file with a live read came back CLEAN.**
+
+      The previous tick's `Next` asked whether a hit's *line* can be wrong
+      inside a blanked multi-line span. The line numbers turned out to be
+      right on every vector tried (f-field folded over 3 lines, docstring
+      then real call, backslash continuation inside a literal, comment
+      apostrophe -- all named on the correct line by hand). What the census
+      turned up instead was worse and in the **other** layer: the stripper
+      itself.
+
+      `_stripCommentsAndStrings` consumed the first quote and only *then*
+      asked whether a triple was there:
+
+          out.write(quote);   i++;      // then: if (src.startsWith(quote*3, i))
+
+      So `"""` was lexed as `"` + `"` -- an **empty string** closed at quote 2
+      -- and quote 3 re-entered the loop as a **fresh opener**. Two false
+      negatives, both measured:
+
+        * a lone `"` in the body closed the (already short) literal, the rest
+          of the body was read as **CODE**, and the next quote pair opened a
+          string that ran to end-of-file. Measured: a file whose last line is
+          `t = time.time()` came back with **0 hits**. Odd parity of lone
+          quotes missed (1 and 3), even parity (0 and 2) worked -- the exact
+          signature of a scanner that lost track of its own quoting. Parity
+          is what made this findable at all; the earlier vectors happened to
+          be even.
+        * for `f"""` the leftover quote's prefix flags were read off the
+          literal's own body, so the **`f` was LOST** and every `{...}` field
+          was blanked as prose. `f"{time.time()}"` was caught;
+          `f"""{time.time()}"""` was not.
+
+      **Pinned by Python, not by the comment.** `tokenize` on
+      `x = """a " b\nc"""` returns ONE STRING token holding the lone quote,
+      and `v = f"""x {time.\n   time()} y"""` returns FSTRING_START, real
+      code tokens (`time` `.` NL `time` `(` `)` `}`), FSTRING_END. A single
+      quote is BODY. My first reading of the opener was that the `"""` check
+      was unreachable; printing the folded units showed otherwise, and the
+      measurement is what settled it.
+
+      *Shipped:* the triple test happens **before** anything is written, and
+      the close rule refuses to end a triple on a lone quote. The opener
+      decides what a literal IS, the closer decides where it ENDS -- both were
+      wrong in a way only the pair was consistent about.
+
+      New fixture `test/fixtures/docstring_with_lone_quote.py.fixture`
+      (odd-parity docstring, comment with an apostrophe, an `f"""` field, and
+      a plain call; asserted to parse with `ast.parse`). Hits `[14, 16]`.
+
+      *Gate:* `flutter analyze` -> **No issues found!** (7.5 s);
+      `tool/run_tests.py` -> **+2071 ~3: All tests passed!** (13:58), up 1
+      from +2070, 0 failed, same 3 skips. `tool_clock_seam_test.dart` ->
+      **24/24**, up from 23.
+
+      **My own assertion was wrong on the first gated run** (expected `[6]`
+      on a five-line vector, got `[5]`) -- my arithmetic, not the reader.
+      Reported as a failure rather than quietly relaxed to `isNotEmpty`.
+
+      **Mutation: 2 arms. arm B red, arm A green and measured equivalent.**
+      Reverting the close rule -> **RED** on the inline lone-quote witness.
+      Reverting the opener order -> **GREEN**, and that is a *measurement*,
+      not an untested fix: under any literal the opener still recognises as a
+      triple, writing 3 quotes and advancing 3 versus writing 1 and advancing
+      1 differ only in where the closing search starts, and the closer
+      already refuses to close on a lone quote. Both edits kept, both
+      written into the source so the next tick does not re-derive it.
+
+      **Both arms came back GREEN on the first run and were treated as
+      evidence of an unexercisable case rather than a pass.** The fixture that
+      found the defect did not separate them; a second, named witness was
+      written (`loneQuote`) and arm B then failed on it. Same rule as the
+      two no-op arms two ticks ago: a green arm means nothing until something
+      is built that makes it fail.
+
+      `lib/` **byte-identical to HEAD** -- test-harness change; no
+      user-visible pixels, no screenshot claimed. No APK, no release, no tag:
+      founder-gated.
+
+      *Commits:* local `e368465` -> remote `bc30b7e`. **Trees identical**
+      (`c568810`), 2/2 blobs MATCH (`tool/remote_state.py --files`).
+
+      **Next:** the stripper's escape rule is still unconditional and
+      unconditional is wrong in one direction. It consumes `\X` as two
+      characters, but a **raw** string does not escape: `r"\""` is one string
+      whose content is `\"`, not an escaped quote. Measured with `tokenize`,
+      so the case exists -- the reader handles it by luck today, because the
+      raw string's backslash-quote pair happens to land the scan back on the
+      closing quote. Next tick should find a case where it does NOT: a raw
+      string whose escaped quote is followed by a **second** literal on the
+      same line, or a raw f-string. Measure before fixing, and check the
+      false-positive direction (a raw string naming `time.time()` must still
+      read as prose).
