@@ -326,6 +326,177 @@ const _wallClockPaths = <String>{
 /// edge.
 const _clockModules = {'time', 'datetime', 'date'};
 
+/// One Python **logical** line: the unit the tokenizer actually works in.
+///
+/// Measured with `tokenize` on the Python running this test, not assumed.
+/// `x = (wall` + newline + `())` is **one NAME token** (`wall`) and one OP
+/// token (`(`), and the `(` is *not* on the line the NAME ends on. A scan that
+/// walks physical lines gives the `(` a line of its own, the NAME a line with
+/// no `(` after it, and the call disappears. That is a false negative -- the
+/// direction that hides bugs, and the same direction as every other reader
+/// defect in this file.
+///
+/// Two ways Python continues a line, and only these two:
+///   * a backslash immediately before the newline, and
+///   * an unclosed bracket -- `(`/`[`/`{`.
+/// Everything else ends a logical line, including a blank line and a comment.
+class _LogicalLine {
+  _LogicalLine(this.text, this.starts);
+  final String text;
+
+  /// `(charOffsetInText, physicalLineNumber)` pairs, ascending, one per
+  /// physical line folded into this unit.
+  final List<(int, int)> starts;
+
+  /// The physical line [offset] of this unit's text came from.
+  ///
+  /// A hit is reported on the line the *match* starts on, not the line the
+  /// unit starts on: `started = (wall` + `())` must name the `started` line.
+  int lineAt(int offset) {
+    var best = starts.first.$2;
+    for (final s in starts) {
+      if (s.$1 <= offset) {
+        best = s.$2;
+      } else {
+        break;
+      }
+    }
+    return best;
+  }
+
+  /// This unit as one readable line: trimmed, interior whitespace runs
+  /// collapsed to a single space.
+  ///
+  /// A call folded over three physical lines reads as `wall ( )` this way. The
+  /// spacing is invented -- it is a *report* of a statement, not a quote of a
+  /// line -- and collapsing it is what lets one assertion match both the
+  /// one-line and the folded spelling of the same call.
+  String get report => text.trim().replaceAll(RegExp(r'[ \t]+'), ' ');
+}
+
+/// Fold [stripped] into logical lines, each remembering where it came from.
+///
+/// Comments and string literals are already blanked out, so a backslash inside
+/// a literal never reaches here and a `#` comment never continues a line --
+/// both fall out of the stripper rather than out of a special case.
+///
+/// A line ending in `\` loses the backslash and joins the next one. A line
+/// inside an unclosed bracket joins the next one, blanks included, because the
+/// bracket is what holds the statement open. A stray `)` cannot open a
+/// continuation (depth floors at zero), or one unbalanced bracket anywhere
+/// would silently swallow the rest of the file into one unit.
+///
+/// The join separator is empty when the next physical line begins with a
+/// character that continues a token -- `wall` + `(` must be `wall(`, and
+/// `foo` + `.bar()` must be `foo.bar()` for the dotted-path rule to see it --
+/// and a single space otherwise, so `bar` + `baz` never fuses into a name
+/// that exists in neither line.
+List<_LogicalLine> _logicalLines(String stripped) {
+  final out = <_LogicalLine>[];
+  final physical = stripped.split('\n');
+  var text = StringBuffer();
+  var starts = <(int, int)>[];
+  var depth = 0;
+
+  void emit() {
+    // A file ending in a newline leaves an empty trailing unit. It holds no
+    // line at all, and a unit with no line cannot report a line number.
+    if (starts.isNotEmpty) out.add(_LogicalLine(text.toString(), List.of(starts)));
+    text = StringBuffer();
+    starts = <(int, int)>[];
+  }
+
+  for (var i = 0; i < physical.length; i++) {
+    starts.add((text.length, i + 1));
+    // Indentation is stripped as well as trailing space. Leaving it in is a
+    // silent false negative: `return time.` + `        time()` folds to
+    // `return time.        time()`, the dotted-path rule needs `time.time`
+    // adjacent, and the read disappears again -- the same defect this whole
+    // function exists to close, reintroduced by the fix itself. Caught by
+    // printing the folded units rather than by reading the rule.
+    var piece = physical[i]
+        .replaceAll(RegExp(r'^[ \t]+'), '')
+        .replaceFirst(RegExp(r'[ \t]+$'), '');
+    var joined = false;
+
+    // A backslash immediately before the newline: the statement continues and
+    // the physical line ends.
+    if (piece.endsWith('\\')) {
+      piece = piece.substring(0, piece.length - 1);
+      joined = true;
+    }
+    text.write(piece);
+    for (final c in piece.codeUnits) {
+      final ch = String.fromCharCode(c);
+      if (ch == '(' || ch == '[' || ch == '{') {
+        depth++;
+      } else if (ch == ')' || ch == ']' || ch == '}') {
+        // Floored at zero on purpose: one stray `)` anywhere would otherwise
+        // drive the depth negative and swallow the rest of the file into a
+        // single unit. Measured unreachable -- a stray `)` is a SyntaxError
+        // in every form -- so the floor is a cheap guard, not a rule under
+        // test. See [_continuesToken].
+        depth = depth > 0 ? depth - 1 : 0;
+      }
+    }
+    // An unclosed bracket holds the statement open over the next line. This is
+    // ordinary Python and is always joined, backslash or not.
+    if (!joined && depth > 0) joined = true;
+
+    if (!joined) {
+      emit();
+      continue;
+    }
+    if (i + 1 >= physical.length) continue;
+
+    // Joining must not fuse two tokens into one name. A space is inserted
+    // only when BOTH sides of the seam could continue a token -- identifier
+    // characters, or a quote/opening bracket after an identifier, which would
+    // build `foobar` out of `foo` + `bar` and turn a call into a name that
+    // exists in neither line. Everything else (`.` `(` `,` `)` ...) joins
+    // tight, because `wall` + `(` must read as `wall(` for the call rule and
+    // `foo` + `.bar()` as `foo.bar()` for the dotted-path rule.
+    final here = piece.isEmpty ? '' : piece[piece.length - 1];
+    final next = physical[i + 1].replaceFirst(RegExp(r'^[ \t]+'), '');
+    final there = next.isEmpty ? '' : next[0];
+    if (_continuesToken(here) && _continuesToken(there)) {
+      text.write(' ');
+    }
+  }
+  emit();
+  return out;
+}
+
+/// True when [c] at a join seam could make the token span the seam grow.
+///
+/// Two of the eight arms this tick ran came back GREEN, and both are written
+/// down rather than quietly counted as passing:
+///
+///   * **Always joining tight** (no space at a seam) cannot be caught, because
+///     **no valid Python fuses two identifiers across a continuation.** Every
+///     witness was tried against the interpreter: `x = foo\` + `bar` and
+///     `x = foo\` + `bar()` are both `SyntaxError: invalid syntax`, and so are
+///     the three string-prefix fusions (`f` + `'...'`, `b`, `r`). Python emits
+///     two separate NAME tokens or rejects the line. So the tight branch is
+///     unreachable on real source and the rule it guards cannot be exercised
+///     -- the arm stays green because there is nothing to catch, which is the
+///     same state a broken test is in and looks identical from the outside.
+///   * **Flooring the bracket depth at zero** cannot be caught either: a stray
+///     `)` is a `SyntaxError` in every form tried (`x = 1` + `)`, a bare `)`,
+///     `print(1))`, `x = (1]`). Valid Python never drives the depth negative.
+///
+/// Both rules are kept for the reason [_insideOpenBracket] keeps its known
+/// edge: they are cheap and they fail toward noise rather than silence. A
+/// guard on a file that is not valid Python is not the guard's job, but it
+/// should not read "clean" because of it.
+
+///
+/// A name character on both sides is the case that matters -- `foo` and
+/// `bar` must not become `foobar`. An opening bracket or quote after one is
+/// the other way that happens, so both are covered.
+bool _continuesToken(String c) =>
+    c.isEmpty || _isIdentChar(c) || c == '"' || c == "'";
+
 /// `moduleAlias` maps `import X as A` to `X`; `nameAlias` maps
 /// `from X import Y as A` to the path `X.Y`.
 ///
@@ -342,7 +513,12 @@ const _clockModules = {'time', 'datetime', 'date'};
       r'(?:\s+as\s+([A-Za-z_][\w]*))?');
   final plainImport = RegExp(
       r'^\s*import\s+([A-Za-z_][\w.]*)\s*(?:as\s+([A-Za-z_][\w]*))?\s*$');
-  for (final line in stripped.split('\n')) {
+  // Logical, not physical: `from time import \` + `time as wall` is one
+  // import statement, and on physical lines the alias was never bound at all
+  // -- so every call through it read as clean. Same false negative as the
+  // folded call, one step further out: the reader could not see the *binding*
+  // the call depends on.
+  for (final line in _logicalLines(stripped).map((u) => u.text)) {
     final m = fromImport.firstMatch(line);
     if (m != null) {
       final module = m.group(1)!;
@@ -383,7 +559,10 @@ Set<String> _reboundNames(String stripped) {
     }
   }
 
-  for (final line in stripped.split('\n')) {
+  // Logical, for the same reason as the import table: a target and its `=`
+  // can sit on different physical lines, and binding only the line the target
+  // is on misses it.
+  for (final line in _logicalLines(stripped).map((u) => u.text)) {
     // Assignment, annotated assignment and unpacking all bind EVERY name to
     // the left of the operator -- `wall = x`, `wall: T = x`, `wall, o = x, y`
     // and `wall, *rest = x` each bind `wall`. The binder this replaces read
@@ -398,7 +577,8 @@ Set<String> _reboundNames(String stripped) {
 
     // Augmented assignment binds its single target.
     for (final m in RegExp(r'^\s*([A-Za-z_]\w*)\s*(?:'
-            r'\+=|==|-=|\*=|/=|//=|%=|@=|&=|\|=|\^=|>>=|<<=)').allMatches(line)) {
+            r'\+=|==|-=|\*=|/=|//=|%=|@=|&=|\|=|\^=|>>=|<<=)')
+        .allMatches(line)) {
       out.add(m.group(1)!);
     }
 
@@ -526,14 +706,13 @@ _ClockScan _clockScanFrom(String stripped, [File? f]) {
     }
   }
 
-  final lines = stripped.split('\n');
   final hits = <_Read>[];
   final suspicions = <String>[];
   final attr = RegExp(r'\b([A-Za-z_]\w*)((?:\.[A-Za-z_]\w*)+)');
   final call = RegExp(r'\b([A-Za-z_]\w*)\s*\(');
 
-  for (var i = 0; i < lines.length; i++) {
-    final line = lines[i];
+  for (final unit in _logicalLines(stripped)) {
+    final line = unit.text;
     var matched = false;
 
     for (final m in attr.allMatches(line)) {
@@ -541,7 +720,7 @@ _ClockScan _clockScanFrom(String stripped, [File? f]) {
       final module = aliases.moduleAlias[root] ?? root;
       final path = '$module${m.group(2)!}';
       if (_wallClockPaths.contains(path)) {
-        hits.add(_Read(file, i + 1, line.trim()));
+        hits.add(_Read(file, unit.lineAt(m.start), unit.report));
         matched = true;
       }
     }
@@ -552,13 +731,13 @@ _ClockScan _clockScanFrom(String stripped, [File? f]) {
     for (final m in call.allMatches(line)) {
       final name = m.group(1)!;
       if (blind.containsKey(name)) {
-        suspicions.add('${file.path}:${i + 1}: `$name` is bound both to '
-            '${blind[name]} and to another binding on this file, so '
+        suspicions.add('${file.path}:${unit.lineAt(m.start)}: `$name` is bound '
+            'both to ${blind[name]} and to another binding on this file, so '
             '${blind[name]} may be called as `$name()`. Looked at it by hand: '
-            '${line.trim()}');
+            '${unit.report}');
       } else if (aliases.nameAlias[name] != null &&
           _wallClockPaths.contains(aliases.nameAlias[name])) {
-        hits.add(_Read(file, i + 1, line.trim()));
+        hits.add(_Read(file, unit.lineAt(m.start), unit.report));
         matched = true;
       }
     }
@@ -1096,12 +1275,11 @@ x = time.time()
         reason: 'both captures shadow the alias.\nfound ${hits.length}');
 
     final blind = _clockAliasSuspicion(f);
-    expect(blind.length, 2,
-        reason: 'two captures, two named lines.\n$blind');
+    expect(blind.length, 2, reason: 'two captures, two named lines.\n$blind');
     expect(blind.every((b) => b.contains('`wall`')), isTrue,
         reason: 'only the capture target is unresolved.\n$blind');
-    expect(blind.any((b) => b.contains('must not be read as a capture')),
-        isFalse,
+    expect(
+        blind.any((b) => b.contains('must not be read as a capture')), isFalse,
         reason: 'the comment explaining this case must not have been read as '
             'a capture binding -- prose is not code.\n$blind');
   });
@@ -1168,6 +1346,148 @@ x = time.time()
     expect(_clockScanFrom(src).suspicions, isEmpty);
   });
 
+  test('a call folded over two physical lines is still a call', () {
+    // `_clockScanFrom` walked physical lines and looked for `name` followed by
+    // a `(` on the SAME line. Measured with `tokenize` first, as everything
+    // else here: `x = (wall` + newline + `())` is one NAME token and one OP
+    // token, and the `(` lands on the next line. The NAME's line has no `(`
+    // after it, so the call was invisible -- the guard reported a file that
+    // reads the wall clock as CLEAN.
+    //
+    // That is the false-negative direction again, and the census is why it
+    // was survivable: 0 of the 16 tracked `.py` fold a call this way, so the
+    // sweep has nothing to catch. The shape is still a hole in the guard.
+    final f = _fixture('split_call_across_lines.py.fixture');
+    final hits = _wallClockReads(f);
+
+    expect(hits.length, 4,
+        reason: 'every `wall` call in this fixture reads the wall clock, '
+            'whichever physical line the `(` sits on: one on a single line, '
+            'one with the `(` on the following line, one with the `(` split '
+            'off by a backslash, one with the CALL itself on the continuation '
+            'line. `mono()` is monotonic and must not count.\n'
+            'found ${hits.length}: '
+            '${hits.map((h) => '${h.line}: ${h.text}').join(' | ')}');
+
+    // The line number must be the line the CALL is on, not the line the
+    // logical statement started: reporting `(wall` when the statement began
+    // on `started =` would send a reader to the wrong line.
+    final src = f.readAsStringSync();
+    final lines = src.split('\n');
+    int lineOf(String needle) =>
+        lines.indexWhere((l) => l.contains(needle)) + 1;
+
+    final expectLines = <int>[
+      // The NAME `wall` is on the line the statement OPENS, so the report is
+      // that line.
+      lineOf('started = (wall'),
+      // The NAME is on line N but the `(` is on N+1: a report keyed on the
+      // statement's first line would be right by accident here, which is why
+      // the fixture also holds the case below where it is wrong.
+      lineOf('return wall(\\'),
+      lineOf('return wall()'),
+      // Here the NAME itself sits on the CONTINUATION line, and the
+      // statement opened on the previous one. Reporting the statement's first
+      // line would send a reader to a line with no clock read on it at all.
+      lineOf('wall())'),
+    ];
+    expect(hits.length, expectLines.length,
+        reason: 'the fixture gained a fourth folded call; a guard that misses '
+            'it now reports fewer hits than the fixture contains.');
+    expect(hits.map((h) => h.line).toSet(), equals(expectLines.toSet()),
+        reason: 'each hit must be named on the physical line its CALL is on.\n'
+            'expected $expectLines, got ${hits.map((h) => h.line).toList()}');
+    expect(hits.map((h) => h.line).toSet(),
+        isNot(contains(lineOf('total = (0 +'))),
+        reason: 'a folded statement must not be reported on the line it '
+            'started on when the call is on a later physical line.');
+  });
+
+  test('an alias bound by a split import is resolved, not dropped', () {
+    // The same fold, one step further out, and this is the one that turned
+    // out to be the bigger hole. `from time import \` + `time as wall` is ONE
+    // import statement (tokenize: the `\` produces no token at all and the
+    // statement ends on the second line's NEWLINE) -- and the alias table read
+    // physical lines, so `wall` was never bound.
+    //
+    // A dropped binding is worse than a missed call, because it removes the
+    // alias from the resolver entirely: the call is then not a read AND not a
+    // suspicion. It reads as clean. Before this tick, dropping the alias
+    // resolution altogether would have passed every case in this file.
+    //
+    // Stripped first, and that is the contract of the entry point, not a
+    // detail: [_wallClockReadsFrom] takes already-stripped source because the
+    // stripping is a separate layer under test. Handing it a raw docstring
+    // naming `wall()` finds TWO hits -- the prose and the call -- and the first
+    // version of this case asserted one and failed for exactly that reason.
+    // The docstring stays in the vector anyway: it is the check that folding a
+    // statement does not drag the prose into the same unit.
+    const raw = 'from time import \\\n'
+        '    time as wall\n'
+        '\n'
+        'def f():\n'
+        '    """A docstring naming wall() is prose, not a call."""\n'
+        '    return wall()\n';
+    final hits = _wallClockReadsFrom(_stripCommentsAndStrings(raw));
+    expect(hits.length, 1,
+        reason: 'the alias is bound by the folded import and the call is a '
+            'wall-clock read; the docstring must not be one.\n'
+            'found ${hits.length}: '
+            '${hits.map((h) => '${h.line}: ${h.text}').join(' | ')}');
+    expect(hits.single.line, 6, reason: 'and it is reported on its own line.');
+  });
+
+  test('a seam that must join tight does, and one that must not cannot', () {
+    // The other direction from the missed call, and the one a fix for it
+    // creates: fold a line and you can invent a token the Python never had.
+    // Both halves of this were measured against the interpreter before the
+    // rule was written, because the intuitive answer is wrong on one side.
+    //
+    //   * `x = foo\` + `bar` is a **SyntaxError** -- "invalid syntax". Python
+    //     never fuses two identifiers across a continuation, so a join that
+    //     produced `foobar` would be scanning a name that cannot occur.
+    //   * `x = time.\` + `time()` **compiles** and really does call
+    //     `time.time()`. A seam after a `.` must join TIGHT or the dotted-path
+    //     rule stops seeing the path and the read vanishes -- the same false
+    //     negative, arrived at from the other side.
+    //
+    // So the rule is not "always join tight" and not "always put a space": a
+    // space only when BOTH sides of the seam are identifier/quote characters,
+    // which is the only case that can fuse a token.
+    const tight = 'import time\n'
+        '\n'
+        'def probe():\n'
+        '    return time.\\\n'
+        '        time()\n';
+    final tightScan = _clockScanFrom(tight);
+    expect(_wallClockReadsFrom(tight).length, 1,
+        reason: '`time.` + `time()` is one call and it reads the wall clock; '
+            'a space inserted at that seam would hide it.\n'
+            'found ${_wallClockReadsFrom(tight)}');
+    expect(tightScan.hits.single.text, contains('time.'),
+        reason: 'the report must name the call, not a mangled fragment.\n'
+            'got "${tightScan.hits.single.text}"');
+
+    // And the seam that cannot occur is still not invented: `foo` + `bar` is
+    // not valid Python, so nothing here may resolve it as one name.
+    const loose = 'from time import time as wall\n'
+        '\n'
+        'joined = foo\\\n'
+        'bar\n'
+        'def probe():\n'
+        '    return wall()\n';
+    final looseScan = _clockScanFrom(loose);
+    expect(_wallClockReadsFrom(loose).length, 1,
+        reason: 'the real call survives its folded neighbour.');
+    expect(looseScan.suspicions, isEmpty,
+        reason: 'a fused name is not a binding, so it must not be reported as '
+            'one -- a fold must not invent a suspicion.\n'
+            'found ${looseScan.suspicions}');
+    expect(looseScan.hits.single.text, contains('return wall()'),
+        reason: 'and the hit must name the call rather than the whole folded '
+            'unit.\ngot "${looseScan.hits.single.text}"');
+  });
+
   test('the clock table agrees with the Python running this test', () {
     // `_wallClockPaths` is a claim about what the wall clock is. Made from
     // memory, it was wrong on the very first entry that could be checked:
@@ -1232,3 +1552,4 @@ x = time.time()
             'the table.');
   });
 }
+

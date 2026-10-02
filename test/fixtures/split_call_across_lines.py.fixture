@@ -1,0 +1,33 @@
+"""A call is not obliged to fit on one physical line.
+
+This docstring mentions wall() on purpose: prose is not a call, and the reader
+that strips it must not turn that sentence into a finding.
+"""
+from time import \
+    time as wall
+from time import monotonic as mono
+
+
+def the_paren_is_on_the_next_line():
+    started = (wall
+               ())
+    return started
+
+
+def the_paren_is_split_by_a_backslash():
+    return wall(\
+    )
+
+
+def the_call_is_on_the_continuation_line():
+    total = (0 +
+             wall())
+    return total
+
+
+def a_read_on_one_line():
+    return wall()
+
+
+def a_safe_clock():
+    return mono()
