@@ -15050,3 +15050,78 @@ into: **`profile_screen.dart:_planSummary`**, which prints «نشط حتى …»
 dates correctly. Giving *that* screen a `clock` is the natural continuation
 and is a real item, not a chore. Do **not** re-open the `created_at` census
 (closed, 14 inert stamps) or the `as String?` family (complete, 5/5).
+
+## Tick 2 Oct 2026 (9th) — **read-only tick**: the box cannot host a gate, and
+## the loop's "the family is closed" claim is **wrong** — three more readers
+
+**Gate: NO ROOM, and not marginally.** `python3 tool/build_gate.py` →
+
+    Memory: 678 MB available of 7936 MB, no swap; a build needs >= 900 MB
+    NO ROOM — nothing is building, but only 678 MB is reclaimable and a run of
+    this suite was measured to bottom out at 1177 MB. Do not start a build here.
+
+Cross-checked against the protocol's own rule (`pgrep -c java` → **0**,
+`pgrep -fc "[f]lutter"` → **0**), so nothing of ours is building and the box is
+simply starved — the pressure is outside our PID namespace. A 30-sample
+sustained read over 90 s gave **min 507 / median 573 / max 634 MB**, which is
+not the coin flip the gate was fixed for on 2 Oct: the verdict is stable and
+below the floor every time. The two largest RSS consumers are the Hermes
+runtime and `hatch`, neither of which is mine to kill. So this tick took a
+**read-only** item, as the protocol permits, and committed nothing to `lib/`.
+
+**The audit's finding: the previous tick closed the family one screen early.**
+The last tick shipped the ageing timer for `notifications_screen.dart` and
+recorded that *"the family is closed again … `_ReviewCard` is the last reader
+with a seam and no timer — that is the next item."* That is true of
+`_ReviewCard` and false of the family. A census of every seam-plus-relative-
+time reader in `lib/` puts the number at **3**, not 1:
+
+| screen | `clock` seam | `Timer` | what it renders against that clock |
+| --- | --- | --- | --- |
+| `project/project_detail_screen.dart` | **yes** | **0** | `sentLine` on every bid card (`:1142`) |
+| `worker/my_portfolio_screen.dart` | **yes** | **0** | the stale-gallery band (`:458`) |
+| `worker/worker_profile_screen.dart` | **yes** | **0** | «قبل …» on every review card (`:817`) |
+
+Every other screen that renders a relative time *does* self-age now
+(`browse`, `customer_home`, `projects`, `worker_home`, `profile_screen`,
+`chat_list`, `notifications` — **7 of 7**, verified by grepping `Timer` across
+`lib/src/screens`). `lib/src/widgets/` has **0** timers, so no widget ages
+anything on its own. So the family is **3 screens short, not closed**, and each
+of the three is the *worst* shape of the defect: all three are **pushed routes,
+not `IndexedStack` children**, and none has a `RefreshIndicator`, so a page
+left open ages nothing at all. `project_detail_screen.dart` is the sharpest of
+the three — it carries the seam (and its own doc comment says the seam exists
+*because* a screen reading the real clock is "a screen whose pixels depend on
+when the test ran"), it is pushed by **four** callers including the
+notification centre, and its only rebuilds are `_reload()` (accept/bid/retry)
+and the photo pager. A customer who opens a project and reads the four bids on
+his phone watches «قبل 12 دقيقة» sit there for half an hour.
+
+**The blind spot that let the claim stand, written down so it cannot stand
+twice.** The census above is one grep — `grep -rln "DateTime Function()? clock"
+lib/src/screens/` crossed with `grep -c Timer` on the same files. It is a
+**structural** question (does this screen own a ticking mechanism?) and it is
+answerable without a compiler. Both ticks that worked on this family treated
+it as a sweep of screens they were *already visiting*, which is how a screen
+with no timer and a live seam survives two consecutive audits: nothing in the
+reading of *one* file looks at the others. The question "which screens have a
+seam and no timer?" is answerable in one command and was not asked.
+
+**Not shipped this tick, deliberately**, because there is no gate to ship it
+behind: no `lib/` change, no test, no commit, no push. The three timers are
+small and mechanical (the shape is already written four times in this repo —
+`browse_screen.dart:278`, `customer_home_screen.dart:432`, `projects_screen.dart:266`,
+`notifications_screen.dart:192` — and each of those four already documents why
+it is armed from where the stamp lands rather than from `build`), but
+"small and mechanical" is a claim about the diff, and **an ungated Dart change
+is exactly the thing the protocol forbids shipping.** No screenshot either:
+there is no new pixel to look at until there is a build.
+
+**Next — and it is now pinned to a specific screen, not a family:** the first
+item for the next tick with a gate is **`project_detail_screen.dart`'s age
+tick**, the three-seam/zero-timer screen that carries the most traffic
+(4 pushers, its own seam, its own doc comment arguing for the seam). It is the
+same defect `a87647e` shipped for the notification centre, one screen over, and
+it is the one a customer reads while deciding on a contractor. Implement it
+**last** of the three only if the gate stays down; the ordering by traffic is
+by design, not by difficulty.
