@@ -1,0 +1,11 @@
+from time import time as wall
+from time import monotonic as mono
+
+
+def elapsed(fake, samples):
+    # A walrus binds `wall` just as surely as `wall = fake` does, and it sits
+    # in the middle of an expression where an assignment never appears. The
+    # binder this replaces had no rule for `:=`, so the call below was
+    # reported as the wall clock -- a read the guard had no right to claim.
+    (wall := fake)
+    return wall(), mono()

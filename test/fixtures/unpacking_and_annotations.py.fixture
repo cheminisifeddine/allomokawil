@@ -1,0 +1,23 @@
+from time import time as wall
+from time import time_ns as stamp
+
+
+def packed(fake, other):
+    # The clock alias is deliberately NOT first on the left of `=`: a binder
+    # that reads one name off the front of the line and stops sees `other`,
+    # misses `wall`, and then claims `wall()` below is the real clock.
+    other, wall = other, fake
+    return wall(), stamp()
+
+
+def annotated(fake):
+    # `wall: T = fake` binds `wall`; `T` is a type, not a binding.
+    wall: object = fake
+    return wall()
+
+
+def unpacked(fake):
+    # A star target still binds the name in front of it, and again the alias
+    # is not the first name on the line.
+    rest, wall = [1, 2], fake
+    return wall(), rest

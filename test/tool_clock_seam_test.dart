@@ -382,20 +382,119 @@ Set<String> _reboundNames(String stripped) {
       }
     }
   }
-  final binders = [
-    RegExp(r'^\s*def\s+([A-Za-z_]\w*)\s*\(', multiLine: true),
-    RegExp(r'^\s*class\s+([A-Za-z_]\w*)', multiLine: true),
-    RegExp(r'^\s*([A-Za-z_]\w*)\s*(?:=[^=]|\+=|-=)', multiLine: true),
-    RegExp(r'\bfor\s+([A-Za-z_]\w*)\s+in\b'),
-    RegExp(r'\bas\s+([A-Za-z_]\w*)\s*:'),
-    RegExp(r'\blambda\b[^:]*\b([A-Za-z_]\w*)\s*[:,)]'),
-  ];
-  for (final re in binders) {
-    for (final m in re.allMatches(stripped)) {
+
+  for (final line in stripped.split('\n')) {
+    // Assignment, annotated assignment and unpacking all bind EVERY name to
+    // the left of the operator -- `wall = x`, `wall: T = x`, `wall, o = x, y`
+    // and `wall, *rest = x` each bind `wall`. The binder this replaces read
+    // one name off the front of the line and stopped there, so it saw the
+    // first of those and missed the other three.
+    for (final i in _assignSplits(line)) {
+      // The annotation's own type is not a binding: `wall: T = x` binds
+      // `wall`, never `T`.
+      final lhs = line.substring(0, i).split(':').first;
+      out.addAll(_identifiers(lhs));
+    }
+
+    // Augmented assignment binds its single target.
+    for (final m in RegExp(r'^\s*([A-Za-z_]\w*)\s*(?:'
+            r'\+=|==|-=|\*=|/=|//=|%=|@=|&=|\|=|\^=|>>=|<<=)').allMatches(line)) {
+      out.add(m.group(1)!);
+    }
+
+    // `for` binds its whole target list, not just its first name -- and a
+    // comprehension target binds nothing outside the comprehension.
+    for (final m in RegExp(r'\bfor\s+([^:]+?)\s+in\b').allMatches(line)) {
+      if (_insideOpenBracket(line, m.start)) continue;
+      out.addAll(_identifiers(m.group(1)!));
+    }
+
+    // `match`/`case` capture binds like any other assignment.
+    for (final m in RegExp(r'\bcase\b(.*)$').allMatches(line)) {
+      out.addAll(_identifiers(m.group(1)!));
+    }
+
+    // A walrus binds, wherever it sits. It is the shape most likely to be
+    // missed because it is a single character of punctuation between the
+    // name and the value.
+    for (final m in RegExp(r'\b([A-Za-z_]\w*)\s*:=').allMatches(line)) {
       out.add(m.group(1)!);
     }
   }
   return out;
+}
+
+/// A rule that was written, carried for a tick, and then measured away.
+///
+/// `wall: object` -- a bare annotation with no `=` -- was a binder in its own
+/// right. Removing it changes no test on this box, because every annotated
+/// binding that can actually be *called* carries a value (`wall: T = x`),
+/// which the assignment rule already covers. The only shape it caught raises
+/// `UnboundLocalError` on the read rather than returning a wrong clock.
+///
+/// It was deleted rather than kept because a rule nobody can exercise is
+/// indistinguishable from a rule that is wrong: the arm that removes it stays
+/// green, which is what actually happened. A green arm normally means the fix
+/// is untested -- but here it means the thing being guarded does not exist.
+///
+/// The measurement is written down rather than the deletion alone, because
+/// "I removed an unused rule" and "I removed a rule I did not understand" look
+/// identical to whoever reads the next tick.
+///
+/// Every identifier in [s].
+Iterable<String> _identifiers(String s) =>
+    RegExp(r'[A-Za-z_]\w*').allMatches(s).map((m) => m.group(0)!);
+
+/// Byte offsets of the `=` in [line] that really assign.
+///
+/// Skips `==`, `!=`, `<=`, `>=` and the `:=` of a walrus -- all of which read
+/// as an assignment to a scan that only looks for the character, and all of
+/// which would hand it an expression as though it were a target list.
+List<int> _assignSplits(String line) {
+  final out = <int>[];
+  for (var i = 0; i < line.length; i++) {
+    if (line[i] != '=') continue;
+    // `==` is a comparison, not a binding.
+    if (i + 1 < line.length && line[i + 1] == '=') {
+      i++;
+      continue;
+    }
+    // A comparison, an augmented assignment or the `=` half of a walrus all
+    // *look* like the start of a target list. A scan that only looks for the
+    // character hands the rest of the expression back as though it were
+    // names to bind -- which manufactures suspicions out of nothing.
+    if (i > 0) {
+      const nonAssigning = '=!:<>+-*/%@&|^';
+      if (nonAssigning.contains(line[i - 1])) continue;
+    }
+    out.add(i);
+  }
+  return out;
+}
+
+/// True when position [at] in [line] sits inside a bracket opened earlier on
+/// the same line.
+///
+/// That is the shape of a comprehension target, and a comprehension has its
+/// own scope: `[wall for wall in xs]` does not rebind an outer `wall`.
+/// Verified by running it -- the outer name still resolves to the clock.
+/// Counting that target as a rebind is the noisy direction (it would name a
+/// clean file as a suspicion), so it is excluded here.
+///
+/// Known edge, and it is the safe direction: a comprehension whose opening
+/// bracket is on an earlier line is not recognised and reads as a rebind.
+/// That is noise, never silence.
+bool _insideOpenBracket(String line, int at) {
+  final stack = <String>[];
+  for (var i = 0; i < at && i < line.length; i++) {
+    final c = line[i];
+    if (c == '(' || c == '[' || c == '{') {
+      stack.add(c);
+    } else if (c == ')' || c == ']' || c == '}') {
+      if (stack.isNotEmpty) stack.removeLast();
+    }
+  }
+  return stack.isNotEmpty;
 }
 
 /// Every wall-clock read in [stripped], plus what the guard could not decide.
@@ -884,6 +983,189 @@ x = time.time()
         reason: 'a suspicion with no file:line is a feeling, not a finding.');
     // The docstring quotes `wall()` on purpose: prose is not a call.
     expect(blind.where((b) => b.contains('The docstring quotes')), isEmpty);
+  });
+
+  test('a walrus shadows the clock alias exactly like an assignment', () {
+    // The binder this replaces had no rule for `:=`. A walrus is a binding,
+    // so `wall()` after `(wall := fake)` is whatever was passed in -- and the
+    // guard reported the file as holding a REAL wall-clock read. That is a
+    // false *positive* dressed as a finding: it claims a read it cannot
+    // justify, which is the mirror of the false negatives above and just as
+    // wrong about the code.
+    final f = _fixture('walrus_shadows_clock_alias.py.fixture');
+    final hits = _wallClockReads(f);
+    expect(hits, isEmpty,
+        reason: 'the only `wall` here is the walrus target, so this is not a '
+            'read the guard may claim.\nfound ${hits.length}: '
+            '${hits.map((h) => '${h.line}: ${h.text}').join(' | ')}');
+
+    final blind = _clockAliasSuspicion(f);
+    expect(blind.length, 1,
+        reason: 'one unresolved call, named on one line. Silence here would '
+            'be the false negative this whole family exists to prevent.'
+            '\nfound $blind');
+    expect(blind.single, contains('wall'));
+    expect(blind.single, contains('${f.path}'));
+  });
+
+  test('a walrus that does NOT shadow stays a clean file', () {
+    // The half that decides whether the rule is usable at all. If every walrus
+    // were treated as a rebind, this clean file would be reported dirty -- and
+    // a guard that cries wolf is switched off, which loses the real findings
+    // too. So the fix has to bind the walrus target and nothing else.
+    const src = 'from time import time as wall\n'
+        'from time import monotonic as mono\n'
+        '\n'
+        'def elapsed(fake):\n'
+        '    total = (elapsed_n := mono()) + fake\n'
+        '    return total, wall()\n';
+    final hits = _wallClockReadsFrom(src);
+    expect(hits.length, 1,
+        reason: '`wall()` really is the imported wall clock and must still be '
+            'found; the unrelated walrus target must not have blinded it.'
+            '\nfound ${hits.length}: '
+            '${hits.map((h) => '${h.line}: ${h.text}').join(' | ')}');
+    expect(hits.single.text, contains('wall()'));
+  });
+
+  test('every name on the left of an assignment is bound', () {
+    // `wall, other = fake, other` binds BOTH names. The binder read one name
+    // off the front of the line and stopped, so it saw `wall` by accident and
+    // would have missed a rebind where the clock alias was not first.
+    // Annotated assignment (`wall: T = x`) and a star target
+    // (`wall, *rest = ...`) were invisible for the same reason.
+    final f = _fixture('unpacking_and_annotations.py.fixture');
+    final hits = _wallClockReads(f);
+    final blind = _clockAliasSuspicion(f);
+
+    // `wall` is rebound in all three functions, so all three of its calls are
+    // unresolved; `stamp` -- the other clock alias -- is never shadowed, so it
+    // is still a real read. Exactly one hit, and it must be the `stamp` one.
+    //
+    // This case was first written as `expect(hits, isEmpty)` AND
+    // `expect(hits.length, 1)` about the same list, so it failed for a reason
+    // that had nothing to do with the binder: the fixture deliberately holds
+    // one unshadowed alias so a fix that simply banned every alias in a
+    // rebound file would be caught.
+    expect(hits.length, 1,
+        reason: 'only `stamp()` survives as a claimable read; `wall` is '
+            'shadowed in all three functions.\nfound ${hits.length}: '
+            '${hits.map((h) => '${h.line}: ${h.text}').join(' | ')}');
+    expect(hits.single.text, contains('stamp()'),
+        reason: 'the surviving read must be the alias that was never '
+            'shadowed, not one of the `wall` calls.\n${hits.single.text}');
+
+    expect(blind.where((b) => b.contains('`wall`')).length, 3,
+        reason: 'each shadowed call must be named, not collapsed.\n$blind');
+    expect(blind.where((b) => b.contains('`stamp`')), isEmpty,
+        reason: 'a bound-but-unshadowed alias is resolved, not doubted.');
+
+    // The unpacking case on its own, with `wall` NOT first on the left of `=`
+    // and no other binding of it anywhere in the source.
+    //
+    // It has to be isolated for this to mean anything. Rebinding is computed
+    // per FILE, so in the fixture above the `wall: object = fake` line binds
+    // `wall` regardless of which binder found it -- and a mutation that read
+    // only the first name left of `=` still went green, because some other
+    // line had already bound `wall`. That is the same mistake as a corpus
+    // that is clean because the bug has not been written down yet.
+    const solo = 'from time import time as wall\n'
+        '\n'
+        'def f(fake, other):\n'
+        '    other, wall = other, fake\n'
+        '    return wall()\n';
+    expect(_wallClockReadsFrom(solo), isEmpty,
+        reason: '`wall` is the second name on the left of `=`, and that binds '
+            'it just as surely as being first.');
+    expect(_clockScanFrom(solo).suspicions.length, 1,
+        reason: 'and the unresolved call must be named, not silently dropped.');
+  });
+
+  test('a match/case capture binds, and the word in a comment does not', () {
+    // `case [wall]:` captures `wall` and `wall()` is then that capture.
+    // Both capture forms are in the fixture because the grammar has more than
+    // one and a rule written for only the first is a rule that misses.
+    //
+    // The fixture also says the word "case" inside a comment and a docstring.
+    // Comments are stripped before the scan, so they must not produce
+    // bindings -- otherwise the guard manufactures suspicions out of prose,
+    // which is the same prose-counts-as-code error the reader made twice.
+    final f = _fixture('case_capture_shadows_clock.py.fixture');
+    final hits = _wallClockReads(f);
+    expect(hits, isEmpty,
+        reason: 'both captures shadow the alias.\nfound ${hits.length}');
+
+    final blind = _clockAliasSuspicion(f);
+    expect(blind.length, 2,
+        reason: 'two captures, two named lines.\n$blind');
+    expect(blind.every((b) => b.contains('`wall`')), isTrue,
+        reason: 'only the capture target is unresolved.\n$blind');
+    expect(blind.any((b) => b.contains('must not be read as a capture')),
+        isFalse,
+        reason: 'the comment explaining this case must not have been read as '
+            'a capture binding -- prose is not code.\n$blind');
+  });
+
+  test('a comparison is not an assignment', () {
+    // Every rule above keys on a character. A scan that looks for `=` binds
+    // the left of `wall <= a`, `wall != b`, `a == wall` and `a += b`, and
+    // hands back an expression as a target list. A guard that invents
+    // bindings invents findings, and a guard that invents findings is
+    // switched off, which loses the real ones too.
+    //
+    // The alias must appear on BOTH sides of what is asserted, and the file
+    // must actually CALL it. Three earlier drafts of this case each went
+    // green under the mutation for a different missing piece:
+    //
+    //   * operands `a`/`b` instead of the alias -- the junk was `a !`, `a <`,
+    //     invisible to a case that only names `wall`.
+    //   * no call to `wall` -- the mutation binds `wall` but a binding alone
+    //     raises no suspicion, only a *call* of a shadowed alias does.
+    //   * `def kw(wall=1)` in the file -- the parameter rule binds `wall`
+    //     anyway, which made the whole case pass for the wrong reason under
+    //     BOTH the fix and the mutation.
+    const src = 'from time import time as wall\n'
+        '\n'
+        'def probe(a, b):\n'
+        '    if wall <= a or wall != b:\n'
+        '        pass\n'
+        '    total = 0\n'
+        '    total += 1\n'
+        '    return wall()\n'
+        '\n'
+        'class Thing:\n'
+        '    kind = "x"\n';
+    final scan = _clockScanFrom(src);
+    expect(scan.suspicions, isEmpty,
+        reason: 'nothing here binds `wall`: the two comparisons compare, '
+            '`total += 1` binds `total`, and the class body binds `kind`. So '
+            '`wall()` on the last line is still the imported clock and the '
+            'guard may claim it.\nfound ${scan.suspicions}');
+    expect(_wallClockReadsFrom(src).length, 1,
+        reason: 'and the call must be reported as the read it is.');
+  });
+
+  test('a comprehension target does not rebind the outer name', () {
+    // Checked by running it, not by reading the spec: in
+    // `[wall for wall in xs]` the target has its own scope and the outer
+    // `wall` still resolves to the clock. Counting it as a rebind would name
+    // a clean file as a suspicion -- the noisy direction.
+    const src = 'from time import time as wall\n'
+        '\n'
+        'xs = [1, 2, 3]\n'
+        'squares = [wall for wall in xs]\n'
+        'gen = (wall for wall in xs)\n'
+        'pairs = {wall: wall for wall in xs}\n'
+        'def after():\n'
+        '    return wall()\n';
+    final hits = _wallClockReadsFrom(src);
+    expect(hits.length, 1,
+        reason: 'only the bare `wall()` in `after()` is the clock; the three '
+            'comprehension targets bind nothing outside their own scope.'
+            '\nfound ${hits.length}: '
+            '${hits.map((h) => '${h.line}: ${h.text}').join(' | ')}');
+    expect(hits.single.text, contains('return wall()'));
+    expect(_clockScanFrom(src).suspicions, isEmpty);
   });
 
   test('the clock table agrees with the Python running this test', () {

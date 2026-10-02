@@ -1,0 +1,13 @@
+from time import time as wall
+from time import perf_counter as fast
+
+
+def handle(command):
+    # A `case` capture binds exactly like an assignment, and this file also
+    # contains the word "case" in a comment -- which must not be read as a
+    # capture, or the guard manufactures suspicions out of prose.
+    match command:
+        case [wall]:
+            return wall(), fast()
+        case {"t": wall}:
+            return wall(), fast()
