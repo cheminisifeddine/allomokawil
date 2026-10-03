@@ -18847,7 +18847,8 @@ rests on, so an entry whose module stops folding cannot stay excused.
 
 - [x] **`tool/run_tests.py` cannot produce one trustworthy suite number on this
       box — a memory abort at file 209 of 246 reads exactly like a suite
-      result.** `d1b7c1f`. On 3 Oct the 35th tick's full run died with
+      result.** `69dee29` (code) + `cad2ff2` (this note) -> remote
+      `084ec91`. On 3 Oct the 35th tick's full run died with
       `Bad state: Cannot close sink while adding stream` from Flutter's own
       `flutter_platform.dart`, at +1792 with **182 MB free of 7.9 GB and no
       swap**, 19:40 against a 13:48 baseline. The suite did not fail; the
