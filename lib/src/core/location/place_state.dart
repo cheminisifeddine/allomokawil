@@ -199,7 +199,14 @@ class PlaceState extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_key);
-    } catch (_) {}
+    } catch (error) {
+      // The in-memory fix is already gone and the manual pickers still work, so
+      // this must not throw — but a store that will not forget means the wilaya
+      // the user just rejected is restored on the next launch. Named, because
+      // "the app remembered a wilaya the user cancelled" is not a report anyone
+      // can file from the outside.
+      _reportStoreFailure('could not forget the detected wilaya', error);
+    }
   }
 
   Future<void> _save() async {
@@ -219,7 +226,30 @@ class PlaceState extends ChangeNotifier {
           'from_device': p.communeFromDevice,
         }),
       );
-    } catch (_) {}
+    } catch (error) {
+      // **The one that mattered.** A refusal here is invisible until the next
+      // launch, when the market opens unfiltered: the worker's own wilaya is
+      // gone with nothing on screen to say so, and no way to tell a support
+      // message "I set my city" apart from "I never did".
+      _reportStoreFailure('could not store the detected wilaya', error);
+    }
+  }
+
+  /// Says a preferences write that this class deliberately tolerated.
+  ///
+  /// Every caller here has a reason to swallow — the manual pickers still
+  /// answer, so throwing would be worse — but "tolerated" is not "invisible":
+  /// three writes below were the only failures in `lib/` with **no** record of
+  /// any kind, while eight sibling refusals in `auth_state.dart` all print. The
+  /// device writes the detected wilaya and nothing in the app can rebuild it,
+  /// so a refusal has to be findable in a log line rather than in a user's
+  /// description of a market that opened on the wrong wilaya.
+  ///
+  /// A [debugPrint] rather than `CrashReporter.capture`, matching the prefs
+  /// refusals in `auth_state.dart`: this store is the same store, and a report
+  /// written *through* prefs must not recurse when prefs is what failed.
+  static void _reportStoreFailure(String what, Object error) {
+    debugPrint('place: $what ($error)');
   }
 
   Future<void> _markAsked() async {
@@ -228,6 +258,10 @@ class PlaceState extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_askedKey, true);
-    } catch (_) {}
+    } catch (error) {
+      // Costs one extra permission prompt on the next launch and nothing else,
+      // which is why this stays a record rather than an error state.
+      _reportStoreFailure('could not record the "asked" flag', error);
+    }
   }
 }
