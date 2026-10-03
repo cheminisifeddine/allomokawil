@@ -18294,3 +18294,66 @@ root, and keeps its description.
       dead-weight shape as an allow-list that has outgrown its purpose: either
       the map earns its place or the list shrinks to what the tree uses. Decide
       it by measurement, not by trimming.
+
+- [x] **The applier list declared 15 names for 2 readers — measured, trimmed,
+      and pinned in both directions.** `32fae8d` → remote `70d4b91`.
+
+      The 30th tick shipped the census and left one question: "`_tokenAppliers`
+      is a list of 15 names of which the census measures only 3 in use …
+      either the map earns its place or the list shrinks to what the tree
+      uses. Decide it by measurement, not by trimming." Measured first.
+
+      **Declared 15, credited 2** (`RegExp`, `contains`). The other 13 are
+      `hasMatch`, `allMatches`, `firstMatch`, `matches`, `isWall`, `split`,
+      `indexOf`, `lastIndexOf`, `startsWith`, `endsWith`, `replaceAll`,
+      `replaceFirst`, `replaceRange`.
+
+      **They are not dead, and that is the finding.** All 13 are called
+      *constantly* in these guards and **never with a token**: `hasMatch` 28
+      calls / 0 tokens, `split` 42 / 0, `allMatches` 34 / 0, `endsWith` 27 / 0,
+      `startsWith` 16 / 0, `indexOf` 6 / 0, `replaceAll` 6 / 0, `firstMatch` 3
+      / 0, `isWall` 2 / 0, `replaceFirst` 2 / 0, `lastIndexOf` 1 / 0,
+      `matches` 0 / 0, `replaceRange` 0 / 0.
+
+      **Why, and it is a reader asymmetry rather than a dead list.**
+      `_TokenUse` classifies a **literal** by the call enclosing it. The
+      measurement needed the other question — a **call** by whether the token
+      is in its *arguments* — which is the new `_CallScan`. Those are not the
+      same: `RegExp(r'token').hasMatch(src)` is one expression, the token goes
+      into the `RegExp` argument, so the reader credits `RegExp` and the 13
+      siblings never see a token. **They are downstream halves of the same
+      chain, not readers the tree lacks.** `src.contains(token)` is the second
+      shape. There is no third shape in the tree today.
+
+      **Trimmed to the two mechanisms that exist, and pinned so the list cannot
+      rot back into speculation.** Both directions, because a list that is only
+      *long* is noise and a list that is *wrong* is a hole: a **declared**
+      applier that credits nothing now reds (a name added for a guard later
+      rewritten), and an **undeclared** name reaching a token now reds
+      (enforcement credited through a name nobody listed — the `expect` bug
+      from the 29th tick, in a new costume).
+
+      **Verified falsifiable both ways, planted and reverted:** planting
+      `startsWith(r'fontSize:\s*')` into `type_scale_test.dart` went red with
+      `Set:['startsWith']` / "not declared in `_tokenAppliers`"; adding
+      `'hasMatch'` back to the list went red with `Set:['hasMatch']` /
+      "credited nothing" and "Credited today: [RegExp, contains]".
+      `type_scale_test.dart` is byte-identical to its committed state.
+
+      **Gate:** `flutter analyze` → **No issues found!** (15.4 s) · full suite
+      **+2113 ~8 All tests passed! in 13:11** (`tool/run_tests.py`, PASS), up
+      from +2112, 0 failures. Blob SHA matches the remote tree
+      (`5976539c…` both sides). Not visual: no screenshot, no APK, no release,
+      no tag.
+
+      **Next:** the census's remaining unmeasured claim is the **read-out hop**
+      — `_ReferenceApplied` credits `liveKeys.keys` as "the collection is
+      read", and its own comment admits it "credits *reading the collection*,
+      not reading each element, so a guard that lists a rule and then does
+      nothing with it is credited here". That is a stated weakening sitting
+      open in a reader whose whole job is telling applied tokens from written-
+      down ones. The falsifiable question is measurable: for the guards that
+      take that branch, does the loop body actually *use* the element (a
+      comparison, an expect, a push), or only bind it? Same method as this
+      tick — measure before writing the assertion, because the last three
+      readers in this file that guessed went red on a correct tree.
