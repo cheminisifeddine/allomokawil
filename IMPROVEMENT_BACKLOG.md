@@ -17638,3 +17638,72 @@ be tracked. The remaining gap is the inverse of this tick: a guard that is
 deleted from the tree stops being declared, stops being wrong, and simply
 disappears from the coverage set — narrowing a guard to `lib/src/screens` and
 deleting the last screen in it leaves the census green and the app unwatched.
+
+## Tick 3 Oct 2026 (23rd) — a root that resolves to nothing still counted as a
+## root: SHIPPED
+
+- [x] **A source sweep could declare a root that names nothing, or names a
+      directory holding no app Dart, and the census would count it as coverage
+      while the guard watched zero files.** *(commit `41956f2`)*
+
+The previous tick left exactly this as the next item: "`_knownRoots` is a set of
+*shapes* the reader understands, and a root that was deleted from the tree stops
+being declared, stops being wrong, and simply disappears from the coverage set."
+
+**The defect.** The positive case asks *"does a declared root look like
+something we model?"* A root that resolves to **nothing** answers yes to that.
+`Directory('lib/src/screens')` on a directory whose last screen was deleted
+yields `<String>[]` — no crash, no exception, no failure — and the census records
+the root as declared, the guard reports green, and the app goes unwatched. The
+count that exists to stop a hollow census (`rooted >= 10`) goes **up** when this
+hole opens, so the floor cannot catch it either.
+
+**Shipped** (`test/app_source_scope_test.dart`, +120/-1). One new case, *"every
+root a sweep declares reaches something the app ships"*, asserting the inverse of
+the known-shape case: a declared root must resolve to at least one file the app
+actually ships, or be exempt **by name and by reason** in `_rootsWithoutShippedDart`.
+Three failure modes are named separately, because they are three different
+mistakes: a root that does not exist in this checkout, a live directory that
+holds no shipped Dart, and a git pathspec that matches nothing (or matches only
+files the app does not ship).
+
+**Red before green — two plants, both reverted**, and the first plant is the
+part worth recording: the *known-shape* case fired on it and my new case never
+ran, which is precisely the proof that the old case cannot see this hole. So the
+root was added to `_knownRoots` and the plant stood — and only then did the new
+case catch it:
+
+| planted | fired, by name |
+| --- | --- |
+| `lib/src/planted_gone` — a root that **no longer exists** | `test/planted_barren_root_test.dart -> lib/src/planted_gone` / "nothing by that name exists in this checkout, so the guard reads nothing" |
+| `lib/src/l10n_probe/` — a **live directory holding no app Dart** | `test/planted_barren_root_test.dart -> lib/src/l10n_probe` / "reads 0 Dart file(s) and reaches none that the app ships, so its coverage is declared but empty" |
+
+Both reverted with `git rm --cached` + `rm`; `git ls-files -- 'lib/*.dart'` back
+to 131, tree clean.
+
+**The exemption is not an amnesty — it failed on its first run, correctly.**
+`lib/*.dart` was listed in `_rootsWithoutShippedDart` on the reasoning that a
+pathspec the census uses *on itself* cannot be allowed to flag itself. The
+staleness check (an entry not actually needed must be deleted) failed on it
+immediately: `lib/*.dart` **does** reach shipped Dart, so it was never an exempt
+root but a real one, and exempting it hid a genuine root behind an invented
+reason. Entry deleted; the reason is written into the doc comment so the next
+tick does not re-add it. That is the check earning its place on the run that
+introduced it.
+
+**Gate.** `flutter analyze` -> **No issues found!** (10.3 s).
+`tool/run_tests.py` -> **+2102 ~8 All tests passed!** (14:20), exit 0. Count is
+**up one** from 2101 — this case adds a test of its own, so unlike last tick's
+hardening-in-place the suite grew. `~8` unchanged, so nothing newly skipped.
+
+**Not visual**: a rule about which roots resolve to something draws nothing, so
+no screenshot is claimed. No APK, release or tag.
+
+**Next:** every root is now known, modelled, and proven to reach shipped Dart —
+but the *other* end of the contract is still unmeasured. `_appRuleGuards` says
+which guards carry the app's own rules, and every case checks those guards are
+censused, rooted and readable. Nothing checks the reverse: a guard added to
+`test/` that is **not** in that map is free to be a real source sweep carrying
+a real app rule, and the census records its root and credits its coverage while
+its rule is absent from every by-name list here. The floor (`rooted >= 10`) rises
+with it, so a tenth unreported rule looks exactly like a tenth covered one.

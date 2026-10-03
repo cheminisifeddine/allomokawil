@@ -353,6 +353,34 @@ const _whyUnmodelled = <String, String>{
       'it carries no app coverage either way',
 };
 
+/// Roots a sweep may declare that reach **no file the app ships**.
+///
+/// The case above fails when a guard declares a root this census does not model.
+/// This is its mirror, and it is the one that lets coverage go dark quietly: a
+/// root that resolves to **nothing** still counts as a root. Measured on 3 Oct
+/// (23rd), `Directory('lib/src/screens')` on a directory that no longer holds a
+/// screen yields `<String>[]` — no crash, no failure, and a guard that watches
+/// the empty set while the census reports its coverage as declared.
+///
+/// So a declared root must either reach at least one shipped Dart file or be
+/// exempt **by name, with a reason**. Each exemption below is also checked for
+/// staleness in the same case: the day one of these starts reaching shipped
+/// Dart, it has outlived its reason and is deleted rather than left waving.
+///
+/// That check is not decoration. `lib/*.dart` was listed here on the first run,
+/// on the reasoning that a pathspec the census uses on itself cannot be allowed
+/// to flag itself. The staleness check failed on it immediately: it does reach
+/// shipped Dart, so it was never an exempt root but a real one, and exempting
+/// it hid a genuine one behind an invented reason.
+const _rootsWithoutShippedDart = <String, String>{
+  'test': 'the suite reads its own guards; it ships no app Dart, so it '
+      'contributes no app coverage and is named so the census says so instead '
+      'of by omission',
+  'test/*.dart': 'a git pathspec that finds the guards themselves',
+  '*.py': 'the Python instruments: a different language and a different '
+      'question, so it covers no Dart file and is claimed as none',
+};
+
 /// The source with every comment blanked to spaces, offsets preserved.
 ///
 /// String bodies are kept, because the thing being read *is* a string literal:
@@ -677,6 +705,102 @@ void main() {
               'not model, so their coverage is neither measured nor claimed. '
               'Teach it the shape in `_rootsOf` and add the root to '
               '_knownRoots.\n${unknown.join('\n')}');
+    });
+
+    test('every root a sweep declares reaches something the app ships', () {
+      // The inverse of the case above, and the one the previous tick could not
+      // make: that one asks "does a declared root look like something we
+      // model?", which a root that resolves to *nothing* answers yes to. So a
+      // guard narrowed onto a directory whose last file was deleted — or onto a
+      // path that no longer exists at all — reads as coverage here while
+      // covering zero files, and the count that guards against an empty census
+      // goes *up* when the hole opens rather than down.
+      //
+      // The fix is not a bigger count, it is a per-root fact: name what the
+      // root resolved to, and refuse a root that resolved to nothing the app
+      // ships. Globs are resolved by git rather than by the filesystem, since a
+      // pathspec is not a directory.
+      final barren = <String>[];
+      final exemptUsed = <String>{};
+      for (final sweep in sweeps.values) {
+        for (final spec in sweep.roots) {
+          if (spec.contains('*')) {
+            final r = Process.runSync(
+              'git',
+              ['ls-files', '--', spec],
+              workingDirectory: Directory.current.path,
+            );
+            expect(r.exitCode, 0,
+                reason: 'git ls-files failed (${r.stderr}) — this census '
+                    'cannot tell an empty pathspec from an unreadable one');
+            final hits = (r.stdout as String)
+                .split('\n')
+                .map((l) => l.trim())
+                .where((l) => l.isNotEmpty)
+                .toList();
+            // A pathspec is answered by git, but the question is the same one
+            // every other root gets: does it reach Dart the app ships? The two
+            // failures differ, so both are named.
+            if (hits.isEmpty) {
+              barren.add('${sweep.file} -> $spec\n'
+                  '    that pathspec matches no tracked file, so the guard '
+                  'reads nothing');
+            } else if (!hits.any(shipped.contains) &&
+                !_rootsWithoutShippedDart.containsKey(spec)) {
+              barren.add('${sweep.file} -> $spec\n'
+                  '    matches ${hits.length} tracked file(s) and reaches '
+                  'none that the app ships, so its coverage is declared but '
+                  'empty');
+            } else if (!hits.any(shipped.contains)) {
+              exemptUsed.add(spec);
+            }
+            continue;
+          }
+
+          if (!Directory(spec).existsSync() && !File(spec).existsSync()) {
+            barren.add('${sweep.file} -> $spec\n'
+                '    nothing by that name exists in this checkout, so the '
+                'guard reads nothing');
+            continue;
+          }
+
+          final dart = spec.endsWith('.dart')
+              ? <String>[spec]
+              : _dartFilesUnder(spec);
+          final reaches = dart.where(shipped.contains).toList();
+          if (reaches.isEmpty) {
+            if (_rootsWithoutShippedDart.containsKey(spec)) {
+              exemptUsed.add(spec);
+            } else {
+              barren.add('${sweep.file} -> $spec\n'
+                  '    reads ${dart.length} Dart file(s) and reaches none '
+                  'that the app ships, so its coverage is declared but empty');
+            }
+          }
+        }
+      }
+      expect(barren, isEmpty,
+          reason: 'these guards declare a root that resolves to nothing the app '
+              'ships. The case above cannot see it — a root that resolves to '
+              'empty still looks like a root — so the guard reads green while '
+              'watching no file at all:\n${barren.join('\n')}\n'
+              'Either point the guard at a directory that holds app Dart, or '
+              'exempt it by name in `_rootsWithoutShippedDart` with the reason '
+              'it covers nothing.');
+
+      // And the exemptions are checked against the tree, so an entry here is
+      // not a permanent amnesty: one that has started reaching shipped Dart has
+      // outlived its reason and would otherwise hide a guard that *does* cover.
+      final stale = _rootsWithoutShippedDart.keys
+          .where((r) => !exemptUsed.contains(r))
+          .toList()
+        ..sort();
+      expect(stale, isEmpty,
+          reason: 'these exemptions are no longer needed — the root either is '
+              'not declared by any sweep, or now reaches Dart the app ships, '
+              'so it is either dead weight or an amnesty for a guard that '
+              'really does cover something. Delete the entry:\n'
+              '${stale.map((r) => '  $r — ${_rootsWithoutShippedDart[r]}').join('\n')}');
     });
 
     test('no guard roots itself in a shape this census cannot read', () {
