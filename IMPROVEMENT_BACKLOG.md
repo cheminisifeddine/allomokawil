@@ -17417,3 +17417,66 @@ build_gate.py` has exactly this shape already and it is the better model: the
 census should assert the **specific named guards** that carry the app's rules
 (snack, empty-text, wall-clock-seam), so a sweep that stops being a sweep is
 red by name rather than by arithmetic.
+- [x] **Tick 3 Oct 2026 (20th) — the 19th tick's "next": the census's positive
+      half was a *number*, and the number was counting guards that watch
+      nothing.** *(commit `18a8870`)*
+
+The last tick left this as the next item and framed it as an improvement
+("assert the specific named guards"). Read as a hole first, it was larger: the
+floor did not merely fail to say *which* guard, it stayed green when one of the
+app's own rules went dark.
+
+**Proven, not asserted.** Renaming every `readAsStringSync` in
+`no_empty_text_site_test.dart` — the empty-text rule, app-wide, no other
+enforcer — left the whole census **green at +5**. Thirteen other sweeps still
+satisfied `>= 8` and no case named that file. *A rule that is silently
+unregistered is worse than one that is absent, because the tree still looks
+policed.* A later tick that reads "no failures" here would be reading a box
+whose empty-text law has no guard.
+
+The count was also inflated. The root-reader modelled a root for only **5** of
+the **14** recognised sweeps — so `sweeps.length` was largely counting files
+whose coverage the census never measured.
+
+**Shipped.** `_appRuleGuards` names the seven guards that carry an app rule;
+each must be *recognised* **and** declare a root the census can model, and both
+failure directions report **by name**. The surviving floor counts `reads`, not
+files, so an unmodelled sweep contributes zero rather than one.
+
+**The reader was the other half** — three shapes it could not read, all present
+in the tree, all found by asking what it *saw* rather than what it expected:
+
+| shape | where | what it hid |
+| --- | --- | --- |
+| `final Directory lib = Directory('lib')` | `motion_test.dart`, 290 lines into `main()` | read over the whole comment-blanked file, not just pre-`main` — an enumeration inside a test body is still the guard's root |
+| `ls-files` past the `--` separator | `tool_clock_seam_test.dart` | the pathspec immediately after the flag could **never** produce `*.py`, a root `_knownRoots` has always listed for the instrument sweeps — it described nothing any sweep declares |
+| `lib/*.dart` | this file's own pathspec | a census refusing to describe how it finds the files it judges |
+
+Rooted sweeps **5 -> 9**; all seven named guards rooted.
+
+**Red before green — three plants, each reverted:**
+
+| planted | fired |
+| --- | --- |
+| empty-text guard stops being recognised | `the empty-text rule: no user-visible Arabic string left blank` / `test/no_empty_text_site_test.dart` — **green before this change** |
+| instrument seam guard removed | named as missing |
+| type-scale root hidden behind `Directory(rootSpec)` | named as declaring no root this census can model |
+
+**Gate.** `flutter analyze` -> **No issues found!** (8.5 s).
+`tool/run_tests.py` -> **+2099 ~8 All tests passed!** (17:04), exit 0 — one over
+2098, the named-guard case replacing the count case, nothing else. Zero failure
+lines in 405 log lines. **Not visual**: a rule about which files a test reads
+draws nothing, so no screenshot is claimed. No APK, release or tag.
+
+Pushed `18a8870` -> remote `58c4efb`; `remote_state.py` -> **tree IN SYNC**
+(identical tree `2ca4bf6`), so the differing hashes are the API-built commit,
+not divergence.
+
+**Next:** five recognised sweeps still declare no root the census models —
+`contrast_tokens`, `failure_reported`, `header_trust_wiring`, `payload_coverage`,
+`quote_count_copy` — and each *does* walk `lib/` through a shape this reader
+does not know (`Directory(root)`, `_dartFilesIn(Directory('lib'))`,
+`for (final f in Directory('lib')…)`). They are not covered by a floor, so the
+silent-guard hole is still open for any rule added there: either teach
+`_rootsOf` those shapes, or record them as *known-unmodelled* so a new guard in
+that shape fails by name instead of passing unnoticed.
