@@ -30,6 +30,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/source_text.dart';
+
 /// Every Dart file the app ships under `lib/`, entry point included.
 ///
 /// **The two sides of the coverage contract must enumerate the same set**, and
@@ -542,85 +544,20 @@ const _guardsCarryingNoAppRule = <String, String>{
 
 /// The source with every comment blanked to spaces, offsets preserved.
 ///
-/// String bodies are kept, because the thing being read *is* a string literal:
-/// the directory a sweep walks is written `Directory('lib')`. Only comments go,
-/// and only because a doc comment can quote the very code it documents.
-String _blankComments(String src) {
-  final out = StringBuffer();
-  var i = 0;
-  final n = src.length;
-  while (i < n) {
-    final c = src[i];
-    final isRaw = (c == 'r' || c == 'R') &&
-        i + 1 < n &&
-        (src[i + 1] == "'" || src[i + 1] == '"') &&
-        !(i > 0 && _isIdentChar(src[i - 1]));
-    if (isRaw) {
-      // Step over the marker, then let the string branch below handle the body.
-      out.write(src[i]);
-      i++;
-      continue;
-    }
-    if (c == '/' && i + 1 < n && src[i + 1] == '/') {
-      while (i < n && src[i] != '\n') {
-        out.write(' ');
-        i++;
-      }
-      continue;
-    }
-    if (c == '/' && i + 1 < n && src[i + 1] == '*') {
-      out.write('  ');
-      i += 2;
-      var depth = 1;
-      while (i < n && depth > 0) {
-        if (src.startsWith('/*', i)) {
-          out.write('  ');
-          i += 2;
-          depth++;
-        } else if (src.startsWith('*/', i)) {
-          out.write('  ');
-          i += 2;
-          depth--;
-        } else {
-          out.write(src[i] == '\n' ? '\n' : ' ');
-          i++;
-        }
-      }
-      continue;
-    }
-    if (c == "'" || c == '"') {
-      final triple = src.startsWith(c * 3, i);
-      final term = c * (triple ? 3 : 1);
-      out.write(term);
-      i += term.length;
-      while (i < n) {
-        if (src.startsWith(term, i)) {
-          out.write(term);
-          i += term.length;
-          break;
-        }
-        if (!triple && src[i] == '\n') break; // unterminated: do not run away
-        if (src[i] == r'\' && !isRaw) {
-          out.write(src[i]);
-          i++;
-          if (i < n) {
-            out.write(src[i] == '\n' ? '\n' : src[i]);
-            i++;
-          }
-          continue;
-        }
-        out.write(src[i]);
-        i++;
-      }
-      continue;
-    }
-    out.write(c);
-    i++;
-  }
-  return out.toString();
-}
-
-bool _isIdentChar(String c) => RegExp(r'[A-Za-z0-9_]').hasMatch(c);
+/// Now delegated to `support/source_text.dart` rather than re-implemented here.
+/// This file used to carry its own copy, and a **second** copy of a source
+/// reader is a defect waiting for a rule to be written against the one nobody
+/// reads: this copy keeps string bodies (the thing being read *is* a string
+/// literal -- a guard's root is written `Directory('lib')`, and blanking the
+/// body would erase the directory the census is reporting), the motion rule's
+/// reader blanks them because an Arabic string holding `Duration(` is copy,
+/// not an animation. One implementation with a flag, so the two cannot drift
+/// apart the way two copies did.
+///
+/// The extraction was mechanical and offset-preserving, so both callers are
+/// unchanged in behaviour: `_rootsOf` and the evidence case both search
+/// comment-blanked source with the comments alone removed.
+String _blankComments(String src) => blankComments(src, blankStrings: false);
 
 /// One source-scanning guard and every root it declares.
 class _Root {
@@ -650,9 +587,27 @@ class _Root {
 /// this; the test must call `readAsStringSync`/`readAsLinesSync`, and it must
 /// also name a root that looks like app source. Both halves are required so
 /// that neither a screenshot suite nor a pure unit test is counted as a guard.
+///
+/// **The `readAsStringSync` half is read from comment-blanked source**, and
+/// only that half. This classifier was the third reader in this file to be
+/// bitten by prose shadowing code, and it was bitten by a file this tick
+/// wrote: `test/support/source_text.dart` *documents* the per-line motion scan,
+/// so its doc comment quotes `readAsLinesSync()`. Read raw, a helper that
+/// reads a string and returns offsets was classified as a guard reading app
+/// source, and the case below then failed asking it where it walks.
+///
+/// The `lib` half deliberately stays on **raw** source, because a root may be
+/// declared in prose and that is sometimes the only place it appears:
+/// `tool_clock_seam_test.dart` says `lib/` in its opening comment and nowhere
+/// in code. Blank that half too and a censused guard silently leaves the
+/// census — measured here, not assumed: the first version of this fix dropped
+/// it from the recognised set and two cases went red.
+///
+/// So: prose cannot make a reader *look like* a guard, and prose still lets a
+/// guard *be* one. Each half is read in the unit where it is true.
 bool _isSourceSweep(String path, String source) {
-  if (!source.contains('readAsStringSync') &&
-      !source.contains('readAsLinesSync')) {
+  final code = _blankComments(source);
+  if (!code.contains('readAsStringSync') && !code.contains('readAsLinesSync')) {
     return false;
   }
   return RegExp(r"""\blib(?:/src)?[/"']""").hasMatch(source);

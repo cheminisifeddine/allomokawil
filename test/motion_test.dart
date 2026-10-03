@@ -8,6 +8,8 @@ import 'package:allomokawil/src/core/theme/motion.dart';
 import 'package:allomokawil/src/widgets/big_button.dart';
 import 'package:allomokawil/src/widgets/motion.dart';
 
+import 'support/source_text.dart';
+
 /// Pins the motion spec: one tempo for the whole app.
 ///
 /// The app used to animate at four different speeds — eight hand-typed
@@ -100,8 +102,10 @@ void main() {
         child: tree,
       ));
 
-      double fadeNow() =>
-          tester.widget<FadeTransition>(find.byType(FadeTransition)).opacity.value;
+      double fadeNow() => tester
+          .widget<FadeTransition>(find.byType(FadeTransition))
+          .opacity
+          .value;
       double liftNow() => tester
           .widgetList<SlideTransition>(find.byType(SlideTransition))
           .map((SlideTransition s) => s.position.value.dy)
@@ -145,7 +149,8 @@ void main() {
         ),
       ));
 
-      final Widget tree = const AppPageTransitionsBuilder().buildTransitions<void>(
+      final Widget tree =
+          const AppPageTransitionsBuilder().buildTransitions<void>(
         MaterialPageRoute<void>(builder: (_) => const SizedBox()),
         context,
         route,
@@ -204,7 +209,8 @@ void main() {
       expect(taps, 1);
     });
 
-    testWidgets('sliding off cancels the press so a scroll leaves nothing stuck',
+    testWidgets(
+        'sliding off cancels the press so a scroll leaves nothing stuck',
         (tester) async {
       await tester.pumpWidget(MaterialApp(
         theme: AppTheme.light,
@@ -266,10 +272,13 @@ void main() {
       await tester.pumpWidget(MaterialApp(
         theme: AppTheme.light,
         home: Scaffold(
-          body: Reveal(child: SizedBox(height: 40, child: TextButton(
-            onPressed: () {},
-            child: const Text('صف'),
-          ))),
+          body: Reveal(
+              child: SizedBox(
+                  height: 40,
+                  child: TextButton(
+                    onPressed: () {},
+                    child: const Text('صف'),
+                  ))),
         ),
       ));
 
@@ -285,8 +294,9 @@ void main() {
 
       // The row is tappable where it sits, even mid-flight: hit testing ignores
       // the lift, so an animation can never move a target away from a thumb.
-      final Transform lift = tester.widget<Transform>(
-          find.descendant(of: find.byType(Reveal), matching: find.byType(Transform)).first);
+      final Transform lift = tester.widget<Transform>(find
+          .descendant(of: find.byType(Reveal), matching: find.byType(Transform))
+          .first);
       expect(lift.transformHitTests, isFalse);
     });
 
@@ -311,19 +321,28 @@ void main() {
     expect(lib.existsSync(), isTrue,
         reason: 'run from the package root — flutter test does');
 
-    final RegExp typedDuration = RegExp(r'duration:\s*(?:const\s+)?Duration\(');
-    final RegExp typedCurve = RegExp(r'Curves\.');
+    // The same two patterns this rule has always had, unchanged — a named
+    // `duration:` argument and any `Curves.` reference. Only the *unit* they
+    // are applied over changes, from one line to the whole file, because the
+    // first one cannot match a line break and the formatter had already put
+    // the label on a line of its own 51 times in this tree.
+    //
+    // Deliberately still not matching a bare `Duration(...)`: 14 timeouts in
+    // lib/ are real `Duration(seconds: 6)` values -- a geocode that times out,
+    // a minute-age timer -- and widening the pattern to catch a positional
+    // animation duration would catch those too. That is a different rule and
+    // would need its own proof.
+    final List<RegExp> rules = <RegExp>[
+      RegExp(r'duration:\s*(?:const\s+)?Duration\('),
+      RegExp(r'Curves\.'),
+    ];
     final List<String> offenders = <String>[];
 
     for (final FileSystemEntity entity in lib.listSync(recursive: true)) {
       if (entity is! File || !entity.path.endsWith('.dart')) continue;
       if (entity.path.endsWith('core/theme/motion.dart')) continue;
-      final List<String> lines = entity.readAsLinesSync();
-      for (int i = 0; i < lines.length; i++) {
-        if (typedDuration.hasMatch(lines[i]) || typedCurve.hasMatch(lines[i])) {
-          offenders.add('${entity.path}:${i + 1}: ${lines[i].trim()}');
-        }
-      }
+      offenders.addAll(ruleHits(entity.readAsStringSync(), rules)
+          .map((RuleHit hit) => '${entity.path}:${hit.toString()}'));
     }
 
     expect(
@@ -332,5 +351,60 @@ void main() {
       reason: 'Use AppMotion.* for a duration or a curve:\n'
           '${offenders.join('\n')}',
     );
+  });
+
+  test('the tempo rule reads whole files, not lines', () {
+    // The scan unit is part of the rule, so it is pinned here rather than left
+    // to the reading of whoever edits this file next.
+    //
+    // `duration:\s*(?:const\s+)?Duration\(` was applied to `lines[i]`, and
+    // `\s` matches a newline -- so the pattern was written to span a line
+    // break and could then never match one. The shape that got past it is not
+    // a deliberate dodge: it is what `dart format` emits at 80 columns, and
+    // this tree already holds 51 argument labels alone on a line.
+    //
+    // Both halves are asserted on one string: the split call must be found, and
+    // the call that is genuinely a timeout must not be mistaken for one.
+    const String wrapped =
+        'return AnimatedContainer(\n    duration:\n        const Duration(milliseconds: 777),\n  );';
+    expect(
+      offendingLines(
+          wrapped, <RegExp>[RegExp(r'duration\s*:\s*(?:const\s+)?Duration\(')]),
+      hasLength(1),
+      reason: 'a duration wrapped over two lines is the shape `dart format` '
+          'produces and the shape this rule must still catch:\n$wrapped',
+    );
+
+    // And the reader must not fire on the rule being *discussed*: a doc comment
+    // and an Arabic string both quote the exact shape this guard polices, and
+    // neither is an animation. Prose shadowing code has cost this repository
+    // one guard already (`_rootsOf` read the old root out of the comment
+    // explaining the fix).
+    //
+    // Three hits expected, and each one is named so a failure says which kind
+    // leaked:
+    //   * the comment naming the shape -> must not be counted,
+    //   * the string holding the shape -> must not be counted,
+    //   * the real call, wrapped over two lines -> must be counted, once.
+    // The first draft of this case expected three and counted the string, so
+    // it proved nothing: it would have passed with the comment counted and the
+    // real call missed.
+    const String discussed = '''
+      // Use AppMotion.* for a duration:
+      //   duration: const Duration(milliseconds: 140),
+      const String tip = 'duration: const Duration(milliseconds: 140),';
+      return AnimatedContainer(
+        duration:
+            const Duration(milliseconds: 777),
+      );
+    ''';
+    final List<String> hits = offendingLines(
+        discussed, <RegExp>[RegExp(r'duration\s*:\s*(?:const\s+)?Duration\(')]);
+    expect(hits, hasLength(1),
+        reason: 'one hit: the wrapped real call. The comment and the Arabic '
+            'string quote the same shape and neither is code:\n'
+            '${hits.join('\n')}');
+    expect(hits.single, contains('duration:'),
+        reason: 'the hit must be the declaration line, not a comment:\n$hits');
   });
 }
