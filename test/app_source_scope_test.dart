@@ -28,6 +28,9 @@
 // green over a file it never opened.
 import 'dart:io';
 
+import 'package:analyzer/dart/analysis/utilities.dart';
+import 'package:analyzer/dart/ast/ast.dart';
+import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/source_text.dart';
@@ -611,6 +614,237 @@ bool _isSourceSweep(String path, String source) {
     return false;
   }
   return RegExp(r"""\blib(?:/src)?[/"']""").hasMatch(source);
+}
+
+
+/// Method and constructor names whose argument is *read*, not recorded.
+///
+/// Deliberately a list of names and not "anything that looks like a regex": the
+/// map's tokens reach source text through six different readers, and a window
+/// that special-cases one of them measures only that one. `RegExp` is *an*
+/// applier, not *the* applier -- restricting the check to it was measured at
+/// 7 of 13 enforced, which would have gone red on a tree that is correct.
+const _tokenAppliers = <String>{
+  'RegExp', // the pattern itself
+  'contains', 'hasMatch', 'allMatches', 'firstMatch', 'matches', 'isWall',
+  'split', 'indexOf', 'lastIndexOf', 'startsWith', 'endsWith',
+  'replaceAll', 'replaceFirst', 'replaceRange',
+};
+
+/// Guards whose evidence token is held **only** by `expect(...)`, and the
+/// shared definition that carries the rule for them.
+///
+/// This is the one real instance of the hole the 27th tick could not see, found
+/// by measuring instead of guessing. `motion_test.dart` does not hold its own
+/// pattern: the rule lives once, in `test/support/source_text.dart` as
+/// `tempoDurationRule`, and the map's copy of it survives only in
+/// `expect(tempoDurationRule.pattern, ...)` at line 473. That `expect` is a
+/// *consistency* check between two copies -- if the shared rule changed, both
+/// copies move with it -- so it is not enforcement, and no token moved to that
+/// file would change the fact. The tree is right; the map could not see why.
+const _ruleEvidenceAppliedElsewhere = <String, String>{
+  'test/motion_test.dart': 'enforced through `tempoDurationRule` in '
+      'test/support/source_text.dart, which `motion_test.dart` reaches via '
+      '`tempoRules`',
+};
+
+/// Classifies the literals in a unit that carry [token], by what the code
+/// around them does with it.
+class _TokenUse extends RecursiveAstVisitor<void> {
+  _TokenUse(this.token);
+
+  final String token;
+
+  /// The token is handed to something that reads it.
+  int applied = 0;
+
+  /// The token is only ever compared back inside an `expect(...)`.
+  int expectedOnly = 0;
+
+  /// Every applier found, for the failure message.
+  final List<String> appliers = <String>[];
+
+  void _classify(AstNode node) {
+    final String? call = _enclosingCall(node);
+    if (call != null && _tokenAppliers.contains(call)) {
+      applied++;
+      if (!appliers.contains(call)) appliers.add(call);
+      return;
+    }
+    if (_insideExpect(node)) expectedOnly++;
+  }
+
+  @override
+  void visitSimpleStringLiteral(SimpleStringLiteral node) {
+    final String v = node.value;
+    // Containment runs **both ways**, on purpose. The map's token is usually a
+    // fragment of a larger pattern -- `return\s+(` inside the guard's own
+    // triple-quoted pattern -- and one token is source-shaped rather than
+    // regex-shaped, so the other direction matters too. Measured: testing
+    // equality only scored 6 of 13 guards as having no applier at all.
+    // The empty string is skipped explicitly, and this is a measured bug rather
+    // than a tidy-up: `''` is a substring of *every* token, so a guard holding
+    // any `''` at all -- `code.contains('')` is common in these sweeps -- was
+    // crediting enforcement to every token in the map. The first planted proof
+    // of this case came back GREEN because of exactly that, and the two hits it
+    // found were both empty literals inside a `.contains(...)`.
+    if (v.isNotEmpty && (v == token || v.contains(token) || token.contains(v))) {
+      _classify(node);
+    }
+    super.visitSimpleStringLiteral(node);
+  }
+
+  @override
+  void visitStringInterpolation(StringInterpolation node) {
+    if (node.toSource().contains(token)) _classify(node);
+    super.visitStringInterpolation(node);
+  }
+
+  @override
+  void visitListLiteral(ListLiteral node) {
+    // `layering_test.dart`'s token is the literal `['data', 'screens',
+    // 'widgets']`: the rule is "no `models/` file may import one of these",
+    // applied later as `_forbidden['models']!.contains(layer)`. That is data
+    // the guard *reads*, and a string-literal scan cannot see it at all.
+    final String src = node.toSource();
+    if (src == token || src.contains(token) || token.contains(src)) {
+      _classify(node);
+    }
+    super.visitListLiteral(node);
+  }
+}
+
+/// Every named collection in a unit whose value carries [token].
+class _CollectionScan extends RecursiveAstVisitor<void> {
+  _CollectionScan(this.token);
+
+  final String token;
+  final List<String> owners = <String>[];
+
+  void _record(AstNode node, String source) {
+    if (source.isEmpty) return; // '' is a substring of every token
+    if (!(source == token ||
+        source.contains(token) ||
+        token.contains(source))) {
+      return;
+    }
+    final String? owner = _collectionOwner(node);
+    if (owner != null && !owners.contains(owner)) owners.add(owner);
+  }
+
+  @override
+  void visitListLiteral(ListLiteral node) {
+    _record(node, node.toSource());
+    super.visitListLiteral(node);
+  }
+
+  @override
+  void visitSetOrMapLiteral(SetOrMapLiteral node) {
+    // The map that *holds* the collection, e.g. `_forbidden`.
+    _record(node, node.toSource());
+    super.visitSetOrMapLiteral(node);
+  }
+}
+
+/// The name of the variable or field a collection literal belongs to.
+///
+/// `layering_test.dart` holds its rule as a `const` map of lists and applies it
+/// as `_forbidden['models']!.contains(layer)`, so the literal that carries the
+/// token is read *through a reference* several lines away. Reading only the
+/// literal's own call site finds nothing there and reds a correct guard, which
+/// is what happened on the first run of this case.
+String? _collectionOwner(AstNode collection) {
+  AstNode? p = collection.parent;
+  while (p != null) {
+    // A local: `final x = [ … ];`
+    if (p is VariableDeclarationList && p.parent is VariableDeclarationStatement) {
+      return (p.parent as VariableDeclarationStatement)
+          .variables
+          .variables
+          .first
+          .name
+          .lexeme;
+    }
+    // A field: `const Map<String, List<String>> _forbidden = { … };`
+    if (p is FieldDeclaration) return p.fields.variables.first.name.lexeme;
+    // A **top-level** variable. Its parent chain is `TopLevelVariable
+    // Declaration -> VariableDeclarationList -> VariableDeclaration`, not a
+    // `CompilationUnit` as the first guess assumed, and getting that wrong is
+    // what left `layering_test.dart` red on the first two runs of this case.
+    if (p is VariableDeclarationList && p.parent is TopLevelVariableDeclaration) {
+      return p.variables.first.name.lexeme;
+    }
+    p = p.parent;
+  }
+  return null;
+}
+
+/// True when [name] is the target of a call in [_tokenAppliers] anywhere in
+/// [unit] -- i.e. the collection it names is genuinely read.
+class _ReferenceApplied extends RecursiveAstVisitor<void> {
+  _ReferenceApplied(this.name);
+
+  final String name;
+  bool applied = false;
+  String? via;
+
+  @override
+  void visitMethodInvocation(MethodInvocation node) {
+    if (!applied &&
+        _tokenAppliers.contains(node.methodName.name) &&
+        (node.target?.toSource().contains(name) ?? false)) {
+      applied = true;
+      via = node.methodName.name;
+    }
+    super.visitMethodInvocation(node);
+  }
+
+  @override
+  void visitInstanceCreationExpression(InstanceCreationExpression node) {
+    // A `RegExp(...)` over a reference is the same shape read one hop out.
+    if (!applied &&
+        node.constructorName.toSource().split('.').last == 'RegExp' &&
+        node.argumentList.arguments.any((a) => a.toSource().contains(name))) {
+      applied = true;
+      via = 'RegExp';
+    }
+    super.visitInstanceCreationExpression(node);
+  }
+}
+
+/// The nearest enclosing call name, or null when the literal is not passed into
+/// one.
+///
+/// Reads through an `ArgumentList`, because an argument's parent is the list
+/// and the call is *its* parent. Both wrong versions were measured: checking
+/// only the immediate parent found **no** appliers anywhere (0 of 13), and
+/// checking the grandparent found 7 of 13, red on a correct tree.
+String? _enclosingCall(AstNode node, {int maxHops = 4}) {
+  AstNode? p = node.parent;
+  for (int hops = 0; p != null && hops < maxHops; hops++) {
+    if (p is InstanceCreationExpression) {
+      return p.constructorName.toSource().split('.').last;
+    }
+    if (p is MethodInvocation) return p.methodName.name;
+    p = p.parent;
+  }
+  return null;
+}
+
+/// True when the node sits inside an `expect(...)` and inside no nearer call.
+///
+/// An `expect` is where a verdict is *delivered*, not the opposite of enforcing
+/// one -- the 27th tick rejected this discrimination for exactly that reason,
+/// when it red-lit `header_trust_wiring_test.dart` for applying its token with
+/// `RegExp(...).hasMatch(sources)`. Nearest call wins, so an applied site is
+/// found before the assertion that reports it.
+bool _insideExpect(AstNode node) {
+  AstNode? p = node.parent;
+  for (int hops = 0; p != null && hops < 6; hops++) {
+    if (p is MethodInvocation && p.methodName.name == 'expect') return true;
+    p = p.parent;
+  }
+  return false;
 }
 
 void main() {
@@ -1218,6 +1452,109 @@ void main() {
               'this census cannot read, so its coverage is unmeasured and a '
               'rule added there goes dark unnoticed:\n'
               '${unreadable.join('\n')}');
+    });
+
+    test('every rule token is applied to source, not just written down', () {
+      // **The 27th tick's stated next step, closed with a parser.** The note
+      // said the map "still cannot separate *enforced in code* from *written
+      // down*", and that closing it needs the analyzer AST rather than a wider
+      // character window. This is that: `parseString` per guard, and a literal
+      // is ENFORCED when it is passed into a call that *reads* it.
+      //
+      // The window was measured first and it is why this is an AST. Restricting
+      // the applier to `RegExp(...)` -- the shape the tokens mostly take -- was
+      // 7 of 13, which would have gone red on a tree that is correct, because
+      // `snack_rule_sweep_test.dart` applies its token with `.contains()`,
+      // `wall_clock_seam_site_test.dart` with `.indexOf()` and `.startsWith()`,
+      // and `payload_coverage_test.dart` with `.lastIndexOf()`. Both earlier
+      // wrong versions of the reader are recorded on the helpers above.
+      //
+      // The map is the thing being asserted, so a reader that is too narrow
+      // fails here loudly instead of passing a guard that enforces nothing --
+      // which is exactly the failure this case exists to make impossible.
+      final applied = <String>[];
+      final held = <String>[];
+      final missing = <String>[];
+
+      for (final guard in _appRuleGuards.keys) {
+        if (_ruleEvidenceAppliedElsewhere.containsKey(guard)) continue;
+        final File file = File(guard);
+        if (!file.existsSync()) continue;
+        // `parseString` returns the wrapper type from the parser library, which
+        // is not re-exported here; `var` is deliberate rather than lazy.
+        final unit =
+            parseString(content: file.readAsStringSync(), throwIfDiagnostics: false);
+        for (final String token in _ruleEvidence[guard] ?? const <String>[]) {
+          final _TokenUse use = _TokenUse(token);
+          unit.unit.accept(use);
+          // Second pass, for a rule held as data and applied by reference.
+          String? byReference;
+          if (use.applied == 0) {
+            final _CollectionScan scan = _CollectionScan(token);
+            unit.unit.accept(scan);
+            for (final String owner in scan.owners) {
+              final _ReferenceApplied ref = _ReferenceApplied(owner);
+              unit.unit.accept(ref);
+              if (ref.applied) {
+                byReference = '$owner.${ref.via}()';
+                break;
+              }
+            }
+          }
+          final String name = '${_appRuleGuards[guard]}\n    $guard\n'
+              '    $token';
+          if (use.applied > 0 || byReference != null) {
+            applied.add(name);
+          } else if (use.expectedOnly > 0) {
+            held.add(name);
+          } else {
+            missing.add(name);
+          }
+        }
+      }
+
+      expect(missing, isEmpty,
+          reason: 'these rule tokens do not reach any call that reads them, '
+              'and are not held by an `expect` either. A token nobody applies '
+              'is a claim, so the map entry is documenting a rule this guard '
+              'does not enforce:\n${missing.join('\n')}\n'
+              'Either the guard applies the token again, or the entry names a '
+              'rule that moved -- in which case it belongs in '
+              '`_ruleEvidenceAppliedElsewhere` above, with the place it moved '
+              'to, not deleted, because an unlisted guard fails the case above.');
+
+      // Not "empty is bad" -- measured. `motion_test.dart` is the one guard whose
+      // token is held only by `expect`, and it is listed above with the reason.
+      // This case is the thing that would red if a *second* guard got that way,
+      // and it is falsifiable: see the planted proof in the commit message.
+      expect(held.map((e) => e.split('\n')[1]).toList(),
+          everyElement(isNot(anyOf(_ruleEvidenceAppliedElsewhere.keys))),
+          reason: 'a guard outside `_ruleEvidenceAppliedElsewhere` now holds its '
+              'token only inside `expect(...)`, so the map entry reads as '
+              'evidence for a rule the guard no longer applies:\n'
+              '${held.join('\n')}\n'
+              'Either it applies the token again, or the rule moved and the '
+              'guard belongs in `_ruleEvidenceAppliedElsewhere` naming where.');
+
+      // The exemption list is itself read back, so it cannot quietly grow.
+      for (final where in _ruleEvidenceAppliedElsewhere.entries) {
+        expect(_appRuleGuards.containsKey(where.key), isTrue,
+            reason: '`${where.key}` is exempted from the applied-token case '
+                'but is not a named guard, so the exemption guards nothing.');
+        expect(_ruleEvidence.containsKey(where.key), isTrue,
+            reason: '`${where.key}` is exempted from the applied-token case '
+                'but names no token, so there is nothing to exempt.');
+        expect(where.value, isNotEmpty,
+            reason: '`${where.key}` is exempt without saying where its rule '
+                'lives, which is the shape that let this hole hide.');
+      }
+
+      // And the census the conclusion rests on is not empty.
+      expect(applied, isNotEmpty,
+          reason: 'no rule token was found applied to source. Either the AST '
+              'reader stopped seeing the tree, or every map entry has quietly '
+              'become a written-down claim -- which is the failure this case '
+              'was written to catch.');
     });
 
     test('the census would have caught the blind spot it was written for', () {

@@ -26,6 +26,7 @@ dev_dependencies:
   # this package's InMemorySharedPreferencesStore, which is not re-exported by
   # shared_preferences. Dev-only: no production code imports it.
   shared_preferences_platform_interface: ^2.4.0
+  analyzer: ^14.4.0
 
 flutter:
   uses-material-design: true
