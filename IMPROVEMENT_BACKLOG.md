@@ -17788,3 +17788,77 @@ can now prove a guard exists, reaches shipped Dart, and is listed — and still
 cannot tell that the rule written beside it is the rule the guard actually
 enforces. A guard rewritten to check something else keeps its entry, keeps its
 root, and keeps its description.
+
+- [x] **The rule names in `_appRuleGuards` were prose nobody read back, so a
+      guard could be rewritten to enforce something else and keep its entry,
+      its root and its description.**
+      *The hole.* The map went two-way on 3 Oct (24th): every named guard is
+      censused, and every sweep reaching shipped Dart is named or exempted with
+      a reason. What stayed unmeasured was the map's own **content**. Each
+      entry asserts its rule in prose -- "the snack rule: no second messenger
+      outside the allowed wrappers" -- and every case in the file checked the
+      sentence's **subject** (the guard exists, it reaches the app, it is on the
+      list) and none checked its **predicate**. So `snack_rule_sweep_test.dart`
+      could be rewritten to police `showDialog` and every case would stay
+      green: the rule is gone *and* the tree reports it covered. That is the
+      worst shape this hole can take -- there is nothing left for the next tick
+      to notice, and a later tick reading "the snack rule" has a reason to
+      believe it is enforced.
+
+      *Shipped* (`test/app_source_scope_test.dart`, +176/-54). `_ruleEvidence`,
+      one literal per guard, read out of the guard's own **comment-blanked**
+      code -- the token its rule is written in, not a sample chosen to be easy,
+      so losing the token means losing the rule. The picks are the constructs
+      the rules turn on, and three of them are deliberately not the obvious
+      one:
+      * empty-text is checked against the regex matching an empty `return`,
+        **not** `_emptyReturning` -- the table of function names would survive a
+        rule that stopped matching empties entirely;
+      * the instrument seam is checked against a **Python** path
+        (`time.time_ns`), because a guard reading Dart with the Dart rule is
+        still the wrong rule;
+      * payload coverage is checked against a live endpoint, so renaming the
+        route in the guard without updating the app now fails.
+
+      Three directions, all reported by name: a registered guard with no token
+      (checked for existence, never for content); a guard that no longer
+      carries its token; and evidence left behind for a guard that was renamed,
+      merged or dropped, sitting in a map of rules reading as proof.
+
+      **Proved by planting, then reverted.** The messenger check was rewritten
+      from `ScaffoldMessenger` to `showDialog`. The planted file still contained
+      `ScaffoldMessenger` **twice, both in its doc comments** -- and the new
+      case fired alone with all ten others green. That is the proof of the
+      second half too: the reader blanks comments, so a guard that *names* the
+      rule while enforcing something else still fails. This file had already
+      been bitten by prose shadowing code once (`_rootsOf` read the root quoted
+      in the comment explaining the fix), so it is the same trap re-used rather
+      than a new one invented. Restored from backup; the file re-runs green at
+      **+11** (up from 10).
+
+      **Gate.** `flutter analyze` -> **No issues found!** (6.9 s).
+      `flutter test test/app_source_scope_test.dart` -> **+11 All tests
+      passed!**. Full `tool/run_tests.py` -> **HUNG at +1708, one assertion
+      failure**, in `test/stale_projects_shot_test.dart`, the known 30 Sep
+      cross-file teardown deadlock recorded at line ~13760
+      (`Bad state: Cannot close sink while adding stream`) and documented as
+      dying on a *different* file each run. **Classified, not assumed:** that
+      file passes alone (**+2**) and passes together with
+      `app_source_scope_test.dart`, `stale_notifications_shot_test.dart` and
+      `stale_market_test.dart` (**+36, All tests passed!**) -- the four files
+      spanning the stall point, my file included. `~8` skipped, unchanged; no
+      assertion failure anywhere in the run. **Not visual**: a case about which
+      guards are honest draws nothing, so no screenshot is claimed. No APK,
+      release or tag.
+
+      **Commits.** `cbfaf11` (local) -> remote `0a7f524`; blob check ->
+      **MATCH** `b2a4aab`.
+
+      **Next:** the evidence list is checked in both directions now, so the map
+      cannot claim a rule its guard does not carry. But each entry is still one
+      literal, and a guard that keeps its token while **narrowing what it
+      applies that token to** keeps its entry: `motion_test.dart` still holds
+      `duration:\s*const Duration(` after its list of offenders was emptied by
+      hand, and the rule it is named for has quietly stopped applying to the
+      files it walks. The evidence map proves a rule is *present*, not that it
+      is *applied*.
