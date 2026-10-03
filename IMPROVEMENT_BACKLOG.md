@@ -18558,3 +18558,97 @@ its own measurement, not another grep.
       drag the resolution cost back toward the ~54 s whole-tree figure, so the
       item is to widen selection *and* the visitor, re-measure the candidate
       count, and keep the 1200 s deadline's headroom explicit.
+      **Shipped on the 33rd tick** — see the entry at the end of this file. The
+      candidate count did not move (10 of 131), and two of the three shapes were
+      wrong in ways only a probe could have found.
+
+## Tick 3 Oct 2026 (33rd) — the `.runes.first` hole, and two AST shapes that
+## only a probe could have found
+
+Closes the item the 32nd tick recorded: widen the first-character guard's
+**selection and** its visitor to the shapes in the same class, re-measure the
+candidate count, keep the deadline's headroom explicit.
+
+**Measured before a line was written, in both halves.** The 32nd tick's claim was
+re-verified rather than trusted: a comment-blanked sweep of all **131** `lib/`
+files returns **0 code sites** for `runes.first`, `runes[0]`, `characters.first`
+and `codeUnitAt(0)` (the three greps that do exist are doc comments in
+`monogram.dart`, which uses a `for (final rune in name.runes)` loop — the avatar
+was already fixed). So this was a hole in a **green** guard, not a live defect,
+which is the only kind worth widening a 29 s guard for when there are no users
+to break.
+
+**Shipped:** selection now runs through `_selects()` over four named patterns
+(`_runesFirst`, `_runesIndex`, `_charactersFirst`, `_codeUnitAtZero`); the
+visitor gained `visitPropertyAccess`, a `codeUnitAt(0)` branch, and an indexed
+branch for `runes[0]` / `characters[0]`. Three new cases, and the candidate
+budget is now an assertion rather than a comment.
+
+**Cost, measured:** the four added patterns select **0 new files** — the
+candidate set stays **10 of 131**, so the resolution bill does not move and the
+1200 s deadline's headroom is unchanged. The floor is asserted at 24 (≈ a
+quarter of the tree) so a future shape anchored on `\brunes\b` instead of the
+call goes red instead of quietly restoring the ~54 s whole-tree figure.
+
+**Two bugs in my own widening, both found by the probe case, neither found by
+the suite.** This is the reason the probe exists and the reason the finding is
+worth more than the widening:
+
+1. **`s.runes.first` is a `PropertyAccess`, not a `MethodInvocation`.** The
+   first version put the `.first` check in `visitMethodInvocation` — `first`
+   *is* a method, but only where it is **called**. Written without parentheses
+   it never reaches that override, so the guard measured nothing while the
+   prefilter happily selected the file. The 32nd tick named this exact half
+   ("the visitor has no `visitPropertyAccess` to catch it") and the other four
+   cases in the file stayed green throughout.
+2. **The receiver of `.first` is a `PrefixedIdentifier`, not a
+   `PropertyAccess`.** `target is PropertyAccess` — the obvious fix for (1) —
+   also records nothing: the analyzer only builds a `PropertyAccess` when the
+   base of the chain is not a plain identifier. Probed and printed:
+   `PA name=first targetClass=PrefixedIdentifierImpl targetSrc="s.runes"`.
+   `_isFirstCharSource` now handles both node types.
+
+   A third, smaller one: `codeUnitAt(0)` cannot be proved by a parsed probe at
+   all, because `_isString` reads `staticType` and an unresolved receiver has
+   none. It is exercised through a **real resolved walk** with the probe
+   planted in `lib/` for the duration and reverted in a `finally` — asserted
+   absent before planting, so a leaked probe fails loudly instead of shipping
+   as a site the allow-list would have to excuse.
+
+**Falsified in four arms, planted and reverted** — `lib/` verified byte-identical
+after each:
+
+| arm | what was broken | what went red |
+| --- | --- | --- |
+| A | `visitPropertyAccess` body removed | "recorded no site for `s.runes.first`" |
+| B | `_isCharAccessor` → any identifier | "does not measure a string's first character" (`list.first`) |
+| C | budget floor 24 → 3 | "the prefilter now selects 10 of the files under lib/" |
+| D | `PrefixedIdentifier` arm dropped | "recorded no site for `s.runes.first`" |
+
+Arms A and D are the same symptom from two different bugs, which is the
+measurement that the `PropertyAccess` arm is load-bearing: dropping either one
+alone is caught, and neither is caught by the other.
+
+**The false-positive direction is guarded too.** `.first` is the most common
+expression in Dart; a guard that flagged every one would put the whole tree on
+the allow-list within a week, and an allow-list covering the tree polices
+nothing. `_isCharAccessor` names the two accessors that yield a *character*
+sequence, and `xs.first` / `m.values.first` are asserted to measure nothing.
+
+**Gate:** `flutter analyze` → **No issues found!** · this file **7/7** ·
+`app_source_scope_test.dart` + `fixture_scope_test.dart` **21/21** · full suite
+**+2121 ~8 All tests passed! in 13:48** (`tool/run_tests.py`, PASS), **+4** over
+the 32nd tick's +2117, 0 failures. `lib/` byte-identical to `HEAD`.
+
+Not visual — no pixels changed, no APK, no release, no tag.
+
+**Next:** the app-surface backlog is empty again, so the risk is the same class
+of thing again and the honest one to name is this: **`_allowed` is now 7 entries
+and the tree holds 7 excused sites.** Every one of them is digit-only or
+explicitly bounded *by shape*, and that claim is asserted in prose only. The
+item is to make the digit-only property **checked** — a receiver that can be
+proven digit-only (`canonicalFromDigits`, the `formatter` closures) versus one
+that cannot (`crash_log.dart`'s column clamp, `api_client.dart`'s response
+truncation) — so the excuse states a fact rather than a promise. Two of the
+seven are genuinely arbitrary strings, and they are the two most likely to be
+wrong.

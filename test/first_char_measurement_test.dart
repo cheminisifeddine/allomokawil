@@ -35,10 +35,37 @@
 // interesting number is not "0 violations" — it is **1 allowed `String[0]`**,
 // because a guard that has never had to allow anything cannot be shown to
 // allow it.
+//
+// **Widened on 3 Oct (33rd tick), in both halves, and measured rather than
+// assumed.** The tick that wrote this file listed a third shape in the same
+// class in its own prose and did not implement it: `.runes.first`. Both layers
+// were checked before any line was written, and both were open —
+//
+//   * **Selection.** `_candidateFiles()` fired on `[0]` and `substring(0,`,
+//     so a file whose only site was `s.runes.first` was never selected.
+//   * **Catch.** `_FirstCharVisitor` had no `visitPropertyAccess`, so even a
+//     selected file's `runes.first` site was never recorded.
+//
+// `runes.first` is not a near-miss for `[0]`; it is the same question asked of
+// a string: *what is its first character*. The monogram's own doc comment names
+// it as the shape the avatar used before it was fixed, which is exactly why it
+// is the shape a paste-from-Facebook regression would come back through.
+//
+// Measured before the change (comment-blanked, so doc comments do not count):
+// **0 code sites** in all 131 `lib/` files for `runes.first`, `runes[0]`,
+// `characters.first` and `codeUnitAt(0)`. So this is a hole in a green guard,
+// not a live defect — which is the only kind worth widening a 29 s guard for
+// when there are no users to break.
+//
+// The cost was measured rather than guessed, because the prefilter is the only
+// thing standing between this guard and the ~54 s whole-tree resolution: the
+// four added patterns select **0 new files**. The candidate set stays **10 of
+// 131**, so the resolution bill does not move.
 import 'dart:io';
 
 import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
 import 'package:analyzer/dart/analysis/results.dart';
+import 'package:analyzer/dart/analysis/utilities.dart';
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -103,8 +130,7 @@ class _Site {
   String get key => '$file#$owner';
 
   @override
-  String toString() =>
-      '$file:${_lineAt(file, offset)}  $receiver  (in $owner)';
+  String toString() => '$file:${_lineAt(file, offset)}  $receiver  (in $owner)';
 }
 
 int _lineAt(String file, int offset) {
@@ -121,13 +147,29 @@ int _lineAt(String file, int offset) {
 /// Resolving the whole tree costs ~54 s; resolving only the files this
 /// prefilter selects costs ~29 s, and the guard runs inside a suite with a
 /// 1200 s deadline. The filter is deliberately **syntactic** (`[0]`,
-/// `substring(0,`), because resolution is what decides whether a receiver is
-/// a `String` at all — four of the five `[0]` sites in the tree are `List`.
+/// `substring(0,`, `runes.first`, …), because resolution is what decides
+/// whether a receiver is a `String` at all — four of the five `[0]` sites in
+/// the tree are `List`.
 ///
 /// A prefilter can miss a site, so it is written to be wider than the rule:
-/// it fires on `[0]` anywhere and on `substring(0,`, never on a narrowed
-/// pattern. What it costs in false positives is paid in the `UNRESOLVED` /
-/// allow-list cases below, both of which are loud.
+/// it fires on `[0]` anywhere and on each first-character shape below, never on
+/// a narrowed pattern. What it costs in false positives is paid in the
+/// `UNRESOLVED` / allow-list cases below, both of which are loud.
+///
+/// **Why the shapes are four patterns and not one.** `runes.first`,
+/// `runes[0]`, `characters.first` and `codeUnitAt(0)` are one question with four
+/// spellings, so a single combined alternation is tempting — and it is the
+/// wrong shape for two reasons that both bit a previous tick of this file. The
+/// census reads the *enclosing call* of a rule token and credits it to `RegExp`
+/// only when the pattern sits at statement level, and a bare alternation would
+/// have to be one literal, so the token names a rule that no longer reads as
+/// the rule. Four named patterns keep each shape individually legible, and each
+/// is checked below against the census's token reader.
+///
+/// The measured cost of adding them: **0 new files selected.** 131 files in
+/// `lib/`, 10 candidates before and after — `arabic_search.dart` and
+/// `monogram.dart` *do* contain the word `runes`, which is why the shapes are
+/// anchored on the call, not on the identifier.
 List<String> _candidateFiles() {
   final dir = Directory('lib');
   if (!dir.existsSync()) return const <String>[];
@@ -145,7 +187,7 @@ List<String> _candidateFiles() {
     final f = entity;
     if (!f.path.endsWith('.dart')) continue;
     final code = _stripComments(f.readAsStringSync());
-    if (!code.contains('[0]') && !_firstSlice.hasMatch(code)) continue;
+    if (!_selects(code)) continue;
     out.add(f.path.replaceAll('\\', '/'));
   }
   return out..sort();
@@ -154,6 +196,40 @@ List<String> _candidateFiles() {
 /// The prefilter's second shape, as a pattern rather than an inline literal so
 /// the census can name it as this file's evidence token.
 final RegExp _firstSlice = RegExp(r'substring\s*\(\s*0\s*,');
+
+/// `runes.first` — the shape the monogram tick named and this file did not
+/// implement. Anchored on the *call*, because two files in the tree mention
+/// `runes` in code and both are the avatar's own correct loop.
+final RegExp _runesFirst = RegExp(r'runes\s*\.\s*first');
+
+/// `runes[0]` — same question, indexed rather than read.
+final RegExp _runesIndex = RegExp(r'runes\s*\[\s*0\s*\]');
+
+/// `characters.first` — the grapheme-safe spelling. `characters` is not a
+/// direct dependency here (it arrives through `flutter`), so this shape is
+/// selected and recorded for completeness rather than because the tree uses it.
+final RegExp _charactersFirst = RegExp(r'characters\s*\.\s*first');
+
+/// `codeUnitAt(0)` — the raw spelling, which is what `s[0]` compiles to and
+/// therefore the shape a refactor away from the operator reintroduces.
+final RegExp _codeUnitAtZero = RegExp(r'codeUnitAt\s*\(\s*0');
+
+/// Does [code] (comment-blanked) hold any shape that measures a first
+/// character?
+///
+/// Kept as its own function rather than one long `||` chain in the loop so the
+/// census's token reader sees each pattern at statement level, and so adding a
+/// shape is one line here and one named pattern above — not an edit inside a
+/// condition someone else will have to re-read.
+bool _selects(String code) {
+  if (code.contains('[0]')) return true;
+  if (_firstSlice.hasMatch(code)) return true;
+  if (_runesFirst.hasMatch(code)) return true;
+  if (_runesIndex.hasMatch(code)) return true;
+  if (_charactersFirst.hasMatch(code)) return true;
+  if (_codeUnitAtZero.hasMatch(code)) return true;
+  return false;
+}
 
 /// The source with comments blanked, offsets preserved.
 ///
@@ -225,6 +301,23 @@ String _dartSdkPath() {
       'resolve types cannot tell a String from a List.');
 }
 
+/// Runs the visitor over [body] as a one-function unit and returns what it
+/// measured.
+///
+/// Parsed, not resolved: the two shapes this case exercises
+/// (`runes.first`, `runes[0]`) are decided by the *shape* of the receiver, and
+/// resolving would need an SDK context per probe for a decision that does not
+/// take one. `_isString` still applies to the `codeUnitAt(0)` and bare `[0]`
+/// branches, which is why those two are asserted through the real resolved
+/// walk in the cases above rather than here -- a probe that only works because
+/// nothing resolved would be a probe measuring its own absence.
+List<_Site> _sitesIn(String path, String body) {
+  final result = parseString(content: body, throwIfDiagnostics: false);
+  final found = <_Site>[];
+  result.unit.accept(_FirstCharVisitor(path, found));
+  return found;
+}
+
 /// Finds every place a **String** is indexed at 0 or sliced from 0.
 class _FirstCharVisitor extends RecursiveAstVisitor<void> {
   _FirstCharVisitor(this.file, this.sites);
@@ -235,9 +328,21 @@ class _FirstCharVisitor extends RecursiveAstVisitor<void> {
   @override
   void visitIndexExpression(IndexExpression node) {
     final i = node.index;
-    if (i is IntegerLiteral && i.value == 0 && _isString(node.realTarget)) {
-      sites.add(_Site(file, _ownerOf(node), node.offset,
-          _oneLine(node.realTarget.toString())));
+    if (i is IntegerLiteral && i.value == 0) {
+      if (_isString(node.realTarget)) {
+        sites.add(_Site(file, _ownerOf(node), node.offset,
+            _oneLine(node.realTarget.toString())));
+      }
+      // `s.runes[0]` / `s.characters[0]`: the indexed spelling of the same
+      // question, and the one that would *not* be caught by the `[0]` branch if
+      // it were left there, because the target is a `Runes`, not a `String`.
+      // This is the third shape the 32nd tick listed and the reason the check
+      // moved out of the `&&` — a single condition cannot say "a String at 0,
+      // or a character sequence at 0" without becoming the reader's own bug.
+      if (_isFirstCharSource(node.realTarget)) {
+        sites.add(_Site(file, _ownerOf(node), node.offset,
+            '${_oneLine(node.realTarget.toString())}[0]'));
+      }
     }
     super.visitIndexExpression(node);
   }
@@ -255,8 +360,96 @@ class _FirstCharVisitor extends RecursiveAstVisitor<void> {
             'substring(0, …) on ${_oneLine(node.target!.toString())}'));
       }
     }
+    // `codeUnitAt(0)` — the shape `s[0]` compiles to, so a refactor away from
+    // the operator reintroduces exactly this. Arg-checked, not name-checked:
+    // `s.codeUnitAt(0)` and `s.codeUnitAt(i)` are the same token.
+    if (node.methodName.name == 'codeUnitAt') {
+      final args = node.argumentList.arguments;
+      if (args.length == 1 &&
+          args.first is IntegerLiteral &&
+          (args.first as IntegerLiteral).value == 0 &&
+          node.target != null &&
+          _isString(node.target!)) {
+        sites.add(_Site(file, _ownerOf(node), node.offset,
+            'codeUnitAt(0) on ${_oneLine(node.target!.toString())}'));
+      }
+    }
     super.visitMethodInvocation(node);
   }
+
+  /// `s.runes.first` / `s.characters.first`.
+  ///
+  /// **A `PropertyAccess`, not a `MethodInvocation`, and the self-test is what
+  /// proved it.** The first version of this widening put the `.first` check in
+  /// `visitMethodInvocation`, on the reasonable reading that `first` is a
+  /// method — it is, but only where it is *called*. Written without
+  /// parentheses, `s.runes.first` parses as a `PropertyAccess` whose
+  /// `propertyName` is `first`, so it never reaches `visitMethodInvocation` at
+  /// all: the guard measured nothing while the prefilter happily selected the
+  /// file. That is the exact failure the 32nd tick predicted by name ("the
+  /// visitor has no `visitPropertyAccess` to catch it"), and the reason the
+  /// probe case exists — the other three cases in this file stayed green
+  /// through that bug, because a tree with no `.runes.first` in it is a tree
+  /// the wrong visitor still passes.
+  ///
+  /// `codeUnitAt(0)` deliberately does **not** come through here: it is called
+  /// with an argument, so it is a real `MethodInvocation`.
+  @override
+  void visitPropertyAccess(PropertyAccess node) {
+    final target = node.target;
+    if (node.propertyName.name == 'first' &&
+        target != null &&
+        _isFirstCharSource(target)) {
+      sites.add(_Site(file, _ownerOf(node), node.offset,
+          '${_oneLine(target.toString())}.first'));
+    }
+    super.visitPropertyAccess(node);
+  }
+
+  /// The receiver is a sequence of **characters**: `s.runes` or
+  /// `s.characters`.
+  ///
+  /// **Two node types, and finding the second one is why this guard is a
+  /// measurement rather than a grep.** The obvious implementation tests
+  /// `target is PropertyAccess` and reads `propertyName`. It records nothing:
+  /// in `s.runes.first`, the receiver of `first` is **`PrefixedIdentifier`**
+  /// (printed as `PrefixedIdentifierImpl`), not `PropertyAccess`. The analyzer
+  /// only builds a `PropertyAccess` when the *base* of the chain is something
+  /// other than a plain identifier -- `this.s.runes.first` and a cascade give
+  /// one, `s.runes.first` does not. Probed and printed rather than assumed:
+  ///
+  /// ```text
+  /// PA name=first targetClass=PrefixedIdentifierImpl targetSrc="s.runes"
+  /// ```
+  ///
+  /// So both shapes are accepted and both are named: a `PrefixedIdentifier`
+  /// by its `identifier.name`, a `PropertyAccess` by its `propertyName`. A
+  /// guard that checks one and reads the other cannot record the site it was
+  /// written for, and it is green either way because a tree with no such site
+  /// in it measures zero — which is why the probe case is asserted against a
+  /// probe, not against the tree.
+  ///
+  /// Deliberately *not* "is a `String`": `.runes` on a `String` yields an
+  /// `Runes`, and `s.runes.first` is exactly the RLM-safe read the monogram
+  /// replaced. The question is whether the receiver hands back characters at
+  /// all, and naming the two accessors that do is what keeps `list.first` out.
+  bool _isFirstCharSource(Expression target) {
+    if (target is PropertyAccess) {
+      return _isCharAccessor(target.propertyName.name);
+    }
+    if (target is PrefixedIdentifier) {
+      return _isCharAccessor(target.identifier.name);
+    }
+    return false;
+  }
+
+  /// `runes` / `characters` — the two accessors that yield a character's
+  /// sequence rather than a collection's element.
+  ///
+  /// A named predicate rather than two comparisons inline, because the reason
+  /// this exists is a shape the guard was blind to and a reader needs to see
+  /// both node types handled in one place.
+  bool _isCharAccessor(String name) => name == 'runes' || name == 'characters';
 
   /// The receiver's **resolved** type is a `String`.
   ///
@@ -296,9 +489,13 @@ void main() {
     // Filled by the AST pass; both cases below read it, so the walk happens
     // once and its *failure modes* are asserted rather than swallowed.
     final List<_Site> sites = <_Site>[];
+    // Declared beside `sites` rather than inside `setUpAll` because the budget
+    // case above reads it, and a variable scoped to the hook is invisible to
+    // every case that follows.
+    List<String> candidates = const <String>[];
 
     setUpAll(() async {
-      final candidates = _candidateFiles();
+      candidates = _candidateFiles();
       // Non-empty, or the walk below is vacuous against a tree never read —
       // the same floor `shippedDartFiles()` asserts in the census.
       expect(candidates, isNotEmpty,
@@ -313,8 +510,10 @@ void main() {
       for (final path in candidates) {
         final file = File(path);
         final abs = file.absolute.path;
-        final SomeResolvedUnitResult result =
-            await collection.contextFor(abs).currentSession.getResolvedUnit(abs);
+        final SomeResolvedUnitResult result = await collection
+            .contextFor(abs)
+            .currentSession
+            .getResolvedUnit(abs);
         if (result is! ResolvedUnitResult) {
           fail('could not resolve $abs — a file this guard cannot resolve is a '
               'file it cannot police, and it must not be skipped silently.');
@@ -370,6 +569,144 @@ void main() {
               '${stale.join('\n')}');
     });
 
+    test('the widened shapes are selected AND caught, not just selected', () {
+      // **The hole this file was widened to close, asserted from both sides.**
+      // The 32nd tick established that `runes.first` was neither selected by
+      // `_candidateFiles()` nor recorded by the visitor, and left it as a
+      // finding. Widening without this case would be a comment claiming a
+      // coverage the guard could silently lose again: delete the `first`
+      // branch below and this case goes red, where the other three would stay
+      // green on a tree that happens to contain no site.
+      //
+      // Each probe is asserted on BOTH halves, because either half alone
+      // passes on a broken guard:
+      //
+      //   * **selected** (`_selects`) — catches a widened prefilter whose
+      //     visitor still cannot see the shape;
+      //   * **caught** (the visitor over parsed source) — catches a visitor
+      //     that records the shape in a file the prefilter never hands it.
+      final probes = <String, String>{
+        r's.runes.first': r'runes\s*\.\s*first',
+        r's.runes[0]': r'runes\s*\[\s*0\s*\]',
+        r's.characters.first': r'characters\s*\.\s*first',
+        r's.codeUnitAt(0)': r'codeUnitAt\s*\(\s*0',
+      };
+      for (final entry in probes.entries) {
+        expect(_selects(entry.key), isTrue,
+            reason: 'the prefilter does not select '
+                '`${entry.key}`, so a file whose only site is that shape '
+                'is never handed to the visitor and the guard is blind to '
+                'it. The shape it is written for is ${entry.value}.');
+      }
+
+      // The catch half, split by the decision each shape actually makes --
+      // and the split is not tidiness, it is the difference between a probe
+      // that proves something and one that cannot fail.
+      //
+      // `runes.first` / `runes[0]` / `characters.first` are decided on the
+      // **shape** of the receiver, so a parsed probe is enough. `codeUnitAt(0)`
+      // is decided by `_isString`, i.e. by the **resolved** type, and an
+      // unresolved `s` has no `staticType` at all -- so putting it in this
+      // parsed loop asserted a green that meant nothing, then failed for the
+      // right reason. It is exercised through the real resolved walk instead,
+      // by the planted `codeUnitAt` case below.
+      for (final probe in probes.keys.where((p) => !p.contains('codeUnitAt'))) {
+        final found =
+            _sitesIn('probe.dart', 'String first(String s) => $probe;');
+        expect(found, isNotEmpty,
+            reason: 'the visitor recorded no site for `$probe`, so the '
+                'prefilter selects the file and the guard then measures '
+                'nothing in it.\nTwo shapes this guard has already been '
+                'wrong about, both found by running this very probe:\n'
+                '  * a no-paren member access is an AST `PropertyAccess`, not '
+                'a `MethodInvocation`, so a check for `.first` inside '
+                '`visitMethodInvocation` sees nothing;\n'
+                '  * and the receiver of `.first` is a `PrefixedIdentifier`, '
+                'not a `PropertyAccess`, so `target is PropertyAccess` also '
+                'sees nothing. Both are handled in `_isFirstCharSource`.');
+      }
+    });
+
+    test('the resolved shape is caught in a real resolved walk', () async {
+      // `codeUnitAt(0)` cannot be proved by a parsed probe: `_isString` reads
+      // `staticType`, and an unresolved receiver has none. So this case
+      // resolves a real file through the same `AnalysisContextCollection` the
+      // `lib/` walk uses, with the probe planted in `lib/` for the duration --
+      // planted and reverted inside the case, never committed, because a probe
+      // shipped in the tree would be a site the allow-list has to excuse.
+      //
+      // Written this way because the alternative -- asserting the branch by
+      // reading it -- is the failure this whole file keeps re-learning.
+      final probe = File('lib/src/core/text/_first_char_probe.dart');
+      expect(probe.existsSync(), isFalse,
+          reason: 'a planted probe was left behind in lib/; it would ship as '
+              'a real site and the allow-list would have to excuse it.');
+      probe.writeAsStringSync('''
+/// Planted by first_char_measurement_test.dart. Never committed.
+String probeCodeUnit(String s) => s.codeUnitAt(0).toString();
+''');
+      try {
+        final collection = AnalysisContextCollection(
+          includedPaths: [Directory.current.absolute.path],
+          sdkPath: _dartSdkPath(),
+        );
+        final abs = probe.absolute.path;
+        final SomeResolvedUnitResult result = await collection
+            .contextFor(abs)
+            .currentSession
+            .getResolvedUnit(abs);
+        expect(result, isA<ResolvedUnitResult>(),
+            reason: 'the planted probe could not be resolved, so this case '
+                'would be asserting the shape half of a branch it never ran.');
+        final found = <_Site>[];
+        (result as ResolvedUnitResult)
+            .unit
+            .accept(_FirstCharVisitor(abs, found));
+        expect(found.map((s) => s.receiver), contains('codeUnitAt(0) on s'),
+            reason: 'the visitor did not record the planted '
+                '`s.codeUnitAt(0)`, so the raw-codeUnit spelling is selected '
+                'but not caught -- the prefilter and the visitor disagree.\n'
+                'recorded: ${found.map((s) => s.toString()).join(', ')}');
+      } finally {
+        if (probe.existsSync()) probe.deleteSync();
+      }
+    });
+
+    test('the widening did not widen the guard into a false positive', () {
+      // The other direction, and the reason the `first` branch is
+      // `_isFirstCharSource` and not "any `.first`". `list.first` is the most
+      // common expression in Dart; a guard that flagged it would put every
+      // call site in the tree on the allow-list within a week, and an
+      // allow-list that covers the tree is a guard that polices nothing.
+      for (final probe in [
+        'List<int> f(List<int> xs) => xs.first;',
+        'Map<String, int> g(Map<String, int> m) => m.values.first;',
+      ]) {
+        expect(_sitesIn('probe.dart', probe), isEmpty,
+            reason: '`$probe` does not measure a string\'s first character, so '
+                'recording it would be a false positive -- and the 4 sites the '
+                'tree legitimately has are joined by this one every time a '
+                'collection is read.');
+      }
+    });
+
+    test('the prefilter still costs a fraction of the tree', () {
+      // The guard runs inside a suite with a 1200 s deadline, and the reason it
+      // costs ~29 s instead of ~54 s is entirely this prefilter: whole-tree
+      // resolution is what nearly cost the loop three consecutive ticks on
+      // 30 Sep. The four shapes added on 3 Oct selected **0** new files
+      // (10 candidates of 131 before and after), and this is what keeps that
+      // true -- a future shape anchored too loosely (`\brunes\b` rather than
+      // the call) drags this number up, and it is a budget, not a hope.
+      expect(candidates.length, lessThanOrEqualTo(24),
+          reason: 'the prefilter now selects ${candidates.length} of the '
+              'files under lib/. The prefilter IS the cost model here: past '
+              'roughly a quarter of the tree the resolution bill climbs toward '
+              'the whole-tree figure and the guard stops being affordable '
+              'inside the suite deadline. Narrow a shape, do not raise this '
+              'number.\n${candidates.join('\n')}');
+    });
+
     test('the walk really found the sites it claims to find', () {
       // The check that keeps the other two from passing on a reader that
       // resolves nothing. A guard that silently returns zero sites is green on
@@ -387,8 +724,7 @@ void main() {
           reason: 'dz_phone.dart is measured to hold `d[0]` and `_cap`\'s '
               'substring(0, …); finding fewer than two means the reader stopped '
               'resolving receiver types:\n${sites.join('\n')}');
-      expect(sites.any((s) => s.receiver.startsWith('substring(0')),
-          isTrue,
+      expect(sites.any((s) => s.receiver.startsWith('substring(0')), isTrue,
           reason: 'no `substring(0, …)` receiver was resolved as a String:\n'
               '${sites.join('\n')}');
     });
