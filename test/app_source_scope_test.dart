@@ -624,11 +624,35 @@ bool _isSourceSweep(String path, String source) {
 /// that special-cases one of them measures only that one. `RegExp` is *an*
 /// applier, not *the* applier -- restricting the check to it was measured at
 /// 7 of 13 enforced, which would have gone red on a tree that is correct.
+///
+/// **Measured, then trimmed to what the tree actually uses (3 Oct).** This
+/// list declared **15** names and the census below credited **2** of them --
+/// `RegExp` and `contains`. The other 13 (`hasMatch`, `allMatches`,
+/// `firstMatch`, `matches`, `isWall`, `split`, `indexOf`, `lastIndexOf`,
+/// `startsWith`, `endsWith`, `replaceAll`, `replaceFirst`, `replaceRange`)
+/// earned nothing: they were speculative, not measured, which is the same
+/// dead-weight shape as an outgrown allow-list.
+///
+/// **But trimming is not the finding -- *why* they earn nothing is.** All 13
+/// are called *constantly* in these guards and **never with a token**:
+/// `hasMatch` 28 calls / 0 with a token, `split` 42 / 0, `allMatches` 34 / 0,
+/// `endsWith` 27 / 0, `startsWith` 16 / 0, `indexOf` 6 / 0, `replaceAll` 6 /
+/// 0. Every one of those is the **downstream half of the same chain**:
+/// `RegExp(r'<token>').hasMatch(src)` is one expression, and the token lands in
+/// the `RegExp` argument, so the reader credits `RegExp` and the 13 siblings
+/// never see a token. A guard written as `src.contains(token)` credits
+/// `contains`. There is no third shape in the tree today.
+///
+/// **So the list is now exactly the two mechanisms the tree uses, and it
+/// cannot rot again silently**: the case below asserts that no *declared* applier
+/// is dead, and that every applier the tree actually reaches with a token is
+/// declared. Adding a guard written with `hasMatch(token)` -- which is the
+/// natural thing to write and is why the name was there -- now goes **red**
+/// until the name is added back, which is the point: the list is a measured
+/// claim about the tree, not a wish list of functions that *could* apply one.
 const _tokenAppliers = <String>{
   'RegExp', // the pattern itself
-  'contains', 'hasMatch', 'allMatches', 'firstMatch', 'matches', 'isWall',
-  'split', 'indexOf', 'lastIndexOf', 'startsWith', 'endsWith',
-  'replaceAll', 'replaceFirst', 'replaceRange',
+  'contains',
 };
 
 /// Guards whose evidence token is held **only** by `expect(...)`, and the
@@ -881,6 +905,62 @@ class _ReferenceApplied extends RecursiveAstVisitor<void> {
         node.argumentList.arguments.any((a) => a.toSource().contains(name))) {
       applied = true;
       via = 'RegExp';
+    }
+    super.visitInstanceCreationExpression(node);
+  }
+}
+
+/// Call names that **wrap** a token-carrying call instead of reading it.
+///
+/// `RegExp(r'token').hasMatch(src)` is one expression with two calls in it, and
+/// only one of them is handed the token: the `RegExp` argument. The other is a
+/// method on the *result*. Treating those as appliers is the `expect` bug in a
+/// new costume -- a name credited with enforcement it never performed -- so they
+/// are excluded by name rather than left to the reader to guess.
+///
+/// This is not a guess either: it is the measured answer to "which calls
+/// receive a token", which is why `_CallScan` below passes the token to the
+/// **argument** test and not to the callee.
+const _nonReaders = <String>{
+  'expect', // where a verdict is delivered, not enforced
+  'group', 'test', 'setUp', 'setUpAll', 'tearDown', 'tearDownAll', // wrappers
+  'hasMatch', 'allMatches', 'firstMatch', 'matches', // on a RegExp *result*
+  'isNotEmpty', 'isEmpty', 'toString',
+};
+
+/// Every method invocation in a unit that is handed [token] in its **arguments**.
+///
+/// The asymmetry with `_TokenUse` is deliberate and is the measurement from
+/// this tick. `_TokenUse` classifies a *literal* by the call enclosing it; this
+/// classifies a *call* by whether the token is among its arguments. Those are
+/// not the same question -- `RegExp(token).hasMatch(src)` gives `RegExp` the
+/// token and `hasMatch` nothing -- and building the reader around the argument
+/// test is what shows the 13 dead names are downstream halves of `RegExp`
+/// rather than readers the tree never uses.
+class _CallScan extends RecursiveAstVisitor<void> {
+  _CallScan(this.token);
+
+  final String token;
+
+  /// Method names this unit calls with [token] among their arguments.
+  final List<String> tokenCalls = <String>[];
+
+  @override
+  void visitMethodInvocation(MethodInvocation node) {
+    final String args =
+        node.argumentList.arguments.map((a) => a.toSource()).join('|');
+    if (args.isNotEmpty && args.contains(token)) {
+      tokenCalls.add(node.methodName.name);
+    }
+    super.visitMethodInvocation(node);
+  }
+
+  @override
+  void visitInstanceCreationExpression(InstanceCreationExpression node) {
+    final String args =
+        node.argumentList.arguments.map((a) => a.toSource()).join('|');
+    if (args.isNotEmpty && args.contains(token)) {
+      tokenCalls.add(node.constructorName.toSource().split('.').last);
     }
     super.visitInstanceCreationExpression(node);
   }
@@ -1734,6 +1814,104 @@ void main() {
       expect(byMechanism, isNotEmpty,
           reason: 'no guard was classified at all, so this census is measuring '
               'nothing and would stay green against a tree it cannot see.');
+    });
+
+    test('the applier list is what the tree uses, not what it could use',
+        () {
+      // The 30th tick's next item, measured rather than reasoned about. The
+      // list declared 15 names and the census credited 2. Deleting 13 names
+      // that earn nothing is only half the job: the danger is that the list
+      // becomes **wrong** instead of merely long -- an applier that is declared
+      // but never reached, or a guard that reaches a token through a name the
+      // list does not declare. Both directions are asserted here.
+      //
+      // The measurement behind the trim (3 Oct, over all 13 guards):
+      //
+      //   declared 15, credited 2  ->  RegExp, contains
+      //   dead 13  ->  hasMatch(28 calls/0 tokens), split(42/0),
+      //                 allMatches(34/0), endsWith(27/0), startsWith(16/0),
+      //                 indexOf(6/0), replaceAll(6/0), firstMatch(3/0),
+      //                 isWall(2/0), replaceFirst(2/0), lastIndexOf(1/0),
+      //                 matches(0/0), replaceRange(0/0)
+      //
+      // The dead 13 are not noise. Each is the **downstream half** of the same
+      // chain: `RegExp(r'token').hasMatch(src)` puts the token in the `RegExp`
+      // argument, so the reader credits `RegExp` and the sibling never sees one.
+      // That is why trimming is safe *and* why the names were there in the
+      // first place: `hasMatch` is the natural spelling, and a guard written as
+      // `src.hasMatch(token)` must go red until `hasMatch` is declared -- not
+      // be silently credited by a name nobody listed, and not be silently
+      // missed.
+      //
+      // This asserts a **census**, deliberately, and the reason is written down
+      // because three readers in this file already guessed wrong: what is being
+      // claimed is about the tree, so the only falsifiable form is to derive it
+      // from the tree and compare. Two facts are checked, in both directions:
+      //
+      //   1. no **declared** applier is dead in the current tree, and
+      //   2. no applier is reached **with a token** by a name that is not
+      //      declared -- which would mean the reader is crediting enforcement
+      //      through an unlisted name, the `expect` bug from the 29th tick.
+
+      // Direction 2 first: every method invocation in every censused guard
+      // whose *arguments* carry the guard's token. `group`/`test`/`expect` are
+      // excluded because they wrap a call rather than read the token -- and
+      // `expect` is exactly the name that was once credited as enforcement.
+      final Set<String> undeclared = <String>{};
+      final List<String> seen = <String>[];
+      for (final guard in _appRuleGuards.keys) {
+        final File file = File(guard);
+        if (!file.existsSync()) continue;
+        final unit =
+            parseString(content: file.readAsStringSync(), throwIfDiagnostics: false);
+        for (final String token in _ruleEvidence[guard] ?? const <String>[]) {
+          final _CallScan scan = _CallScan(token);
+          unit.unit.accept(scan);
+          for (final String call in scan.tokenCalls) {
+            if (_nonReaders.contains(call)) continue;
+            if (!_tokenAppliers.contains(call)) undeclared.add(call);
+            seen.add(call);
+          }
+        }
+      }
+      expect(undeclared, isEmpty,
+          reason: 'these calls receive a rule token but are not declared in '
+              '`_tokenAppliers`, so the reader credits enforcement through a '
+              'name nobody listed -- the same shape as `expect` being credited '
+              'once:\n${undeclared.join(', ')}\n'
+              'Calls seen carrying a token: ${seen.toSet().join(', ')}');
+
+      // Direction 1: every declared name is actually reached. This is what
+      // stops the list from rotting back into speculation -- a name added for a
+      // guard that was later rewritten goes red here instead of sitting
+      // credited to nothing, which is how this list reached 15 names.
+      final Set<String> credited = <String>{};
+      for (final guard in _appRuleGuards.keys) {
+        final File file = File(guard);
+        if (!file.existsSync()) continue;
+        final unit =
+            parseString(content: file.readAsStringSync(), throwIfDiagnostics: false);
+        for (final String token in _ruleEvidence[guard] ?? const <String>[]) {
+          final _TokenUse use = _TokenUse(token);
+          unit.unit.accept(use);
+          credited.addAll(use.appliers);
+        }
+      }
+      final Set<String> dead = _tokenAppliers.difference(credited);
+      expect(dead, isEmpty,
+          reason: 'these appliers are declared but no guard in the tree reaches '
+              'a rule token through them any more. Either delete the name or '
+              'fix the guard; a declared reader that credits nothing is the '
+              'dead weight this item removed:\n${dead.join(', ')}\n'
+              'Credited today: ${credited.toList()..sort()..join(', ')}');
+
+      // And the census underneath both directions is not vacuous.
+      expect(seen, isNotEmpty,
+          reason: 'no call at all received a token, so the two assertions above '
+              'would both pass against a tree it cannot read.');
+      expect(_tokenAppliers, isNotEmpty,
+          reason: 'the applier list is empty, so nothing can be credited and the '
+              'difference above is empty for the wrong reason.');
     });
 
     test('the census would have caught the blind spot it was written for', () {
