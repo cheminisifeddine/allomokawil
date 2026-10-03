@@ -18116,3 +18116,74 @@ root, and keeps its description.
       not. That is a larger piece of work than one 10-minute cycle and should
       be started as its own item. Do not re-attempt it with a wider or stricter
       window: that is the two mistakes above, and both were measured.
+
+- [x] **The rule-evidence map could not tell a token *applied* from a token
+      *written down*, and the 27th tick's next step is now shipped with the
+      analyzer AST it asked for.** `628b897` → remote `aedeec4`.
+
+      The 27th tick closed its item honestly and left exactly one hole: a guard
+      could *contain* its evidence token, and nothing checked that the guard
+      *applies* it. It also wrote down, correctly, that this needs the AST and
+      not a wider character window — "both failure modes are measured and
+      recorded". So that is what shipped: `analyzer` is now a dev dependency and
+      `test/app_source_scope_test.dart` parses each named guard and classifies
+      every literal carrying a token by **what the surrounding code does with
+      it**, rather than by where the characters sit.
+
+      **Measured before writing the case, because a plausible check would have
+      gone permanently red on a correct tree.** Restricting the applier to
+      `RegExp(...)` — the shape most of these tokens take — enforces only **7 of
+      13**. `RegExp` is *an* applier, not *the* applier: `snack_rule_sweep_test`
+      uses `.contains()`, `wall_clock_seam_site_test` uses `.indexOf()` and
+      `.startsWith()`, `payload_coverage_test` uses `.lastIndexOf()`. So the
+      shipped discriminator is the shape of the **call site** (`_tokenAppliers`,
+      16 readers) and not the name of one function.
+
+      **The hole it found is the point of the item.** `motion_test.dart`'s token
+      is held **only** by `expect(tempoDurationRule.pattern, r'…')` at line 473.
+      The rule lives once, in `test/support/source_text.dart` as
+      `tempoDurationRule`, and `motion_test.dart` reaches it through `tempoRules`.
+      That `expect` is a *consistency check between two copies*, not
+      enforcement: change the shared rule and both copies move with it, so the
+      map's copy cannot fall out of date on its own. This is exactly the
+      "written down, not enforced" shape, found by reading the AST rather than
+      by guessing at a wider window. It is listed in
+      `_ruleEvidenceAppliedElsewhere` **with where the rule went**, and the case
+      reds if a second guard gets that way or if an exemption names nothing.
+      The tree is correct as it stands; the map could not see why.
+
+      **Three bugs in my own reader, all measured and all left in the source:**
+
+      * **`''` is a substring of every token.** A guard holding `code.contains('')`
+        — common in these sweeps — credited *every* map entry with enforcement.
+        The **first planted proof of this case came back GREEN because of it**,
+        and the two hits it found were both empty literals inside a
+        `.contains(...)`. Empty literals are now skipped explicitly. This is the
+        clearest argument for planting every guard: the assertion passed against
+        a deliberately dead token.
+      * **Parent depth, in both directions.** Reading only the literal's
+        immediate parent finds **0 of 13** appliers (an argument's parent is the
+        `ArgumentList`; the call is *its* parent). Reading the grandparent finds
+        7. Both wrong, in opposite directions.
+      * **A rule held as data is applied by *reference*.**
+        `layering_test.dart` carries its token as a top-level `const` list and
+        applies it as `_forbidden['models']!.contains(layer)`, so a literal-only
+        scan finds nothing — and the parent chain runs through
+        `TopLevelVariableDeclaration`, not `CompilationUnit` as first assumed.
+        **That is why the first two runs of this case were red on one correct
+        guard.** Both fixes are on `_collectionOwner` and `_ReferenceApplied`.
+
+      **Gate:** `flutter analyze` → **No issues found!** (10.7 s) ·
+      `app_source_scope_test.dart` **+13** · full suite **+2110 ~8 All tests
+      passed! in 13:22** — up from +2109, 0 failures. **Verified falsifiable:**
+      planting `wash: Color(0xFFDEADBE` as an unread `const` and pointing the map
+      entry at it went red with the intended message; reverted, and
+      `contrast_tokens_test.dart` is untouched. Not visual — no screenshot, no
+      APK, no release, no tag.
+
+      **Next:** the AST reader is deliberately narrow — it knows 16 appliers by
+      name and resolves a rule one hop through a reference. The honest next item
+      is a **census of what it still cannot see**: enumerate the token-carrying
+      literals in all 13 guards whose classification rests on an applier it only
+      recognises by name, so the next unknown reader is measured rather than
+      discovered by a plant that silently passes.
