@@ -189,6 +189,12 @@ const _appRuleGuards = <String, String>{
   'test/layering_test.dart': 'the import layering rule',
   'test/type_scale_test.dart': 'the type-scale rule',
   'test/card_recipe_test.dart': 'the card recipe rule',
+  // `motion_test.dart` was absent from this map on 3 Oct (24th) even though it
+  // enforces one of the app's own rules -- no screen may type its own duration
+  // -- and even though the blind-spot case below already named it. It was in the
+  // `appWide` list and nowhere else, which is the whole defect: a rule enforced
+  // in every build and described in no by-name list.
+  'test/motion_test.dart': 'the motion rule: no screen types its own duration',
   // Named for what they hold, not for where they point: these are the guards
   // whose root was invisible to this census until the reader was taught the
   // shapes below. Before this tick `contrast_tokens`, `failure_reported`,
@@ -330,6 +336,94 @@ class _Read {
   final List<String> unresolved;
 }
 
+/// What one declared root actually resolves to in this checkout.
+///
+/// The barren-root case and the unnamed-guard case below ask the *same*
+/// question -- "does this root reach Dart the app ships?" -- and they were
+/// written as two copies until this tick, which is how one of them grew a
+/// message the other could not produce. One resolver, so a root that one case
+/// calls covered cannot be called barren by the other.
+class _RootHit {
+  _RootHit({required this.dart, required this.shippedDart, this.reason});
+
+  /// Dart files the root reads. For a pathspec these are the tracked matches,
+  /// for a directory they are the files on disk.
+  final List<String> dart;
+
+  /// The subset of [dart] that the app actually ships.
+  final List<String> shippedDart;
+
+  /// Non-null exactly when [shippedDart] is empty, carrying the sentence the
+  /// caller needs. Three causes, named apart because they are three different
+  /// mistakes: absent from the checkout, a live directory holding no app Dart,
+  /// and a pathspec that matches nothing.
+  final String? reason;
+
+  bool get reachesNothing => shippedDart.isEmpty;
+}
+
+/// Resolve one declared root. `shipped` is the census's shipped-Dart list.
+_RootHit _resolveRoot(String spec, List<String> shipped) {
+  if (spec.contains('*')) {
+    // A pathspec is answered by git, not by the filesystem: it is not a path.
+    final r = Process.runSync(
+      'git',
+      ['ls-files', '--', spec],
+      workingDirectory: Directory.current.path,
+    );
+    expect(r.exitCode, 0,
+        reason: 'git ls-files failed (${r.stderr}) -- this census cannot tell '
+            'an empty pathspec from an unreadable one');
+    final hits = (r.stdout as String)
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+    final dart = hits.where((p) => p.endsWith('.dart')).toList();
+    final reached = dart.where(shipped.contains).toList();
+    if (hits.isEmpty) {
+      return _RootHit(
+        dart: dart,
+        shippedDart: reached,
+        reason: 'that pathspec matches no tracked file, so the guard reads '
+            'nothing',
+      );
+    }
+    if (reached.isEmpty) {
+      return _RootHit(
+        dart: dart,
+        shippedDart: reached,
+        reason: 'matches ${hits.length} tracked file(s) and reaches none that '
+            'the app ships, so its coverage is declared but empty',
+      );
+    }
+    return _RootHit(dart: dart, shippedDart: reached);
+  }
+
+  if (!Directory(spec).existsSync() && !File(spec).existsSync()) {
+    return _RootHit(
+      dart: const <String>[],
+      shippedDart: const <String>[],
+      reason: 'nothing by that name exists in this checkout, so the guard '
+          'reads nothing',
+    );
+  }
+
+  final dart = spec.endsWith('.dart')
+      ? <String>[spec]
+      : _dartFilesUnder(spec);
+  final reached = dart.where(shipped.contains).toList();
+  if (reached.isEmpty) {
+    return _RootHit(
+      dart: dart,
+      shippedDart: reached,
+      reason: 'reads ${dart.length} Dart file(s) and reaches none that the app '
+          'ships, so its coverage is declared but empty',
+    );
+  }
+  return _RootHit(dart: dart, shippedDart: reached);
+}
+
 /// Roots this reader cannot resolve, pinned by name so one is never guessed at.
 ///
 /// A root is unmodellable when it is **built at runtime** rather than written as
@@ -379,6 +473,21 @@ const _rootsWithoutShippedDart = <String, String>{
   'test/*.dart': 'a git pathspec that finds the guards themselves',
   '*.py': 'the Python instruments: a different language and a different '
       'question, so it covers no Dart file and is claimed as none',
+};
+
+/// Guards that reach Dart the app ships yet carry no app rule of their own.
+///
+/// The unnamed-guard case asks for a fact this census can measure rather than
+/// a judgement it cannot: a sweep whose root reaches shipped Dart is enforcing
+/// something about app source, so it must be named in `_appRuleGuards`. One
+/// sweep in the tree is exempt, and the exemption is stated rather than
+/// assumed -- each entry is checked for staleness in the same case, so an entry
+/// that stops reading app source has to be deleted.
+const _guardsCarryingNoAppRule = <String, String>{
+  'test/app_source_scope_test.dart':
+      'this census itself: it holds the map of the rules and reads app source '
+      'only to ask who else reads it. A census listed in the map it reads would '
+      'be measuring its own bookkeeping.',
 };
 
 /// The source with every comment blanked to spaces, offsets preserved.
@@ -711,78 +820,33 @@ void main() {
       // The inverse of the case above, and the one the previous tick could not
       // make: that one asks "does a declared root look like something we
       // model?", which a root that resolves to *nothing* answers yes to. So a
-      // guard narrowed onto a directory whose last file was deleted — or onto a
-      // path that no longer exists at all — reads as coverage here while
+      // guard narrowed onto a directory whose last file was deleted -- or onto a
+      // path that no longer exists at all -- reads as coverage here while
       // covering zero files, and the count that guards against an empty census
       // goes *up* when the hole opens rather than down.
       //
       // The fix is not a bigger count, it is a per-root fact: name what the
       // root resolved to, and refuse a root that resolved to nothing the app
-      // ships. Globs are resolved by git rather than by the filesystem, since a
-      // pathspec is not a directory.
+      // ships. `_resolveRoot` answers that question and the unnamed-guard case
+      // below asks it again per guard -- one resolver, so the two cases cannot
+      // drift apart on what "reaches shipped Dart" means.
       final barren = <String>[];
       final exemptUsed = <String>{};
       for (final sweep in sweeps.values) {
         for (final spec in sweep.roots) {
-          if (spec.contains('*')) {
-            final r = Process.runSync(
-              'git',
-              ['ls-files', '--', spec],
-              workingDirectory: Directory.current.path,
-            );
-            expect(r.exitCode, 0,
-                reason: 'git ls-files failed (${r.stderr}) — this census '
-                    'cannot tell an empty pathspec from an unreadable one');
-            final hits = (r.stdout as String)
-                .split('\n')
-                .map((l) => l.trim())
-                .where((l) => l.isNotEmpty)
-                .toList();
-            // A pathspec is answered by git, but the question is the same one
-            // every other root gets: does it reach Dart the app ships? The two
-            // failures differ, so both are named.
-            if (hits.isEmpty) {
-              barren.add('${sweep.file} -> $spec\n'
-                  '    that pathspec matches no tracked file, so the guard '
-                  'reads nothing');
-            } else if (!hits.any(shipped.contains) &&
-                !_rootsWithoutShippedDart.containsKey(spec)) {
-              barren.add('${sweep.file} -> $spec\n'
-                  '    matches ${hits.length} tracked file(s) and reaches '
-                  'none that the app ships, so its coverage is declared but '
-                  'empty');
-            } else if (!hits.any(shipped.contains)) {
-              exemptUsed.add(spec);
-            }
+          final hit = _resolveRoot(spec, shipped);
+          if (!hit.reachesNothing) continue;
+          if (_rootsWithoutShippedDart.containsKey(spec)) {
+            exemptUsed.add(spec);
             continue;
           }
-
-          if (!Directory(spec).existsSync() && !File(spec).existsSync()) {
-            barren.add('${sweep.file} -> $spec\n'
-                '    nothing by that name exists in this checkout, so the '
-                'guard reads nothing');
-            continue;
-          }
-
-          final dart = spec.endsWith('.dart')
-              ? <String>[spec]
-              : _dartFilesUnder(spec);
-          final reaches = dart.where(shipped.contains).toList();
-          if (reaches.isEmpty) {
-            if (_rootsWithoutShippedDart.containsKey(spec)) {
-              exemptUsed.add(spec);
-            } else {
-              barren.add('${sweep.file} -> $spec\n'
-                  '    reads ${dart.length} Dart file(s) and reaches none '
-                  'that the app ships, so its coverage is declared but empty');
-            }
-          }
+          barren.add('${sweep.file} -> $spec\n    ${hit.reason}');
         }
       }
       expect(barren, isEmpty,
           reason: 'these guards declare a root that resolves to nothing the app '
-              'ships. The case above cannot see it — a root that resolves to '
-              'empty still looks like a root — so the guard reads green while '
+              'ships. The case above cannot see it -- a root that resolves to '
+              'empty still looks like a root -- so the guard reads green while '
               'watching no file at all:\n${barren.join('\n')}\n'
               'Either point the guard at a directory that holds app Dart, or '
               'exempt it by name in `_rootsWithoutShippedDart` with the reason '
@@ -796,11 +860,81 @@ void main() {
           .toList()
         ..sort();
       expect(stale, isEmpty,
-          reason: 'these exemptions are no longer needed — the root either is '
+          reason: 'these exemptions are no longer needed -- the root either is '
               'not declared by any sweep, or now reaches Dart the app ships, '
               'so it is either dead weight or an amnesty for a guard that '
               'really does cover something. Delete the entry:\n'
-              '${stale.map((r) => '  $r — ${_rootsWithoutShippedDart[r]}').join('\n')}');
+              '${stale.map((r) => '  $r -- ${_rootsWithoutShippedDart[r]}').join('\n')}');
+    });
+
+    test('every sweep that reads app source is named as a rule, by name', () {
+      // The reverse direction, and the one the map above could not express. Its
+      // doc comment says the half that is checked is "a fact about the repo":
+      // each guard carrying an app rule must be *recognised*. Nothing said the
+      // converse -- that a guard which reaches app source must be *listed*. So
+      // the map was one-way and a new sweep could be born carrying a real rule
+      // with no entry here: every case above would credit it, the `rooted >= 10`
+      // floor would go **up** with it, and its rule would appear in no by-name
+      // list in this file. A tenth unreported rule is indistinguishable from a
+      // tenth covered one.
+      //
+      // The test for "carries an app rule" is therefore not a judgement written
+      // down here but a measurement the census can make: a sweep whose root
+      // reaches Dart the app ships is enforcing something about app source. If
+      // that is not a rule this repo holds about its own source, the sweep has
+      // no business reading `lib/` -- and saying so by name is the fix.
+      //
+      // Proved on this tick by planting, then reverted: a new sweep
+      // `test/planted_unnamed_guard_test.dart` that walks `Directory('lib/src')`
+      // and fails on a banned token. Every other case in this file stayed green
+      // and the `rooted` floor rose from 13 to 14 -- it was the floor moving in
+      // the direction that hides the hole.
+      final unnamed = <String>[];
+      for (final sweep in sweeps.values) {
+        if (_appRuleGuards.containsKey(sweep.file)) continue;
+        if (_guardsCarryingNoAppRule.containsKey(sweep.file)) continue;
+
+        // Not named -- so it has to earn the exemption by reading no app
+        // source at all. One resolver, so "reads app source" means the same
+        // thing here as it does in the barren-root case.
+        final reached = <String>[];
+        for (final spec in sweep.roots) {
+          reached.addAll(_resolveRoot(spec, shipped).shippedDart);
+        }
+        if (reached.isEmpty) continue; // reads nothing shipped: carries no rule
+
+        unnamed.add('${sweep.file}\n'
+            '    reads ${reached.length} Dart file(s) the app ships '
+            '(${reached.take(3).join(', ')}${reached.length > 3 ? ', ...' : ''})'
+            ' through ${sweep.roots.join(', ')}, so it enforces something about '
+            'app source -- but no entry in `_appRuleGuards` says which rule, '
+            'and it is not exempted in `_guardsCarryingNoAppRule`. Either name '
+            'the rule it carries, or exempt the guard with the reason it reads '
+            'app source without carrying one.');
+      }
+      expect(unnamed, isEmpty,
+          reason: 'these sweeps read Dart the app ships and are not named in '
+              '`_appRuleGuards`, so they are credited with coverage by every '
+              'case in this file while the rules they enforce appear in no '
+              'by-name list here. That is the same box the count-based floor '
+              'was replaced for, reached from the other side:\n'
+              '${unnamed.join('\n')}\n'
+              'Named guards: ${_appRuleGuards.keys.join(', ')}');
+
+      // The exemptions are facts about the tree, not permanent amnesty: a guard
+      // that stops reading app source has outlived its reason and is deleted.
+      final stale = _guardsCarryingNoAppRule.keys
+          .where((g) => !sweeps.containsKey(g) ||
+              sweeps[g]!.roots.every((r) =>
+                  _resolveRoot(r, shipped).shippedDart.isEmpty))
+          .toList()
+        ..sort();
+      expect(stale, isEmpty,
+          reason: 'these exemptions are no longer earned -- the guard is no '
+              'longer a recognised sweep, or none of its roots reaches Dart the '
+              'app ships any more, so naming it here claims a rule it does not '
+              'carry. Delete the entry:\n'
+              '${stale.map((g) => '  $g -- ${_guardsCarryingNoAppRule[g]}').join('\n')}');
     });
 
     test('no guard roots itself in a shape this census cannot read', () {
