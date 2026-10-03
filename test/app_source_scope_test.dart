@@ -75,9 +75,45 @@ const _knownRoots = <String>{
   // Whole-file reads of a named source file.
   'lib/src/core/theme/motion.dart',
   'lib/src/core/theme/app_theme.dart',
+  // git pathspecs. `lib/*.dart` is this file's own `ls-files` of the shipped
+  // app -- a census that flagged its own enumeration as unmodelled would be
+  // refusing to describe how it finds the files it judges.
+  'lib/*.dart',
   // Instrument sweeps over Python: a different language and a different
   // question, listed so the census says so explicitly rather than by omission.
   '*.py',
+};
+
+/// The app rules that are only enforced because a named guard walks the source.
+///
+/// **Names, not a count.** The census used to answer "are enough sweeps here?"
+/// with `sweeps.length >= 8`, and that number cannot say *which* guard went
+/// dark. Proven on the tick that wrote this: renaming every `readAsStringSync`
+/// in `no_empty_text_site_test.dart` — the empty-text rule, an app-wide rule
+/// with no other enforcer — left the whole census **green at +5**, because 13
+/// other sweeps still satisfied `>= 8` and no case named that file. A rule that
+/// is silently unregistered is worse than one that is absent, because the tree
+/// still looks policed.
+///
+/// So the positive half is now a fact about the repo: each guard that carries
+/// one of the app's own rules must be *recognised* and must declare a root this
+/// census can model. Both failure directions are reported by name.
+///
+/// The messenger guard was already pinned by the blind-spot case below; it is
+/// listed here too because that pin is about the entry point specifically and
+/// this is about the guard existing at all.
+const _appRuleGuards = <String, String>{
+  'test/snack_rule_sweep_test.dart':
+      'the snack rule: no second messenger outside the allowed wrappers',
+  'test/no_empty_text_site_test.dart':
+      'the empty-text rule: no user-visible Arabic string left blank',
+  'test/wall_clock_seam_site_test.dart':
+      'the wall-clock seam: no app widget reading the clock at build time',
+  'test/tool_clock_seam_test.dart':
+      'the instrument seam: the Python tools that read the clock',
+  'test/layering_test.dart': 'the import layering rule',
+  'test/type_scale_test.dart': 'the type-scale rule',
+  'test/card_recipe_test.dart': 'the card recipe rule',
 };
 
 /// The literal roots a source sweep enumerates, read out of its own source.
@@ -103,17 +139,48 @@ List<String> _rootsOf(String source) {
   final code = _blankComments(source);
   final beforeMain = code.indexOf('void main(');
   final scope = beforeMain < 0 ? code : code.substring(0, beforeMain);
+  // `code` is the whole comment-blanked file, and the two patterns below
+  // search all of it rather than `scope`: a guard may enumerate inside a test
+  // body -- `motion_test.dart` declares its root 290 lines into `main()` --
+  // and narrowing to pre-`main` is what hid it.
 
   final roots = <String>[];
+
+  // A bare literal: `Directory('lib')`, `Directory("lib/src")`. Quotes are
+  // required, so `Directory lib = Directory('lib')` below is a *different*
+  // shape and is read by the next pattern -- both appear in this tree.
   for (final m in RegExp(
           r"""Directory\(\s*['"]([^'"]+)['"]""").allMatches(scope)) {
     roots.add(m.group(1)!);
   }
+
+  // The same call behind a type annotation: `final Directory lib =
+  // Directory('lib');`. Measured on 3 Oct: 8 of the 14 sweeps this file
+  // recognised declared NO root through the pattern above while walking
+  // `lib/` all the same, and the coverage half could not tell a guard that
+  // walks the app from one that reads a single file. Some of those roots are
+  // declared *after* `void main(` -- an enumeration inside a test body is
+  // still the guard's root -- hence `code` rather than `scope`.
   for (final m in RegExp(
-          r"""['"]ls-files['"]\s*,\s*\[\s*['"]([^'"]+)['"]""").allMatches(scope)) {
+          r"""Directory\s+\w+\s*=\s*Directory\(\s*['"]([^'"]+)['"]""")
+      .allMatches(code)) {
     roots.add(m.group(1)!);
   }
-  return roots;
+
+  // `git ls-files` patterns. The *argument list* is what opens with the flag:
+  //   Process.runSync('git', ['ls-files', '--', '*.py'])
+  // so the pattern to read is the last string in that list, which is why this
+  // matches the whole bracket and takes the final quoted run. Demanding the
+  // pattern immediately after the flag -- as the first draft did -- could
+  // never produce `*.py`, so the root `_knownRoots` has always listed for the
+  // instrument sweeps described nothing that any sweep actually declares.
+  for (final m in RegExp(
+          r"""\[\s*['"]ls-files['"][^\]]*?['"]([^'"]+)['"]\s*\]""")
+      .allMatches(scope)) {
+    roots.add(m.group(1)!);
+  }
+
+  return roots..sort()..toSet().toList();
 }
 
 /// The source with every comment blanked to spaces, offsets preserved.
@@ -253,15 +320,52 @@ void main() {
       }
     });
 
-    test('this file found the app-wide sweeps to census', () {
-      // The coverage half. Without it the census below compares two empty sets
-      // and passes, which is how a source guard that watches nothing is
-      // indistinguishable from one that watches everything.
-      expect(sweeps.length, greaterThanOrEqualTo(8),
-          reason: 'only ${sweeps.length} test files read app source: this '
-              'file stopped recognising the shape of a source sweep, so the '
-              'census below is measuring nothing.\n'
-              'seen: ${sweeps.keys.join(', ')}');
+    test('every named app-rule guard is censused, by name', () {
+      // The coverage half, stated as facts about the repo. The floor it
+      // replaced (`sweeps.length >= 8`) could not tell *which* guard stopped
+      // being a sweep, only that some count held — and eight of the fourteen
+      // sweeps this file recognises declare no root at all, so the raw count
+      // was mostly counting files whose coverage is unmeasured.
+      final missing = <String>[];
+      final blind = <String>[];
+      for (final guard in _appRuleGuards.entries) {
+        final sweep = sweeps[guard.key];
+        if (sweep == null) {
+          missing.add('${guard.value}\n    ${guard.key}');
+          continue;
+        }
+        if (!sweep.reads) {
+          blind.add('${guard.value}\n    ${guard.key} declares no root this '
+              'census can model, so its coverage is not measured');
+        }
+      }
+      expect(missing, isEmpty,
+          reason: 'these guards carry the app\'s own rules and this census no '
+              'longer recognises them as source sweeps at all — the rules are '
+              'now enforced by nothing this file can see:\n'
+              '${missing.join('\n')}\n'
+              'Recognised sweeps: ${sweeps.keys.join(', ')}');
+      expect(blind, isEmpty,
+          reason: 'these guards are censused but declare no root, so the '
+              'coverage below is not measuring what they actually read:\n'
+              '${blind.join('\n')}');
+    });
+
+    test('enough sweeps model a root for the coverage cases to compare', () {
+      // `reads`, not `sweeps.length`: a sweep whose enumeration shape this file
+      // does not recognise contributes zero coverage, so counting it as one is
+      // how a floor stays satisfied by guards that watch nothing. Without a
+      // floor the two cases below compare two empty sets and pass.
+      final rooted = sweeps.values.where((s) => s.reads).length;
+      expect(rooted, greaterThanOrEqualTo(6),
+          reason: 'only $rooted of ${sweeps.length} recognised sweeps declare '
+              'a root this census models, so the coverage below compares two '
+              'nearly empty sets and reads as a clean box.\n'
+              'with no root: '
+              '${sweeps.values.where((s) => !s.reads).map((s) => s.file).join(', ')}\n'
+              'A sweep that walks `Directory lib = Directory(\'lib\')` or '
+              '`Directory(root)` is a real guard with an unmodelled shape — '
+              'teach `_rootsOf` that shape rather than lowering this floor.');
     });
 
     test('every Dart file the app ships is read by some sweep', () {
