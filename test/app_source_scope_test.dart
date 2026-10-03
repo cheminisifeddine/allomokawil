@@ -767,6 +767,119 @@ void main() {
               '${orphaned.join('\n')}');
     });
 
+    test('no rule token can be required to survive the sweep reader', () {
+      // **Closes the 27th tick's stated "next step" by measuring it first.**
+      // The note said the map still cannot tell a token *enforced in code* from
+      // a token *written down*, and proposed closing it by "reading
+      // `_ruleEvidence` tokens with the **sweep's** reader (strings blanked) and
+      // requiring each token to survive in code, with the handful of tokens
+      // that are legitimately strings marked as such".
+      //
+      // Measured over all 13 entries before writing a line of it:
+      //
+      // ```
+      // STRL  map:yes test/type_scale_test.dart      fontSize:\s*
+      // STRL  map:yes test/card_recipe_test.dart      BorderRadius\.circular
+      // ...  13 of 13, without exception
+      // ```
+      //
+      // **Every token in this map is a Dart string literal by construction.**
+      // `r'fontSize:\s*'` and `'ScaffoldMessenger'` are both *strings*, and
+      // `blankComments(src)` blanks string bodies, so it blanks the token
+      // itself. There is no exception to mark and no "handful" to allow: the
+      // clause as proposed would go red on **every** entry, so it is not a
+      // stricter check on this map, it is an unsatisfiable one. Shipping it
+      // would have turned this file red on every commit for ever.
+      //
+      // The second attempt is the instructive one, because it looked shippable.
+      // The real hole -- a token held alive only by an `expect(...)` that
+      // compares it back to this map -- *was* implemented, and it produced a
+      // genuine red:
+      //
+      // ```
+      // carries `NotificationCountTrust\s*\(` only inside `expect(...)`
+      // ```
+      //
+      // on `header_trust_wiring_test.dart`. That red was **the helper being
+      // wrong, not the guard**. The guard reads
+      // `expect(RegExp(r'NotificationCountTrust\s*\(').hasMatch(sources), isTrue)`
+      // -- the token is *applied* to the app's source to decide the assertion.
+      // An `expect(...)` is where a rule's verdict is delivered; it is not the
+      // opposite of enforcing one. Flagging it would have demanded the app
+      // rewrite a correct, deliberately source-based guard.
+      //
+      // Two of my own mistakes are recorded rather than deleted, because both
+      // are the trap this item is about and a later tick will meet them again:
+      //
+      //   * **The discriminator has to look both ways.** `code.contains(token)`
+      //     puts the call *before* the token, so a window that only reads after
+      //     the match misses it, and `RegExp(r'''...''')` puts a raw marker
+      //     between the paren and the pattern, so a window that only reads
+      //     before the match misses that too. A version of this that scored 7
+      //     of 13 guards "bare" was measuring its own window, not the tree.
+      //   * **`contrast_tokens` and `quote_count_copy` apply their tokens**
+      //     through `RegExp(...).allMatches(src)`, where the token sits inside
+      //     a *different* raw string than the map's copy. A check that
+      //     compares the map's token to a literal in the same file has to
+      //     accept that, and my first two plants both failed for exactly this
+      //     reason -- one put the token in another raw string, the next in
+      //     adjacent string literals. Neither is code.
+      //
+      // **Why this case asserts a census and not a behaviour.** The obvious
+      // shape -- "this token must not appear in code" -- is *unfalsifiable* for
+      // 10 of the 13 entries: their tokens are regex-shaped, and regex text in
+      // Dart cannot exist outside a string or a comment, both of which this
+      // reader blanks. Two plants confirmed it: neither turned the assertion
+      // red, because neither produced code at all. An assertion that cannot
+      // fail is not a test, so what is asserted instead is the census that the
+      // conclusion rests on: **how the map is built**, not what its entries
+      // happen to contain today. A map entry that became live code -- a token
+      // written as an identifier -- would break the property the next
+      // expectation checks, and that property *can* fail.
+      //
+      // So: the map's tokens are string-shaped, and the 27th tick's proposal is
+      // unsatisfiable against it. Closing the "written down" hole properly
+      // needs a real parser -- the analyzer AST, not a character window -- which
+      // is larger than one cycle and is recorded as such rather than faked with
+      // a heuristic that reds a correct tree.
+      expect(_ruleEvidence, isNotEmpty,
+          reason: 'the census this reasoning rests on is empty, so the '
+              'conclusion that every token is a string literal is untested: '
+              'the map could have lost every entry and this case would still '
+              'pass. It is a non-trivial map -- ${_ruleEvidence.length} '
+              'entries, and each is read back above.');
+
+      // The falsifiable half, stated per entry: the token must be reachable
+      // **only** as a string, and the sweep reader must therefore be the one
+      // that erases it. This is what the two failed plants would have tripped
+      // had they produced code, and it is what a real identifier-shaped token
+      // would trip.
+      for (final entry in _ruleEvidence.entries) {
+        final mapCode = _blankComments(File(entry.key).readAsStringSync());
+        final sweepCode = blankComments(File(entry.key).readAsStringSync());
+        for (final token in entry.value) {
+          // The map reader keeps string bodies, so the token is visible there.
+          expect(mapCode.contains(token), isTrue,
+              reason: 'the read-back above already checks this, and a failure '
+                  'here means the two readers disagree about `${entry.key}`.');
+          // The sweep reader erases it. For a regex-shaped token this is
+          // structural: there is no way to spell it outside a string.
+          if (RegExp(r'^[A-Za-z_][A-Za-z0-9_.]*$').hasMatch(token)) {
+            // An identifier-shaped token *could* appear in live code, so this is
+            // the one shape where "survives in code" is a real question, and the
+            // sweep reader is the one that answers it.
+            expect(sweepCode.contains(token), isFalse,
+                reason: '`${entry.key}` carries `$token` as an '
+                    'identifier-shaped token, and an identifier can exist in '
+                    'live code without passing through a string. It survives '
+                    'the sweep reader, so requiring tokens to survive that '
+                    'reader would be satisfiable after all and the reasoning '
+                    'above is stale. Re-measure the map before acting on it.');
+          }
+        }
+      }
+    });
+
     test('enough sweeps model a root for the coverage cases to compare', () {
       // `reads`, not `sweeps.length`: a sweep whose enumeration shape this file
       // does not recognise contributes zero coverage, so counting it as one is
