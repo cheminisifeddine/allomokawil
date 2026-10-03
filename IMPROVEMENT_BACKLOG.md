@@ -18901,7 +18901,7 @@ rests on, so an entry whose module stops folding cannot stay excused.
       memory oscillated between 724 MB and 2152 MB during the run — versus the
       35th tick's aborted `+1792` plus a hand-stitched `+353`.
 
-- [ ] **Each `_allowed` entry rests on a named fold, and the link between an
+- [x] **Each `_allowed` entry rests on a named fold, and the link between an
       entry and the fold that justifies it is still prose.** Four entries are
       excused by "digit-only", but only **two** folds are exercised by
       execution (`DzPhone.digits`, `DzNumber.digits`), so nothing ties
@@ -18909,3 +18909,113 @@ rests on, so an entry whose module stops folding cannot stay excused.
       without anything going red. Give every entry the name of the fold it
       rests on and check it, the same way the 33rd tick turned "excused by
       name" from prose into an assertion.
+      *Shipped (37th tick) — `test/first_char_measurement_test.dart` only; no
+      `lib/` line moved.* `_allowed` is now `<String, _AllowedSite>`, and an
+      entry carries **two** fields: the reason and the **name** of the fold it
+      rests on. The name is a key of a new `_folds` registry of runnable
+      functions, so the excuse and its evidence are joined by an identifier
+      rather than by a sentence. Each of the four entries now names its fold:
+      `dz_phone.dart#canonicalFromDigits` and `#_cap` -> the private strip
+      **inside** `canonicalFromDigits`, `dz_number.dart#formatEditUpdate` ->
+      `DzNumber.digits`, `phone_field.dart#formatEditUpdate` ->
+      `DzPhone.digits`.
+
+      **The finding underneath the item is better than the item: the excuse was
+      resting on a function nothing ran, and not one of the two it named.**
+      The old prose said "`canonicalFromDigits` strips `_nonDigit` on its first
+      line" — true, and checked by *reading* the line, while the case below
+      executed `DzPhone.digits` and `DzNumber.digits`. Different function,
+      different implementation. Measured on this tick, not inferred:
+
+      ```text
+      canonicalFromDigits('٥٥٠١٢٣٤٥٦') -> ''
+      DzPhone.canonical ('٥٥٠١٢٣٤٥٦') -> '0550123456'
+      ```
+
+      `canonicalFromDigits` is public, its own docstring invites raw field text,
+      and it does **not** fold Arabic-Indic digits at all. So the fold actually
+      guarding `d[0]` was a third, unnamed, unexecuted fold. It happens to be
+      safe — the whole of `d` is ASCII digits — but "it happens to be safe" is
+      not "it is checked", which is the gap the item was about.
+
+      *The rule is therefore two, not one, and the second one is the
+      interesting half.* A **normative** fold (`ArabicSearch.normalize` then
+      strip) owes the user every digit shape, so Arabic-Indic and
+      Extended-Arabic must survive as ASCII digits **and the real number must
+      come out the other side** — `DzPhone.digits` deleting the whole string
+      satisfies "no non-digit survived" and is still broken, so that is asserted
+      too. A **structural** fold (`canonicalFromDigits`) only promises to strip
+      non-`[0-9]` code units, so it is held to what `d[0]` is *read for*: no
+      invisible character and no lone surrogate may survive into the receiver.
+      Asserting "no non-digit survives" on it would be asserting something false
+      about shipped code, and a guard that forces `lib/` to change to satisfy it
+      would be pushing the tree somewhere this item never asked for.
+
+      *Three cases, and the two new ones are checked from both ends.* "every
+      excuse names a fold, and every fold an excuse names" is red on an excuse
+      naming a fold that is not in the registry **and** on a registry entry
+      nothing names — either direction alone passes on a table whose names are
+      wrong in the other direction. "every named fold folds hostile input down
+      to digits, by execution" runs **the fold the entry names** rather than
+      the two the table used to run, against one shared hostile list
+      (`_hostileDigits`: RLM, LRM, ZWSP, ZWJ, ZWNJ, word-joiner, BOM, NBSP,
+      ALM, a leading emoji, a trailing emoji, Arabic-Indic, Extended-Arabic) so
+      no fold can be checked against a gentler list than its neighbour. The
+      third, "the two repairs the API refuses are still made after the fold",
+      drives the app's two documented repairs through hostile input
+      end-to-end — previously `dz_phone_test.dart` covered them from ASCII only,
+      and every one of these is the same repair with a zero-width character
+      glued to the front, which is what a WhatsApp contact card carries.
+
+      *Red before green, four ways, and one of them caught my own guard.*
+      1. An excuse renamed to a fold that does not exist -> red, naming the
+         entry and listing the real folds.
+      2. A fold added to the registry that nothing names -> red, naming it.
+      3. **`DzPhone.canonicalFromDigits` stops stripping** (the private strip
+         deleted in `lib/`) -> red: *"let an invisible character through into
+         the receiver ... The first code unit is read as an operator digit, and
+         a zero-width one silently answers 'not 5/6/7'."* This is the real
+         defect class, reproduced in shipped code and caught by name.
+      4. The same regression -> the repair case went red on its **own vacuity
+         guard** rather than its primary assertion, because `canonical` folds
+         through `DzPhone.digits` *upstream* and the primary assertions stayed
+         green through the whole regression. The guard was **rewritten** to ask
+         the property the excuse rests on — the named fold is *load-bearing on a
+         user path* — rather than deleted, and `lib/` was reverted (`git diff
+         lib/` empty). Recording it because "my new case went red" and "my new
+         case went red **for the right reason**" are different claims, and only
+         the first one is true until you read the message.
+
+      *Cost: zero new files in `lib/`, zero new production behaviour, and the
+      prefilter's resolution bill does not move — no new pattern was added to
+      `_selects`.*
+
+      Commit: `5c1febb` (the guard; no `lib/` line moved).
+- [ ] **`canonicalFromDigits` is public, documented as safe for raw field
+      text, and does not fold Arabic-Indic digits — measured on the 37th
+      tick.** Found while giving it an executed check:
+
+      ```text
+      DzPhone.canonicalFromDigits('٥٥٠١٢٣٤٥٦') -> ''
+      DzPhone.canonical ('٥٥٠١٢٣٤٥٦') -> '0550123456'
+      ```
+
+      The public `canonical` folds first and is correct, so **no shipped path is
+      broken today** — `canonical` is the only thing `lib/` calls. But the two
+      *other* public entry points share the signature and not the promise:
+      `groupLocal`, `groupIntl` and `national` all funnel through
+      `canonicalFromDigits`, and each takes a string the caller believes is
+      ready. A screen that reaches for `DzPhone.groupLocal(controller.text)`
+      instead of `canonical` — which is exactly what its own docstring invites
+      20 lines above it — gets an **empty** field for an Arabic-Indic number
+      the API would have accepted. The same hole is latent for the emoji and
+      NBSP cases the fold does handle only because `_nonDigit` strips them.
+
+      Fix is one line in the shape the app already owns: fold inside
+      `canonicalFromDigits` the way `DzNumber.digits` does, or rename it
+      `canonicalFromDigitsOnly` and make the four callers fold first. Either
+      way the *name* is the defect — a public method called `canonical…` whose
+      sibling `canonical` is the one users are meant to call, differing only on
+      the input most Algerian keyboards produce. Measure which callers exist
+      before touching it, and do not change the accepted shapes:
+      `dz_phone_test.dart`'s contract against `workers/mobile.ts` is the pin.

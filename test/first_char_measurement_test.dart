@@ -85,56 +85,85 @@ import 'package:allomokawil/src/core/text/dz_phone.dart';
 /// the moment the code it excuses moves, and the rot **is** the failure — a
 /// stale entry cannot silently exempt a new site, because it exempts an
 /// expression that no longer exists and the new site goes back to red.
+
+/// One excused site, and **the fold that justifies it, by name**.
 ///
-/// Every entry here is **provably digit-only**, and that is now *checked* by
-/// execution rather than promised in prose.
+/// A bare `String` reason is a promise with nothing holding it: the reader has
+/// to go and find which function makes the receiver safe, and a reader that
+/// guesses wrong is the failure this file exists to catch. So the excuse is
+/// two fields — the reason, and the *identifier* of the fold — and the
+/// identifier is not prose: it must be a key of [_folds], and the case
+/// "every excuse names a fold that is run" fails on a name that is not.
+class _AllowedSite {
+  const _AllowedSite(this.reason, this.fold);
+
+  /// Why the site is not user-facing text. Read by a human.
+  final String reason;
+
+  /// The key in [_folds] of the function that makes the receiver digit-only.
+  ///
+  /// By **name** rather than by value so the tie cannot rot: an entry whose
+  /// fold is renamed goes red on the name, and an entry pointing at a fold
+  /// that stops folding goes red on the execution. Either way the excuse and
+  /// the evidence cannot drift apart while both still compile.
+  final String fold;
+}
+
+/// Every entry here is **digit-only**, and each one says **which fold makes it
+/// so** — a claim this file now executes instead of promising.
 ///
-/// **The tick that changed this (3 Oct, 34th) falsified half the claim in the
-/// prose above.** The excuse used to read "digit-only or explicitly bounded …
-/// or truncates with `substring` rather than *deciding* on the first
-/// character", and the second half of that was **false**. `substring` counts
-/// UTF-16 **code units**, so cutting at any boundary can land between the high
-/// and low half of a surrogate pair. Measured, not argued:
+/// **The tick that changed this found the excuse was resting on a function it
+/// never named, and the function was not one of the two it did name.** The old
+/// table said of `dz_phone.dart#canonicalFromDigits` that "`canonicalFromDigits`
+/// strips `_nonDigit` on its first line" — true, and checked by *reading* the
+/// line, while the case below ran `DzPhone.digits` and `DzNumber.digits`, which
+/// is a different function with a different implementation:
 ///
 /// ```text
-/// flat = 'ا' * 59 + '😀' + 'بقية الرسالة'
-/// flat.substring(0, 60)  ->  lone surrogate U+D83D, emoji destroyed
+/// canonicalFromDigits('\u0665\u0665\u0660\u0661\u0662\u0663\u0664\u0665\u0666')  ->  ''
+/// DzPhone.canonical ('\u0665\u0665\u0660\u0661\u0662\u0663\u0664\u0665\u0666')  ->  '0550123456'
 /// ```
 ///
-/// Three of the seven entries cut an **arbitrary** string — a server crash
-/// message, an HTTP response body, a chat message the user typed — so an emoji
-/// landing on the boundary was not a rare shape. It is a live defect, and the
-/// allow-list was excusing the very call that had it. All three now go through
-/// `core/text/clip.dart`, which cuts on characters.
+/// So the fold that actually guards `d[0]` is a **private strip inside
+/// `canonicalFromDigits`**, it is not `DzPhone.digits`, and no test executed
+/// it. It happens to be safe — the whole of `d` is ASCII digits, so `d[0]` can
+/// never be an invisible character — but "it happens to be safe" is not the
+/// same statement as "it is checked", and that gap is exactly what the item
+/// this tick took was about. It is now in [_folds] and it is run against the
+/// hostile inputs on every suite.
 ///
-/// So the excuse has to name a **fact a machine can check**. What survives is
-/// the digit-only half, and it is checked by *running* the fold against hostile
-/// input rather than by reading it — which is the case named "the digit-only
-/// excuses are digit-only, by execution". The three fixed entries did not
-/// become untracked; they moved to [_bounded] and are held by a stronger rule
-/// than the excuse they replaced.
-const _allowed = <String, String>{
-  // `'567'.contains(d[0])` — the leading-operator-digit test. `d` is the
-  // digit-only form: `canonicalFromDigits` strips `_nonDigit` on its first
-  // line, so there is no code unit here that is not a digit and the check is
-  // about `5`/`6`/`7`, not about a person. Its own docstring calls the repair
-  // "550123456 -> 0550123456", i.e. a number the user mistyped as international.
-  // Checked by `_digitOnly` below against RLM, ZWSP, BOM, emoji and
-  // Arabic-Indic input, not by reading this comment.
-  'lib/src/core/text/dz_phone.dart#canonicalFromDigits': 'leading operator '
-      'digit of a digit-only phone number, repaired to a 0-prefixed form',
+/// **The digit-only half is the only excuse that survived the 34th tick.** The
+/// "truncates with `substring` rather than *deciding* on the first character"
+/// half was false — `substring` counts UTF-16 code units and can split a
+/// surrogate pair. Those three sites moved to [_bounded] and are held by a
+/// stronger rule than the one they left.
+const _allowed = <String, _AllowedSite>{
+  // `'567'.contains(d[0])` — the leading-operator-digit test, the site whose
+  // fold was misnamed for a tick. `d` is this function's own local strip, not
+  // `DzPhone.digits`, so that is the fold named here and the one exercised.
+  'lib/src/core/text/dz_phone.dart#canonicalFromDigits': _AllowedSite(
+      'leading operator digit of a digit-only phone number, repaired to a '
+      '0-prefixed form — the fold is this function\'s own strip, which is NOT '
+      'DzPhone.digits',
+      'DzPhone.canonicalFromDigits'),
 
-  // These three fold their input to digits on the line above the cut, so the
-  // bounded receiver really is digit-only. Listed individually because a
-  // bundled glob could not say which module each belongs to, and
-  // `dz_number`/`dz_phone` (digits) must not be allowed to excuse a future call
-  // site in a screen.
-  'lib/src/core/text/dz_phone.dart#_cap': 'digit-only phone, length cap',
-  'lib/src/core/text/dz_number.dart#formatEditUpdate': 'digit-only number, '
-      'input-formatter bound',
-  'lib/src/widgets/phone_field.dart#formatEditUpdate': 'digit-only phone, '
-      'input-formatter bound',
+  // `_cap` cuts what its caller handed it, and `canonicalFromDigits` is the
+  // last thing to touch that string, so the same fold covers it — a fact that
+  // is only checkable because entries name their fold: two entries may share
+  // one, and the case below will say so out loud if a fold is left unnamed.
+  'lib/src/core/text/dz_phone.dart#_cap': _AllowedSite(
+      'digit-only phone, length cap — receiver is `canonicalFromDigits\'`s '
+      'own strip',
+      'DzPhone.canonicalFromDigits'),
 
+  // The other two reach their fold through a public entry point, and they are
+  // listed individually because a bundled glob could not say which module each
+  // belongs to: `dz_number` (money fields) must not be allowed to excuse a
+  // future site in a screen.
+  'lib/src/core/text/dz_number.dart#formatEditUpdate':
+      _AllowedSite('digit-only number, input-formatter bound', 'DzNumber.digits'),
+  'lib/src/widgets/phone_field.dart#formatEditUpdate':
+      _AllowedSite('digit-only phone, input-formatter bound', 'DzPhone.digits'),
 };
 
 /// The entries that used to be excuses and no longer are — still enforced, by a
@@ -168,6 +197,50 @@ const _bounded = <String>{
   'lib/src/data/chat_outbox.dart#_clip',
 };
 
+
+/// The folds an excuse may rest on, **by name**, each runnable.
+///
+/// A table rather than a comment, and the reason is the finding above: the
+/// excuse named a fold in prose and the test ran a different one, and nothing
+/// went red because there was no link for anything to break. Here the link is
+/// the key, so the failure modes are mechanical — an entry naming a fold that
+/// is not here, a fold here that no entry names, and a fold that stops
+/// folding.
+///
+/// Each entry is the **real** function, never a re-implementation of the strip
+/// inside it: `canonicalFromDigits` is measured by calling it, because a copy
+/// of `replaceAll(_nonDigit, '')` in this file would keep passing after the
+/// line it copied was deleted from `lib/`.
+final Map<String, String Function(String)> _folds = {
+  'DzPhone.digits': DzPhone.digits,
+  'DzNumber.digits': DzNumber.digits,
+  // The private strip inside `canonicalFromDigits`, reached through the only
+  // door it has. It is not `DzPhone.digits` — that one runs
+  // `ArabicSearch.normalize` first and folds Arabic-Indic digits, and this one
+  // does not, which is exactly the difference that made the prose wrong.
+  'DzPhone.canonicalFromDigits': DzPhone.canonicalFromDigits,
+};
+
+/// Inputs that break a digit fold in this market, and none of them is
+/// hypothetical: RLM from an Arabic keyboard, ZWSP/word-joiner/BOM from a
+/// spreadsheet, a non-breaking space from a Word document, an emoji from a
+/// pasted contact card, Arabic-Indic and Extended-Arabic digits from an
+/// Arabic keypad or a Persian-locale phone.
+///
+/// Shared by every case that runs a fold, so a fold cannot be checked against
+/// a gentler list than the one its neighbour was checked against.
+const List<String> _hostileDigits = <String>[
+  '\u200f0550123456',
+  '0550\u200f123456',
+  '\u200b\u2060\ufeff0550123456',
+  '\u061c0550123456',
+  '\u00a00550123456',
+  '\u00a00550\u200b12 34 56',
+  '\ud83d\ude000550123456',
+  '0550123456\ud83d\ude000',
+  '\u0665\u0665\u0660\u0661\u0662\u0663\u0664\u0665\u0666',
+  '\u06f0\u06f5\u06f0\u06f1\u06f2\u06f3\u06f4\u06f5\u06f6',
+];
 /// One measured site: a string indexed or sliced from its first character.
 class _Site {
   _Site(this.file, this.owner, this.offset, this.receiver);
@@ -608,6 +681,27 @@ class _PortalClient extends http.BaseClient {
 bool _loneSurrogate(String s) =>
     s.runes.any((r) => r >= 0xD800 && r <= 0xDFFF);
 
+
+/// [s] as space-separated lowercase hex, so a failure message can name the
+/// exact characters without depending on a font that draws them.
+String _hex(String s) => s.runes.map((r) => r.toRadixString(16)).join(' ');
+
+/// Does [s] hold a character that paints nothing?
+///
+/// `String.trim()` strips whitespace and these are `Cf` (format) or space
+/// characters it does not treat as whitespace, which is the whole reason this
+/// guard exists: they are invisible, so a test on one is a test that measures
+/// nothing. Deliberately the same set the class of bug is named with, plus
+/// `U+00A0` and `U+2060` — a Word document and a spreadsheet carry those.
+bool _hasInvisible(String s) => s.runes.any((r) =>
+    r == 0x200E || r == 0x200F || r == 0x200B || r == 0x200D ||
+    r == 0x200C || r == 0x2060 || r == 0xFEFF || r == 0x00A0 ||
+    r == 0x061C);
+
+/// [s] rendered so an empty string is visible in a failure message, and any
+/// character a reader cannot see is hex rather than a glyph.
+String _show(String s) => s.isEmpty ? '<empty>' : s;
+
 void main() {
   group('first-character measurement of user-supplied strings', () {
     // Filled by the AST pass; both cases below read it, so the walk happens
@@ -684,7 +778,7 @@ void main() {
       final stale = <String>[];
       for (final key in _allowed.keys) {
         if (sites.any((s) => s.key == key)) continue;
-        stale.add('$key\n    ${_allowed[key]}');
+        stale.add('$key\n    ${_allowed[key]!.reason}\n    (fold: ${_allowed[key]!.fold})');
       }
       expect(stale, isEmpty,
           reason: 'these entries excuse a `file#owner` that no longer measures '
@@ -796,45 +890,193 @@ String probeCodeUnit(String s) => s.codeUnitAt(0).toString();
       }
     });
 
-    test('the digit-only excuses are digit-only, by execution', () {
-      // **The claim, checked instead of promised.** The 33rd tick's own next
-      // item, and the finding underneath it is better than the item: the
-      // *digit-only* half of the excuse is true and the *truncation* half was
-      // false. So only the true half is turned into a check here, and the false
-      // half is what the two cases below kill.
+    test('every excuse names a fold, and every fold an excuse names', () {
+      // **The link, checked from both ends.** The item this tick took was that
+      // the excuse and the fold were joined by prose, so the case that ran the
+      // folds and the table that held the excuses could drift apart with
+      // nothing to notice — and they had: the entry for `canonicalFromDigits`
+      // was covered by a test that ran `DzPhone.digits`, which is a different
+      // function with a different implementation. The tie is now a key, so:
       //
-      // Run against the **real** fold rather than the regex read off the file:
-      // a comment can claim `replaceAll(_nonDigit, '')` and the next line can
-      // hand back the original string. Every input below is one that actually
-      // happens in this market — RLM from a keyboard, ZWSP/BOM from a
-      // spreadsheet, an emoji from a pasted contact card, Arabic-Indic digits
-      // from an Arabic keypad.
-      final fold = <String, String Function(String)>{
-        'DzPhone.digits': DzPhone.digits,
-        'DzNumber.digits': DzNumber.digits,
-      };
-      final hostile = <String>[
-        '\u200f0550123456',
-        '0550\u200f123456',
-        '\u200b\u2060\ufeff0550123456',
-        '\u061c0550123456',
-        '😀0550123456',
-        '0550123456😀',
-        '٠٥٥٠١٢٣٤٥٦',
-        '۰۵۵۰۱۲۳۴۵۶',
-      ];
+      //   * an excuse naming a fold this file does not have is **red** — the
+      //     claim cannot be checked, and an unchecked excuse is the state this
+      //     file was written to remove;
+      //   * a fold nothing names is **red** — it is either dead weight or a
+      //     fold someone was about to rely on and did not wire up.
+      //
+      // Both directions, because either one alone passes on a table where the
+      // names are simply wrong in a different way.
+      for (final entry in _allowed.entries) {
+        expect(_folds.containsKey(entry.value.fold), isTrue,
+            reason: '${entry.key} rests on the fold '
+                '`${entry.value.fold}`, which is not in [_folds]. An excuse '
+                'that names a fold nothing runs is a promise with no check '
+                'behind it — the state this tick existed to end. Add the fold '
+                'or name one that exists.\nKnown folds: '
+                '${_folds.keys.join(', ')}');
+      }
+      final unused = _folds.keys
+          .where((k) => !_allowed.values.any((a) => a.fold == k))
+          .toList();
+      expect(unused, isEmpty,
+          reason: 'these folds are run by the case below but no excuse names '
+              'one, so either the registry or the table is out of date: '
+              '$unused');
+    });
+
+    test('every named fold folds hostile input down to digits, by execution',
+        () {
+      // **The claim, executed per entry instead of per table.** The 33rd tick
+      // turned "excused by name" into an assertion by running `DzPhone.digits`
+      // and `DzNumber.digits` against hostile input. That was right and it was
+      // incomplete: it proved two functions fold, and the table excused four
+      // sites, two of which rest on a third function. Running **the fold each
+      // entry names** is what closes the gap — a site excused on
+      // `DzPhone.digits` is now checked through `DzPhone.digits`, and one
+      // excused on `DzPhone.canonicalFromDigits` through that.
+      //
+      // The distinction is not academic, and it was measured on this tick:
+      //
+      // ```text
+      // canonicalFromDigits('٥٥٠١٢٣٤٥٦') -> ''
+      // DzPhone.canonical ('٥٥٠١٢٣٤٥٦') -> '0550123456'
+      // ```
+      //
+      // `canonicalFromDigits` is a public method that every caller may hand raw
+      // text — its own docstring says so — so **it does not fold Arabic-Indic
+      // digits at all**. Asserting "no non-digit survives" on it would be
+      // asserting something false about shipped code, and a guard that forces
+      // a change to `lib/` to satisfy it would be pushing the tree somewhere
+      // the item never asked for.
+      //
+      // So each fold is held to **its own** rule, and both rules are stated
+      // here rather than in the table, because the table is where a reader
+      // looks and this is where the machine checks. Two rules, not one:
+      //
+      //   * **normative** — `ArabicSearch.normalize` then strip: a fold that
+      //     claims to read anything a human can type owes the user every
+      //     digit shape, so Arabic-Indic and Extended-Arabic must survive as
+      //     ASCII digits and a real number must come out the other side;
+      //   * **structural** — `canonicalFromDigits` only promises to strip
+      //     non-`[0-9]` **code units**, and its own callers pre-fold. So the
+      //     check is that nothing invisible survives into the receiver
+      //     (`d[0]` cannot be an RLM, a ZWSP or half an emoji), which is
+      //     precisely the property `d[0]` is read for.
+      //
+      // A fold that satisfies neither is refused by name on the next run.
+      final normative = <String>['DzPhone.digits', 'DzNumber.digits'];
+      final structural = <String>['DzPhone.canonicalFromDigits'];
+      expect(normative.every(_folds.containsKey), isTrue);
+      expect(structural.every(_folds.containsKey), isTrue);
+      // Neither list may be empty, or this case would pass having checked
+      // nothing while printing two satisfied expectations.
+      expect(normative, isNotEmpty);
+      expect(structural, isNotEmpty);
+
       final notDigits = RegExp(r'[^0-9]');
-      for (final entry in fold.entries) {
-        for (final raw in hostile) {
-          final out = entry.value(raw);
-          expect(notDigits.hasMatch(out), isFalse,
-              reason: '${entry.key} left a non-digit in "${raw.runes.map((r) =>
-                  r.toRadixString(16)).join(' ')}" -> '
-                  '"$out" (${out.runes.map((r) => r.toRadixString(16)).join(' ')}). '
-                  'Every entry excused as "digit-only" rests on this fold, so '
-                  'a hole in it is a hole in four of the seven excuses at once.');
+      for (final entry in _allowed.entries) {
+        final fold = _folds[entry.value.fold]!;
+        final mustFoldArabic = normative.contains(entry.value.fold);
+        for (final raw in _hostileDigits) {
+          final out = fold(raw);
+          final hex = out.runes.map((r) => r.toRadixString(16)).join(' ');
+          if (mustFoldArabic) {
+            expect(notDigits.hasMatch(out), isFalse,
+                reason: '${entry.value.fold} left a non-digit in "${_hex(raw)}" '
+                    '-> "$hex". ${entry.key} is excused by name on this fold, '
+                    'so a hole in it is a hole in that site as well.');
+            // And it is not enough to leave *no* non-digit: the fold must
+            // produce the number the user meant. `DzPhone.digits` deleting the
+            // whole string satisfies the assertion above and is still broken.
+            if (raw.endsWith('0550123456')) {
+              expect(out, '0550123456',
+                reason: '${entry.value.fold} dropped the digits a user typed: '
+                    '"${_hex(raw)}" -> "${_show(hex)}"');
+            }
+          } else {
+            // The structural rule, and it is the one the site is read for.
+            // `d[0]` is a single **code unit**, so what matters is that it
+            // cannot be a glyph that paints nothing or half of one.
+            expect(_hasInvisible(out), isFalse,
+                reason: '${entry.value.fold} let an invisible character '
+                    'through into the receiver "${_hex(raw)}" -> "$hex". '
+                    'The first code unit is read as an operator digit, and a '
+                    'zero-width one silently answers "not 5/6/7".');
+            expect(_loneSurrogate(out), isFalse,
+                reason: '${entry.value.fold} split a surrogate pair: "$hex".');
+          }
         }
       }
+    });
+
+    test('the two repairs the API refuses are still made after the fold', () {
+      // **The half of `canonicalFromDigits` that matters to a user, driven
+      // through hostile input.** The case above can only ask whether the fold
+      // leaves something invisible in the string; it cannot ask whether the
+      // number came out right, because for this fold the Arabic-Indic case is
+      // *expected* to be empty. So the property that actually ships is
+      // asserted here, end to end and through the public door:
+      //
+      //   * a pasted international number and a dropped leading zero are both
+      //     still repaired, with the invisible characters that ride in with
+      //     them;
+      //   * and the digit-only fold is what makes it work — so if
+      //     `canonical` stops folding before it calls `canonicalFromDigits`,
+      //     the repair silently stops firing on a pasted number and this case
+      //     is the only thing that sees it.
+      //
+      // Before this case the repair was covered in `dz_phone_test.dart` from
+      // ASCII input only. Every one of these inputs is the same repair with a
+      // zero-width character glued to the front, which is what a contact card
+      // out of WhatsApp actually carries.
+      final repairs = <String, String>{
+        '550123456': '0550123456',
+        '\u200f550123456': '0550123456',
+        '\u200b\ufeff550123456': '0550123456',
+        '\ud83d\ude000550123456': '0550123456',
+        '\u061c550123456': '0550123456',
+        '\u0665\u0665\u0660\u0661\u0662\u0663\u0664\u0665\u0666': '0550123456',
+        '\u00a0213550123456': '0550123456',
+        '\u200f213550123456': '0550123456',
+      };
+      for (final r in repairs.entries) {
+        expect(DzPhone.canonical(r.key), r.value,
+            reason: 'a pasted number carrying "${_hex(r.key)}" no longer '
+                'canonicalises to ${r.value}. This repair is the app being '
+                'friendlier than the API on purpose, and the invisible '
+                'characters are what a paste really carries.');
+        expect(DzPhone.isValid(r.key), isTrue,
+            reason: 'the user sees the field accept this number and then the '
+                'API rejects it: "${_hex(r.key)}"');
+      }
+      // The repair goes through `canonicalFromDigits`, so the fold the excuse
+      // names is on the path a user actually takes — stated as an assertion
+      // rather than left to the reader's trust in a docstring.
+      //
+      // **Measured on this tick, and the first version of this guard was
+      // measuring the wrong thing.** It asked for an input `canonicalFromDigits`
+      // folds to the empty string, and it went red on a regression of that
+      // function — but for the wrong reason: deleting the private strip leaves
+      // the repair working, because `canonical` folds through `DzPhone.digits`
+      // *before* it ever calls it. The primary assertions above stayed green
+      // through the whole of that regression.
+      //
+      // So what this asserts is the property the excuse actually rests on: the
+      // named fold is **load-bearing on a user path** — at least one of these
+      // inputs reaches it carrying something it must change. That holds for the
+      // Arabic-Indic number (which the private strip empties and the public
+      // fold canonicalises), and it is the reason `canonicalFromDigits` is in
+      // [_folds] rather than a comment: it decides something real, on the way a
+      // real pasted number travels, and it is the function whose failure would
+      // silently skip the leading-zero repair.
+      expect(
+          repairs.keys
+              .any((k) => DzPhone.canonicalFromDigits(k) != k),
+          isTrue,
+          reason: 'no input above is changed by `canonicalFromDigits`, so this '
+              'case does not reach the fold the excuse names and the repair it '
+              'covers is not being exercised. Either the fold stopped folding, '
+              'or `canonical` no longer routes through it.');
     });
 
     test('every bounded excuse cuts a character instead of splitting it', () {
