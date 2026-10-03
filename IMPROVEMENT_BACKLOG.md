@@ -17077,3 +17077,65 @@ founder-gated.
       without reporting it. `chat_outbox.dart` has a deliberate, documented
       swallow. Count how many `catch` blocks drop a write's error with no user
       or log line, the same way this tick counted the 89.
+
+- [x] **Tick 2 Oct 2026 (17th) — the 16th tick's census: of the 87 `catch`
+      blocks in `lib/`, how many swallow a *write* with no record at all.**
+
+      **Three did, and all three were the same file.** `place_state.dart` had a
+      bare `catch (_) {}` on every preferences write it owns — `clear()`
+      (`:202`), `_save()` (`:229`), `_markAsked()` (`:261`) — with no comment, no
+      log, no state.
+
+      **`_save()` is the one that costs a user something.** It is the only place
+      the detected wilaya is written, and nothing else in the app can rebuild
+      it: a refusal is invisible until the next launch, when the market opens
+      unfiltered, and a support message reading «I set my city» cannot be told
+      apart from «I never did». `clear()` is worse in the other direction — a
+      store that will not forget restores the exact wilaya the user just
+      rejected.
+
+      **All three are now named**, through one `_reportStoreFailure` helper that
+      `debugPrint`s — the convention already used by **eight** sibling
+      preferences refusals in `auth_state.dart`. The three sites were the only
+      exceptions in the app, so this closes the census rather than setting a
+      new rule. Deliberately **not** `CrashReporter.capture`: a report written
+      *through* prefs must not recurse when prefs is what failed.
+
+      **Census, counted on the real tree:** 87 `catch` blocks · **22 guard a
+      write** · 22 report · **0 silent**. The other 65 guard a read, of which 32
+      are quiet — correctly, when a `FutureBuilder` owns the error arm.
+
+      **Two of my own instruments lied before the number did.** A
+      `documented = '//' in body` flag tested the **comment-stripped** body, so
+      every comment read as absent and all 22 write-guards came back
+      undocumented; reading the 10 sites by hand showed 8 printing `debugPrint`
+      and 2 raising a user-facing `showNote`. And a fixed-window body extractor
+      read the three fixed sites as still empty after the patch, because the
+      new body calls a *helper* the name-list did not contain — the fix was
+      real, the scanner was blind. Both are the 15th and 16th ticks' failure
+      mode again, which is why the body is now lexer-stripped (offset
+      preserving, verified: a `catch` inside a comment and one inside a string
+      both read as absent) and the classifier counts a **log call or a user-
+      facing state change**, not the presence of a comment.
+
+      **The census is not vacuous, and that is checked rather than asserted:**
+      planting one silent write-guard moved 22 → 21 and named
+      `place_state.dart:229` exactly; reverting restored 22/0.
+
+      *Gate:* `flutter analyze` → **No issues found!** (7.1 s);
+      `tool/run_tests.py` → **+2082 ~8 All tests passed (12:54)**, identical to
+      the previous run. No behaviour change: nothing throws, repaints or
+      returns differently — this changes what the app leaves behind when it
+      fails, not what it shows. **Not visual**, no screenshot claimed. No APK,
+      release or tag: founder-gated.
+
+      *Commit:* local `7093128`, remote `859b317`, **tree IN SYNC**, blob MATCH
+      on the real remote `main`.
+
+      **Next:** the write half is closed, and the **read half was counted but
+      never judged** — 32 of the 65 read-guards are quiet, and only the
+      convention ("a `FutureBuilder` owns the arm") was applied by eye, to a
+      sample. The interesting question is the inverse of this tick's: which
+      read guards have **no** builder, no `errorCopy`, no state — the reads
+      whose failure a user would never be told about. Same lexer, same
+      planted-violation check.
