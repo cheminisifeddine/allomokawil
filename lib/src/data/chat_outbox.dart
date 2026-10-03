@@ -20,6 +20,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/l10n/arabic_agreement.dart';
+import '../core/text/clip.dart';
 import '../models/chat.dart';
 
 /// The one preferences key the outbox owns.
@@ -548,10 +549,21 @@ String droppedMessageCopy(PendingMessage dropped) => dropped.isImage
 /// Keeps a quoted line readable in a toast. The queue holds a whole sentence —
 /// sometimes a paragraph of address and directions — and a toast that runs the
 /// height of the thread is its own kind of noise.
+///
+/// **Rune-safe, and this is the one place a user is guaranteed to see it.** The
+/// cut used to be `flat.substring(0, max)`, which counts UTF-16 code units, so
+/// an emoji sitting on the boundary was sliced in half and the toast quoted the
+/// user back an orphaned half rendered as U+FFFD («�») — in the exact sentence
+/// telling them which message was just lost. Measured on 3 Oct: an emoji whose
+/// first code unit lands at index 59 is enough.
+///
+/// Both halves are counted in **runes**: the `runes.length` test decides whether
+/// anything is cut at all, and `TextClip.chars` does the cutting. Counting the
+/// test in code units would clip a 30-emoji line that fits in 60 characters.
 String _clip(String text, [int max = 60]) {
   final flat = text.replaceAll(RegExp(r'\s+'), ' ').trim();
-  if (flat.length <= max) return flat;
-  return '${flat.substring(0, max)}…';
+  if (flat.runes.length <= max) return flat;
+  return '${TextClip.chars(flat, max)}…';
 }
 
 /// How many messages are still only on this phone, in the form Arabic counts

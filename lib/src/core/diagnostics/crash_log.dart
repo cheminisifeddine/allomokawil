@@ -18,6 +18,8 @@ library;
 
 import 'dart:convert';
 
+import '../text/clip.dart';
+
 /// One captured failure: when it happened, which hook caught it, the exception's
 /// own text, and the top of its stack.
 class CrashRecord {
@@ -72,8 +74,15 @@ class CrashRecord {
   static String _string(Object? value) => value is String ? value : '';
 
   /// Clamps [value] to [max] characters, marking where it was cut.
+  ///
+  /// Rune-safe, and the bound is a **storage** bound: the ellipsis counts
+  /// against [max], so a record never exceeds the line it is written to. This
+  /// used to be `value.substring(0, max - 1)`, which counts code units and cut
+  /// emoji in half — a crash message containing one stored a lone surrogate and
+  /// Dart renders that as U+FFFD («�») on the next read. See
+  /// `core/text/clip.dart`.
   static String trim(String value, int max) =>
-      value.length <= max ? value : '${value.substring(0, max - 1)}…';
+      value.length <= max ? value : TextClip.elided(value, max);
 
   @override
   String toString() => '[$kind] $message';

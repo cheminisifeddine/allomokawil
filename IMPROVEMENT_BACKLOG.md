@@ -18652,3 +18652,219 @@ that cannot (`crash_log.dart`'s column clamp, `api_client.dart`'s response
 truncation) — so the excuse states a fact rather than a promise. Two of the
 seven are genuinely arbitrary strings, and they are the two most likely to be
 wrong.
+
+## Tick 3 Oct 2026 (34th) — the truncation excuse was false, and three live
+## defects were behind it
+
+Closes the item the 33rd tick recorded, and the item was better than the tick
+that wrote it. The task was "make `_allowed`'s digit-only property **checked**
+rather than asserted in prose". The digit-only property turned out to be **true**
+— measured, not assumed — and the **other** half of the same excuse was false.
+
+**The excuse, as it stood.** Every one of the seven entries was excused as
+"digit-only *or* explicitly bounded … or truncates with `substring` rather than
+*deciding* on the first character". The second clause is the interesting one: it
+was making a safety argument about `substring` that does not hold.
+
+**`substring` counts UTF-16 code units, and it cuts surrogate pairs in half.**
+Any character outside the BMP — an emoji, a CJK ideograph, a musical symbol —
+is two code units, so a cut at any boundary can land between them. Measured:
+
+```text
+flat = 'ا' * 59 + '😀' + 'بقية الرسالة'
+flat.substring(0, 60)  ->  lone surrogate U+D83D, emoji destroyed
+runes.last of result   =  d83d
+```
+
+A lone surrogate is not valid text. Dart renders it as `U+FFFD` — «�» — so what
+reaches the user is a replacement box **in the middle of an Arabic sentence**.
+
+**Three of the seven entries cut an arbitrary string**, so this was live, not
+prospective:
+
+| entry | what the string is | what the user saw |
+| --- | --- | --- |
+| `chat_outbox.dart#_clip` | a chat line being quoted back | «�» inside the toast that names the message they just lost |
+| `crash_log.dart#trim` | `error.toString()` in a crash record | «�» in the crash report the engineer reads |
+| `api_client.dart#_decode` | a captive-portal HTML body | «�» in the log line |
+
+The outbox one is the worst: the one sentence guaranteed to contain a facepalm
+that the user *cannot* retype is the sentence that renders as mojibake. The 33rd
+tick predicted "two of the seven are genuinely arbitrary strings, and they are
+the two most likely to be wrong" — there are **three**, and all three were.
+
+**The allow-list was excusing the call that had the bug.** Each entry's reason
+named the receiver and declared it safe; the safe-ness was decided by a
+mechanism that was itself unsafe. This is the failure a prose excuse cannot
+catch and only a guard can.
+
+**Shipped.** `lib/src/core/text/clip.dart` — `TextClip.chars` (first n
+characters) and `TextClip.elided` (bounded clip). All three call sites migrated;
+no user-facing string changed, so no screenshot claim is made or needed.
+
+**The subtle part, and it is the part worth keeping: the bound is in code units
+while the cut is in characters.** `CrashRecord.trim` is a *storage* bound — a
+record is written to preferences as one line — so `maxMessage` has to hold in
+`length`. Counting the budget in runes instead lets it slip:
+
+```text
+398 Arabic characters + one emoji, budget 400
+rune-counted clip -> 401 units  (overshoot)
+unit-counted clip -> 399 units  (a pair dropped whole)
+```
+
+**My own first assertion was green on the overshoot**, because I asserted
+`runes.length <= 400` — counting the very characters that cost two. The
+falsification arm found it, not the review. The assertion is now in code units,
+and `_budgets` records that `_clip`'s real bound is **62**, not 61: its 60
+characters contain the emoji, which costs two, and the ellipsis a third unit.
+
+**`_allowed` went 7 -> 4 entries, and that is the allow-list working.** The
+guard's rule is the *shape* `substring(0, …)`; fixing the three sites removed
+that shape from all three files, so the staleness case went red on all three by
+name. They are not deleted — they moved to `_bounded` and are now held by a
+**stronger** rule than the excuse they replaced: each must clip a character
+instead of splitting one, and each must be wired to `TextClip` at the call site.
+
+**Cost went the right way: 10 candidates -> 7 of 132.** Three of the ten
+prefilter selections were the three fixed files; the shape they no longer
+contain is the shape the prefilter selects on. The 33rd tick spent itself
+keeping this number at 10 and refusing to let it move — here it dropped without
+anything being loosened.
+
+**Falsified in four arms, planted and reverted, `lib/` byte-identical after
+each:**
+
+| arm | what was broken | what went red |
+| --- | --- | --- |
+| A | `_clip` reverted to `substring` | "every String[0] … is excused by name" **and** "the bounded clips are the ones that used to use substring" |
+| B | `TextClip.chars` back to code units | "…`#_clip` split a surrogate pair: `…ا�…`" — the actual mojibake, quoted |
+| C | `DzPhone.digits` stops stripping non-digits | "left a non-digit in `30 35 35 30 200f …`" — the exact RLM it failed to strip |
+| D | `elided` counts the budget in runes | "a 400-unit storage bound returned 401 units" |
+
+Arm A going red on **two** cases is the point of having the call-site pin: the
+shape-based guard alone cannot see a reverted fix, because reverting restores
+the very shape it measures.
+
+**Gate:** `flutter analyze` → **No issues found!** (10.8 s) · this file
+**12/12** · `app_source_scope_test.dart` + `fixture_scope_test.dart` **21/21**
+· `lib/` verified byte-identical after every falsification arm.
+
+**The full-suite number, measured by the 35th tick** — this section was written
+and never gated, so the count below was a promise until now. `tool/run_tests.py`
+ran the whole tree and **aborted at +1792 of ~2121** with a harness error, not a
+failed assertion:
+
+```text
+19:50 +1792 ~8 -1: loading test/submit_busy_category_test.dart [E]
+  Bad state: Cannot close sink while adding stream.
+  package:flutter_tools/src/test/flutter_platform.dart 765:43  FlutterPlatform._startTest
+```
+
+`flutter_platform.dart` is Flutter's own runner, so this is the harness losing a
+race, not the app. `free -m` at the time showed **182 MB free of 7.9 GB** with no
+swap, and the run had gone to 19:50 against a 13:48 baseline — the same
+pressure that killed two concurrent builds on this box before. Nothing in this
+tick's diff is in the failing file, and the abort happened while *loading* it.
+
+**Bounded rather than waved at:** the abort was at file **209 of 246**, and
+every file before it passed. Re-running the **remaining 38 files alone** (209→246,
+including `submit_busy_category_test.dart` itself) gave **+353 All tests
+passed!**, exit 0, in 3:28. So head +1792 and tail +353 are both green, and
+**zero assertion failures** exist anywhere in the tree.
+
+The honest count is therefore: **+2121 or better, 0 failures, verified in two
+runs rather than one.** A single uninterrupted pass is not repeatable on this
+box at present memory headroom — that is a runner/host limit worth its own item,
+not something to paper over by quoting a number from a run that aborted.
+
+Not visual — no pixels changed. No APK, no release, no tag.
+
+**Next:** the digit-only half of the excuse is now checked by execution, but it
+is checked on **two** folds (`DzPhone.digits`, `DzNumber.digits`) while **four**
+entries rest on it, and the mapping between an entry and the fold that supports
+it is still prose. The item: give each `_allowed` entry the name of the fold it
+rests on, so an entry whose module stops folding cannot stay excused. That is
+the same rot the staleness case catches, one level up — an entry can point at a
+`file#owner` that still measures and still be resting on a fold that is gone.
+
+- [x] **The `substring` excuse on `_allowed` was false, and three live defects
+      were sitting behind it.**
+      `df5a360` -> remote `PENDING`.
+
+      The 33rd tick asked for `_allowed`'s digit-only property to be *checked*.
+      It turned out digit-only was true and the *other* half of the same excuse
+      — "truncates with `substring` rather than deciding on the first character"
+      — was false, because `substring` counts UTF-16 code units and cuts
+      surrogate pairs in half, rendering as «�» mid-sentence. Three of seven
+      entries cut an arbitrary string (a chat line being quoted back, a crash
+      message, a portal body), so the allow-list was excusing the exact call that
+      had the bug.
+
+      *Shipped:* `lib/src/core/text/clip.dart` — `TextClip.chars` / `TextClip.elided`;
+      `crash_log.dart#trim`, `api_client.dart#_decode` and `chat_outbox.dart#_clip`
+      migrated. Budget stays in **code units** (a storage bound) while the cut is
+      on **characters** — the first assertion this wrote was green on a 401-unit
+      overshoot and only the falsification arm caught it. `_allowed` fell 7 -> 4
+      on its own; the three fixed sites moved to a stronger rule, `_bounded`.
+
+## Tick 3 Oct 2026 (35th) — gate the uncommitted tick, honestly
+
+This tick inherited a dirty tree: the 34th tick's work was fully written and
+prose-documented but **never gated and never committed**. Finishing an unfinished
+item outranks opening a new one, so this tick ran the gate rather than writing
+code — and the gate is where the interesting thing was.
+
+**`flutter analyze` -> No issues found!** (10.8 s) · the file **12/12** ·
+`app_source_scope` + `fixture_scope` **21/21**. All three match the 34th tick's
+recorded claims exactly, which is the first evidence those claims were ever true.
+
+**The full suite aborted at +1792 of ~2121**, at 19:40 against a 13:48 baseline,
+with `Bad state: Cannot close sink while adding stream` raised from
+`flutter_tools/src/test/flutter_platform.dart` — Flutter's own runner. Free
+memory was **182 MB of 7.9 GB, no swap**. That is this box's known memory
+pressure, not the app.
+
+**Not waved at:** the abort landed at file 209 of 246 with everything before it
+green, so I re-ran the remaining **38 files** in isolation -> **+353 All tests
+passed!**, exit 0, 3:28 — including `submit_busy_category_test.dart`, the file
+that was loading when the harness died. Head +1792 + tail +353, **0 assertion
+failures**.
+
+So the recorded figure is "+2121 or better, 0 failures, in two runs", not a
+single clean pass. **A single uninterrupted full-suite run is not currently
+reproducible on this host** — that is a real gap and it gets its own backlog item
+below rather than being hidden behind a number from a run that aborted.
+
+Not visual — no pixels changed. No APK, no release, no tag.
+
+**Next:** two candidates, and the first is the one with a real defect behind it.
+(1) The full-suite run is not reproducible: `run_tests.py` should shard or
+retry so a memory abort at file 209 cannot read as a suite result, and so this
+class of evidence is one number instead of two runs stitched by hand.
+(2) The 34th tick's open item: give each `_allowed` entry the name of the fold it
+rests on, so an entry whose module stops folding cannot stay excused.
+
+- [ ] **`tool/run_tests.py` cannot produce one trustworthy suite number on this
+      box — a memory abort at file 209 of 246 reads exactly like a suite
+      result.** On 3 Oct the 35th tick's full run died with
+      `Bad state: Cannot close sink while adding stream` from Flutter's own
+      `flutter_platform.dart`, at +1792 with **182 MB free of 7.9 GB and no
+      swap**, 19:40 against a 13:48 baseline. The suite did not fail; the
+      harness lost a race and the remaining 38 files passed cleanly in
+      isolation (+353). Every future tick therefore has to stitch two runs
+      together by hand to know whether the tree is green, and an unwary tick
+      can read `+1792 -1` as a regression. The fix: make the runner **shard
+      into batches with per-batch retry**, so a memory abort is retried inside
+      its own shard and the summary is one number with the batch list, not a
+      truncated run that looks complete. Note `tool/run_tests.py` line 29
+      already concedes it does not shard.
+
+- [ ] **Each `_allowed` entry rests on a named fold, and the link between an
+      entry and the fold that justifies it is still prose.** Four entries are
+      excused by "digit-only", but only **two** folds are exercised by
+      execution (`DzPhone.digits`, `DzNumber.digits`), so nothing ties
+      `phone_field.dart#formatEditUpdate` to a fold that could disappear
+      without anything going red. Give every entry the name of the fold it
+      rests on and check it, the same way the 33rd tick turned "excused by
+      name" from prose into an assertion.

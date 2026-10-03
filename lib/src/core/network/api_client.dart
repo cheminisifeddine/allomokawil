@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../constants/app_config.dart';
 import '../l10n/error_copy.dart';
 import '../l10n/strings.dart';
+import '../text/clip.dart';
 
 /// Thin typed client for the Allo Mokawil API.
 ///
@@ -223,7 +224,12 @@ class ApiClient {
           S.errUnexpected,
           statusCode: res.statusCode,
           // Logging only, and bounded: a portal page can be kilobytes.
-          cause: body.length > 200 ? body.substring(0, 200) : body,
+          // Rune-safe (`core/text/clip.dart`): a captive-portal page is
+          // arbitrary bytes and can carry an emoji or a CJK glyph right at the
+          // cut, which `substring(0, 200)` would have stored as a lone
+          // surrogate. The bound is still hard at 200 code units, which is what
+          // the crash-report line budget cares about.
+          cause: body.length > 200 ? TextClip.elided(body, 200, ellipsis: '') : body,
         );
       }
       return body;

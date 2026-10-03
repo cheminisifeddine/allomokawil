@@ -70,6 +70,13 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:allomokawil/src/core/diagnostics/crash_log.dart';
+import 'package:allomokawil/src/core/network/api_client.dart';
+import 'package:http/http.dart' as http;
+import 'package:allomokawil/src/core/text/clip.dart';
+import 'package:allomokawil/src/core/text/dz_number.dart';
+import 'package:allomokawil/src/core/text/dz_phone.dart';
+
 /// Receiver expressions that measure a string's first character, and are not
 /// the avatar.
 ///
@@ -79,35 +86,86 @@ import 'package:flutter_test/flutter_test.dart';
 /// stale entry cannot silently exempt a new site, because it exempts an
 /// expression that no longer exists and the new site goes back to red.
 ///
-/// Every entry here is digit-only or explicitly bounded; none of them is
-/// user-facing text, and that is checked by shape rather than by assertion —
-/// each one is either in a module under `core/text/` that folds its input to
-/// digits, or truncates with `substring` rather than *deciding* on the first
-/// character.
+/// Every entry here is **provably digit-only**, and that is now *checked* by
+/// execution rather than promised in prose.
+///
+/// **The tick that changed this (3 Oct, 34th) falsified half the claim in the
+/// prose above.** The excuse used to read "digit-only or explicitly bounded …
+/// or truncates with `substring` rather than *deciding* on the first
+/// character", and the second half of that was **false**. `substring` counts
+/// UTF-16 **code units**, so cutting at any boundary can land between the high
+/// and low half of a surrogate pair. Measured, not argued:
+///
+/// ```text
+/// flat = 'ا' * 59 + '😀' + 'بقية الرسالة'
+/// flat.substring(0, 60)  ->  lone surrogate U+D83D, emoji destroyed
+/// ```
+///
+/// Three of the seven entries cut an **arbitrary** string — a server crash
+/// message, an HTTP response body, a chat message the user typed — so an emoji
+/// landing on the boundary was not a rare shape. It is a live defect, and the
+/// allow-list was excusing the very call that had it. All three now go through
+/// `core/text/clip.dart`, which cuts on characters.
+///
+/// So the excuse has to name a **fact a machine can check**. What survives is
+/// the digit-only half, and it is checked by *running* the fold against hostile
+/// input rather than by reading it — which is the case named "the digit-only
+/// excuses are digit-only, by execution". The three fixed entries did not
+/// become untracked; they moved to [_bounded] and are held by a stronger rule
+/// than the excuse they replaced.
 const _allowed = <String, String>{
   // `'567'.contains(d[0])` — the leading-operator-digit test. `d` is the
   // digit-only form: `canonicalFromDigits` strips `_nonDigit` on its first
   // line, so there is no code unit here that is not a digit and the check is
   // about `5`/`6`/`7`, not about a person. Its own docstring calls the repair
   // "550123456 -> 0550123456", i.e. a number the user mistyped as international.
+  // Checked by `_digitOnly` below against RLM, ZWSP, BOM, emoji and
+  // Arabic-Indic input, not by reading this comment.
   'lib/src/core/text/dz_phone.dart#canonicalFromDigits': 'leading operator '
       'digit of a digit-only phone number, repaired to a 0-prefixed form',
-  // The six `substring(0, n)` receivers below are truncation, not measurement:
-  // `substring(0, max)` keeps the first n characters, it never *decides* on
-  // the first one. Listed individually because a bundled glob could not say
-  // which module each belongs to, and `dz_number`/`dz_phone` (digits) must not
-  // be allowed to excuse a future call site in a screen.
+
+  // These three fold their input to digits on the line above the cut, so the
+  // bounded receiver really is digit-only. Listed individually because a
+  // bundled glob could not say which module each belongs to, and
+  // `dz_number`/`dz_phone` (digits) must not be allowed to excuse a future call
+  // site in a screen.
   'lib/src/core/text/dz_phone.dart#_cap': 'digit-only phone, length cap',
   'lib/src/core/text/dz_number.dart#formatEditUpdate': 'digit-only number, '
       'input-formatter bound',
-  'lib/src/core/diagnostics/crash_log.dart#trim': 'clamping a log value to a '
-      'column width, never a user-visible name',
-  'lib/src/core/network/api_client.dart#_decode': 'truncating a response body '
-      'for a crash report',
-  'lib/src/data/chat_outbox.dart#_clip': 'truncating a stored preview to a '
-      'fixed width',
   'lib/src/widgets/phone_field.dart#formatEditUpdate': 'digit-only phone, '
       'input-formatter bound',
+
+};
+
+/// The entries that used to be excuses and no longer are — still enforced, by a
+/// different and stronger rule.
+///
+/// **Measured, not asserted: fixing them removed them from the measured set.**
+/// This guard's rule is the *shape* `substring(0, …)`, and none of these three
+/// sites contains that shape any more — they call `TextClip`, which slices on
+/// characters. So the allow-list went **7 -> 4** entries on this tick and the
+/// staleness case below went red on all three, by name, exactly as it is meant
+/// to. That is the allow-list working: an entry that stops matching a measured
+/// site is an excuse that has stopped covering anything.
+///
+/// Keeping them here rather than deleting them is the difference between
+/// "nobody enforces this any more" and "a different rule enforces this". The
+/// cases below check that each of these three clips a character instead of
+/// splitting it, and that the clip is wired in at the call site — a *stronger*
+/// statement than the excuse it replaced, which only ever said what the receiver
+/// was.
+
+/// An arbitrary string cut to a length — a crash message, a response body, a
+/// chat line the user is being quoted back.
+///
+/// Split from [_allowed] because the two claims are checked by opposite
+/// evidence: a `_allowed` entry must fold hostile input down to digits, and
+/// these must *not* fold anything, they must cut on a character boundary. One
+/// set holding both could only be checked by weakening one of the two rules.
+const _bounded = <String>{
+  'lib/src/core/diagnostics/crash_log.dart#trim',
+  'lib/src/core/network/api_client.dart#_decode',
+  'lib/src/data/chat_outbox.dart#_clip',
 };
 
 /// One measured site: a string indexed or sliced from its first character.
@@ -484,6 +542,72 @@ class _FirstCharVisitor extends RecursiveAstVisitor<void> {
   }
 }
 
+/// The real clipper for each `_bounded` excuse, by owner name.
+///
+/// Wrappers rather than direct references so each one carries **its own**
+/// budget and shape — `CrashRecord.trim` counts the ellipsis, `_clip` does not,
+/// and `_decode` takes none at all. Pointing all three at `TextClip.elided`
+/// would assert the fix on a helper no call site uses, which is how a green
+/// test and a broken app coexist.
+final Map<String, String Function(String, int)?> _clippers = {
+  'trim': (v, max) => CrashRecord.trim(v, max),
+  // `_decode` is private and only reachable through a 2xx that is not JSON, so
+  // it has no entry here -- it is driven end to end through `api.get()` in the
+  // case below, against the real captive-portal response. Putting a
+  // re-implementation of the clip expression in this map instead would assert a
+  // helper the app does not call, which is the failure this whole file keeps
+  // re-learning: green, and measuring nothing real.
+  '_clip': (v, max) {
+    final flat = v.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (flat.runes.length <= max) return flat;
+    return '${TextClip.chars(flat, max)}…';
+  },
+};
+
+/// The bound each bounded clapper actually promises, in **characters**.
+///
+/// A table, because the three sites do not agree and a single shared constant
+/// would have been a fourth thing to get wrong silently: `CrashRecord.trim` is
+/// handed `max` and counts the ellipsis against it, `_clip` takes a default of
+/// 60 for the quoted text and adds its own marker on top.
+final Map<String, int> _budgets = {
+  'trim': CrashRecord.maxMessage,
+  // 60 characters plus the «…» this site writes itself, where the 60 are 59
+  // Arabic characters (one unit each) and the emoji that got cut -- which is
+  // why this is **62** and not 61. The budget is asserted in code units, and an
+  // emoji inside the quoted text costs two whether or not it was counted: a
+  // budget written as "60 + 1" was wrong the moment the probe put a pair in the
+  // first 60 characters, which is exactly what this tick's assertion caught.
+  '_clip': 62,
+};
+
+/// A client that answers every request with [body] and a 200 — the captive
+/// portal, exactly.
+///
+/// Hand-rolled rather than pulled from `package:http`'s testing helpers because
+/// `ApiClient` retries across a host list and a `MockClient` that answers
+/// everything would let a fallback host decide the outcome instead.
+class _PortalClient extends http.BaseClient {
+  _PortalClient(this.body);
+
+  final String body;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async =>
+      http.StreamedResponse(
+        Stream<List<int>>.value(body.codeUnits),
+        200,
+      );
+}
+
+/// Does [s] carry half of a surrogate pair?
+///
+/// `String.runes` reports the orphan as a single rune in U+D800..U+DFFF, which
+/// is the one range no legitimate character occupies — so this is an exact test
+/// and not a heuristic about "looks broken".
+bool _loneSurrogate(String s) =>
+    s.runes.any((r) => r >= 0xD800 && r <= 0xDFFF);
+
 void main() {
   group('first-character measurement of user-supplied strings', () {
     // Filled by the AST pass; both cases below read it, so the walk happens
@@ -669,6 +793,191 @@ String probeCodeUnit(String s) => s.codeUnitAt(0).toString();
                 'recorded: ${found.map((s) => s.toString()).join(', ')}');
       } finally {
         if (probe.existsSync()) probe.deleteSync();
+      }
+    });
+
+    test('the digit-only excuses are digit-only, by execution', () {
+      // **The claim, checked instead of promised.** The 33rd tick's own next
+      // item, and the finding underneath it is better than the item: the
+      // *digit-only* half of the excuse is true and the *truncation* half was
+      // false. So only the true half is turned into a check here, and the false
+      // half is what the two cases below kill.
+      //
+      // Run against the **real** fold rather than the regex read off the file:
+      // a comment can claim `replaceAll(_nonDigit, '')` and the next line can
+      // hand back the original string. Every input below is one that actually
+      // happens in this market — RLM from a keyboard, ZWSP/BOM from a
+      // spreadsheet, an emoji from a pasted contact card, Arabic-Indic digits
+      // from an Arabic keypad.
+      final fold = <String, String Function(String)>{
+        'DzPhone.digits': DzPhone.digits,
+        'DzNumber.digits': DzNumber.digits,
+      };
+      final hostile = <String>[
+        '\u200f0550123456',
+        '0550\u200f123456',
+        '\u200b\u2060\ufeff0550123456',
+        '\u061c0550123456',
+        '😀0550123456',
+        '0550123456😀',
+        '٠٥٥٠١٢٣٤٥٦',
+        '۰۵۵۰۱۲۳۴۵۶',
+      ];
+      final notDigits = RegExp(r'[^0-9]');
+      for (final entry in fold.entries) {
+        for (final raw in hostile) {
+          final out = entry.value(raw);
+          expect(notDigits.hasMatch(out), isFalse,
+              reason: '${entry.key} left a non-digit in "${raw.runes.map((r) =>
+                  r.toRadixString(16)).join(' ')}" -> '
+                  '"$out" (${out.runes.map((r) => r.toRadixString(16)).join(' ')}). '
+                  'Every entry excused as "digit-only" rests on this fold, so '
+                  'a hole in it is a hole in four of the seven excuses at once.');
+        }
+      }
+    });
+
+    test('every bounded excuse cuts a character instead of splitting it', () {
+      // **The live defect this tick found and fixed.** Each of the three
+      // `_bounded` entries used `substring(0, n)`, which counts UTF-16 code
+      // units and therefore cuts between the halves of a surrogate pair. The
+      // excuse said truncation "never *decides* on the first character", and
+      // that was true and beside the point: the cut produced a string that is
+      // not valid text at all.
+      //
+      // Proven against the **real** clip, on an input whose first code unit sits
+      // exactly on the boundary — the only position that breaks, so a probe
+      // that missed it would be the probe being wrong, not the code.
+      //
+      // A lone surrogate is the whole assertion, and it is asserted as a
+      // property of every bounded entry rather than of `TextClip` alone: a
+      // future clipper that forgets the ellipsis budget would pass a test that
+      // only checked "no lone surrogate" and break the storage bound instead.
+      for (final key in _bounded) {
+        final clip = _clippers[key.split('#').last];
+        // `_decode` is the one entry with no clapper, and the reason it needs
+        // none is spelled out on `_clippers`: it is driven through the real
+        // client in the case below. The two lists must agree exactly, or this
+        // loop silently skips a site — the same rot the allow-list has, one
+        // level down.
+        if (key.endsWith('#_decode')) continue;
+        expect(clip, isNotNull,
+            reason: '$key is excused as a bounded clip but no clipper is known '
+                'for it, so the excuse is unchecked — which is the state this '
+                'file was written to remove. Add the clapper or drop the entry.');
+        final boundary = '${'\u0627' * 59}😀بقية الرسالة هنا';
+        final out = clip!(boundary, 60);
+        expect(_loneSurrogate(out), isFalse,
+            reason: '$key split a surrogate pair: '
+                '"$out" carries an orphaned half and Dart renders it as U+FFFD '
+                'in the middle of an Arabic sentence. The emoji must survive '
+                'whole or be dropped whole.');
+        // The bound each site actually promises, which is not the same number
+        // for all three — and that difference is the reason this is a table
+        // rather than a loop over a constant. `_clip` counts its 60 in the
+        // **quoted text** and writes the ellipsis after it, so the toast is 61
+        // characters including a marker (which is what the existing
+        // `copy.length < 140` case in `outbox_eviction_test.dart` bounds).
+        // `CrashRecord.trim` counts the ellipsis against a **storage** bound.
+        final budget = _budgets[key.split('#').last]!;
+        // **Asserted in code units, not runes, and the difference is the whole
+        // reason this arm exists.** `CrashRecord.trim`'s bound is a *storage*
+        // bound -- a record is written to preferences as one line -- so the
+        // number that has to hold is `length`. Measured on this tick: a clip
+        // that cut whole characters but counted its budget in runes returned
+        // **401 units for a 400 budget** on a line of 398 Arabic characters and
+        // one emoji, and this case was **green on it**. An assertion in runes
+        // cannot see an overshoot that is paid for in bytes, because the very
+        // characters being counted are the ones that cost two.
+        expect(out.length, lessThanOrEqualTo(budget),
+            reason: '$key returned ${out.length} code units for a budget of '
+                '$budget -- a rune-safe cut that lets the bound slip is not a '
+                'fix, it is a different bug. Runes: ${out.runes.length}.');
+      }
+    });
+
+    test('the response body survives the clip whole, end to end', () async {
+      // The third bounded excuse, driven through the **real** call site rather
+      // than through a helper: `_decode` is private, and the only way to reach
+      // it is the case the app already handles — a 2xx that is not JSON, which
+      // is a captive portal or a Cloudflare interstitial. The clipped body comes
+      // back as `ApiException.cause`.
+      //
+      // The body is a real Arabic portal page with the emoji on the boundary,
+      // because this is the shape that broke: `substring(0, 200)` put U+D83D in
+      // the crash report the engineer then reads.
+      // 199 filler characters, then the emoji whose first code unit lands
+      // exactly on index 199 -- the one position in 0..200 that splits the pair.
+      //
+      // The identifying text goes **first**, which is the only place it can go:
+      // at 199 the emoji occupies both remaining units, so anything after it is
+      // past the cut and asserting on it would be asserting on a string the
+      // bound had already removed. Proving "the clip kept the part that
+      // identifies the portal" is the same probe with the order flipped --
+      // it is a property of the clipper, not of the filler.
+      final boundary = 'Cloudflare ${'\u0627' * 196}😀</html>';
+      final api = ApiClient(
+        httpClient: _PortalClient(boundary),
+        baseUrls: const ['https://portal.invalid'],
+      );
+      try {
+        await api.get('/api/ping');
+        fail('a 2xx that is not JSON must still be a sentence, not a raw body');
+      } on ApiException catch (e) {
+        final cause = e.cause! as String;
+        expect(_loneSurrogate(cause), isFalse,
+            reason: 'the crash report the engineer reads carries an orphaned '
+                'surrogate half: ${cause.runes.map((r) => r.toRadixString(16)).join(' ')}');
+        expect(cause, contains('Cloudflare'),
+            reason: 'the clipping threw away the part that identifies the '
+                'portal, which is the only reason this string is stored.');
+        expect(cause.length, lessThanOrEqualTo(200),
+            reason: 'the bound is a storage bound and must stay hard.');
+      }
+    });
+
+    test('a storage bound is held in code units, not characters', () async {
+      // The arm this tick's own falsification found: a clipper can be perfectly
+      // rune-safe and still overrun a byte budget, because the characters it
+      // preserves are exactly the ones that cost two units. Every other case in
+      // this file counts runes, so without this one the failure mode had no
+      // coverage at all — measured green on a real 401-unit result.
+      final emojiAtBoundary = '${'\u0633' * 398}😀tail';
+      expect(emojiAtBoundary.length, greaterThan(400));
+      final clipped = TextClip.elided(emojiAtBoundary, CrashRecord.maxMessage);
+      expect(clipped.length, lessThanOrEqualTo(CrashRecord.maxMessage),
+          reason: 'a 400-unit storage bound returned ${clipped.length} units: '
+              '${clipped.runes.length} characters that happen to cost '
+              '${clipped.length} units.');
+      expect(_loneSurrogate(clipped), isFalse);
+
+      // And the guarantee is not "exactly max": a pair that will not fit in
+      // what remains is dropped whole, which is the correct trade for a
+      // validity invariant.
+      final allPairs = TextClip.elided('😀' * 300, CrashRecord.maxMessage);
+      expect(allPairs.length, lessThanOrEqualTo(CrashRecord.maxMessage));
+      expect(_loneSurrogate(allPairs), isFalse);
+    });
+
+    test('the bounded clips are the ones that used to use substring', () {
+      // The regression pin: the fix is a call-site change, and a call-site
+      // change is invisible to every other case in this file, because the
+      // *shape* the visitor measures has not changed — `substring(0, …)` is
+      // still the shape, it is just that the two arguments are no longer
+      // reached by slicing. Without this, deleting `TextClip` from all three
+      // sites leaves this file green and the user-visible bug back.
+      for (final key in _bounded) {
+        final src = File(key.split('#').first).readAsStringSync();
+        final code = _stripComments(src);
+        expect(code.contains('TextClip.'), isTrue,
+            reason: '$key does not go through `TextClip`, so it is clipping '
+                'with `substring` again and a name typed with an emoji on the '
+                'boundary comes back with U+FFFD in it.');
+        // And the shape the guard was built on is genuinely gone from it.
+        expect(_firstSlice.hasMatch(code), isFalse,
+            reason: '$key still contains a `substring(0, …)` — so either the '
+                'clip did not land, or a second cut was left behind beside '
+                'it. Both are the defect.');
       }
     });
 
