@@ -30,30 +30,94 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-/// Every tracked Dart file under `lib/`, entry point included.
+/// Every Dart file the app ships under `lib/`, entry point included.
 ///
-/// Through `git ls-files`, not a filesystem glob: `lib/` also holds
-/// `.dart_tool`/build output on a dirty checkout, and a rule that polices
-/// generated files is a rule whose failures nobody can reproduce.
+/// **The two sides of the coverage contract must enumerate the same set**, and
+/// for most of this file's life they did not. The reader below returned
+/// `git ls-files` output; the case that consumes it walked `Directory(root)`
+/// on the **filesystem**. So the census compared *tracked* files against
+/// *on-disk* roots, and a Dart file under `lib/` that was never `git add`-ed
+/// was invisible to the question "does any sweep read this?" -- the same
+/// silent-guard hole the previous tick closed for `test/`, still open here for
+/// the half of the tree that matters most.
+///
+/// Neither enumeration is right on its own, so both are read and the difference
+/// is a hard failure in *both* directions:
+///
+///   * on disk, untracked -> the file exists, the rules apply to it, and nothing
+///     is enforcing them. This is a guard nobody is running, not a file nobody
+///     wrote.
+///   * tracked, not on disk -> a green run on this box cannot have compiled it,
+///     so the census was crediting coverage to a file that does not exist here.
+///
+/// The on-disk walk excludes `.dart_tool/` for the reason the doc comment above
+/// gives: generated output is not source, and a rule that polices generated
+/// files is a rule whose failures nobody can reproduce.
 List<String> shippedDartFiles() {
+  final onDisk = _dartFilesUnder('lib');
+  expect(onDisk, isNotEmpty,
+      reason: 'no Dart under lib/ on disk, so every sweep below is vacuous '
+          'against a tree that was never read');
+
   final result = Process.runSync(
     'git',
     ['ls-files', '--', 'lib/*.dart'],
     workingDirectory: Directory.current.path,
   );
   expect(result.exitCode, 0,
-      reason: 'git ls-files failed (${result.stderr}) — without it this '
-          'census would compare an empty set against an empty set and read as '
-          'a clean box.');
-  final paths = (result.stdout as String)
+      reason: 'git ls-files failed (${result.stderr}) — the census can no '
+          'longer tell a tracked file from an untracked one, so "no file is '
+          'unwatched" would be the only answer it could give.');
+  final tracked = (result.stdout as String)
       .split('\n')
       .map((l) => l.trim())
       .where((l) => l.isNotEmpty && l.endsWith('.dart'))
       .toList()
     ..sort();
-  expect(paths, isNotEmpty,
-      reason: 'the app ships no Dart, so every sweep below is vacuous');
-  return paths;
+
+  // Direction 1 — shipped but untracked. The exact moment a new screen or model
+  // is written is the moment it is least likely to be added, and until it is,
+  // this census would cheerfully report that every file is watched while the
+  // file itself is not in the set being judged.
+  final untracked = onDisk.where((p) => !tracked.contains(p)).toList()..sort();
+  expect(untracked, isEmpty,
+      reason: 'these Dart files sit under lib/ but are not tracked by git, so '
+          'the coverage census cannot judge them: a file nobody `git add`-ed is '
+          'a file no source sweep is asserted to read, however many guards walk '
+          'lib/.\n${untracked.join('\n')}\n'
+          'Either the file belongs in the app (git add it) or it does not '
+          '(delete it). Do not fix this by relaxing the census.');
+
+  // Direction 2 — tracked but absent. The mirror, and the one that used to be
+  // the only direction anyone thought to check. A file git lists that this
+  // checkout does not have is a file no local run compiled, so crediting it as
+  // "read by some sweep" is a claim about a tree that does not exist here.
+  final missing = tracked.where((p) => !onDisk.contains(p)).toList()..sort();
+  expect(missing, isEmpty,
+      reason: 'git tracks these Dart files under lib/ but they are not on disk '
+          'in this checkout, so the census would credit them to a sweep that '
+          'cannot open them:\n${missing.join('\n')}\n'
+          'This is normally a dirty or partial checkout; `git status --short` '
+          'says which.');
+
+  return onDisk;
+}
+
+/// Every `.dart` file on disk under [dir], repo-relative and sorted.
+///
+/// Shared by the shipped-set reader and the untracked-guard case so the two
+/// cannot drift apart again — the defect being fixed is precisely that two
+/// readers of "the Dart in this directory" disagreed about what they saw.
+List<String> _dartFilesUnder(String dir) {
+  final root = Directory(dir);
+  expect(root.existsSync(), isTrue, reason: '$dir/ does not exist');
+  return root
+      .listSync(recursive: true, followLinks: false)
+      .whereType<File>()
+      .map((f) => f.path.replaceAll('\\', '/'))
+      .where((p) => p.endsWith('.dart') && !p.contains('/.dart_tool/'))
+      .toList()
+    ..sort();
 }
 
 /// The root shapes this census has been taught to recognise.
@@ -436,15 +500,13 @@ void main() {
           .map((l) => l.trim())
           .where((l) => l.isNotEmpty && l.endsWith('.dart'))
           .toList();
-      final onDisk = Directory('test')
-          .listSync(recursive: true, followLinks: false)
-          .whereType<File>()
-          .map((f) => f.path.replaceAll('\\', '/'))
-          .where((p) => p.endsWith('.dart'))
-          .toList();
-      final untrackedOnly = onDisk
-          .where((p) => !tracked.contains(p) && !p.contains('/.dart_tool/'))
-          .toList()..sort();
+      // The shared reader, so `test/` and `lib/` are enumerated identically.
+      // Measured on this tick: the two halves had each grown their own copy of
+      // this walk, and `lib/`'s copy was the one that had never been checked
+      // against `git ls-files` at all.
+      final onDisk = _dartFilesUnder('test');
+      final untrackedOnly =
+          onDisk.where((p) => !tracked.contains(p)).toList()..sort();
       expect(untrackedOnly, isEmpty,
           reason: 'these Dart files sit under test/ but are not tracked by git, '
               'so this census — and every `git ls-files` sweep in the repo — '
