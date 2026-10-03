@@ -212,3 +212,40 @@ List<RuleHit> ruleHits(String source, List<RegExp> rules) {
 /// [ruleHits] as `<line>: <text>` strings, for a failure message.
 List<String> offendingLines(String source, List<RegExp> rules) =>
     ruleHits(source, rules).map((RuleHit h) => h.toString()).toList();
+
+/// The two patterns the tempo rule is made of, as ONE definition.
+///
+/// Both callers used to hold their own copy of the `duration:` pattern, which
+/// is how the rule and its own evidence map drifted into describing two
+/// different rules (see `app_source_scope_test.dart`'s `_ruleEvidence`). A
+/// literal that has to be typed twice is a literal that will be updated in one
+/// place, so this is the only place it is written.
+///
+/// [tempoDurationRule] and [tempoCurveRule] are deliberately separate: the
+/// duration rule decides *how a duration may be written* and the curve rule is
+/// just "no screen may reach for `Curves.` directly". Merging them into one
+/// alternation would make a failure message name both rules for one offence.
+final RegExp tempoDurationRule = RegExp(
+  // The label may end in any word character before `uration` -- because
+  // `reverseDuration` is an animation duration this app already uses
+  // (`lib/src/widgets/motion.dart:39`) and the old lowercase-only pattern
+  // could not see it. `\w*` also matches the bare `duration` label, so the
+  // lowercase form is still caught.
+  //
+  // The *positional* form (`Duration(milliseconds: 777)` handed to an unknown
+  // call) is still out of scope on purpose, and the census behind that is
+  // recorded on this pattern rather than assumed: `flutter` exposes no
+  // positional animation-duration parameter anywhere -- `AnimationController`,
+  // `animateTo`, `animateBack`, `AnimationStyle`, `AnimatedContainer` and
+  // `AnimatedSize` all take the named `duration:` argument -- so a positional
+  // `Duration` reaching a *widget* is not an animation this rule could judge,
+  // while the same text is a real timeout in `Timer.periodic` (12 sites),
+  // `.timeout(...)` and two field initialisers.
+  r'\w*[Dd]uration\s*:\s*(?:const\s+)?Duration\(',
+);
+
+/// No screen may reach for a Material curve directly; curves live in AppMotion.
+final RegExp tempoCurveRule = RegExp(r'Curves\.');
+
+/// Both tempo rules, in the order a failure message should read them.
+List<RegExp> get tempoRules => <RegExp>[tempoDurationRule, tempoCurveRule];

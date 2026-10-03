@@ -251,7 +251,7 @@ const _ruleEvidence = <String, List<String>>{
   'test/layering_test.dart': ["['data', 'screens', 'widgets']"],
   'test/type_scale_test.dart': [r'fontSize:\s*'],
   'test/card_recipe_test.dart': [r'BorderRadius\.circular'],
-  'test/motion_test.dart': [r'duration:\s*(?:const\s+)?Duration\('],
+  'test/motion_test.dart': [r'\w*[Dd]uration\s*:\s*(?:const\s+)?Duration\('],
   'test/contrast_tokens_test.dart': [r'wash: Color\(0xFF'],
   'test/failure_reported_test.dart': [r'\bcatch\b'],
   'test/header_trust_wiring_test.dart': [r'NotificationCountTrust\s*\('],

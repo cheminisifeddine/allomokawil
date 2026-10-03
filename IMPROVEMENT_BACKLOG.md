@@ -17965,3 +17965,67 @@ root, and keeps its description.
       animation duration in a widget but a real timeout everywhere else, so
       distinguishing them needs a shape-aware reader rather than a wider regex,
       and 14 legitimate `Duration(seconds: N)` values must keep passing.
+
+- [x] **Moving the tempo rule's patterns into one definition let the evidence
+      map be satisfied by a string — so the whole duration rule could be
+      deleted from the app and the census stayed green.**
+      `691312b`.
+
+      **Found by finishing the previous tick's uncommitted work, then planting
+      it.** The 26th tick moved the two tempo patterns out of `motion_test.dart`
+      into `tempoRules` (`test/support/source_text.dart`) so a literal is written
+      once, and updated `_ruleEvidence`'s token for the motion rule to the new
+      widened literal. That is a real improvement and it shipped — but the
+      move is what opened this hole.
+
+      **The hole, proven.** `_ruleEvidence` is read back through
+      `_blankComments`, and that reader blanks comments while **keeping string
+      bodies** — `blankComments(src, blankStrings: false)` — deliberately,
+      because a guard's root is written `Directory('lib')` and blanking the body
+      would erase the directory the census reports. So once the token moved out
+      of the enforcement site, the only place it survives in
+      `motion_test.dart` is a **string literal**. Planting both halves:
+
+        * drop `tempoDurationRule` from the lib sweep, use `tempoCurveRule`
+          alone — the sweep now enforces no duration rule at all;
+        * type a real `duration: const Duration(milliseconds: 777)` into
+          `lib/src/widgets/category_grid.dart:74`.
+
+      Result: **+28 All tests passed!** A hand-typed 777 ms animation duration
+      sat in a shipped widget, the duration rule enforced nothing, and
+      `app_source_scope_test.dart`'s "each named guard still enforces the rule
+      it is named for" case stayed green because it matched the file's own
+      assertion string. That is precisely the failure shape that file exists to
+      prevent: the rule is gone **and** the tree says it is covered.
+
+      **Not fixable with a shape test, and that is the point of recording it.**
+      `tempoRules` must be *named* in `motion_test.dart` for the guard to work
+      at all, and naming it is exactly what satisfies the map. A test asserting
+      the guard "uses" `tempoRules` passes in the planted state — the code that
+      named it and the code that used it were the same line in that plant.
+
+      *Shipped:* the mechanism is pinned instead of the behaviour, so the day
+      the map loses the ability to be fooled, a test says so. Three assertions
+      in `motion_test.dart`: a token that exists **only inside a string** still
+      satisfies `blankStrings: false` (the hole), is invisible to the scan's own
+      reader, and a token living only in a comment is blanked by both. The
+      mechanism is now stated where a future editor will meet it.
+
+      **One wrong number in the in-flight comments, corrected not deleted.**
+      It said "14 real timeouts in lib/ are positional" in one place and 15 in
+      another. Census run: **15** — 12 `Timer.periodic`, one `.timeout(...)`, two
+      field initialisers (`locator.dart:70`, `api_client.dart:40`). Fixed to 15;
+      the neighbouring sentence that already said 15 was right.
+
+      **Gate:** `flutter analyze` -> **No issues found!** (6.1 s, after
+      `dart format`) · `motion_test.dart` + `app_source_scope_test.dart`
+      **+29 All tests passed!** (was +28) · both plants reverted, `lib/` clean.
+
+      **Next:** the map still cannot tell a token *enforced in code* from a token
+      *written down*, and that hole is now documented rather than closed — the
+      map's own reader is the reason. Closing it means reading `_ruleEvidence`
+      tokens with the **sweep's** reader (strings blanked) and requiring each
+      token to survive in code, with the handful of tokens that are legitimately
+      strings (`/api/mobile/workers/top`, `quoteLimit|quotesUsedThisMonth`)
+      marked as such. That is a real census change with a real red risk, not a
+      one-liner. A positional `Duration(...)` remains deliberately out of scope.

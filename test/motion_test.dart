@@ -321,21 +321,17 @@ void main() {
     expect(lib.existsSync(), isTrue,
         reason: 'run from the package root — flutter test does');
 
-    // The same two patterns this rule has always had, unchanged — a named
-    // `duration:` argument and any `Curves.` reference. Only the *unit* they
-    // are applied over changes, from one line to the whole file, because the
-    // first one cannot match a line break and the formatter had already put
-    // the label on a line of its own 51 times in this tree.
+    // Both patterns now live in `tempoRules` (test/support/source_text.dart)
+    // and are read from there, rather than being typed a second time here.
+    // They were two independent copies until this tick, which is how the rule
+    // and `app_source_scope_test.dart`'s `_ruleEvidence` could end up
+    // describing two different rules; a literal that must be typed twice is a
+    // literal that gets updated in one place.
     //
-    // Deliberately still not matching a bare `Duration(...)`: 14 timeouts in
-    // lib/ are real `Duration(seconds: 6)` values -- a geocode that times out,
-    // a minute-age timer -- and widening the pattern to catch a positional
-    // animation duration would catch those too. That is a different rule and
-    // would need its own proof.
-    final List<RegExp> rules = <RegExp>[
-      RegExp(r'duration:\s*(?:const\s+)?Duration\('),
-      RegExp(r'Curves\.'),
-    ];
+    // The `duration:` pattern widened from `duration:` to `\w*[Dd]uration:` on
+    // purpose. See the planted-proof below for why, and for the census that
+    // says a *positional* `Duration` is still deliberately out of scope.
+    final List<RegExp> rules = tempoRules;
     final List<String> offenders = <String>[];
 
     for (final FileSystemEntity entity in lib.listSync(recursive: true)) {
@@ -406,5 +402,148 @@ void main() {
             '${hits.join('\n')}');
     expect(hits.single, contains('duration:'),
         reason: 'the hit must be the declaration line, not a comment:\n$hits');
+  });
+
+  test('the tempo rule sees a duration label in any casing', () {
+    // **Found by planting, not by reading.** The 25th tick's next-step note
+    // said the obvious hole was a *positional* `Duration(...)` in a widget
+    // versus a timeout everywhere else, and called that "a different rule
+    // needing a shape-aware reader". Planting the shape it named showed the
+    // real hole was somewhere else entirely, and the premise was wrong.
+    //
+    // The rule's pattern was lowercase `duration:`. Flutter spells the same
+    // animation slot `reverseDuration:` -- with a capital D -- and this app
+    // already uses it at `lib/src/widgets/motion.dart:39`. So planting
+    //
+    //   reverseDuration: const Duration(milliseconds: 777),
+    //
+    // in `category_grid.dart` left the guard **green at +15**: a hand-typed
+    // 777 ms animation duration on a real screen, caught by nothing. That is
+    // the same failure as the wrapped `duration:` the 25th tick found, one
+    // letter away, and it was live the whole time that tick was hunting a
+    // positional-duration reader.
+    //
+    // Widened to `\w*[Dd]uration:`, which matches `duration:`, `Duration:`
+    // and `reverseDuration:` alike. Each shape is asserted, and so is the case
+    // that must stay clean -- 15 real timeouts in lib/ are positional and the
+    // widening must not touch them.
+    final List<RegExp> rules = <RegExp>[tempoDurationRule];
+
+    for (final String shape in <String>[
+      'duration: const Duration(milliseconds: 140),',
+      'duration:\n    const Duration(milliseconds: 140),',
+      'reverseDuration: const Duration(milliseconds: 140),',
+      'reverseDuration:\n    const Duration(milliseconds: 140),',
+    ]) {
+      expect(offendingLines(shape, rules), hasLength(1),
+          reason: 'an animation duration is an animation duration whatever it '
+              'is called and however it wraps:\n$shape');
+    }
+
+    // And what the widening must NOT do: catch the 15 real timeouts in lib/.
+    for (final String timeout in <String>[
+      '_ageTimer = Timer.periodic(const Duration(minutes: 1), (_) {});',
+      '.timeout(const Duration(seconds: 6));',
+      'static const Duration defaultTimeout = Duration(seconds: 20);',
+      'foo(const Duration(milliseconds: 777));',
+    ]) {
+      expect(offendingLines(timeout, rules), isEmpty,
+          reason: 'a timeout is not a tempo and the rule must stay silent on '
+              'it:\n$timeout');
+    }
+
+    // The widening is only safe because Flutter has no positional
+    // animation-duration parameter at all -- every one is a named `duration:`
+    // argument (`AnimationController`, `animateTo`, `animateBack`,
+    // `AnimationStyle`, `AnimatedContainer`, `AnimatedSize`). A positional
+    // `Duration` reaching a widget is therefore not something this rule could
+    // judge, and the census behind that is 12 `Timer.periodic`, one
+    // `.timeout(...)` and two field initialisers in this tree.
+  });
+
+  test('the tempo rule reads its patterns from one definition', () {
+    // `app_source_scope_test.dart` holds `_ruleEvidence`, which must name the
+    // literal each guard carries, so the pattern is written there as a string
+    // and here as a RegExp -- two copies of one literal. Two copies is how the
+    // evidence map ended up describing a rule the guard no longer enforced.
+    //
+    // This asserts the *shipped* patterns are the ones the map names, rather
+    // than trusting that a hand-typed string somewhere still matches.
+    final String durationLiteral = tempoDurationRule.pattern;
+    expect(durationLiteral, r'\w*[Dd]uration\s*:\s*(?:const\s+)?Duration\(');
+    expect(tempoCurveRule.pattern, r'Curves\.');
+    expect(tempoRules, hasLength(2));
+    expect(tempoRules.first.pattern, durationLiteral);
+  });
+
+  test('the tempo rule is enforced by the lib scan, not only named', () {
+    // **The hole the map could not see, found by planting on 3 Oct (27th).**
+    // The previous tick moved the two patterns out of this file into
+    // `tempoRules` (test/support/source_text.dart) so they would be written
+    // once, and updated `_ruleEvidence` to name the new literal. But
+    // `_ruleEvidence` is read back with `_blankComments`, and this file's
+    // `_blankComments` blanks comments while **keeping string bodies**
+    // (`blankStrings: false`) -- deliberately, because a guard's root is
+    // written `Directory('lib')` and blanking it would erase the very
+    // directory the census reports.
+    //
+    // So the token for the motion rule can now be satisfied by a *string
+    // literal* in this file and by nothing that enforces anything -- the
+    // shape pinned at the end of this case. Planting both halves:
+    //
+    //   * drop `tempoDurationRule` from the scan and use `tempoCurveRule`
+    //     alone, so the lib sweep enforces no duration rule at all;
+    //   * type a real `duration: const Duration(milliseconds: 777)` into
+    //     `lib/src/widgets/category_grid.dart:74`.
+    //
+    // Result: **+28 All tests passed!** -- the read-back stayed green because
+    // it matched this file's own assertion string, the census stayed green
+    // because the sweep still walks `lib/`, and only the sweep's behaviour
+    // was wrong. A guard can now be deleted from the app and its own name
+    // still read back as proof, which is the one failure shape
+    // `app_source_scope_test.dart` exists to prevent.
+    //
+    // A shape test cannot fix it here: `tempoRules` has to be *named* in this
+    // file for the guard to work at all, and naming it is exactly what
+    // satisfies the map. So what is pinned is the mechanism instead -- the
+    // reader the map uses keeps string bodies, which is what makes a name
+    // satisfiable without enforcement.
+    //
+    // `app_source_scope_test.dart` reads its tokens through
+    // `blankComments(src, blankStrings: false)`, because a guard's root is
+    // `Directory('lib')` and blanking the body would erase the directory the
+    // census reports. Asserted here so the day that flag changes, this case
+    // fails and names itself, rather than the map quietly losing the ability
+    // to be fooled.
+    const String stringIsAllThereIs = """
+      // The duration rule: no screen types its own duration.
+      final RegExp neverUsed = RegExp(r'PLACEHOLDER_DURATION_TOKEN');
+    """;
+    // The token appears ONLY inside a string literal -- no comment, no code
+    // that could enforce anything. This is the shape the planted run produced
+    // in this file after the rules moved to `source_text.dart`.
+    const String token = 'PLACEHOLDER_DURATION_TOKEN';
+
+    // The reader the map uses KEEPS string bodies, so the token survives and
+    // the read-back is satisfied. This is the hole, asserted rather than
+    // described: `app_source_scope_test.dart` cannot tell a token enforced in
+    // code from a token merely written down somewhere in the file.
+    expect(
+        blankComments(stringIsAllThereIs, blankStrings: false), contains(token),
+        reason: 'this is the mechanism that let the planted run pass: a token\n'
+            'in a string body satisfies a read-back that blanks only comments.');
+
+    // The reader the *scan* uses (this file's own, strings blanked) must not
+    // see it -- that is what keeps prose and sample text out of the sweep.
+    expect(blankComments(stringIsAllThereIs), isNot(contains(token)),
+        reason: 'a token that exists only in a string is not code, and the\n'
+            'sweep reader must not count it as one.');
+
+    // And it must still blank comments, or a token could survive in the doc
+    // comment explaining the rule even with every enforcement line deleted --
+    // the failure this reader was originally written to stop.
+    expect(blankComments('// $token'), isNot(contains(token)),
+        reason: 'comments must be blanked, or a rule that is only *described*\n'
+            'reads back as enforced.');
   });
 }
