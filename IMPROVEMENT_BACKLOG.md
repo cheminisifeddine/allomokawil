@@ -17309,3 +17309,111 @@ which files a sweep reads draws nothing, so no screenshot is claimed.
 **fixtures** those sweeps read (`test/fixtures/*.py.fixture`) are themselves
 governed, so a fixture could drift from the shape its guard assumes without
 anything noticing.
+
+---
+
+## Tick 3 Oct 2026 (20th) — a fixture no test reads is a vector that guards
+## nothing; the `*.py.fixture` extension is load-bearing, and proven so
+
+**Item: the fixture census — SHIPPED.** Commit `31c1be1` -> remote `015fba2`,
+tree **IN SYNC**, `test/fixture_scope_test.dart` **MATCH**.
+
+**The gap.** `test/fixtures/*.py.fixture` are the committed vectors for the
+Python reader in `tool_clock_seam_test.dart` — the shapes no tracked instrument
+contains, because they deliberately read the wall clock the instrument sweep
+forbids. The extension is the *only* thing keeping them out of
+`git ls-files -- '*.py'`, and that isolation is load-bearing, not cosmetic:
+
+```
+$ printf 'import time\nS = time.time()\n' > test/fixtures/p.py
+$ git add -N test/fixtures/p.py && git ls-files -- '*.py'
+test/fixtures/p.py          <-- collected; the guard now fails on its own data
+```
+
+So the fixtures live in a directory the guard deliberately does not walk, and
+are read **one literal name at a time** from a test case. Nothing ever connected
+the two ends: a deleted, renamed or moved case takes its fixture's only
+reference with it, and the suite stays green while the directory accumulates
+vectors that guard nothing. Same class of hole
+`app_source_scope_test.dart` was written for on the app side, mirrored onto the
+suite's own test data — there a Dart file the app ships was readable by no
+source sweep; here a vector a committed guard depends on is readable by no test.
+
+**The guard that already exists cannot catch it, and cannot be asked to.** The
+valid-Python sweep enumerates the directory and `python3 -c compile`s each
+fixture, so an orphan compiles perfectly — and so does an **empty** file
+(`compile('', 'f', 'exec')` exits 0), which is what a fixture truncated by a bad
+edit looks like. That sweep answers *"is this vector real Python"*; this one
+answers *"does any test read it"*. Only the second notices an orphan.
+
+**Five cases.** 1: a **floor** of 13 fixtures — a mass `git rm` of every vector
+would otherwise leave this file a green test governing no test data at all.
+2: the contract, every committed fixture read by some test. 3: no fixture held
+in place by a comment alone — the prose-shadowing trap that bit
+`app_source_scope_test.dart`, here reported with `file:line` because these names
+are exactly what a doc comment quotes when it explains which vector a case
+uses. 4: the **two enumerations agree**, `git ls-files` here vs
+`Directory.listSync()` in the valid-Python sweep, both directions — a stray is
+swept as shipped data and fails unreproducibly; a tracked fixture absent from
+disk simply stops being checked, silently. 5: the `.py.fixture` extension still
+keeps the vector sweep blind, with a `>= 10` positive half so "collects nothing"
+cannot pass for the wrong reason.
+
+**Comment blanking here is string-aware**, unlike the plain version in
+`app_source_scope_test.dart`: a `//` inside a string literal must not blank away
+a real reference on the same line, which on this side would be a false red.
+
+**Red before green — every case, not just the contract.**
+
+| planted | fired | message |
+| --- | --- | --- |
+| orphan fixture | case 2 | `read by no test at all` |
+| comment-only reference | case 3 | `only in comments, at test/tool_clock_seam_test.dart:347` |
+| tracked but moved off disk | case 4 | missing direction |
+| untracked stray on disk | case 4 | strays direction |
+
+All reverted; `aliased_wall_clock.py.fixture` verified **byte-identical** by
+`diff`. The first red run showed case 3 failing *as well* — which is what led
+to the instrument bug below, since a prose-only fixture is not a prose-only
+orphan and both messages cannot be true at once.
+
+**One of my own instruments was wrong before the tree was.** `_proseMentionSites`
+returned a formatted `String` whose fallback was the literal `'nothing'`, so it
+was **never empty**, `isNotEmpty` was always true, and the prose-only case fired
+for *every* orphan — reporting "only in comments, at nothing". A guard that
+cannot tell *mentioned in a comment* from *mentioned nowhere* contradicts its
+own message, which trains the reader to ignore it. Now a `List<String>`. Two
+analyzer errors were mine too (`$fixture` interpolated outside any loop, and
+`.path` on a `List<String>` element); both found by `flutter analyze`, both fixed.
+
+**The gate was red for the first 8 minutes of this tick** and the tick nearly
+gave up on it. It is worth recording *why*, because the reason is not "someone
+is building": `ps` showed nothing, no JVM, no leaked tester, no leaked browser,
+and `build_gate.py --reap` found nothing to reap. `/proc/meminfo` explains it:
+
+```
+Balloon: 4449564 kB        # the VM balloon driver holds 4.4 GB back
+```
+
+Visible RSS across all 28 processes sums to **1.5 GB** of `MemTotal` 7.9 GB —
+the remaining ~6 GB is not a process this shell can see, and `drop_caches` is
+refused (`/proc/sys` read-only). So `MemAvailable` sat at **476–950 MB** against
+a 900 MB floor and the gate correctly refused: a suite run here is measured at
+bottoming out **1177 MB**, and a box with no swap would OOM-kill it. The gate
+then went green on its own when the balloon **deflated 4.2 -> 3.5 GB**, and held
+at ~1120 MB across six consecutive polls, which is the only reason this tick
+could run a build at all. **The gate is not conservative; the box really is
+starved, and the fix is infrastructure, not a threshold change.**
+
+**Gate.** `flutter analyze` -> **No issues found!** (7.1 s).
+`tool/run_tests.py` -> **+2098 ~8 All tests passed!** (13:29), exit 0 — exactly
+**+5** over the previous 2093, the new file and nothing else. **Not visual**: a
+rule about which files a test reads draws nothing, so no screenshot is claimed.
+
+**Next:** the *positive* half of `app_source_scope_test.dart` is still a number
+(`>= 8` sweeps) rather than a fact about the repo — it cannot name **which**
+guard stopped being recognised, only that some count dropped. `tool/
+build_gate.py` has exactly this shape already and it is the better model: the
+census should assert the **specific named guards** that carry the app's rules
+(snack, empty-text, wall-clock-seam), so a sweep that stops being a sweep is
+red by name rather than by arithmetic.
