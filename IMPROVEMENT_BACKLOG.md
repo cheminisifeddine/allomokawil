@@ -18991,7 +18991,7 @@ rests on, so an entry whose module stops folding cannot stay excused.
       `_selects`.*
 
       Commit: `5c1febb` (the guard; no `lib/` line moved).
-- [ ] **`canonicalFromDigits` is public, documented as safe for raw field
+- [x] **`canonicalFromDigits` is public, documented as safe for raw field
       text, and does not fold Arabic-Indic digits — measured on the 37th
       tick.** Found while giving it an executed check:
 
@@ -19019,3 +19019,61 @@ rests on, so an entry whose module stops folding cannot stay excused.
       the input most Algerian keyboards produce. Measure which callers exist
       before touching it, and do not change the accepted shapes:
       `dz_phone_test.dart`'s contract against `workers/mobile.ts` is the pin.
+      *Shipped (38th tick).* `lib/src/core/text/dz_phone.dart`, one line moved:
+      `canonicalFromDigits` now folds through `DzPhone.digits` instead of running
+      its own private `replaceAll(_nonDigit, '')`, and `canonical` delegates to it
+      rather than pre-folding. `arabic_search.dart` was **not** touched — the fold
+      it uses is already the app's one Arabic digit mapping, which is the whole
+      reason the fix is one line and not a second table.
+
+      Measured on the four public entry points, before and after, same input:
+
+      | entry point | before | after |
+      | --- | --- | --- |
+      | `canonicalFromDigits('٥٥٠١٢٣٤٥٦')` | `''` | `'0550123456'` |
+      | `groupLocal(same)` | `''` | `'05 50 12 34 56'` |
+      | `groupIntl(same)` | `''` | `'550 12 34 56'` |
+      | `national(same)` | `'50123456'` | `'550123456'` |
+
+      **The fourth row is the one worth having.** `national` did not return empty
+      — it returned a *plausible wrong number*, because the missing-zero repair
+      saw `50123456`, decided no repair was needed and handed back nine digits that
+      are not the number the user typed. An empty field is visible; that one is
+      posted.
+
+      *Red before green, and one red caught the fix's own guard — recorded
+      against myself twice on this tick:*
+      * `canonicalFromDigits` / `groupLocal` / `groupIntl` returning `''` for the
+        Arabic-Indic and Persian shapes, quoted verbatim by the new case.
+      * **The guard's normative arm was too weak and the tree proved it.** Reclass
+        ifying `canonicalFromDigits` as a normative fold (it now folds Arabic-Indic
+        digits, so the stronger rule applies) left the whole
+        `every named fold folds hostile input down to digits` case **green with
+        `lib/` reverted**: `''` contains no non-digit, so "no non-digit survives"
+        was satisfied by the exact defect the case exists to catch. Reverted
+        again with the arm rewritten — an input carrying Arabic digits must not
+        answer empty — and it went red **by name**:
+        *`DzPhone.canonicalFromDigits answered nothing for "665 665 660 …" … lib/src/core/text/dz_phone.dart#canonicalFromDigits is excused on this fold.`*
+      * **My own test constant was wrong first** and I report it because it is the
+        same failure this file keeps cataloguing: I copied the Persian literal
+        from `_hostileDigits`, which spells `050123456`, into a case asserting
+        `0550123456`. Green code, red test, and the fix belonged in the test.
+
+      *The accepted shapes did not move.* `dz_phone_test.dart`'s contract against
+      `workers/mobile.ts` is untouched and still green: the server-side
+      `serverAccepts` / `serverNormalize` pair is what pins it, and every case in
+      the file that asserted a rejection still asserts a rejection.
+
+      *Gate.* `flutter analyze` -> **No issues found!** (9.5 s)
+      `python3 tool/run_tests.py` -> **SUITE PASS — 2026 tests across 11 shards,
+      every shard green**, exit 0, 14:28. Up from 2021 (the new group adds 5).
+
+      Commit: `0a75685` (one commit — the fix, its tests and the guard move
+      together).
+
+      *Next in backlog: none — this was the last open item. The file has no
+      unchecked boxes; the next tick should either take a fresh finding or open
+      one, and the finding worth taking is in `phone_field.dart`'s own docstring,
+      which still tells a caller to send `DzPhone.canonical(controller.text)`
+      while its formatter's variable is called `digits`.*
+
