@@ -17480,3 +17480,89 @@ does not know (`Directory(root)`, `_dartFilesIn(Directory('lib'))`,
 silent-guard hole is still open for any rule added there: either teach
 `_rootsOf` those shapes, or record them as *known-unmodelled* so a new guard in
 that shape fails by name instead of passing unnoticed.
+
+- [x] **Five app guards were enforcing real rules with their coverage
+      unmeasured, and the census could not see it — because its own reader
+      contradicted the comment written above it.** *(commit `23ac793`)*
+
+The last tick left this as the next item and framed it as a tuning job: teach
+`_rootsOf` the shapes, or record them as known-unmodelled. Read as a hole first,
+the framing was wrong in both directions.
+
+**The hole.** Five recognised sweeps declared **no root this census could
+model** while every one of them walked `lib/`: `contrast_tokens`,
+`failure_reported`, `header_trust_wiring`, `payload_coverage`, `quote_count_copy`.
+Each enforces a real app rule, each had **unmeasured coverage**, and no case in
+the file could say so. A rule added to any of them would have gone dark silently
+— the exact failure the previous two ticks recorded, still open.
+
+**The cause was narrower than the list of five implied.** `_rootsOf` carried a
+comment reading *"the two patterns below search all of it rather than `scope`"* —
+and only the second one did. Patterns 1 and 3 still narrowed to pre-`void
+main(`, so every root written inside a test body was invisible. **The defect the
+comment was written to prevent was reintroduced in the line directly under it.**
+Not a missing shape: a claim contradicted by its own reader.
+
+**Shipped.** Four shapes taught, each measured against the real tree first:
+
+| shape | where | what it hid |
+| --- | --- | --- |
+| root declared past `void main(` | 5 guards | the whole hole |
+| `_dir(<String>['lib'])`, `roots = <String>[…]` | `payload_coverage` | 3 roots, none as a literal |
+| `Directory('…').existsSync()` | `payload_coverage` | a **false credit**, below |
+| runtime-built `Directory('${Directory.current.path}/…')` | `tool_clock_seam` | returned unresolved, never guessed at |
+
+**The false credit is the part worth keeping.** `payload_coverage_test.dart` holds
+exactly one `Directory('lib')` literal and it is an **existence assertion**.
+Crediting `lib` to it would make a guard that only checks a directory exists pass
+for one that reads every file in it — the count-floor's error one level down: an
+unmeasured guard claiming coverage it never had. Its real roots are the list
+literals, now read on their own merits.
+
+**Unresolved roots are a separate answer from no root.** The reader returns both,
+because "this guard walks the app" and "this guard's root is a shape nobody has
+read" were the same empty list. `tool_clock_seam_test.dart` is the only such
+sweep, walks test data rather than app source, and is pinned **by exact literal**
+in `_knownUnmodelled` — reason kept beside the pin, and a case in *both*
+directions: a stale pin fails, an unpinned runtime root fails. Keyed on the root,
+not the guard: a guard can hold one readable root and one runtime root. The first
+draft pinned per guard and **went red on the clean tree**, which is a check nobody
+keeps running.
+
+Rooted sweeps **9 -> 14**. Floor **6 -> 10**, deliberately *not* 14: a floor the
+reader already guarantees is not a floor.
+
+**Closed by planting, not by reading.** The census enumerated guards through
+`git ls-files`, so a **brand-new guard was invisible while untracked** — the
+silent-guard hole in its purest form, since the exact moment someone adds a new
+app rule is the moment nothing would notice it is unmeasured. Now asserted both
+ways. Proven: the probe stayed green untracked and fired by path once tracked.
+
+`_appRuleGuards` **7 -> 12** named guards, plus a case stating which must stay
+app-wide — "enforces an app-wide rule" is a claim about each rule, not something
+to infer from a directory listing.
+
+**Red before green — four plants, all reverted:**
+
+| planted | fired |
+| --- | --- |
+| empty-text guard narrows `lib/` -> `lib/src/` | named, with the narrowed root |
+| `header_trust` narrows to `lib/src/` | named — `roots it declares: lib/src` |
+| new guard, runtime-built root, unpinned | named by guard **and** root |
+| new guard, untracked | named, by path |
+
+The narrowings fire **only the precise case — not the count**, which is the whole
+reason the previous tick's `sweeps.length >= 8` was wrong.
+
+**Gate.** `flutter analyze` -> **No issues found!** (2.0 s).
+`tool/run_tests.py` -> **+2101 ~8 All tests passed!** (13:04), exit 0, up from
+2099: two new cases, nothing dropped. **0 failure lines, 0 `[E]` markers** in 404
+log lines. **Not visual**: a rule about which files a test reads draws nothing,
+so no screenshot is claimed. No APK, release or tag.
+
+**Next:** the census now measures every guard it can see, but its truth still
+depends on `git ls-files` for the *shipped* file set, so a Dart file that is
+never `git add`-ed is invisible to the coverage case in the same way an
+untracked guard was invisible until this tick. The untracked-guard assertion
+covers `test/` only; `lib/` has no equivalent, and `shippedDartFiles()` is the
+one remaining place the same class of hole survives.

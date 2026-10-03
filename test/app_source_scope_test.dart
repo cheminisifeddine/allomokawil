@@ -71,14 +71,25 @@ const _knownRoots = <String>{
   'lib/src/screens',
   'lib/src/data',
   'lib/src/models',
+  'lib/src/widgets',
   'lib/src/core/format',
-  // Whole-file reads of a named source file.
+  // Whole-file reads of a named source file. Nothing declares these *today* --
+  // `contrast_tokens_test.dart` holds them in a `const String`, a shape the
+  // reader does not model -- so they are kept as a modelled shape rather than
+  // pruned as dead: a guard that walks one of them is understood, not flagged.
   'lib/src/core/theme/motion.dart',
   'lib/src/core/theme/app_theme.dart',
-  // git pathspecs. `lib/*.dart` is this file's own `ls-files` of the shipped
-  // app -- a census that flagged its own enumeration as unmodelled would be
-  // refusing to describe how it finds the files it judges.
+  // The suite reading its own test directory: `wall_clock_seam_site_test.dart`
+  // walks `Directory('test')` to police other guards. It holds no shipped Dart,
+  // so it contributes no coverage -- it is listed so the census *names* the
+  // shape instead of tripping over it.
+  'test',
+  // git pathspecs. `lib/*.dart` and `test/*.dart` are the `ls-files` reads that
+  // find the shipped app and the guards themselves -- a census that flagged its
+  // own enumeration as unmodelled would be refusing to describe how it finds
+  // the files it judges.
   'lib/*.dart',
+  'test/*.dart',
   // Instrument sweeps over Python: a different language and a different
   // question, listed so the census says so explicitly rather than by omission.
   '*.py',
@@ -114,6 +125,18 @@ const _appRuleGuards = <String, String>{
   'test/layering_test.dart': 'the import layering rule',
   'test/type_scale_test.dart': 'the type-scale rule',
   'test/card_recipe_test.dart': 'the card recipe rule',
+  // Named for what they hold, not for where they point: these are the guards
+  // whose root was invisible to this census until the reader was taught the
+  // shapes below. Before this tick `contrast_tokens`, `failure_reported`,
+  // `header_trust_wiring`, `payload_coverage` and `quote_count_copy` declared
+  // no root at all -- every one of them walking `lib/` -- so a rule added to
+  // any of them could go dark without a word here.
+  'test/contrast_tokens_test.dart': 'the contrast-token rule',
+  'test/failure_reported_test.dart': 'the failure-reported rule: every caught '
+      'failure reaches the user in Arabic',
+  'test/header_trust_wiring_test.dart': 'the header trust-signals rule',
+  'test/payload_coverage_test.dart': 'the payload-coverage rule',
+  'test/quote_count_copy_test.dart': 'the quote-count copy rule',
 };
 
 /// The literal roots a source sweep enumerates, read out of its own source.
@@ -135,14 +158,15 @@ const _appRuleGuards = <String, String>{
 ///     the roots are **all** of them, and only the ones declared before
 ///     `void main(` — a top-level enumeration helper is a guard's root; a
 ///     directory a test opens at runtime is not.
-List<String> _rootsOf(String source) {
+_Read _rootsOf(String source) {
   final code = _blankComments(source);
-  final beforeMain = code.indexOf('void main(');
-  final scope = beforeMain < 0 ? code : code.substring(0, beforeMain);
-  // `code` is the whole comment-blanked file, and the two patterns below
-  // search all of it rather than `scope`: a guard may enumerate inside a test
-  // body -- `motion_test.dart` declares its root 290 lines into `main()` --
-  // and narrowing to pre-`main` is what hid it.
+  // `code` is the whole comment-blanked file and **every** pattern below reads
+  // all of it rather than `scope`: a guard may enumerate inside a test body --
+  // `motion_test.dart` declares its root 290 lines into `main()`, and four
+  // more declare theirs there too -- and narrowing to pre-`main` is what hid
+  // them. This was the live hole on 3 Oct (21st): the note above used to claim
+  // "the two patterns below search all of it" while only the second one did,
+  // so a guard whose root was written in a test body read as rootless.
 
   final roots = <String>[];
 
@@ -150,7 +174,7 @@ List<String> _rootsOf(String source) {
   // required, so `Directory lib = Directory('lib')` below is a *different*
   // shape and is read by the next pattern -- both appear in this tree.
   for (final m in RegExp(
-          r"""Directory\(\s*['"]([^'"]+)['"]""").allMatches(scope)) {
+          r"""Directory\(\s*['"]([^'"]+)['"]""").allMatches(code)) {
     roots.add(m.group(1)!);
   }
 
@@ -176,12 +200,94 @@ List<String> _rootsOf(String source) {
   // instrument sweeps described nothing that any sweep actually declares.
   for (final m in RegExp(
           r"""\[\s*['"]ls-files['"][^\]]*?['"]([^'"]+)['"]\s*\]""")
-      .allMatches(scope)) {
+      .allMatches(code)) {
     roots.add(m.group(1)!);
   }
 
-  return roots..sort()..toSet().toList();
+  // An existence assertion is not an enumeration. Measured on 3 Oct (21st):
+  // `payload_coverage_test.dart` holds exactly one `Directory('lib')` literal
+  // and it is inside `expect(Directory('lib').existsSync(), isTrue)` -- the
+  // reader credits `lib` to it, and a guard that only *asserts a directory
+  // exists* then passes for one that reads every file in it. Its real roots are
+  // the `<String>[…]` lists below, which are read on their own merits. Crediting
+  // a root is a claim about coverage, so a shape that cannot read files is
+  // excluded rather than counted as one.
+  for (final m in RegExp(
+          r"""Directory\(\s*['"]([^'"]+)['"]\s*\)\s*\.existsSync""")
+      .allMatches(code)) {
+    roots.remove(m.group(1)!);
+  }
+
+  // A runtime-built path is not a root this census can resolve, so it is
+  // reported as unresolved and never enters `roots`. Carrying it as a literal
+  // would put `${Directory.current.path}/test/fixtures` in the coverage set,
+  // where it is a directory that does not exist under that name and would
+  // contribute nothing while looking like a guard.
+
+  // Roots passed as a list, not written as a `Directory('…')` call:
+  // `_dir(<String>['lib'])` and `final roots = <String>['lib/src/screens',
+  // 'lib/src/widgets']`. `payload_coverage_test.dart` names all three of its
+  // roots this way and none as a literal, which is why the reader above saw an
+  // app-wide guard walking nothing. The pattern is anchored on the **typed** list
+  // -- `<String>[` -- because an untyped `[…]` is every list in the repo, and a
+  // root read out of `['lib', 'lib/src/screens']` in some unrelated set is a
+  // false credit in the same way the existence assertion was.
+  for (final m in RegExp(
+          r"""<String>\s*\[([^\]]*)\]""").allMatches(code)) {
+    for (final item in RegExp(r"""['"]([^'"]+)['"]""").allMatches(m.group(1)!)) {
+      final spec = item.group(1)!;
+      // Only root-shaped entries: a key of a model's field map is a string too.
+      if (spec.startsWith('lib') || spec.startsWith('test/') || spec == '*.py') {
+        roots.add(spec);
+      }
+    }
+  }
+
+  // A root built at runtime cannot be resolved here and is **not** guessed at.
+  // It is returned separately so the caller can tell "this guard walks the app"
+  // from "this guard's root is a shape nobody has read", and kept out of `roots`
+  // so it cannot enter the coverage set as a literal that names no directory.
+  final unresolved =
+      roots.where((r) => r.contains(r'${')).toList()..sort();
+  roots.removeWhere((r) => r.contains(r'${'));
+
+  return _Read(roots..sort()..toSet().toList(), unresolved);
 }
+
+/// The two answers a root reader can give, kept apart on purpose.
+class _Read {
+  _Read(this.roots, this.unresolved);
+
+  /// Roots that are literal paths this census can model.
+  final List<String> roots;
+
+  /// Roots written as a runtime expression. Not a modelled root, not a failure
+  /// on its own — a fact for the caller to pin by name.
+  final List<String> unresolved;
+}
+
+/// Roots this reader cannot resolve, pinned by name so one is never guessed at.
+///
+/// A root is unmodellable when it is **built at runtime** rather than written as
+/// a literal -- `Directory('${Directory.current.path}/test/fixtures')`. Measured
+/// 3 Oct: `tool_clock_seam_test.dart` is the only sweep in the tree that does
+/// this, and it walks `test/fixtures`, not app source, so it carries no app
+/// coverage. Left unnamed it would be either silently dropped or silently
+/// mis-modelled as the literal `\${Directory.current.path}/test/fixtures`; named
+/// here it fails **by name** if a guard adopts that shape for a root that does
+/// carry app coverage.
+const _knownUnmodelled = <String, String>{
+  'test/tool_clock_seam_test.dart':
+      r'${Directory.current.path}/test/fixtures',
+};
+
+/// Why each pin exists, kept beside the pin so deleting one is a decision
+/// someone can read rather than a diff nobody understands.
+const _whyUnmodelled = <String, String>{
+  'test/tool_clock_seam_test.dart':
+      'runtime-built path, and it walks test data rather than app source — so '
+      'it carries no app coverage either way',
+};
 
 /// The source with every comment blanked to spaces, offsets preserved.
 ///
@@ -267,7 +373,7 @@ bool _isIdentChar(String c) => RegExp(r'[A-Za-z0-9_]').hasMatch(c);
 
 /// One source-scanning guard and every root it declares.
 class _Root {
-  _Root(this.file, this.roots);
+  _Root(this.file, this.roots, this.unresolved);
 
   /// The guard, as `test/…dart`.
   final String file;
@@ -276,7 +382,15 @@ class _Root {
   /// recognised, which is reported by name rather than guessed at.
   final List<String> roots;
 
+  /// Roots written as runtime expressions, kept out of [roots] so they cannot
+  /// pass for coverage.
+  final List<String> unresolved;
+
   bool get reads => roots.isNotEmpty;
+
+  /// True when every root this guard declares is a shape nobody can read, which
+  /// is a different problem from declaring no root at all.
+  bool get onlyUnresolved => !reads && unresolved.isNotEmpty;
 }
 
 /// A sweep is any test that reads another file's source text.
@@ -301,14 +415,41 @@ void main() {
     setUpAll(() {
       shipped = shippedDartFiles();
 
-      // Every tracked test, read through the same enumeration the rest of this
-      // file uses, so a guard that lives outside `test/` would still be seen.
+      // Every test file **on disk**, not only the tracked ones. Measured on this
+      // tick: a brand-new guard written as a runtime-built root was completely
+      // invisible to this census while it sat untracked, because the
+      // enumeration below read `git ls-files`. That is the silent-guard hole in
+      // its purest form — the exact moment a new app rule is added is the moment
+      // nothing would notice it is unmeasured.
+      //
+      // `.dart` files on disk only. A build artifact left under `test/` would
+      // otherwise be censused as a guard, and a *tracked* file missing from disk
+      // would be invisible here while still being real to `flutter test`.
       final ls = Process.runSync(
         'git',
         ['ls-files', '--', 'test/*.dart'],
         workingDirectory: Directory.current.path,
       );
       expect(ls.exitCode, 0, reason: 'git ls-files failed (${ls.stderr})');
+      final tracked = (ls.stdout as String)
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty && l.endsWith('.dart'))
+          .toList();
+      final onDisk = Directory('test')
+          .listSync(recursive: true, followLinks: false)
+          .whereType<File>()
+          .map((f) => f.path.replaceAll('\\', '/'))
+          .where((p) => p.endsWith('.dart'))
+          .toList();
+      final untrackedOnly = onDisk
+          .where((p) => !tracked.contains(p) && !p.contains('/.dart_tool/'))
+          .toList()..sort();
+      expect(untrackedOnly, isEmpty,
+          reason: 'these Dart files sit under test/ but are not tracked by git, '
+              'so this census — and every `git ls-files` sweep in the repo — '
+              'cannot see them. A guard written but not added is a rule nobody '
+              'is enforcing:\n${untrackedOnly.join('\n')}');
 
       sweeps = {};
       for (final rel in (ls.stdout as String).split('\n')) {
@@ -316,7 +457,8 @@ void main() {
         if (path.isEmpty) continue;
         final src = File(path).readAsStringSync();
         if (!_isSourceSweep(path, src)) continue;
-        sweeps[path] = _Root(path, _rootsOf(src));
+        final read = _rootsOf(src);
+        sweeps[path] = _Root(path, read.roots, read.unresolved);
       }
     });
 
@@ -357,7 +499,13 @@ void main() {
       // how a floor stays satisfied by guards that watch nothing. Without a
       // floor the two cases below compare two empty sets and pass.
       final rooted = sweeps.values.where((s) => s.reads).length;
-      expect(rooted, greaterThanOrEqualTo(6),
+      // Raised 6 -> 10 on 3 Oct (21st), and deliberately *not* to 14: teaching
+      // the reader the list-literal and post-`main` shapes takes every
+      // recognised sweep to a root except `tool_clock_seam_test.dart`, whose
+      // single root is runtime-built and pinned by name instead. A floor that
+      // reached 14 would be satisfied by nothing the reader does not already
+      // guarantee, so it would stop being a floor.
+      expect(rooted, greaterThanOrEqualTo(10),
           reason: 'only $rooted of ${sweeps.length} recognised sweeps declare '
               'a root this census models, so the coverage below compares two '
               'nearly empty sets and reads as a clean box.\n'
@@ -366,6 +514,40 @@ void main() {
               'A sweep that walks `Directory lib = Directory(\'lib\')` or '
               '`Directory(root)` is a real guard with an unmodelled shape — '
               'teach `_rootsOf` that shape rather than lowering this floor.');
+    });
+
+    test('the app-wide guards really walk lib/, by name', () {
+      // The hole the previous tick recorded, as a fact about named guards rather
+      // than a count. Five recognised sweeps declared no root the census could
+      // model while walking `lib/` all the same, so "the census is green" and
+      // "the empty-text rule has no guard" were the same box at the same time.
+      //
+      // Which guards must be app-wide is a claim about each rule, so it is
+      // stated per guard rather than inferred from a directory listing: a rule
+      // that legitimately reads one screen says so here, and the sweep cannot
+      // silently narrow on someone else's say-so.
+      const appWide = <String, String>{
+        'test/no_empty_text_site_test.dart': 'every user-visible Arabic string',
+        'test/snack_rule_sweep_test.dart': 'every messenger call',
+        'test/type_scale_test.dart': 'every type style',
+        'test/motion_test.dart': 'every duration token',
+        'test/contrast_tokens_test.dart': 'every colour token pair',
+        'test/header_trust_wiring_test.dart': 'every header trust signal',
+      };
+      final narrowed = <String>[];
+      for (final guard in appWide.entries) {
+        final roots = sweeps[guard.key]?.roots ?? const <String>[];
+        if (!roots.contains('lib')) {
+          narrowed.add('${guard.value} -- ${guard.key}\n'
+              '    roots it declares: '
+              '${roots.isEmpty ? 'none' : roots.join(', ')}');
+        }
+      }
+      expect(narrowed, isEmpty,
+          reason: 'these guards enforce an app-wide rule but no longer walk '
+              '`lib/` itself. Beside `lib/src/`, that leaves `lib/main.dart` -- '
+              'the entry point -- read by nobody, which is the exact defect this '
+              'file exists for:\n${narrowed.join('\n')}');
     });
 
     test('every Dart file the app ships is read by some sweep', () {
@@ -433,6 +615,98 @@ void main() {
               'not model, so their coverage is neither measured nor claimed. '
               'Teach it the shape in `_rootsOf` and add the root to '
               '_knownRoots.\n${unknown.join('\n')}');
+    });
+
+    test('no guard roots itself in a shape this census cannot read', () {
+      // The silent-guard hole, closed by name rather than by count.
+      //
+      // `_knownUnmodelled` is the whole point of being a map: a root the reader
+      // cannot resolve is fine **as long as it is the one root we know about and
+      // the guard that uses it is the one guard we know**. The day a *second*
+      // guard builds a root at runtime -- or the day this one adopts it for a
+      // root that carries app coverage -- it stops being a known unknown and
+      // starts being an unmeasured guard, which is the state that lets a rule
+      // go dark unnoticed.
+      // Direction 1 — a pin that is now stale. The reader grew shapes this
+      // tick, so if it can resolve a guard that was registered as unmodellable,
+      // the exception has outlived its reason and must be deleted or the next
+      // real shape gets waved through behind it.
+      // The pin names an exact unresolved root, not merely the guard: a guard
+      // can hold one readable root *and* one runtime-built root, and it is the
+      // second that needs an exception. Measured 3 Oct (21st): the first draft
+      // of this case pinned per guard and went red on the clean tree, because
+      // `tool_clock_seam_test.dart` declares `*.py` as well and so reads as
+      // resolvable — a stale-pin check that fires on a correct tree is a check
+      // nobody keeps running.
+      final stale = <String>[];
+      for (final pin in _knownUnmodelled.entries) {
+        final sweep = sweeps[pin.key];
+        if (sweep == null) {
+          stale.add('${pin.key} -> ${pin.value}\n'
+              '    pinned but the census no longer recognises the file as a '
+              'sweep at all — delete the pin');
+          continue;
+        }
+        if (!sweep.unresolved.contains(pin.value)) {
+          stale.add('${pin.key} -> ${pin.value}\n'
+              '    pinned, but the guard\'s unresolved roots are now '
+              '${sweep.unresolved.isEmpty ? 'none' : sweep.unresolved.join(', ')}\n'
+              '    ${_whyUnmodelled[pin.key] ?? ''}');
+        }
+      }
+      expect(stale, isEmpty,
+          reason: 'these known-unmodelled pins no longer match the tree, so an '
+              'exception that outlived its reason is waving through a real '
+              'shape:\n${stale.join('\n')}');
+
+      // And nothing may acquire an unresolved root without a pin. This is the
+      // direction that closes the hole: a *new* guard that builds its root at
+      // runtime is not tolerated on the strength of an old guard's exception.
+      final unpinned = <String>[];
+      for (final sweep in sweeps.values) {
+        for (final spec in sweep.unresolved) {
+          if (_knownUnmodelled[sweep.file] != spec) {
+            unpinned.add('${sweep.file} -> $spec');
+          }
+        }
+      }
+      expect(unpinned, isEmpty,
+          reason: 'these guards declare a runtime-built root that no pin in '
+              '`_knownUnmodelled` covers, so their coverage is unmeasured and '
+              'invisible. Pin it by name if it carries no app coverage; teach '
+              '`_rootsOf` the shape if it does:\n${unpinned.join('\n')}');
+
+      // Direction 2 — a guard with no root at all and no pin. This is the hole
+      // the previous tick recorded: five recognised sweeps declared nothing the
+      // census could model while walking `lib/` all the same, so a rule added
+      // to any of them could go dark without a word here.
+      final unregistered = sweeps.values
+          .where((v) => !v.reads && !v.onlyUnresolved)
+          .map((v) => v.file)
+          .toList()..sort();
+      expect(unregistered, isEmpty,
+          reason: 'these guards declare no root this census models and are '
+              'not pinned in `_knownUnmodelled`, so they contribute no '
+              'coverage and no one can see that:\n'
+              '${unregistered.join('\n')}');
+
+      // Direction 3 — the one that actually matters, and the assertion the
+      // previous tick could not make: a guard carrying one of the app's own
+      // rules must never be one whose root nobody can read. Before this tick
+      // that check did not exist *because five of the seven named guards would
+      // have failed it.*
+      final unreadable = <String>[];
+      for (final guard in _appRuleGuards.entries) {
+        final sweep = sweeps[guard.key];
+        if (sweep == null || sweep.reads) continue;
+        unreadable.add('${guard.value}\n    ${guard.key}\n'
+            '    ${sweep.onlyUnresolved ? 'root is runtime-built and unmodelled' : 'declares no root at all'}');
+      }
+      expect(unreadable, isEmpty,
+          reason: 'a guard carrying one of the app\'s own rules has a root '
+              'this census cannot read, so its coverage is unmeasured and a '
+              'rule added there goes dark unnoticed:\n'
+              '${unreadable.join('\n')}');
     });
 
     test('the census would have caught the blind spot it was written for', () {
