@@ -845,12 +845,13 @@ class _ReferenceApplied extends RecursiveAstVisitor<void> {
     // collection's own elements to whatever comes next, which is the same
     // reachability the first branch certifies, one syntactic step out.
     //
-    // Its limit is stated rather than papered over: this credits *reading the
-    // collection*, not reading each element, so a guard that lists a rule and
-    // then does nothing with it is credited here. That is a real weakening and
-    // it is the price of not crediting the **one-character fragment `'/'`**
-    // instead -- see [visitSimpleStringLiteral]. The census case below pins
-    // which guards take this branch, so the limit is measured, not assumed.
+    // **The stated limit of this branch was removed on the 31st tick, by
+    // measuring it.** It used to credit *reading the collection* and said so --
+    // "a guard that lists a rule and then does nothing with it is credited
+    // here" -- and the census pinned which guards took the branch without ever
+    // asking the question that mattered: whether those guards then *use* the
+    // element. Answered by `_CountingIds`, below, and it is the only guard in the
+    // tree that takes this branch.
     if (!applied && _readsOut(node.target)) {
       applied = true;
       via = node.methodName.name;
@@ -888,11 +889,40 @@ class _ReferenceApplied extends RecursiveAstVisitor<void> {
     // gate. It is dev-only test code reading a dev-only AST.
     // ignore: experimental_member_use
     final String src = parts.iterable2.toSource();
+    // **The body must use the element, not merely bind it — 31st tick.**
+    // This branch used to stop at the loop: reading `liveKeys.keys` out is
+    // proof that the collection is reachable, and nothing more. A guard written
+    // as `for (final String route in liveKeys.keys) { }` -- empty body, the
+    // rule enumerated and then dropped -- was credited as enforcing it. Its own
+    // comment admitted that ("it credits reading the collection, not reading
+    // each element"), and the census measured *which* guard took the branch
+    // without ever asking whether the body acted on the element.
+    //
+    // **Measured, not assumed:** exactly one guard in the tree takes this branch
+    // -- `payload_coverage_test.dart`, whose body reads its loop variable **3**
+    // times (`'$sq$route'`, then two `lib.contains` calls). So closing the hole
+    // costs nothing, and it closes a hole that was open on the one branch
+    // nothing else in the reader covers.
+    //
+    // `_CountingIds` counts **identifier reads**, not appearances: the loop
+    // variable's own declaration is outside the body, so every occurrence in
+    // there is a read. It walks statements, not the body source text, so a
+    // mention inside a *comment* does not count as use — and a guard cannot buy
+    // credit by documenting that it would have used the element.
     if (src.contains('$name.keys') ||
         src.contains('$name.values') ||
         RegExp('$name\\s*\\[').hasMatch(src)) {
-      applied = true;
-      via = 'for-in';
+      final String? loopVar = _loopVariable(parts);
+      final _CountingIds body = _CountingIds(loopVar ?? '<none>');
+      node.body.accept(body);
+      // The count travels in `via` so the census prints it: `for-in(3)` is a
+      // measurement of how hard this branch had to work, and a future tick that
+      // sees the guard at `for-in(0)` sees that the rule stopped being applied
+      // rather than having to re-derive it.
+      if (body.hits > 0) {
+        applied = true;
+        via = 'for-in(${body.hits})';
+      }
     }
     super.visitForStatement(node);
   }
@@ -907,6 +937,53 @@ class _ReferenceApplied extends RecursiveAstVisitor<void> {
       via = 'RegExp';
     }
     super.visitInstanceCreationExpression(node);
+  }
+}
+
+/// The name a `for (final T x in ...)` binds, or `null` when the head is a
+/// pattern (`for (final (a, b) in ...)`), which cannot be counted by name.
+///
+/// Two head forms exist in analyzer 14.4.0 and they do not share a getter:
+/// `ForEachPartsWithDeclaration.loopVariable` is a `DeclaredIdentifier`, and
+/// `ForEachPartsWithIdentifier` exposes it as the **experimental** token
+/// `identifier2` — its `identifier` getter is `@ToBeDeprecated`. A pattern head
+/// returns `null` on purpose: a destructuring loop still reads its elements, but
+/// "did the body use the element" is then a question about a *pattern
+/// variable*, and there is no such loop in the tree to be honest about.
+String? _loopVariable(ForEachParts parts) {
+  if (parts is ForEachPartsWithDeclaration) {
+    return parts.loopVariable.name.lexeme;
+  }
+  if (parts is ForEachPartsWithIdentifier) {
+    // ignore: experimental_member_use
+    return parts.identifier2.lexeme;
+  }
+  return null; // ForEachPartsWithPattern
+}
+
+/// How many times [name] is **read** inside a loop body.
+///
+/// This is the reader that closed the read-out hop's stated weakening, and it
+/// counts `SimpleIdentifier` nodes rather than matching the body as text for a
+/// reason: in a text match, `for (final route in liveKeys.keys) { /* check
+/// route */ }` is identical to a body that checks nothing, because the comment
+/// carries the name. Here the visitor only ever reaches expressions that
+/// resolved to code, so a guard cannot buy enforcement by documenting the use it
+/// did not make.
+///
+/// It is deliberately a *count* and not a boolean so the failure message can
+/// print it: `USED(0)` is a different claim from "no for-in found", and the
+/// message in the census case says which.
+class _CountingIds extends RecursiveAstVisitor<void> {
+  _CountingIds(this.name);
+
+  final String name;
+  int hits = 0;
+
+  @override
+  void visitSimpleIdentifier(SimpleIdentifier node) {
+    if (node.name == name) hits++;
+    super.visitSimpleIdentifier(node);
   }
 }
 
@@ -1783,7 +1860,8 @@ void main() {
       // rather than described.
       final List<MapEntry<String, String>> referenceApplied =
           byMechanism.entries
-              .where((e) => e.value.endsWith('()') || e.value == 'for-in')
+              .where((e) =>
+                  e.value.endsWith('()') || e.value.startsWith('for-in'))
               .toList()
             ..sort((a, b) => a.key.compareTo(b.key));
       // **The expected name is matched with `endsWith`, not written as a
@@ -1814,6 +1892,126 @@ void main() {
       expect(byMechanism, isNotEmpty,
           reason: 'no guard was classified at all, so this census is measuring '
               'nothing and would stay green against a tree it cannot see.');
+    });
+
+    test('the read-out hop credits a loop that uses its element, not one that '
+        'binds it', () {
+      // **The 31st tick's item, and the last unmeasured claim the AST census
+      // made about itself.** `_ReferenceApplied` read a collection out with
+      // `for (final x in liveKeys.keys)` and called that enforcement, and its
+      // comment said the limit out loud: "it credits *reading the collection*,
+      // not reading each element, so a guard that lists a rule and then does
+      // nothing with it is credited here."
+      //
+      // A stated weakening in the reader whose entire job is separating applied
+      // tokens from written-down ones is not a caveat, it is the one branch that
+      // certifies enforcement on its own. Every other hop in this file is
+      // falsifiable -- a wrong reader there reds a correct tree, loudly, and
+      // three wrong readers here already did. This one failed the *other* way:
+      // it stayed green against a guard that enforced nothing.
+      //
+      // **Measured before changing anything** (throwaway probe over all ten
+      // censused guards, deleted after the capture). Exactly one guard reaches a
+      // token through this hop:
+      //
+      //   payload_coverage_test.dart  owner=liveKeys  via=for-in
+      //       body reads `route` 3 times  ->  '$sq$route', then two
+      //       lib.contains() calls
+      //   layering_test.dart          owner=_forbidden via=contains (not this hop)
+      //
+      // So the tightening costs nothing: the one guard on the branch uses its
+      // element three times, and it is now credited *because* it does.
+      //
+      // Three directions are pinned, because the hole had two mouths:
+      //
+      //   1. the real guard is still credited, and **with its read count**, so a
+      //      body that quietly stopped using the element shows as `for-in(0)`
+      //      rather than vanishing;
+      //   2. a for-in that reads the collection out with an **empty body** is
+      //      NOT credited -- the planted case below;
+      //   3. a body that only *mentions* the loop variable inside a **comment**
+      //      is not credited either, so a guard cannot buy enforcement by
+      //      documenting the use it did not make.
+      const String owner = 'liveKeys';
+      final File guard =
+          File('test/payload_coverage_test.dart');
+      expect(guard.existsSync(), isTrue,
+          reason: 'the one guard on the read-out hop is gone, so the branch is '
+              'unexercised and a passing census would be measuring nothing.');
+
+      // Direction 1 -- the live guard, counted.
+      final _ReferenceApplied real = _ReferenceApplied(owner);
+      // `parseString` returns the wrapper type from the parser library, which
+      // is not re-exported here; `var` is deliberate rather than lazy.
+      var realUnit =
+          parseString(content: guard.readAsStringSync(), throwIfDiagnostics: false);
+      realUnit.unit.accept(real);
+      expect(real.applied, isTrue,
+          reason: '`payload_coverage_test.dart` reads `liveKeys` out in a '
+              'for-in and uses each route three times; if that stopped being '
+              'credited the rule would fall back to a literal match that finds '
+              'nothing. via=${real.via}');
+      expect(real.via, matches(RegExp(r'^for-in\([1-9]')),
+          reason: 'the read-out hop now records how many times the loop body '
+              'read its element, so `for-in(0)` is visible as a rule that '
+              'stopped being applied rather than as a silent pass. Actual: '
+              '${real.via}');
+
+      // Directions 2 and 3 -- the two ways the branch used to pass a dead
+      // guard, planted as source and read by the same visitor. Both are written
+      // here as text rather than as AST so the *reader* is under test, not the
+      // parser.
+      const String boundOnly = '''
+const Map<String, List<String>> liveKeys = {'/api/mobile/workers/top': ['id']};
+void main() {
+  final List<String> unused = <String>[];
+  for (final String route in liveKeys.keys) {
+    unused.add('');
+  }
+}
+''';
+      const String commentOnly = '''
+const Map<String, List<String>> liveKeys = {'/api/mobile/workers/top': ['id']};
+void main() {
+  final List<String> unused = <String>[];
+  for (final String route in liveKeys.keys) {
+    // the loop must use route
+    unused.add('');
+  }
+}
+''';
+      const String genuinelyUsed = '''
+const Map<String, List<String>> liveKeys = {'/api/mobile/workers/top': ['id']};
+void main() {
+  final List<String> unused = <String>[];
+  for (final String route in liveKeys.keys) {
+    unused.add(route);
+  }
+}
+''';
+      for (final (String label, String src) in <(String, String)>[
+        ('bound-only', boundOnly),
+        ('comment-only', commentOnly),
+      ]) {
+        var planted =
+            parseString(content: src, throwIfDiagnostics: false);
+        final _ReferenceApplied probe = _ReferenceApplied(owner);
+        planted.unit.accept(probe);
+        expect(probe.applied, isFalse,
+            reason: 'a for-in that reads a collection out but never reads its '
+                'loop variable ($label) is a guard that lists a rule and then '
+                'does nothing with it. Crediting it is the false credit this '
+                'branch existed to serve; via=${probe.via}');
+      }
+      var good =
+          parseString(content: genuinelyUsed, throwIfDiagnostics: false);
+      final _ReferenceApplied ok = _ReferenceApplied(owner);
+      good.unit.accept(ok);
+      expect(ok.applied, isTrue,
+          reason: 'a loop that really uses its element must stay credited -- '
+              'the tightening is not a way of making the branch silent.');
+      expect(ok.via, 'for-in(1)',
+          reason: 'and the read count is the measurement, not a decoration.');
     });
 
     test('the applier list is what the tree uses, not what it could use',

@@ -18357,3 +18357,90 @@ root, and keeps its description.
       comparison, an expect, a push), or only bind it? Same method as this
       tick — measure before writing the assertion, because the last three
       readers in this file that guessed went red on a correct tree.
+
+## Tick 3 Oct 2026 (31st) — the read-out hop credited a loop that bound its
+## element and did nothing with it
+
+**Item:** the 30th tick's "Next", and the last unmeasured claim the AST census
+made about itself. `_ReferenceApplied` credits a rule read out of a collection
+with `for (final x in liveKeys.keys)`, and its own comment stated the limit:
+*"it credits **reading the collection, not each element**, so a guard that lists
+a rule and then does nothing with it is credited here."*
+
+That is not a caveat. It is the **only** hop in the reader that certifies
+enforcement on its own, and it failed in the direction the other hops cannot:
+a wrong reader in `_ReferenceApplied`'s call-target branch reds a *correct* tree
+(loudly — three such wrong readers already did, and are written up above). This
+one stayed **green against a guard that enforced nothing**. The census measured
+*which* guard took the branch, pinned by name, and never asked whether the body
+acted on the element.
+
+**Measured before writing the assertion**, with a throwaway AST probe over all
+ten censused guards (`dart run`, no build; deleted after the capture, not in the
+commit). Exactly one guard reaches a token through this hop:
+
+| guard | owner | hop | body reads the loop variable |
+| --- | --- | --- | --- |
+| `payload_coverage_test.dart` | `liveKeys` | `for-in` | **3** |
+| `layering_test.dart` | `_forbidden` | `contains` (not this hop) | — |
+
+Three reads, not one: `'$sq$route'` builds the quoted form, then two
+`lib.contains` calls consume it. So **closing the hole costs nothing** — the
+single guard on the branch already does the thing the branch was crediting it
+for without checking.
+
+**Shipped.** The `for-in` branch now requires the body to *read* the loop
+variable: `_loopVariable(parts)` names it and `_CountingIds` counts identifier
+reads inside the body, so the hop is credited **because** the element is used.
+Two consequences worth writing down:
+
+* It counts **reads, not appearances**, and it walks the AST rather than
+  matching the body as text. A guard cannot buy credit by *mentioning* its
+  element in a comment — `// the loop must use route` — which is the shape a
+  text match would have accepted and this one rejects. The count is also
+  carried in `via` as `for-in(3)`, so the census prints the measurement and a
+  future tick sees `for-in(0)` as a rule that stopped being applied rather than
+  as a silent pass.
+* `_loopVariable` returns `null` for a **pattern** head
+  (`for (final (a, b) in …)`) on purpose. There is no such loop in the tree, and
+  "did the body use the element" is then a question about a pattern variable;
+  pretending to answer it would be the guessing this file keeps paying for.
+
+**Falsifiable both ways, planted and reverted.** Three plants in the new case,
+all under the same reader:
+
+1. *bound-only* — `for (final route in liveKeys.keys) { unused.add(''); }`.
+   Under the old behaviour: `Expected: false / Actual: <true>`, `via=for-in(0)`.
+   **`for-in(0)` is the old behaviour's signature**: it credited the hop having
+   read zero elements, which is exactly the claim the comment disclaimed.
+2. *comment-only* — the same loop with the use written down instead of written:
+   reds on the same expectation.
+3. *genuinely-used* — `unused.add(route)`: stays credited at `for-in(1)`, so the
+   tightening is not a way of making the branch silent.
+
+A fourth falsification is the useful one: reverting only the *condition* (the
+count neutralised rather than the branch restored) makes the sibling case
+**"every rule token is applied to source"** go red and name
+`payload_coverage_test.dart / /api/mobile/workers/top` as a token that reaches
+nothing. **The tightened reader is what keeps that guard honest**, so the fix
+is load-bearing, not cosmetic.
+
+**One own-bug, left in the source.** `final var realUnit = …` — I copied the
+spelling out of the *prose* of the sibling case, where `var` is deliberate
+because `parseString`'s wrapper type is not re-exported by this file. `final`
+plus `var` does not compile. Caught by the gate, fixed in the same tick.
+
+**Files:** `test/app_source_scope_test.dart` (+207 / −9). Not visual: no
+screenshot, no APK, no release, no tag — this is the loop's own instrument, not
+app surface.
+
+**Gate:** `flutter analyze` → **No issues found!** (12.9 s) · the file's 16 cases
+pass · full suite **+2114 ~8 All tests passed! in 13:21** (`tool/run_tests.py`, PASS), up from +2113, 0 failures.
+
+**Next:** the census has no unchecked claim left about *itself*, which means the
+instruments are no longer where the remaining risk is. The open user-visible
+item is the class the monogram tick explicitly refused to call clean — stored
+strings measured by their first character anywhere outside the avatar
+(`runes.first` / `name[0]` / `substring(0,1)` on a user-supplied string). The
+`grep` over `lib/` is already done and comes back near-empty, so that item needs
+its own measurement, not another grep.
