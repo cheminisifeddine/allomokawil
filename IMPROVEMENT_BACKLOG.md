@@ -17862,3 +17862,106 @@ root, and keeps its description.
       hand, and the rule it is named for has quietly stopped applying to the
       files it walks. The evidence map proves a rule is *present*, not that it
       is *applied*.
+
+- [x] **The tempo rule could not see a duration the formatter had wrapped, and
+      the evidence map could not tell whether a guard *applied* its rule or only
+      *named* it.** `a525c40` -> remote `eef6531`.
+
+      **The claim from the 25th tick was wrong, and checking it is half the
+      item.** That tick's "Next" said `motion_test.dart` "still holds
+      `duration:\s*(?:const\s+)?Duration(` after its offender list was emptied
+      by hand, and the rule has quietly stopped applying". The *first* half is
+      true -- the list was emptied by hand and the literal is there. The
+      *conclusion* is false: planted `duration: const Duration(milliseconds:
+      777),` on one line in `lib/src/widgets/category_grid.dart` and the guard
+      **fired**, naming line 74. So the rule was applying. Nothing had stopped
+      applying, and a report that shipped that would have sent the next tick
+      hunting a defect that does not exist.
+
+      **The defect that does exist is one layer down, and the same planting
+      found it.** The guard read app source with `readAsLinesSync()` and applied
+      its patterns to `lines[i]`, one line at a time. Its pattern is
+      `duration:\s*(?:const\s+)?Duration(` -- and `\s` matches a newline, so the
+      rule was written to span a line break and could then never match one.
+      Wrapped over two lines, the same plant gave **+14 All tests passed!**.
+
+      **That shape is not a dodge.** It is exactly what `dart format` emits at
+      its 80-column break, **51** argument labels in this tree already sit alone
+      on a line for that reason, and `.github/workflows/android-release.yml`
+      runs pub get / analyze / test and then builds -- nothing ever runs
+      `dart format`, so the shape arrives on its own. A rule enforcing "no
+      screen types its own duration" could not see one.
+
+      *Shipped.* `test/support/source_text.dart` (+207) owns the scan unit:
+      `ruleHits` matches over the whole comment-blanked file and reports the
+      line a match **starts** on, so a wrapped call is one offence, not three.
+      The two patterns are unchanged on purpose -- only the unit they are
+      applied over changed. A third pattern for a *positional* `Duration(...)`
+      was written and cut: 14 real timeouts live in `lib/` (a geocode that
+      times out, a minute-age timer) and widening it would catch those too,
+      which is a different rule needing its own proof.
+
+      **One reader, not two.** `_blankComments` was extracted from
+      `app_source_scope_test.dart` verbatim into the shared file with a
+      `blankStrings` flag: the census keeps string bodies because the thing it
+      reads *is* one (a root is `Directory('lib')`), the tempo rule blanks them
+      because an Arabic string holding `Duration(` is copy. Parity was
+      **measured, not assumed**: a throwaway case ran HEAD's implementation
+      beside the new one over a real 58 KB source file and compared byte for
+      byte, same length, zero differing offsets. It caught a genuine bug on the
+      way -- the first extraction blanked a string body under `blankStrings:
+      false` and lost 101 bytes, which would have quietly deleted the census's
+      `lib/*.dart` root. Two readers of "the code, not the prose" is the defect
+      this repository has now paid for three times.
+
+      **And the classifier was bitten again, by this tick's own file.**
+      `_isSourceSweep` read raw source, and `support/source_text.dart`
+      *documents* the per-line motion scan -- so its doc comment quotes
+      `readAsLinesSync()` and `lib/src/widgets/category_grid.dart:74`. Read raw,
+      a helper that reads a string and returns offsets was classified as a
+      guard reading app source, and the census failed asking where it walks.
+      Fixed by splitting the halves rather than blanket-blanking: the
+      `readAsStringSync` half is read from comment-blanked source, the `lib`
+      half stays on raw source **on purpose** -- `tool_clock_seam_test.dart`
+      names `lib/` only in its opening comment, and blanking that half too
+      dropped a censused guard (two cases went red). Prose must not make a
+      reader *look like* a guard; prose must still let a guard *be* one.
+
+      *One wrong assertion of my own, corrected rather than deleted.* The new
+      case first expected three hits and counted an Arabic string as one, so
+      it proved nothing -- it would have passed with the comment counted and the
+      real call missed. Rewritten to expect exactly one hit (the wrapped real
+      call) and to assert the hit line contains `duration:`.
+
+      **Gate.** `flutter analyze` -> **No issues found!** (17.8 s), after
+      `dart format` on all three files. `motion_test.dart` alone -> **+15**
+      (up from 14). `app_source_scope_test.dart` -> **+11**, unchanged.
+      Full `tool/run_tests.py` -> **HUNG at the 1200 s deadline**, **+1901
+      ~8**, dying in `test/unread_round_trip_test.dart` on the known 30 Sep
+      cross-file teardown deadlock (`Bad state: Cannot close sink while adding
+      stream`, then a `PathNotFoundException` deleting the listener dir) that
+      the backlog records as landing on a different file each run. **Classified,
+      not assumed:** the five files spanning the stall point -- including both
+      files this tick touched -- pass together at **+38, All tests passed!**
+      Prior full green is +2103/17:41, so the count is degraded by that
+      pre-existing deadlock, not by this change. **Not visual**: no widget or
+      pixel changed, so no screenshot is claimed. No APK, release or tag.
+
+      **Also recorded, not fixed here:** `/tmp` is a **512 M tmpfs** and was at
+      **100 %** when this tick started, left by dead-project artifacts
+      (`/tmp/ziptest` 248 M, `/tmp/winetest` 97 M, a 98 M winetests zip). It
+      cost a backup write mid-tick. Cleared to 12 %, but nothing reaps it and
+      the next tick will meet it again.
+
+      **Commits.** `a525c40` (local) -> remote `eef6531`;
+      `tool/remote_state.py` -> **tree IN SYNC**, identical tree `05d1a53`.
+
+      **Next:** the evidence map now proves a guard *applies* what it names --
+      at least for the one rule that read its subject at the wrong granularity.
+      But it cannot prove the other half: `motion_test.dart`'s two patterns are
+      still *literals in a file*, and nothing checks that a duration written
+      any other way is caught. The obvious next one is named in the code as
+      deliberately out of scope: a **positional** `Duration(...)` is a real
+      animation duration in a widget but a real timeout everywhere else, so
+      distinguishing them needs a shape-aware reader rather than a wider regex,
+      and 14 legitimate `Duration(seconds: N)` values must keep passing.
