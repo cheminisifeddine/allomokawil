@@ -18029,3 +18029,90 @@ root, and keeps its description.
       strings (`/api/mobile/workers/top`, `quoteLimit|quotesUsedThisMonth`)
       marked as such. That is a real census change with a real red risk, not a
       one-liner. A positional `Duration(...)` remains deliberately out of scope.
+
+- [x] **The 27th tick's proposed fix for the map hole was measured, and it is
+      unsatisfiable — every token in `_ruleEvidence` is a string by
+      construction.** `a6e2ae3` → remote `0c51b2a`.
+
+      **Found by measuring the stated next step before writing any of it.** The
+      27th tick closed its item honestly and left the map hole *documented*:
+      "Closing it means reading `_ruleEvidence` tokens with the **sweep's**
+      reader (strings blanked) and requiring each token to survive in code, with
+      the handful of tokens that are legitimately strings (`/api/mobile/workers/
+      top`, `quoteLimit|quotesUsedThisMonth`) marked as such."
+
+      **That premise is wrong, and it was wrong in the safest possible way to
+      discover — by running it.** The census says "a handful" are legitimately
+      strings. Measured over the whole map:
+
+      ```
+      STRL  map:yes test/type_scale_test.dart      fontSize:\s*
+      STRL  map:yes test/card_recipe_test.dart      BorderRadius\.circular
+      ...  13 of 13, without exception
+      ```
+
+      **Every token is a Dart string literal by construction.** `r'fontSize:\s*'`
+      and `'ScaffoldMessenger'` are both *strings*, and `blankComments(src)`
+      blanks string bodies, so it blanks the token itself. There is no handful
+      to allow and no exception to mark: the clause would red on **all 13**
+      entries. Shipping it would have turned `app_source_scope_test.dart` red
+      on every commit, permanently, in exchange for checking nothing.
+
+      **The second attempt looked shippable and still produced a real red.**
+      The actual question — a token held alive *only* by an `expect(...)` that
+      compares it back to this map — was implemented, including a paren-matching
+      `_expectSpans` reader. It failed:
+
+      ```
+      carries `NotificationCountTrust\s*\(` only inside `expect(...))`
+      ```
+
+      on `header_trust_wiring_test.dart`. **The red was the helper being wrong,
+      not the guard.** That guard reads
+      `expect(RegExp(r'NotificationCountTrust\s*\(').hasMatch(sources), isTrue)`
+      — the token is *applied* to the app's source to decide the assertion. An
+      `expect(...)` is where a rule's verdict is delivered; it is not the
+      opposite of enforcing one. The obvious discriminator red-lit a correct,
+      deliberately source-based guard, and the rule was reverted.
+
+      **Two of my own mistakes are recorded rather than deleted**, because both
+      are the trap the item is about and a later tick will meet them again:
+
+      * **The discriminator has to look both ways.** `code.contains(token)` puts
+        the call *before* the token, so a window reading only *after* the match
+        misses it; `RegExp(r'''…''')` puts a raw marker between the paren
+        and the pattern, so a window reading only *before* misses that too. An
+        intermediate version scored 7 of 13 guards "bare" — it was measuring its
+        own window, not the tree.
+      * **A second raw string is still a string.** `contrast_tokens` and
+        `quote_count_copy` apply their tokens via `RegExp(...).allMatches(src)`,
+        where the token lives in a *different* raw string than the map's copy.
+        Both of my plants put the token in another raw string and in adjacent
+        literals; neither turned the wire red, because **neither produced code
+        at all**.
+
+      **Why the shipped case asserts a census rather than a behaviour.** For 10
+      of the 13 entries the obvious shape — "this token must not appear in
+      code" — is **unfalsifiable**: their tokens are regex-shaped, and regex
+      text in Dart cannot exist outside a string or a comment, both of which
+      the reader blanks. Two plants proved it. An assertion that cannot fail is
+      not a test, so what ships asserts what the conclusion rests on: the tokens
+      are string-shaped, and the single identifier-shaped branch asserts the
+      sweep reader *erases* such a token. **Verified falsifiable** — planting
+      `washTokenShape` as an identifier in `contrast_tokens_test.dart` and
+      pointing the map entry at it went red with the intended message, then
+      reverted.
+
+      **Gate:** `flutter analyze` → **No issues found!** (6.6 s) ·
+      `app_source_scope_test.dart` **+12** · full suite **+2109 ~8 All tests
+      passed! in 13:00** — up from +2108. Both plants reverted; `lib/` and
+      every other test file clean; nothing visual, so no screenshot and no
+      build.
+
+      **Next:** the map still cannot separate *enforced in code* from *written
+      down*, and it is now recorded as **requiring a parser rather than a
+      character window** — the analyzer AST, which can see that
+      `RegExp(x).hasMatch(sources)` uses a token and that a bare string does
+      not. That is a larger piece of work than one 10-minute cycle and should
+      be started as its own item. Do not re-attempt it with a wider or stricter
+      window: that is the two mistakes above, and both were measured.
