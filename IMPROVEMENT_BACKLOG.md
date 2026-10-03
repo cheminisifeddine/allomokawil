@@ -17707,3 +17707,84 @@ censused, rooted and readable. Nothing checks the reverse: a guard added to
 a real app rule, and the census records its root and credits its coverage while
 its rule is absent from every by-name list here. The floor (`rooted >= 10`) rises
 with it, so a tenth unreported rule looks exactly like a tenth covered one.
+
+## Tick 3 Oct 2026 (24th) — a sweep carrying an app rule had to be named as one
+
+**Item:** the previous tick's "Next" — the other end of the coverage contract.
+The working tree was *not* clean at the start of this cycle: the 23rd's tick
+was cut mid-edit, leaving its work uncommitted in
+`test/app_source_scope_test.dart` (+193/-59). That is my own file, so the
+protocol's "do not touch another writer's work" exception did not apply and
+the item was finished rather than restarted.
+
+**The defect.** `_appRuleGuards` says which guards carry the app's own rules,
+and every case checked those guards were censused, rooted and readable.
+Nothing checked the **converse**. A sweep added to `test/` that walks app
+source with no entry in that map was free: the census recorded its root, every
+case credited its coverage, and the `rooted >= 10` floor went **up** with it.
+A tenth unreported rule looked exactly like a tenth covered one — the same box
+the count-based floor was replaced for, reached from the other side.
+
+**Shipped** (`test/app_source_scope_test.dart`, +193/-59).
+
+*"Carries an app rule" is measured, not judged.* A sweep whose root reaches
+Dart the app ships is enforcing something about app source. So either that
+something is named in `_appRuleGuards`, or the guard is exempted in a new
+`_guardsCarryingNoAppRule` with the reason it reads app source without
+carrying a rule. The exemption is not amnesty: the same case fails when an
+entry stops reading app source or stops being a recognised sweep, so a stale
+entry has to be deleted rather than left to rot.
+
+*One resolver, because two copies had already drifted.* The barren-root case
+and this one ask the same question — "does this root reach Dart the app
+ships?" — and were written as two copies, which is how one of them had grown a
+message the other could not produce. `_RootHit`/`_resolveRoot` now answer it
+for both, so a root one case calls covered cannot be called barren by the other.
+
+**Two real defects found on the first run, not planted ones.**
+
+1. `test/motion_test.dart` enforces one of the app's own rules — no screen may
+   type its own duration — while sitting in the `appWide` list and **nowhere
+   else**. A rule enforced in every build and described in no by-name list.
+   That is precisely the hole this case was written to close, living in the
+   file that closes it. Now named.
+2. The census itself reaches app source without carrying a rule: it holds the
+   map of the rules and reads `lib/` only to ask who else reads it. A census
+   listed in the map it reads would be measuring its own bookkeeping. Exempted
+   with that reason stated rather than assumed.
+
+**Red before green — and the first plant is the part worth recording.** The
+doc comment claimed the case was proved by planting. Verified rather than
+trusted, and the first plant was caught by the **known-shape** case while mine
+stayed green: a sweep reading `lib/src` through a helper and a
+`Directory(dir)` variable is a shape this reader does not model, so it landed
+on a *different* hole — exactly the trap the 23rd recorded. Re-planted in the
+modelled shape (a bare `Directory('lib/src')` literal) and the new case fired
+alone, with all seven others green:
+
+> `test/planted_unnamed_guard_test.dart` — reads 130 Dart file(s) the app
+> ships (`lib/src/app.dart`, `lib/src/core/app_scope.dart`, ...) through
+> `lib/src`, so it enforces something about app source — but no entry in
+> `_appRuleGuards` says which rule, and it is not exempted in
+> `_guardsCarryingNoAppRule`.
+
+Reverted with `git rm --cached` + `rm`; `git ls-files -- 'lib/*.dart'` back to
+131, re-run of the file green (`+10 All tests passed!`), tree clean.
+
+**Gate.** `flutter analyze` → **No issues found!** (9.8 s).
+`tool/run_tests.py` → **+2103 ~8 All tests passed!** (17:41), exit 0. Up one
+from 2102 — this case adds a test of its own. `~8` unchanged, nothing newly
+skipped. **Not visual**: a rule about which guards are named draws nothing, so
+no screenshot is claimed. No APK, release or tag.
+
+**Commits.** `9c367c4` (local) → remote `a7c0996`; `tool/remote_state.py` →
+**tree IN SYNC**, identical tree `a423dd3`, no uncommitted files.
+
+**Next:** the map is now two-way — every named guard is censused, and every
+sweep that reads app source is either named or exempted with a reason. But
+*named* is not *measured*: `_appRuleGuards` asserts each entry's rule in prose
+("the contrast-token rule") and nothing reads those strings back. The census
+can now prove a guard exists, reaches shipped Dart, and is listed — and still
+cannot tell that the rule written beside it is the rule the guard actually
+enforces. A guard rewritten to check something else keeps its entry, keeps its
+root, and keeps its description.
