@@ -209,6 +209,54 @@ const _appRuleGuards = <String, String>{
   'test/quote_count_copy_test.dart': 'the quote-count copy rule',
 };
 
+/// The literal each named guard must still carry to be the guard it is
+/// registered as.
+///
+/// **The map above asserts each rule in prose and, until this tick, nothing
+/// read those strings back.** So the census could prove a guard exists, reaches
+/// Dart the app ships and is listed -- and still could not tell that the rule
+/// written beside it is the rule that guard enforces. Rewrite
+/// `snack_rule_sweep_test.dart` to police `showDialog` and every case in this
+/// file stayed green: the file kept its entry, kept its root and kept the words
+/// "the snack rule: no second messenger outside the allowed wrappers" in a map
+/// three hundred lines away from the only place the truth lives. A named guard
+/// that no longer enforces its name is worse than an unnamed one, because the
+/// name is what a later tick reads to decide the rule is covered.
+///
+/// The fix is one literal per guard, read out of the guard's own **code**: the
+/// token its rule is written in. These are not samples chosen to be easy --
+/// each is the construct the rule turns on, so losing it means the rule is
+/// gone:
+///
+///   * the messenger rule turns on the one symbol no other screen may call;
+///   * the empty-text rule turns on the regex that matches a literal empty
+///     return, not on `_emptyReturning`, which is the *table* of function names
+///     and would survive a rule that stopped matching empties entirely;
+///   * the instrument seam turns on a **Python** path -- a guard reading Dart
+///     with the Dart rule is still a wrong rule;
+///   * the payload-coverage rule turns on a live endpoint, so renaming the
+///     route in the guard without updating the app is a failure.
+///
+/// Checked against `_blankComments`, never raw source: a guard that keeps the
+/// word in its doc comment while enforcing something else is the exact case
+/// here, and this file has already been bitten by prose shadowing code once
+/// (see `_rootsOf`).
+const _ruleEvidence = <String, List<String>>{
+  'test/snack_rule_sweep_test.dart': ['ScaffoldMessenger'],
+  'test/no_empty_text_site_test.dart': [r'return\s+('],
+  'test/wall_clock_seam_site_test.dart': ['DateTime.now()'],
+  'test/tool_clock_seam_test.dart': ['time.time_ns'],
+  'test/layering_test.dart': ["['data', 'screens', 'widgets']"],
+  'test/type_scale_test.dart': [r'fontSize:\s*'],
+  'test/card_recipe_test.dart': [r'BorderRadius\.circular'],
+  'test/motion_test.dart': [r'duration:\s*(?:const\s+)?Duration\('],
+  'test/contrast_tokens_test.dart': [r'wash: Color\(0xFF'],
+  'test/failure_reported_test.dart': [r'\bcatch\b'],
+  'test/header_trust_wiring_test.dart': [r'NotificationCountTrust\s*\('],
+  'test/payload_coverage_test.dart': ['/api/mobile/workers/top'],
+  'test/quote_count_copy_test.dart': ['quoteLimit|quotesUsedThisMonth'],
+};
+
 /// The literal roots a source sweep enumerates, read out of its own source.
 ///
 /// Every fix in this file's first draft was a failure of *this* reader rather
@@ -243,8 +291,8 @@ _Read _rootsOf(String source) {
   // A bare literal: `Directory('lib')`, `Directory("lib/src")`. Quotes are
   // required, so `Directory lib = Directory('lib')` below is a *different*
   // shape and is read by the next pattern -- both appear in this tree.
-  for (final m in RegExp(
-          r"""Directory\(\s*['"]([^'"]+)['"]""").allMatches(code)) {
+  for (final m
+      in RegExp(r"""Directory\(\s*['"]([^'"]+)['"]""").allMatches(code)) {
     roots.add(m.group(1)!);
   }
 
@@ -255,9 +303,9 @@ _Read _rootsOf(String source) {
   // walks the app from one that reads a single file. Some of those roots are
   // declared *after* `void main(` -- an enumeration inside a test body is
   // still the guard's root -- hence `code` rather than `scope`.
-  for (final m in RegExp(
-          r"""Directory\s+\w+\s*=\s*Directory\(\s*['"]([^'"]+)['"]""")
-      .allMatches(code)) {
+  for (final m
+      in RegExp(r"""Directory\s+\w+\s*=\s*Directory\(\s*['"]([^'"]+)['"]""")
+          .allMatches(code)) {
     roots.add(m.group(1)!);
   }
 
@@ -268,9 +316,9 @@ _Read _rootsOf(String source) {
   // pattern immediately after the flag -- as the first draft did -- could
   // never produce `*.py`, so the root `_knownRoots` has always listed for the
   // instrument sweeps described nothing that any sweep actually declares.
-  for (final m in RegExp(
-          r"""\[\s*['"]ls-files['"][^\]]*?['"]([^'"]+)['"]\s*\]""")
-      .allMatches(code)) {
+  for (final m
+      in RegExp(r"""\[\s*['"]ls-files['"][^\]]*?['"]([^'"]+)['"]\s*\]""")
+          .allMatches(code)) {
     roots.add(m.group(1)!);
   }
 
@@ -282,9 +330,9 @@ _Read _rootsOf(String source) {
   // the `<String>[…]` lists below, which are read on their own merits. Crediting
   // a root is a claim about coverage, so a shape that cannot read files is
   // excluded rather than counted as one.
-  for (final m in RegExp(
-          r"""Directory\(\s*['"]([^'"]+)['"]\s*\)\s*\.existsSync""")
-      .allMatches(code)) {
+  for (final m
+      in RegExp(r"""Directory\(\s*['"]([^'"]+)['"]\s*\)\s*\.existsSync""")
+          .allMatches(code)) {
     roots.remove(m.group(1)!);
   }
 
@@ -302,12 +350,14 @@ _Read _rootsOf(String source) {
   // -- `<String>[` -- because an untyped `[…]` is every list in the repo, and a
   // root read out of `['lib', 'lib/src/screens']` in some unrelated set is a
   // false credit in the same way the existence assertion was.
-  for (final m in RegExp(
-          r"""<String>\s*\[([^\]]*)\]""").allMatches(code)) {
-    for (final item in RegExp(r"""['"]([^'"]+)['"]""").allMatches(m.group(1)!)) {
+  for (final m in RegExp(r"""<String>\s*\[([^\]]*)\]""").allMatches(code)) {
+    for (final item
+        in RegExp(r"""['"]([^'"]+)['"]""").allMatches(m.group(1)!)) {
       final spec = item.group(1)!;
       // Only root-shaped entries: a key of a model's field map is a string too.
-      if (spec.startsWith('lib') || spec.startsWith('test/') || spec == '*.py') {
+      if (spec.startsWith('lib') ||
+          spec.startsWith('test/') ||
+          spec == '*.py') {
         roots.add(spec);
       }
     }
@@ -317,11 +367,14 @@ _Read _rootsOf(String source) {
   // It is returned separately so the caller can tell "this guard walks the app"
   // from "this guard's root is a shape nobody has read", and kept out of `roots`
   // so it cannot enter the coverage set as a literal that names no directory.
-  final unresolved =
-      roots.where((r) => r.contains(r'${')).toList()..sort();
+  final unresolved = roots.where((r) => r.contains(r'${')).toList()..sort();
   roots.removeWhere((r) => r.contains(r'${'));
 
-  return _Read(roots..sort()..toSet().toList(), unresolved);
+  return _Read(
+      roots
+        ..sort()
+        ..toSet().toList(),
+      unresolved);
 }
 
 /// The two answers a root reader can give, kept apart on purpose.
@@ -409,9 +462,7 @@ _RootHit _resolveRoot(String spec, List<String> shipped) {
     );
   }
 
-  final dart = spec.endsWith('.dart')
-      ? <String>[spec]
-      : _dartFilesUnder(spec);
+  final dart = spec.endsWith('.dart') ? <String>[spec] : _dartFilesUnder(spec);
   final reached = dart.where(shipped.contains).toList();
   if (reached.isEmpty) {
     return _RootHit(
@@ -435,8 +486,7 @@ _RootHit _resolveRoot(String spec, List<String> shipped) {
 /// here it fails **by name** if a guard adopts that shape for a root that does
 /// carry app coverage.
 const _knownUnmodelled = <String, String>{
-  'test/tool_clock_seam_test.dart':
-      r'${Directory.current.path}/test/fixtures',
+  'test/tool_clock_seam_test.dart': r'${Directory.current.path}/test/fixtures',
 };
 
 /// Why each pin exists, kept beside the pin so deleting one is a decision
@@ -444,7 +494,7 @@ const _knownUnmodelled = <String, String>{
 const _whyUnmodelled = <String, String>{
   'test/tool_clock_seam_test.dart':
       'runtime-built path, and it walks test data rather than app source — so '
-      'it carries no app coverage either way',
+          'it carries no app coverage either way',
 };
 
 /// Roots a sweep may declare that reach **no file the app ships**.
@@ -486,8 +536,8 @@ const _rootsWithoutShippedDart = <String, String>{
 const _guardsCarryingNoAppRule = <String, String>{
   'test/app_source_scope_test.dart':
       'this census itself: it holds the map of the rules and reads app source '
-      'only to ask who else reads it. A census listed in the map it reads would '
-      'be measuring its own bookkeeping.',
+          'only to ask who else reads it. A census listed in the map it reads would '
+          'be measuring its own bookkeeping.',
 };
 
 /// The source with every comment blanked to spaces, offsets preserved.
@@ -642,10 +692,11 @@ void main() {
       // this walk, and `lib/`'s copy was the one that had never been checked
       // against `git ls-files` at all.
       final onDisk = _dartFilesUnder('test');
-      final untrackedOnly =
-          onDisk.where((p) => !tracked.contains(p)).toList()..sort();
+      final untrackedOnly = onDisk.where((p) => !tracked.contains(p)).toList()
+        ..sort();
       expect(untrackedOnly, isEmpty,
-          reason: 'these Dart files sit under test/ but are not tracked by git, '
+          reason:
+              'these Dart files sit under test/ but are not tracked by git, '
               'so this census — and every `git ls-files` sweep in the repo — '
               'cannot see them. A guard written but not added is a rule nobody '
               'is enforcing:\n${untrackedOnly.join('\n')}');
@@ -690,6 +741,75 @@ void main() {
           reason: 'these guards are censused but declare no root, so the '
               'coverage below is not measuring what they actually read:\n'
               '${blind.join('\n')}');
+    });
+
+    test('each named guard still enforces the rule it is named for', () {
+      // The map is two-way as of the previous tick -- every named guard is
+      // censused, and every sweep that reaches shipped Dart is named or
+      // exempted. What it could not do is read the words back.
+      //
+      // `_appRuleGuards` states each rule as a sentence. Every case above
+      // checks that sentence's *subject* -- the guard exists, it reaches the
+      // app, it is on the list -- and none of them check its *predicate*. So
+      // the census could hold a file named "the snack rule" next to prose
+      // promising "no second messenger outside the allowed wrappers" while
+      // that file policed `showDialog` instead, and every case stayed green.
+      // That is the worst failure shape here: the rule is gone AND the tree
+      // says it is covered, so the next tick has nothing to notice.
+      //
+      // Measured against the guard's own comment-blanked code, so a file that
+      // *mentions* the token in its doc comment while enforcing something else
+      // still fails -- prose shadowing code has already cost this file one
+      // reader, and the reader that learned it the hard way is the one this
+      // case reuses.
+      final unmapped = <String>[];
+      final unenforced = <String>[];
+      for (final guard in _appRuleGuards.entries) {
+        final tokens = _ruleEvidence[guard.key];
+        if (tokens == null) {
+          unmapped.add('${guard.value}\n    ${guard.key}');
+          continue;
+        }
+        if (!sweeps.containsKey(guard.key)) continue; // named above, by name
+        final code = _blankComments(File(guard.key).readAsStringSync());
+        final missing = tokens.where((t) => !code.contains(t)).toList()..sort();
+        if (missing.isEmpty) continue;
+        unenforced.add('${guard.value}\n    ${guard.key}\n'
+            '    no longer carries '
+            '${missing.map((t) => '`$t`').join(', ')} in its code, so the rule '
+            'beside its name is not the rule it enforces.\n'
+            '    An entry here is a claim, and this is the case that reads it '
+            'back. Either the guard is enforcing the rule again, or the rule '
+            'changed and the entry has to be rewritten -- not deleted, because '
+            'an unlisted guard fails the case above.');
+      }
+      expect(unmapped, isEmpty,
+          reason: 'these guards are registered as carrying an app rule but '
+              'name no token for it in `_ruleEvidence`, so their entry is '
+              'checked for existence and never for content:\n'
+              '${unmapped.join('\n')}\n'
+              'One token per entry: the construct the rule turns on. Not a '
+              'sample chosen to be easy -- losing the token must mean losing '
+              'the rule.');
+      expect(unenforced, isEmpty,
+          reason: 'these guards no longer carry the literal their entry in '
+              '`_appRuleGuards` claims they enforce. Read from their code with '
+              'comments blanked, so a token that survives only in a doc comment '
+              'does not count:\n${unenforced.join('\n')}');
+
+      // And the evidence list is checked against the map, so a token cannot be
+      // left behind for a guard that was renamed, merged or dropped: it would
+      // sit in a map of rules enforcing nothing and reading as proof.
+      final orphaned = _ruleEvidence.keys
+          .where((g) => !_appRuleGuards.containsKey(g))
+          .toList()
+        ..sort();
+      expect(orphaned, isEmpty,
+          reason:
+              'these guards have evidence but no entry in `_appRuleGuards`, '
+              'so their rule is enforced by nothing this file names, and their '
+              'token sits in the evidence list reading as proof:\n'
+              '${orphaned.join('\n')}');
     });
 
     test('enough sweeps model a root for the coverage cases to compare', () {
@@ -757,24 +877,22 @@ void main() {
       final read = <String>{};
       for (final sweep in sweeps.values) {
         for (final spec in sweep.roots) {
-        // A glob spec: `*.py` covers no Dart file, which is the point.
-        if (spec.contains('*')) continue;
-        final dir = Directory(spec);
-        final scope = dir.existsSync()
-            ? dir
-                .listSync(recursive: true, followLinks: false)
-                .whereType<File>()
-                .map((f) => f.path)
-            : <String>[];
-        for (final p in scope) {
-          if (p.endsWith('.dart')) read.add(p);
-        }
+          // A glob spec: `*.py` covers no Dart file, which is the point.
+          if (spec.contains('*')) continue;
+          final dir = Directory(spec);
+          final scope = dir.existsSync()
+              ? dir
+                  .listSync(recursive: true, followLinks: false)
+                  .whereType<File>()
+                  .map((f) => f.path)
+              : <String>[];
+          for (final p in scope) {
+            if (p.endsWith('.dart')) read.add(p);
+          }
         }
       }
 
-      final unwatched = shipped
-          .where((f) => !read.contains(f))
-          .toList()
+      final unwatched = shipped.where((f) => !read.contains(f)).toList()
         ..sort();
       expect(unwatched, isEmpty,
           reason: 'these Dart files ship in the app and NO source sweep reads '
@@ -789,7 +907,8 @@ void main() {
       // deleting it is a loud failure rather than a silent drop in coverage.
       // A blanket "is every file watched" rule passes just as happily when the
       // entry point moves to a directory nobody walks.
-      final roots = sweeps.values.expand((s) => s.roots).toSet().toList()..sort();
+      final roots = sweeps.values.expand((s) => s.roots).toSet().toList()
+        ..sort();
       expect(roots, contains('lib'),
           reason: 'no sweep walks `lib/` itself, so `lib/main.dart` — beside '
               'lib/src/, not inside it — is readable by no guard at all.\n'
@@ -844,7 +963,8 @@ void main() {
         }
       }
       expect(barren, isEmpty,
-          reason: 'these guards declare a root that resolves to nothing the app '
+          reason:
+              'these guards declare a root that resolves to nothing the app '
               'ships. The case above cannot see it -- a root that resolves to '
               'empty still looks like a root -- so the guard reads green while '
               'watching no file at all:\n${barren.join('\n')}\n'
@@ -924,9 +1044,11 @@ void main() {
       // The exemptions are facts about the tree, not permanent amnesty: a guard
       // that stops reading app source has outlived its reason and is deleted.
       final stale = _guardsCarryingNoAppRule.keys
-          .where((g) => !sweeps.containsKey(g) ||
-              sweeps[g]!.roots.every((r) =>
-                  _resolveRoot(r, shipped).shippedDart.isEmpty))
+          .where((g) =>
+              !sweeps.containsKey(g) ||
+              sweeps[g]!
+                  .roots
+                  .every((r) => _resolveRoot(r, shipped).shippedDart.isEmpty))
           .toList()
         ..sort();
       expect(stale, isEmpty,
@@ -1003,7 +1125,8 @@ void main() {
       final unregistered = sweeps.values
           .where((v) => !v.reads && !v.onlyUnresolved)
           .map((v) => v.file)
-          .toList()..sort();
+          .toList()
+        ..sort();
       expect(unregistered, isEmpty,
           reason: 'these guards declare no root this census models and are '
               'not pinned in `_knownUnmodelled`, so they contribute no '
@@ -1045,15 +1168,14 @@ void main() {
       final watchesIt = sweeps.values
           .where((s) => s.roots.contains('lib'))
           .map((s) => s.file)
-          .toList()..sort();
+          .toList()
+        ..sort();
       expect(watchesIt, isNotEmpty,
           reason: 'no sweep walks `lib/` recursively, so nothing reads '
               'lib/main.dart.');
       // And at least one of them is the messenger rule that was bypassed, so
       // the specific hole cannot be re-opened by that guard alone.
-      expect(
-          watchesIt.any((f) => f.contains('snack_rule_sweep')),
-          isTrue,
+      expect(watchesIt.any((f) => f.contains('snack_rule_sweep')), isTrue,
           reason: 'the messenger sweep must keep walking `lib/`: that is the '
               'exact guard a ScaffoldMessenger planted in main.dart bypassed '
               '(21/21 green before this fix).\nwatches lib/: '
