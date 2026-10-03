@@ -18444,3 +18444,117 @@ strings measured by their first character anywhere outside the avatar
 (`runes.first` / `name[0]` / `substring(0,1)` on a user-supplied string). The
 `grep` over `lib/` is already done and comes back near-empty, so that item needs
 its own measurement, not another grep.
+
+## Tick 3 Oct 2026 (32nd) — the class the monogram tick refused to call clean,
+#### measured: stored strings indexed at their first character, outside the
+#### avatar
+
+- [x] **A name pasted out of Facebook could still be measured by its first
+      character anywhere except the one place that was fixed — and the only
+      evidence it was clean was a `grep` that cannot tell a comment from
+      code.**  `7f2498b`
+
+      The 30th tick fixed the avatar and wrote, in this file, that the *class*
+      was not claimed clean and a follow-up should sweep for `runes.first` /
+      `name[0]` / `substring(0,1)` on stored strings. The 31st tick left the
+      sweep as its `Next`. This tick measured it instead of running the grep.
+
+      **The grep would have been wrong in a specific, checkable way.** Its
+      two shapes both appear in the *doc comments* of the very helpers being
+      discussed — `app_source_scope_test.dart` and `monogram.dart` name
+      `runes.first`, `name[0]` and `substring(0,1)` in prose. A grep over
+      `lib/` therefore cannot answer "is any code doing this": it cannot tell
+      a comment from code, and it cannot tell `list[0]` from `str[0]`. Four of
+      the five `[0]` sites in the tree are `List` receivers. So the sweep is
+      an AST over **resolved** types, over comment-blanked source.
+
+      **What it found — the tree is correct today, and that is now a
+      measurement rather than an absence of evidence:**
+
+      | receiver type | site | verdict |
+      | --- | --- | --- |
+      | `String` | `dz_phone.dart` `canonicalFromDigits` `'567'.contains(d[0])` | allowed |
+      | `String` x6 | `substring(0, n)` in phone/number/clip/crash code | allowed |
+      | `List` x4 | `batches[0]`, `items[0]`, `_docs[0]`, `(row as List)[0]` | not a string at all |
+
+      **9 sites, 7 excused.** The interesting number is not "0 violations" —
+      it is that a guard which has never had to allow anything cannot be shown
+      to allow it, so one genuinely-digit receiver is allow-listed and every
+      one of the seven carries a reason.
+
+      **The allow-list rots by design, and that is the point.** An entry is
+      `file#owner` and must still resolve to a live site, checked in the
+      inverse direction by a second case. So the rot is not a silent hole: a
+      stale entry cannot exempt a *new* site (it exempts an expression that no
+      longer exists) and cannot survive either — it goes red on its own.
+
+      **Falsified both ways, planted and reverted in this tick.**
+      A `userName[0]` / `userName[0].toUpperCase()` pair appended to
+      `project_card.dart` — the exact bug class, in a widget, on a user
+      name — reds with file and line and owner:
+      `lib/src/widgets/project_card.dart:175  userName  (in _probeInitial)`.
+      A stale `_allowed` entry reds the *other* case by name
+      (`project_card.dart#_ownerThatMoved`). Neither passes alone; the probe
+      was reverted and `lib/` is byte-identical to `HEAD` after both.
+
+      **One real bug, hit and fixed in this tick.** `AnalysisContextCollection`
+      left `sdkPath` unset, so the analyzer looked for a Dart SDK beside the
+      *executing* binary — and under `flutter test` that binary is
+      `flutter_tester` in `bin/cache/artifacts/engine/`, which ships no SDK.
+      It died with `PathNotFoundException(path=…/engine/version)`, which reads
+      like a corrupt install and is not one. `_dartSdkPath()` now walks up
+      from `Platform.resolvedExecutable` to the `dart-sdk` **sibling** of the
+      engine `cache/` dir, and fails loudly rather than silently resolving
+      nothing. A second pass of the same shape: the prefilter's
+      `RegExp(...)` was written inside a `.where` closure, so the census
+      credited the token to `where` — a generic `Iterator` method — and went
+      red on it. Hoisting the pattern to statement level credits `RegExp`,
+      which is declared, and keeps the two readers in agreement.
+
+      **The cost is bounded and measured.** Resolving the whole tree costs
+      ~54 s; the syntactic prefilter (fires on `[0]` anywhere and
+      `substring(0,`, wider than the rule by design) narrows it to ~29 s, and
+      the file's own 3 cases pass in 29 s inside a suite with a 1200 s
+      deadline. Resolution is what decides whether a receiver is a `String`,
+      so the prefilter cannot be narrowed without losing the property the
+      guard exists for.
+
+      **Files:** `test/first_char_measurement_test.dart` (new, 396 lines),
+      `test/app_source_scope_test.dart` (+14, census registration: the new
+      guard is declared as carrying an app rule, with its evidence token and
+      its one runtime-built SDK root pinned as unmodelled).
+      Not visual: no pixels changed, no screenshot is claimed.
+
+      **Gate:** `flutter analyze` -> **No issues found!** (10.2 s) · the file's
+      3 cases pass (3/3 in 29 s) · full suite **+2117 ~8 All tests passed! in
+      15:42** (`tool/run_tests.py`, PASS), up from +2114, 0 failures — and the
+      census file `app_source_scope_test.dart` is green with the new guard
+      registered, which is the check that would have caught the misplaced
+      `RegExp`. `lib/` is byte-identical to `HEAD`; both mutation probes were
+      reverted before the gate.
+
+      **Next, and it is a measured gap in a guard that is now GREEN — stated
+      here rather than left for a later tick to discover.** The app-surface
+      backlog is empty of unchecked items (every phase through Phase 6 is
+      ticked), so the next risk is the coverage this guard *assumes*. It
+      polices two shapes, `[0]` and `substring(0, …)`, and the monogram tick's
+      prose names a **third shape in the same class**: `.runes.first`. Verified
+      this tick, in two layers, because one layer would have been an
+      unmeasured guess:
+
+      1. **Selection.** A file whose only site is `s.runes.first` is **not**
+         selected by `_candidateFiles()` — reproduced with a probe string that
+         the prefilter's two shapes both miss (`'…[0]' in probe -> False`,
+         `substring(0, -> no match`).
+      2. **Catch.** Even if it were selected, `_FirstCharVisitor` has no
+         `visitPropertyAccess` override, so a `runes.first` site would not be
+         recorded at all.
+
+      Today this is **prospective, not a live defect**: a comment-blanked
+      sweep of all 131 `lib/` files for `runes\s*\.\s*first` returns **0
+      code hits**. So widening is about keeping a green guard from having a
+      hole, not about fixing a bug the user can see. The prefilter selects
+      **10 of 131** files today; adding `runes.first` must not be allowed to
+      drag the resolution cost back toward the ~54 s whole-tree figure, so the
+      item is to widen selection *and* the visitor, re-measure the candidate
+      count, and keep the 1200 s deadline's headroom explicit.

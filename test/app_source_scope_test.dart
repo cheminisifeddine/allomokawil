@@ -212,6 +212,13 @@ const _appRuleGuards = <String, String>{
   'test/header_trust_wiring_test.dart': 'the header trust-signals rule',
   'test/payload_coverage_test.dart': 'the payload-coverage rule',
   'test/quote_count_copy_test.dart': 'the quote-count copy rule',
+  // Added 3 Oct (32nd). The monogram tick fixed the invisible-RLM first
+  // character for the avatar and explicitly refused to call the rest of the
+  // app clean; this is the rest of the app. Its evidence token is the
+  // prefilter's own `[0]` index, because that is what the file selects on.
+  'test/first_char_measurement_test.dart':
+      'the first-character rule: no string is measured by its first '
+      'character except the avatar',
 };
 
 /// The literal each named guard must still carry to be the guard it is
@@ -260,6 +267,7 @@ const _ruleEvidence = <String, List<String>>{
   'test/header_trust_wiring_test.dart': [r'NotificationCountTrust\s*\('],
   'test/payload_coverage_test.dart': ['/api/mobile/workers/top'],
   'test/quote_count_copy_test.dart': ['quoteLimit|quotesUsedThisMonth'],
+  'test/first_char_measurement_test.dart': [r'substring\s*\(\s*0'],
 };
 
 /// The literal roots a source sweep enumerates, read out of its own source.
@@ -492,6 +500,15 @@ _RootHit _resolveRoot(String spec, List<String> shipped) {
 /// carry app coverage.
 const _knownUnmodelled = <String, String>{
   'test/tool_clock_seam_test.dart': r'${Directory.current.path}/test/fixtures',
+  // Added 3 Oct (32nd) with `first_char_measurement_test.dart`. That guard
+  // resolves receiver **types**, and the analyzer needs a Dart SDK to do it:
+  // under `flutter test` the executing binary is `flutter_tester` in
+  // `bin/cache/artifacts/engine/`, which ships no SDK, so the guard walks up
+  // from `Platform.resolvedExecutable` looking for `dart-sdk`. It is a path
+  // built at runtime and it reaches no app source -- it is the SDK, not `lib/`
+  // -- so there is nothing here for this census to model.
+  'test/first_char_measurement_test.dart':
+      r'${dir.path}${Platform.pathSeparator}dart-sdk',
 };
 
 /// Why each pin exists, kept beside the pin so deleting one is a decision
@@ -500,6 +517,11 @@ const _whyUnmodelled = <String, String>{
   'test/tool_clock_seam_test.dart':
       'runtime-built path, and it walks test data rather than app source — so '
           'it carries no app coverage either way',
+  'test/first_char_measurement_test.dart':
+      'runtime-built path to the Dart SDK the analyzer resolves types '
+          'against. The guard reads lib/ through its own `Directory(\'lib\')`, '
+          'which this census reads normally; this root only names the SDK the '
+          'resolver needs, so it carries no app coverage either way',
 };
 
 /// Roots a sweep may declare that reach **no file the app ships**.
