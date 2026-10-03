@@ -18845,9 +18845,9 @@ class of evidence is one number instead of two runs stitched by hand.
 (2) The 34th tick's open item: give each `_allowed` entry the name of the fold it
 rests on, so an entry whose module stops folding cannot stay excused.
 
-- [ ] **`tool/run_tests.py` cannot produce one trustworthy suite number on this
+- [x] **`tool/run_tests.py` cannot produce one trustworthy suite number on this
       box — a memory abort at file 209 of 246 reads exactly like a suite
-      result.** On 3 Oct the 35th tick's full run died with
+      result.** `d1b7c1f`. On 3 Oct the 35th tick's full run died with
       `Bad state: Cannot close sink while adding stream` from Flutter's own
       `flutter_platform.dart`, at +1792 with **182 MB free of 7.9 GB and no
       swap**, 19:40 against a 13:48 baseline. The suite did not fail; the
@@ -18859,6 +18859,46 @@ rests on, so an entry whose module stops folding cannot stay excused.
       its own shard and the summary is one number with the batch list, not a
       truncated run that looks complete. Note `tool/run_tests.py` line 29
       already concedes it does not shard.
+
+      *Shipped:* `tool/run_tests.py` discovers `test/**/*_test.dart`, sorts it,
+      and splits it into **contiguous** shards of 24 — contiguous on purpose,
+      because the 30 Sep hang is an interaction between files and a round-robin
+      split would never put two interacting files in the same batch, which is
+      how a batch runner hides the thing it exists to expose. Each shard is its
+      own `flutter test` process with its **own** 300s deadline and **one retry
+      inside its own shard**, so a shard that loses a memory race is retried
+      small instead of ending the run. The global deadline went 1200 -> 1800
+      because each shard pays a fresh `flutter test` warm-up (~10-20s measured,
+      ~18% overhead at 24 files); cutting it to the old number would have
+      reported INCOMPLETE on a green tree.
+
+      **The rule the whole file exists to keep:** a grand total is printed
+      **only when every shard is green**. Any shard that failed, hung, or never
+      got its turn prints `INCOMPLETE`, names the shards, and says *"This is
+      NOT a suite result. The tree is unverified."* A partial run that reads
+      like a pass is worse than a red one.
+
+      *Red before green.* `test/run_tests_shard_test.dart` -> **5 red / 0
+      green** against the old runner (`error: unrecognized arguments:
+      --shard-size` — it could not shard at all), then **5/5 green** after. Real
+      child processes, not mocks: the failure was process management and
+      reporter parsing, and a stubbed subprocess would have passed while the
+      real summary stayed wrong. One of my own assertions was wrong on the way
+      up — I had the plan print `a_test.dart` where an explicit path list
+      prints `a`; the runner was right and the assertion was corrected, not the
+      code.
+
+      *One honest note on my own evidence.* The first full sharded run came
+      back **10 green, shard 1 red** — and shard 1 was red because of **my own
+      untracked `test/run_tests_shard_test.dart`**: `app_source_scope_test.dart`
+      asserts every Dart file under `test/` is git-tracked, and it caught me
+      before I had `git add`ed. The repo's own guard did its job, and the new
+      runner reported it correctly rather than letting it read as a suite total.
+
+      *Final, one number, no stitching:* **SUITE PASS — 2019 tests across 11
+      shards, every shard green**, 27:25, exit 0, on a box whose available
+      memory oscillated between 724 MB and 2152 MB during the run — versus the
+      35th tick's aborted `+1792` plus a hand-stitched `+353`.
 
 - [ ] **Each `_allowed` entry rests on a named fold, and the link between an
       entry and the fold that justifies it is still prose.** Four entries are
