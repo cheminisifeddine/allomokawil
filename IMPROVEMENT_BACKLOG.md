@@ -18187,3 +18187,110 @@ root, and keeps its description.
       literals in all 13 guards whose classification rests on an applier it only
       recognises by name, so the next unknown reader is measured rather than
       discovered by a plant that silently passes.
+
+- [x] **The AST reader's own census is shipped, and measuring it found a guard
+      that enforces nothing at all.** `cc564c8` → remote `56b72c2`.
+
+      The 29th tick closed the map hole with the analyzer AST and left exactly
+      one next step: *a census of what it still cannot see* — "the AST reader
+      is deliberately narrow — it knows 16 appliers by name and resolves a rule
+      one hop through a reference". Zero unchecked items had been left in the
+      file, so that sentence was the item, and measuring it before writing the
+      assertion is what found the defect. **It was not a hole in the reader; it
+      was a guard that asserted nothing while the map said it did.**
+
+      **The false credit, measured.** The reader matched literals in **both**
+      directions — `v.contains(token) || token.contains(v)` — and the reverse
+      direction credits a *fragment of the token* that has nothing to do with
+      the rule. `payload_coverage_test.dart` is registered with the 23-character
+      route `/api/mobile/workers/top`, and the guard holds **no literal
+      containing that route anywhere**. It was credited by the **one character**
+      `'/'`, handed to `.split('/')`, `.join('/')` and `.lastIndexOf('/')` in an
+      unrelated path helper. Any route, any string containing a slash, scored
+      the same. This is the `''` bug already recorded on the 29th tick
+      (`''` is a substring of every token) at a smaller scale: the empty string
+      was skipped, its one-character siblings were not.
+
+      **And the prose it hid was false.** The note on `liveKeys` claimed the
+      captured keys were "a live fetch, not a hand-written fixture, which is how
+      a stale field survives a rename on the Worker", and the rule-evidence map
+      claimed this guard "turns on a live endpoint, so renaming the route in the
+      guard without updating the app is a failure". **Planted:** renaming the
+      route to `/api/mobile/workers/ROUTE_RENAMED_XYZ` left the file at **+9,
+      all tests passed**. The keys under it were still reported as accounted for,
+      against a request the app never makes.
+
+      **Fixed by making it true, not by softening the claim.**
+      `payload_coverage_test.dart` gains *"every captured route is a route this
+      app actually calls"*, matched with a **query boundary** because every call
+      in `lib/` appends one — `'/api/mobile/workers/top?limit=…'` — and a bare
+      prefix would credit `/api/mobile/workers/top-rated`, the same class of
+      false credit this item exists to remove.
+
+      **Containment is now forward-only** in all three readers. Measured across
+      all 13 guards: forward-only is **11 of 13**, and the two it loses are
+      exactly the fragment credit above (now a true positive, on a guard that now
+      genuinely enforces the route) and `motion_test.dart`, which is held by
+      `expect` only and is already the single listed exemption. Nothing real was
+      given up.
+
+      **`_ReferenceApplied` learned the read-out hop**, because a rule held as a
+      map is applied by *reading its contents out* — `for (final String route in
+      liveKeys.keys)` — which reaches no applier by name at all, and
+      `_forbidden['models']!.contains(layer)` one step further. Its limit is
+      stated rather than papered over: it credits **reading the collection, not
+      each element**, so a guard that lists a rule and then does nothing with it
+      is credited. That is a real weakening and it is the price of not crediting
+      `'/'` instead. The census pins which guards take the branch, so the limit
+      is measured rather than assumed.
+
+      **The census ships as the case the item asked for**: every applier
+      credited must be one this file declares (this is how `expect` came to be
+      counted as enforcement once — it is a real call in the AST, so an unlisted
+      name reads as enforcement of the thing it only reports), and the
+      by-reference split is asserted **by name** so a guard silently falling from
+      one mechanism to another reds instead of passing. Measured split: 11 by
+      literal applier, `layering_test.dart` by `_forbidden.contains()`,
+      `payload_coverage_test.dart` by the new read-out hop, `motion_test.dart`
+      exempt.
+
+      **Four bugs in my own work this tick, measured, all left in the source.**
+      * **`iterable2`, not `iterable`** — the obvious spelling does not compile
+        (`The getter 'iterable' isn't defined for the type 'ForStatement'`); the
+        v1 name survives only as a `v1Name` projection on
+        `ForEachPartsWithDeclarationImpl`. A reader that cannot be written
+        cannot be measured.
+      * **`iterable2` is `@Experimental`** in analyzer 14.4.0, so `flutter
+        analyze` printed one warning. Suppressed to the **single line** with the
+        reason written beside it, because the gate must print "No issues found!"
+        and there is no un-experimental spelling of that read.
+      * **`split('\n')[1]` compared the token against a guard name.** The key is
+        `$guard\n    $token`, so the guard is at index **0**; the index was
+        guessed from the rendered failure message.
+      * **A fourth reader in this file bit its author.**
+        `containsAll(<String>['test/layering_test.dart'])` made `_rootsOf`
+        decide *this file* walks `test/layering_test.dart`, because this file is
+        itself a sweep and `_rootsOf` reads any `['test/…']` entry in a typed
+        list literal as a declared root. **Two unrelated cases went red on a
+        correct tree for that one line.** Matched by `endsWith` instead.
+
+      **Gate:** `flutter analyze` → **No issues found!** (12.2 s) · full suite
+      **+2112 ~8 All tests passed! in 13:08** (`tool/run_tests.py`, PASS), up
+      from +2110, 0 failures. **Falsifiable both ways:** the route rename that
+      was invisible now goes red with the intended message, and disabling the
+      for-in hop reds the pinned census. Both reverted; no untracked probe
+      survived — the tree census caught my own probe file, which is the failure
+      it exists to prevent. Not visual: no screenshot, no APK, no release, no
+      tag.
+
+      **Next:** the census now says *which* mechanism carries each guard, so the
+      honest next item is the one it exposes rather than hides: **`expect` is
+      counted as an applier the moment it is named**, and this file's own
+      `_tokenAppliers` is a list of 15 names of which the census measures only
+      **3 in use** (`RegExp`, `contains`, plus `expect`). Twelve declared
+      readers — `hasMatch`, `allMatches`, `indexOf`, `split`, `startsWith`,
+      `endsWith`, `replaceAll` and the rest — are **currently credited to
+      nothing**. That is fine while it is true, and it is the same
+      dead-weight shape as an allow-list that has outgrown its purpose: either
+      the map earns its place or the list shrinks to what the tree uses. Decide
+      it by measurement, not by trimming.
