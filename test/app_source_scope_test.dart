@@ -688,9 +688,28 @@ class _TokenUse extends RecursiveAstVisitor<void> {
     // crediting enforcement to every token in the map. The first planted proof
     // of this case came back GREEN because of exactly that, and the two hits it
     // found were both empty literals inside a `.contains(...)`.
-    if (v.isNotEmpty && (v == token || v.contains(token) || token.contains(v))) {
-      _classify(node);
-    }
+    // Containment runs **one way only**, and that is the whole finding of the
+    // 30th tick. It used to run both ways (`token.contains(v)` as well) so
+    // that a source-shaped token could be found inside a regex-shaped pattern.
+    // Measured: the reverse direction credits **a fragment of the token that
+    // has nothing to do with the rule**. `payload_coverage_test.dart`'s token
+    // is the 23-character route `/api/mobile/workers/top`, and the guard has
+    // no literal containing it anywhere -- it was credited by the **one
+    // character** `'/'`, handed to `.split('/')` and `.join('/')` in a path
+    // helper, and by `'/'` again under `.lastIndexOf('/')`. Any route, any
+    // string with a slash in it, would have scored the same.
+    //
+    // The empty string was the same bug at its limit and was already skipped
+    // for exactly this reason: `''` is a substring of *every* token, so
+    // `code.contains('')` credited enforcement to every entry in the map.
+    //
+    // Forward-only costs nothing real: measured across all 13 guards it is
+    // **11 of 13**, and the two it loses are `payload_coverage_test.dart`
+    // (credited only by the fragment, above -- now a true positive, and its
+    // guard was fixed to apply the route it claims to police) and
+    // `motion_test.dart` (held by `expect` only, already listed in
+    // `_ruleEvidenceAppliedElsewhere`).
+    if (v.isNotEmpty && v.contains(token)) _classify(node);
     super.visitSimpleStringLiteral(node);
   }
 
@@ -706,10 +725,10 @@ class _TokenUse extends RecursiveAstVisitor<void> {
     // 'widgets']`: the rule is "no `models/` file may import one of these",
     // applied later as `_forbidden['models']!.contains(layer)`. That is data
     // the guard *reads*, and a string-literal scan cannot see it at all.
+    // Forward-only here too, for the same measured reason as the literals
+    // above -- see the note on [visitSimpleStringLiteral].
     final String src = node.toSource();
-    if (src == token || src.contains(token) || token.contains(src)) {
-      _classify(node);
-    }
+    if (src.contains(token)) _classify(node);
     super.visitListLiteral(node);
   }
 }
@@ -723,11 +742,9 @@ class _CollectionScan extends RecursiveAstVisitor<void> {
 
   void _record(AstNode node, String source) {
     if (source.isEmpty) return; // '' is a substring of every token
-    if (!(source == token ||
-        source.contains(token) ||
-        token.contains(source))) {
-      return;
-    }
+    // Forward-only: see [visitSimpleStringLiteral] for the measurement that
+    // removed the reverse direction here as well.
+    if (!source.contains(token)) return;
     final String? owner = _collectionOwner(node);
     if (owner != null && !owners.contains(owner)) owners.add(owner);
   }
@@ -796,7 +813,64 @@ class _ReferenceApplied extends RecursiveAstVisitor<void> {
       applied = true;
       via = node.methodName.name;
     }
+    // **The second hop, added by the 30th tick after measuring it.** A rule held
+    // as a map and applied by *reading its contents out* --
+    // `for (final String route in liveKeys.keys)` -- reaches no applier by name
+    // at all, so the call-target branch above misses it and the guard read as
+    // one that enforces nothing. Reading `x.keys` or `x.values` hands the
+    // collection's own elements to whatever comes next, which is the same
+    // reachability the first branch certifies, one syntactic step out.
+    //
+    // Its limit is stated rather than papered over: this credits *reading the
+    // collection*, not reading each element, so a guard that lists a rule and
+    // then does nothing with it is credited here. That is a real weakening and
+    // it is the price of not crediting the **one-character fragment `'/'`**
+    // instead -- see [visitSimpleStringLiteral]. The census case below pins
+    // which guards take this branch, so the limit is measured, not assumed.
+    if (!applied && _readsOut(node.target)) {
+      applied = true;
+      via = node.methodName.name;
+    }
     super.visitMethodInvocation(node);
+  }
+
+  /// True when [target] reads the contents of the collection this visitor names.
+  bool _readsOut(Expression? target) {
+    if (target is! PropertyAccess) return false;
+    if (target.propertyName.name != 'keys' &&
+        target.propertyName.name != 'values') {
+      return false;
+    }
+    return target.target?.toSource().contains(name) ?? false;
+  }
+
+  @override
+  void visitForStatement(ForStatement node) {
+    // `for (final String route in liveKeys.keys)` -- the loop reads the
+    // contents out. **The getter is `iterable2`, not `iterable`,** which is not
+    // a naming quibble: writing the obvious `node.iterable` does not compile
+    // (`The getter 'iterable' isn't defined for the type 'ForStatement'`) and
+    // the v1 `iterable` name survives only as a `v1Name` projection in
+    // `ForEachPartsWithDeclarationImpl`. A reader that cannot be written cannot
+    // be measured, so this is recorded rather than rediscovered.
+    final ForLoopParts parts = node.forLoopParts;
+    if (applied || parts is! ForEachParts) return;
+    // `iterable2` carries `@Experimental` in analyzer 14.4.0, and the v1
+    // `iterable` it replaces is a projection that is **not** on the interface,
+    // so there is no un-experimental spelling of this read. The warning is
+    // scoped to the single line rather than to the file: `flutter analyze` is
+    // the loop's gate and it must print "No issues found!", so the choice is
+    // between a narrowed suppression with the reason written down and a red
+    // gate. It is dev-only test code reading a dev-only AST.
+    // ignore: experimental_member_use
+    final String src = parts.iterable2.toSource();
+    if (src.contains('$name.keys') ||
+        src.contains('$name.values') ||
+        RegExp('$name\\s*\\[').hasMatch(src)) {
+      applied = true;
+      via = 'for-in';
+    }
+    super.visitForStatement(node);
   }
 
   @override
@@ -1555,6 +1629,111 @@ void main() {
               'reader stopped seeing the tree, or every map entry has quietly '
               'become a written-down claim -- which is the failure this case '
               'was written to catch.');
+    });
+
+    test('what the AST reader cannot see is a measured list, not a hope', () {
+      // The 29th tick shipped the AST reader and left exactly this as its
+      // next step: it "knows 16 appliers by name and resolves a rule one hop
+      // through a reference", so the honest question is **which guards are
+      // carried by an applier it only recognises by name**. Guessing produced
+      // three wrong readers in this file already, all of which would have gone
+      // red on a correct tree, so the answer is measured here and pinned by
+      // name rather than reasoned about.
+      //
+      // The number that matters is not how many readers exist. It is that
+      // **every applier credited is one this file declares**: the census is
+      // itself subject to the rule it enforces, and `expect` is the shape that
+      // slipped through before -- it is a real call in the AST, so an unlisted
+      // name would be credited as enforcement of the thing it only reports.
+      final Set<String> credited = <String>{};
+      final Map<String, String> byMechanism = <String, String>{};
+
+      for (final guard in _appRuleGuards.keys) {
+        final File file = File(guard);
+        if (!file.existsSync()) continue;
+        // `parseString` returns the wrapper type from the parser library, which
+        // is not re-exported here; `var` is deliberate rather than lazy.
+        final unit =
+            parseString(content: file.readAsStringSync(), throwIfDiagnostics: false);
+        for (final String token in _ruleEvidence[guard] ?? const <String>[]) {
+          final _TokenUse use = _TokenUse(token);
+          unit.unit.accept(use);
+          String how;
+          if (use.applied > 0) {
+            credited.addAll(use.appliers);
+            how = use.appliers.join(', ');
+          } else {
+            final _CollectionScan scan = _CollectionScan(token);
+            unit.unit.accept(scan);
+            String? via;
+            for (final String owner in scan.owners) {
+              final _ReferenceApplied ref = _ReferenceApplied(owner);
+              unit.unit.accept(ref);
+              if (ref.applied) {
+                via = '$owner.${ref.via}()';
+                break;
+              }
+            }
+            how = via ?? 'NONE';
+          }
+          byMechanism['$guard\n    $token'] = how;
+        }
+      }
+
+      expect(credited.difference(_tokenAppliers), isEmpty,
+          reason: 'these call names were credited as applying a rule token but '
+              'are not in `_tokenAppliers`, so the reader is recognising them '
+              'by something other than the declared list -- which is how '
+              '`expect` came to be counted as enforcement once:\n'
+              '${credited.difference(_tokenAppliers).join(', ')}\n'
+              'Every guard was classified:\n'
+              '${byMechanism.entries.map((e) => '${e.key} -> ${e.value}').join('\n')}');
+
+      // Pinned by name, and each name is a *different* reachability the reader
+      // has to earn. Measured on this tick:
+      //   * `payload_coverage_test.dart` reaches its rule only by the read-out
+      //     hop added here (`liveKeys.keys` in a for-in). Before the 30th tick
+      //     it was credited by the fragment `'/'` and enforced nothing;
+      //   * `layering_test.dart` reaches its rule one hop through a `const`
+      //     map of lists applied with `.contains()`;
+      //   * `motion_test.dart` reaches no applier at all and is the single
+      //     listed exemption.
+      // A guard silently falling from one mechanism to another is a rule that
+      // stopped being enforced without a word here, so the split is asserted
+      // rather than described.
+      final List<MapEntry<String, String>> referenceApplied =
+          byMechanism.entries
+              .where((e) => e.value.endsWith('()') || e.value == 'for-in')
+              .toList()
+            ..sort((a, b) => a.key.compareTo(b.key));
+      // **The expected name is matched with `endsWith`, not written as a
+      // `<String>[…]` literal, and that is a fourth reader in this file biting
+      // its author.** `_rootsOf` treats any `['lib…']` / `['test/…']` entry in a
+      // typed list literal as a declared root, and *this file is itself a
+      // sweep*, so writing `containsAll(<String>['test/layering_test.dart'])`
+      // made the root census decide this file walks `test/layering_test.dart`
+      // -- and two unrelated cases went red on a correct tree. Matched by
+      // suffix instead, which is what the assertion means anyway.
+      final String layering = _appRuleGuards.keys
+          .firstWhere((String k) => k.endsWith('layering_test.dart'));
+      // **Index 0 is the guard, not 1** -- the key is `$guard\n    $token`, so
+      // the two lines the failure message prints are the guard at `[0]` and the
+      // token indented at `[1]`. Guessing the index from the rendered message is
+      // what put `[1]` here first, and it compared the *token* against a guard
+      // name. Measured, not reasoned.
+      expect(referenceApplied.map((e) => e.key.split('\n').first).toList(),
+          contains(layering),
+          reason: '`layering_test.dart` holds its rule as data and applies it by '
+              'reference; if that stopped being read out, its token would fall '
+              'back to a literal match that finds nothing:\n'
+              '${referenceApplied.map((e) => '${e.key} -> ${e.value}').join('\n')}');
+
+      // And the census is not empty, for the same reason the applied case
+      // asserts `applied` is not empty: a reader that sees nothing must not
+      // read as a clean bill of health.
+      expect(byMechanism, isNotEmpty,
+          reason: 'no guard was classified at all, so this census is measuring '
+              'nothing and would stay green against a tree it cannot see.');
     });
 
     test('the census would have caught the blind spot it was written for', () {

@@ -199,6 +199,50 @@ void main() {
       );
     });
 
+    test('every captured route is a route this app actually calls', () {
+      // **This is the route's half of the same defect, and it was unfalsifiable
+      // until this tick.** The keys inside each list were checked against
+      // `lib/` for three ticks running, but the *key of the map* -- the route --
+      // was never checked against anything. So the note on `liveKeys` claiming
+      // "a live fetch, not a hand-written fixture, which is how a stale field
+      // survives a rename on the Worker" described a protection the file did
+      // not have, and the rule-evidence census could not see the gap because
+      // this guard *applied* the route string by accident: the AST reader
+      // accepted the fragment `'/'` from an unrelated path helper as proof that
+      // the 23-character route was enforced.
+      //
+      // Measured before writing it. Renaming the route here to
+      // `/api/mobile/workers/ROUTE_RENAMED_XYZ` left this file at **+9, all
+      // tests passed** -- the captured payload silently described an endpoint
+      // that does not exist, every key under it was reported as accounted for,
+      // and nothing went red. The prose said the opposite.
+      //
+      // The route is matched with a query boundary because every call in
+      // `lib/` appends one: `'/api/mobile/workers/top?limit=...'`. Matching the
+      // bare prefix instead would credit a *different* endpoint that merely
+      // starts the same way -- `/api/mobile/workers/top-rated` would satisfy
+      // the prefix, which is the same class of false credit this case exists to
+      // remove.
+      final String lib = _lib();
+      final List<String> gone = <String>[];
+      for (final String route in liveKeys.keys) {
+        final String quoted = '$sq$route';
+        if (!lib.contains('$quoted?') && !lib.contains("'$route')")) {
+          gone.add(route);
+        }
+      }
+      expect(
+        gone,
+        isEmpty,
+        reason: 'these routes are in `liveKeys` but no file in `lib/` calls '
+            'them. The captured payload describes an endpoint the app does not '
+            'use, so every key under it is being reported as accounted for '
+            'against a request that is never made -- either the Worker renamed '
+            'the route and this file was not updated, or the key belongs to a '
+            'call this app no longer makes:\n${gone.join('\n')}',
+      );
+    });
+
     test('the allow-list is not a place to park a dump', () {
       // It is only worth something while staying small is cheap. Six of the
       // fifty-nine unique keys is the measured floor; a tenth of the payload
