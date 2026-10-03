@@ -147,4 +147,89 @@ void main() {
       expect(DzPhone.national('+213 550 12 34 56'), '550123456');
     });
   });
+
+  group('every public entry point folds Arabic-Indic digits', () {
+    // **The 38th tick's item, measured first.** `canonicalFromDigits` was
+    // public, its docstring said callers may hand it the raw field text, and it
+    // did not fold what an Arabic keypad produces:
+    //
+    // ```text
+    // in="٠٥٠١٢٣٤٥٦" digits="050123456" fromDigits="<empty>"
+    //                    canonical="050123456" groupLocal="" national="50123456"
+    // ```
+    //
+    // The defect is not that one method is strict. It is that a method called
+    // `canonical\u2026` differs from its sibling `canonical` on **exactly the
+    // input Algerian keyboards produce**, while sharing the signature and the
+    // promise. `groupLocal`, `groupIntl` and `national` all funnel through it,
+    // so a screen that reached for any of them with `controller.text` \u2014 which
+    // is what `phone_field.dart`'s own docstring invites \u2014 got an **empty
+    // field** for a number the API would have accepted.
+    //
+    // Held as a property of the *whole* public surface, not of one method: any
+    // method that answers \"what number is this?\" must give the same answer for
+    // the same number however it is written, and that is checkable without
+    // knowing which of them a future screen will pick.
+    const arabicIndic = '\u0665\u0665\u0660\u0661\u0662\u0663\u0664\u0665\u0666';
+    const persian = '\u06f5\u06f5\u06f0\u06f1\u06f2\u06f3\u06f4\u06f5\u06f6';
+    const spaced = '\u0665\u0665\u0660 \u0661\u0662 \u0663\u0664 \u0665\u0666';
+
+    // Each spelling of one real number, and the answer every entry point owes.
+    const same = <String, String>{
+      arabicIndic: '0550123456',
+      persian: '0550123456',
+      spaced: '0550123456',
+    };
+
+    for (final entry in same.entries) {
+      test('"${entry.key}" is answered the same way by all of them', () {
+        // The entry point a screen is told to use.
+        expect(DzPhone.canonical(entry.key), entry.value);
+        expect(DzPhone.isValid(entry.key), isTrue);
+        // And the four that share its name and are one word away from it. This
+        // is the pair the 37th tick proved safe when reached through `digits`
+        // and that nobody executed directly \u2014 `canonical` folded upstream and
+        // every assertion stayed green through a whole regression of this one.
+        expect(DzPhone.canonicalFromDigits(entry.key), entry.value,
+            reason: 'the public door every other entry point funnels through '
+                'answers nothing for an Arabic-Indic number.');
+        expect(DzPhone.groupLocal(entry.key), '05 50 12 34 56');
+        expect(DzPhone.groupIntl(entry.key), '550 12 34 56');
+        expect(DzPhone.national(entry.key), '550123456');
+      });
+    }
+
+    test('the two shapes the item named, as a user reaches them', () {
+      // `phone_field.dart` tells callers to send `canonical(controller.text)`,
+      // 20 lines above a formatter whose own variable is called `digits`. The
+      // docstring and the variable disagree, and the docstring is what a new
+      // screen copies \u2014 so both spellings are asserted here rather than one.
+      for (final raw in <String>['\u0665\u0665\u0660\u0661\u0662\u0663\u0664'
+          '\u0665\u0666', '550123456']) {
+        expect(DzPhone.groupLocal(DzPhone.digits(raw)), '05 50 12 34 56',
+            reason: 'the field must still show a number when the field text is '
+                'in Arabic-Indic digits; an empty field teaches the user the '
+                'number is wrong.');
+        expect(DzPhone.groupLocal(raw), '05 50 12 34 56',
+            reason: 'and the formatter\'s own name is not the caller\'s '
+                'promise: whatever a screen hands it, it answers the number.');
+      }
+    });
+
+    test('the fold is idempotent, so no entry point can double-fold', () {
+      // Folding inside `canonicalFromDigits` is safe only because
+      // `ArabicSearch.normalize` is. If a future fold were not, `canonical`
+      // \u2014 which folds, then calls this \u2014 would fold twice on the way in.
+      for (final raw in <String>[
+        arabicIndic,
+        persian,
+        '550123456',
+        '+213 550 12 34 56',
+        ' 0550123456 ',
+      ]) {
+        expect(DzPhone.canonical(DzPhone.canonical(raw)), DzPhone.canonical(raw),
+            reason: 'canonical() is no longer idempotent on "$raw".');
+      }
+    });
+  });
 }

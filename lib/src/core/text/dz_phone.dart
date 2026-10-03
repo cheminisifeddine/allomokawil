@@ -52,11 +52,36 @@ class DzPhone {
   static String digits(String raw) =>
       ArabicSearch.normalize(raw).replaceAll(_nonDigit, '');
 
-  /// Canonicalise an already digit-only string. Mirrors `normalizeDzPhone` in
-  /// `workers/mobile.ts` and adds the missing-zero repair described above.
-  static String canonicalFromDigits(String digitsOnly) {
-    // Tolerates punctuation too, so callers may hand it the raw field text.
-    var d = digitsOnly.replaceAll(_nonDigit, '');
+  /// Canonical local form of a number the user typed or pasted. Mirrors
+  /// `normalizeDzPhone` in `workers/mobile.ts` and adds the missing-zero repair
+  /// described above.
+  ///
+  /// **Takes any input, on purpose.** `canonical`, [groupLocal], [groupIntl] and
+  /// [national] all end here, and they used to end here with **two different
+  /// meanings** of the parameter: [canonical] folded first through [digits], this
+  /// one ran its own private strip, and the two disagreed on the one input an
+  /// Arabic keypad produces:
+  ///
+  /// ```text
+  /// canonicalFromDigits('٥٥٠١٢٣٤٥٦') -> ''
+  /// canonical          ('٥٥٠١٢٣٤٥٦') -> '0550123456'
+  /// ```
+  ///
+  /// So a screen that reached for [groupLocal] with `controller.text` — which the
+  /// docstring 20 lines above it invites — rendered an **empty field** for a
+  /// number the API would have accepted, and no shipped path showed it because
+  /// `canonical` was the only one `lib/` called. The hole was the *name*:
+  /// a public `canonical…` differing from its sibling `canonical` on exactly
+  /// the digit shape most Algerian keyboards produce.
+  ///
+  /// The fold is [digits] — the one the app already owns, so a second digit
+  /// mapping cannot drift away from it — and it is idempotent, which is what
+  /// makes it safe here: [canonical] still folds before it calls this, and
+  /// folding twice is folding once. Punctuation, spaces, a country code, bidi
+  /// marks, an emoji and Arabic-Indic or Extended-Arabic digits all survive as
+  /// the number that was meant.
+  static String canonicalFromDigits(String raw) {
+    var d = digits(raw);
     // 00213... / 213... — a pasted international number. The server does the
     // same substitution; do it before the length can hit a cap.
     if (d.startsWith('00213')) d = d.substring(2);
@@ -68,7 +93,12 @@ class DzPhone {
 
   /// Canonical local form (`0XXXXXXXXX`) of any input, valid or not. Validation
   /// is a separate question — see [isValid].
-  static String canonical(String raw) => canonicalFromDigits(digits(raw));
+  ///
+  /// Identical to [canonicalFromDigits] on every input, and named that way on
+  /// purpose: this is the one a screen is told to call, and the difference
+  /// between the two names is the difference between \"the fold is idempotent\"
+  /// and \"remember to fold first\".
+  static String canonical(String raw) => canonicalFromDigits(raw);
 
   /// The nine digits after `+213`: the canonical form without its leading zero.
   static String national(String raw) {

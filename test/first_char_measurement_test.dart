@@ -698,6 +698,16 @@ bool _hasInvisible(String s) => s.runes.any((r) =>
     r == 0x200C || r == 0x2060 || r == 0xFEFF || r == 0x00A0 ||
     r == 0x061C);
 
+/// Is [r] a digit an Arabic or Persian keypad writes? `U+0660..U+0669` is
+/// Arabic-Indic and `U+06F0..U+06F9` is Extended-Arabic (Persian), which is
+/// what a phone set to a Persian locale produces.
+///
+/// A named predicate rather than an inline range, because the same boundary
+/// has to be stated the same way wherever it is used -- and an inline range in
+/// an assertion is the kind of thing a future code point leaves out silently.
+bool _isArabicDigit(int r) =>
+    (r >= 0x0660 && r <= 0x0669) || (r >= 0x06F0 && r <= 0x06F9);
+
 /// [s] rendered so an empty string is visible in a failure message, and any
 /// character a reader cannot see is hex rather than a glyph.
 String _show(String s) => s.isEmpty ? '<empty>' : s;
@@ -943,11 +953,19 @@ String probeCodeUnit(String s) => s.codeUnitAt(0).toString();
       // ```
       //
       // `canonicalFromDigits` is a public method that every caller may hand raw
-      // text — its own docstring says so — so **it does not fold Arabic-Indic
-      // digits at all**. Asserting "no non-digit survives" on it would be
-      // asserting something false about shipped code, and a guard that forces
-      // a change to `lib/` to satisfy it would be pushing the tree somewhere
-      // the item never asked for.
+      // text — its own docstring says so — and for one tick it **did not fold
+      // Arabic-Indic digits at all**:
+      //
+      // ```text
+      // DzPhone.canonicalFromDigits('\u0665\u0665\u0660\u0661\u0662\u0663\u0664\u0665\u0666') -> ''
+      // DzPhone.canonical          ('\u0665\u0665\u0660\u0661\u0662\u0663\u0664\u0665\u0666') -> '0550123456'
+      // ```
+      //
+      // The tick that fixed it folded inside that function, so this list moved
+      // the name from `structural` to `normative` rather than weakening the
+      // assertion: a public `canonical...` that differs from its sibling
+      // `canonical` on the digit shape an Algerian keypad produces is the
+      // defect, and this is the case that now says so by execution.
       //
       // So each fold is held to **its own** rule, and both rules are stated
       // here rather than in the table, because the table is where a reader
@@ -957,21 +975,60 @@ String probeCodeUnit(String s) => s.codeUnitAt(0).toString();
       //     claims to read anything a human can type owes the user every
       //     digit shape, so Arabic-Indic and Extended-Arabic must survive as
       //     ASCII digits and a real number must come out the other side;
-      //   * **structural** — `canonicalFromDigits` only promises to strip
-      //     non-`[0-9]` **code units**, and its own callers pre-fold. So the
-      //     check is that nothing invisible survives into the receiver
-      //     (`d[0]` cannot be an RLM, a ZWSP or half an emoji), which is
-      //     precisely the property `d[0]` is read for.
+      //   * **structural** — a fold that only promises to strip non-`[0-9]`
+      //     **code units**, so the check is that nothing invisible survives into
+      //     the receiver (`d[0]` cannot be an RLM, a ZWSP or half an emoji),
+      //     which is precisely the property `d[0]` is read for. **No entry is
+      //     held to this rule today**, and the list is kept non-empty-checked
+      //     rather than deleted so the arm below is exercised the day one is.
       //
       // A fold that satisfies neither is refused by name on the next run.
-      final normative = <String>['DzPhone.digits', 'DzNumber.digits'];
-      final structural = <String>['DzPhone.canonicalFromDigits'];
+      //
+      // **The `canonicalFromDigits` line moved on 3 Oct (38th tick), and it is
+      // here that the finding showed up twice.** It was listed as structural
+      // with the comment "its own callers pre-fold" -- a claim about shipped
+      // code that was true of `canonical` and false of the three public entry
+      // points that share the name. It now folds through `DzPhone.digits`
+      // itself, so it is normative and is held to the stronger rule: every
+      // hostile shape in [_hostileDigits] must come out as the number the user
+      // typed, not merely as something with no invisible character in it.
+      final normative = <String>[
+        'DzPhone.digits',
+        'DzNumber.digits',
+        'DzPhone.canonicalFromDigits',
+      ];
+      final structural = <String>[];
       expect(normative.every(_folds.containsKey), isTrue);
       expect(structural.every(_folds.containsKey), isTrue);
-      // Neither list may be empty, or this case would pass having checked
-      // nothing while printing two satisfied expectations.
-      expect(normative, isNotEmpty);
-      expect(structural, isNotEmpty);
+      // Every fold an excuse names must be **classified**, or the loop below
+      // silently stops holding it to any rule at all -- `mustFoldArabic` is
+      // false for anything unlisted, so an unclassified fold would fall
+      // through to the structural arm for the wrong reason and pass.
+      //
+      // **The tick that moved `canonicalFromDigits` to `normative` emptied
+      // `structural`, and this case went red on its own coverage floor rather
+      // than on anything to do with phone numbers.** The floor was right for
+      // the wrong reason: it forbade an *empty normative* list, and this file
+      // has read it as "both lists must have members" ever since. So what is
+      // asserted now is coverage -- every named fold is classified exactly
+      // once -- and the only list that must be non-empty is `normative`, which
+      // is the one with the stronger rule. A structural fold is a legitimate
+      // state for the tree to be in; an *unclassified* fold is not.
+      final classified = <String>{...normative, ...structural};
+      expect(
+          classified,
+          containsAll(_folds.keys.toSet()),
+          reason: 'these folds are run by this case but classified by neither '
+              'rule, so they are held to nothing:\n'
+              '${_folds.keys.where((k) => !classified.contains(k)).toList()}');
+      expect(normative, isNotEmpty,
+          reason: 'the normative list is the one that owns the Arabic-Indic '
+              'guarantee; if it is empty the case checks no user-visible fold '
+              'at all.');
+      expect(structural.length, lessThanOrEqualTo(normative.length),
+          reason: 'a structural fold promises strictly less than a normative '
+              'one, so there cannot be more of them than there are folds to '
+              'owe the user something.');
 
       final notDigits = RegExp(r'[^0-9]');
       for (final entry in _allowed.entries) {
@@ -988,6 +1045,31 @@ String probeCodeUnit(String s) => s.codeUnitAt(0).toString();
             // And it is not enough to leave *no* non-digit: the fold must
             // produce the number the user meant. `DzPhone.digits` deleting the
             // whole string satisfies the assertion above and is still broken.
+            //
+            // **This arm was too weak, and it was found by reverting the
+            // tree, not by reading it.** `canonicalFromDigits` was reclassified
+            // as normative on the tick that folded Arabic digits inside it,
+            // and the only inputs this assertion fires on are the ones ending
+            // in ASCII `0550123456` -- so with `lib/` reverted to the strict
+            // version, every Arabic-Indic input produced `''`, `''` has no
+            // non-digit in it, and **the whole case stayed green.** The two
+            // Arabic-Indic rows of [_hostileDigits] were folded away by the
+            // very defect they exist to catch, and nothing said so.
+            //
+            // The fix is the shape of the claim rather than a longer list: a
+            // fold that claims to read anything a human can type owes the user
+            // the digits that were there, so an input carrying a phone number
+            // must not come back empty. "Empty" is now an explicit answer,
+            // checked on every input that has digits to lose -- which is what
+            // makes the assertion fire on the rows it was previously blind to.
+            if (raw.runes.any(_isArabicDigit)) {
+              expect(out, isNotEmpty,
+                reason: '${entry.value.fold} answered nothing for '
+                    '"${_hex(raw)}". It folds Arabic-Indic digits by '
+                    'definition, so deleting the whole string satisfies '
+                    '"no non-digit survived" and is still a broken phone '
+                    'number. ${entry.key} is excused on this fold.');
+            }
             if (raw.endsWith('0550123456')) {
               expect(out, '0550123456',
                 reason: '${entry.value.fold} dropped the digits a user typed: '
