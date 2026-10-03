@@ -17139,3 +17139,83 @@ founder-gated.
       read guards have **no** builder, no `errorCopy`, no state — the reads
       whose failure a user would never be told about. Same lexer, same
       planted-violation check.
+
+- [x] **Tick 2 Oct 2026 (18th) — the 17th tick's open census: of the 65
+      read-side `catch` guards, which have no builder, no `errorCopy` and no
+      state — failures a user is never told about.**
+
+      **The defect is not there. The census now says so, and it is a test.**
+
+      All 87 `catch` blocks in `lib/` leave a mark a reader can find, and the
+      way they leave it is not one way:
+
+      | how it reports | count |
+      | --- | --- |
+      | logs (`debugPrint` / `showNote` / `SnackBar` / …) | 25 |
+      | assigns a sentinel another statement reads | 23 |
+      | returns a typed sentinel (`WriteOutcome.unknown`, `_PageBatch(null, e)`) | 19 |
+      | raises, or delegates to a function that does | 6 |
+      | stands empty with a comment in the block saying why | 10 |
+
+      **The last row is the rule.** Not "every `catch` must log" — that would
+      force logging into cleanup and already-reported paths where a log line is
+      noise — but **"a catch that reports nothing is an empty block, and an
+      empty catch must say why in its own source."** That is decidable with a
+      lexer, it survives the next eleven files that need a guard, and it is
+      exactly the class the 16th tick found: `place_state.dart`'s three bare
+      `catch (_) {}` would fail it today.
+
+      All 10 empty catches are deliberate and their comments say why in one
+      line — `browse_screen.dart` *«The FutureBuilder renders the error
+      state»*, `notifications_bell.dart` *«Keep the last known count: a dropped
+      request is not a broken header»* (with the half it used to lose spelled
+      out beneath it), `chat_outbox.dart`'s *«The previous holder already
+      reported its own failure»*. So the write half's fix and the read half's
+      silence are the same rule seen from two sides, which is why this closes
+      the census instead of opening a new one.
+
+      *Gate:* `flutter analyze` → **No issues found!** (9.0 s);
+      `tool/run_tests.py` → **+2088 ~8 All tests passed (16:41)**, exactly
+      **+6** over the previous 2082 — the new file and nothing else.
+      **Not visual**, no screenshot claimed, no Arabic string moved. No APK,
+      release or tag: founder-gated.
+
+      **Not vacuous, and not by assertion.** Planting a bare `catch (_) {}`
+      at `place_state.dart:123` — a site that had a documented one-line comment
+      two ticks ago — turned the rule red and named
+      `lib/src/core/location/place_state.dart:123`, so the **line number** is
+      right and not merely the count. Revert restored 6/6.
+
+      **Both of my instruments were wrong before the number was, and both
+      wrongnesses are recorded in the file itself rather than here.**
+
+      * A `catch (_)` carries a **space before the paren** and `catch (e)`
+        need not. The reader skipped the parameter list *before* the
+        whitespace, so it found **0 of 87** — and the failure direction is the
+        one that matters: the rule would have been **vacuously green**,
+        holding a tree it had not read. The coverage case (≥130 files, ≥80
+        catches) is what caught it, which is the whole reason it is there.
+      * Two line-number assertions were wrong because **Dart drops the newline
+        after a `'''` opener**, so the fixture was one line shorter than its
+        author believed. Measured, not assumed, after the failure.
+
+      The lexer also has to be a *Dart* lexer, not the Python one
+      `tool_clock_seam_test.dart` carries: `lib/` holds **12 raw strings**
+      whose backslashes must not escape — without the raw check `r'/+$'` loses
+      its closing quote and blanks the rest of the file — and **29
+      interpolations carrying a quote inside `${...}`**
+      (`unread_message_count.dart:70`), where a naive scanner closes on the
+      *inner* quote and runs away. Both shapes are live in the tree today, and
+      both make a guard pass for the wrong reason, so both are fixtures.
+
+      *Commit:* local `a271fd5` (see the push line below for the remote hash).
+
+      **Next:** this guard reads `lib/` only, and it is the second one to be
+      scoped to a directory rather than a rule that finds its own extent
+      (`tool_clock_seam_test.dart` hit the same trap on `tool/*.py` and had to
+      widen to every tracked `.py`). Before trusting any source-scanning guard
+      in this repo, enumerate: does the sweep's scope still cover where the
+      code is? `lib/` is the whole app, so this one is sound — but the
+      *inventory* of such guards is now four files deep and unwritten, and the
+      next `catch`-class defect will be asked of a reader that has to be
+      rebuilt from scratch a fifth time.
