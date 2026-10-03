@@ -17566,3 +17566,75 @@ never `git add`-ed is invisible to the coverage case in the same way an
 untracked guard was invisible until this tick. The untracked-guard assertion
 covers `test/` only; `lib/` has no equivalent, and `shippedDartFiles()` is the
 one remaining place the same class of hole survives.
+
+## Tick 3 Oct 2026 (22nd) — the shipped-set census read git on one side and
+## the disk on the other: SHIPPED
+
+- [x] **A Dart file under `lib/` that was never `git add`-ed was invisible to
+      the coverage census, because the set being judged came from git and the
+      set doing the reading came from the filesystem.** *(commit `b4814f3`)*
+
+The previous tick closed the silent-guard hole for `test/` and left one line as
+the next item: "`shippedDartFiles()` is the one remaining place this class of
+hole survives." Read as a hole first rather than as a tuning job, it was a
+**contract** that never held, not a single unchecked file.
+
+**The defect.** The coverage case compares two sets — *files the app ships* and
+*files some sweep reads*. They were enumerated by different mechanisms:
+`shippedDartFiles()` ran `git ls-files -- 'lib/*.dart'`, while the case that
+builds the `read` set walks `Directory(root)` on the **filesystem**. A Dart file
+under `lib/` that is not yet tracked was therefore not in the set being judged,
+so the question "is any guard reading this?" was never asked about it — the same
+hole last tick found for guards, still open for the half of the tree that matters
+most.
+
+**Shipped.** Both enumerations are read and reconciled, in **both** directions:
+
+| direction | meaning | previously |
+| --- | --- | --- |
+| on disk, untracked | a file nobody `git add`-ed is a **guard nobody is running** | invisible |
+| tracked, not on disk | a green run here cannot have compiled it, so crediting it to a sweep is a claim about a tree that does not exist | invisible |
+
+The on-disk walk is now one shared helper, `_dartFilesUnder(dir)`, used by both
+halves. The defect *is* that two readers of "the Dart in this directory"
+disagreed, so the fix is that they cannot be written separately — `lib/`'s copy
+and `test/`'s copy had each grown their own, and `lib/`'s had never been checked
+against git at all.
+
+`lib/` holds no ignored `.dart` (measured: `git status --ignored -- lib` empty,
+`git check-ignore` finds nothing), so the filesystem walk is a strict superset of
+the tracked set and no ignore rule has to be reconciled first.
+
+**Red before green — two plants, both reverted**, and both fire in `setUpAll`
+rather than in a named case, because the hole lives in the reader:
+
+| planted | fired |
+| --- | --- |
+| untracked `lib/src/planted_untracked_probe.dart` | `Actual: ['lib/src/planted_untracked_probe.dart']` — "these Dart files sit under lib/ but are not tracked by git" |
+| tracked-but-absent `lib/src/planted_ghost_probe.dart` (`git add` then `rm`) | `Actual: ['lib/src/planted_ghost_probe.dart']` — "git tracks these Dart files under lib/ but they are not on disk" |
+
+Both reverted with `git rm --cached` + `rm`; `git ls-files -- 'lib/*.dart'`
+back to 131, tree clean.
+
+**Gate.** `flutter analyze` -> **No issues found!** (10.1 s).
+`tool/run_tests.py` -> **+2101 ~8 All tests passed!** (12:37), exit 0 — 405 log
+lines, **0 `[E]` markers**, in 12:48. Count is **unchanged** at 2101 and that is
+expected, not a miss: both assertions live in `shippedDartFiles()`, which
+`setUpAll` calls, so they harden existing cases rather than adding two. The point
+of this tick is that the same 2101 now means something it did not mean before.
+
+**Not visual**: a rule about which files a test reads draws nothing, so no
+screenshot is claimed. No APK, release or tag.
+
+`b4814f3` (tests) -> remote `28c9408`; `tool/remote_state.py` -> **tree IN SYNC**,
+identical tree `70b545f` — the differing hashes are the API-built commit, not
+divergence.
+
+**Next:** the two enumerations now agree, but the census only *fails* when they
+disagree at run time — nothing records that a file under `lib/` is **supposed** to
+be tracked. The remaining gap is the inverse of this tick: a guard that is
+**tracked and read** can still be measuring a root that no longer exists. The
+`_knownRoots` set is a set of *shapes* the reader understands, and a root that was
+deleted from the tree stops being declared, stops being wrong, and simply
+disappears from the coverage set — narrowing a guard to `lib/src/screens` and
+deleting the last screen in it leaves the census green and the app unwatched.
