@@ -35,7 +35,15 @@ import 'package:allomokawil/src/core/l10n/snack.dart';
 /// called something similar.
 const _owner = 'lib/src/core/l10n/snack.dart';
 
-List<File> _sources() => Directory('lib/src')
+/// Every Dart file the app ships, **including `lib/main.dart`**.
+///
+/// This was `Directory('lib/src')`, which is a statement about where screens
+/// live rather than a fact about where the app's code is. `lib/main.dart` sits
+/// beside `lib/src/`, not inside it, so the sweep could not see the entry
+/// point — and the entry point is where the app wires everything. Planting a
+/// `ScaffoldMessenger` call there left this file green (verified: 21/21 across
+/// the four `lib/src`-scoped sweeps). See `app_source_scope_test.dart`.
+List<File> _sources() => Directory('lib')
     .listSync(recursive: true)
     .whereType<File>()
     .where((f) => f.path.endsWith('.dart'))

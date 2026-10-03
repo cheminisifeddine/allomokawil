@@ -17219,3 +17219,93 @@ founder-gated.
       *inventory* of such guards is now four files deep and unwritten, and the
       next `catch`-class defect will be asked of a reader that has to be
       rebuilt from scratch a fifth time.
+
+---
+
+## Tick 3 Oct 2026 (19th) — three app-wide rules could not see the entry point,
+## and nothing in the repo knew that
+
+The previous tick left a "next": before trusting a source-scanning guard,
+enumerate whether its scope still covers where the code *is*. Done, and the
+answer was not "the guards are fine" — **three of them were blind to a file.**
+
+**The finding.** `lib/main.dart` sits *beside* `lib/src/`, not inside it, so
+every sweep rooted at `Directory('lib/src')` skipped it. The entry point is
+where the app installs its crash hooks, starts its boot clock, builds its API
+client, auth state and location state, and hands two futures to
+`unawaited(...)` — the only two `unawaited` calls in the codebase, and the one
+file no source sweep could read.
+
+**Proven, not asserted from reading.** A `ScaffoldMessenger` call was planted in
+`lib/main.dart` and the four `lib/src`-scoped sweeps were run together:
+
+```
++21: All tests passed!
+```
+
+`snack_rule_sweep_test.dart` exists *precisely* so a tenth copy of the snack
+rule cannot be born quietly, and the copy was planted in the one file it was
+blind to.
+
+**Shipped.** The three rules that are app-wide in nature are widened from
+`lib/src` to `lib` — `snack_rule_sweep_test.dart` (no `ScaffoldMessenger`
+outside the helper), `no_empty_text_site_test.dart` (no bare
+possibly-empty `Text(copyFn())`), `wall_clock_seam_site_test.dart` (no screen
+reads a wall-clock getter). All three now cover `lib/main.dart` and **it passes
+every one of them** — measured, not hoped. So nothing was hiding: the hole was
+the finding.
+
+The other four `lib/`-rooted sweeps (`card_recipe`, `contrast_tokens`,
+`failure_reported`, `header_trust_wiring`, `motion`, `payload_coverage`,
+`type_scale`) already walked `lib/`, and `layering_test` is deliberately
+scoped to the five-layer graph, so neither was part of this.
+
+**The durable half is `test/app_source_scope_test.dart` (+5 cases).** The hole
+was invisible *from inside* any sweep, because each one faithfully checked its
+own files. So the census reads every tracked test that scans source, extracts
+the **root each one declares**, and asserts two contracts:
+
+  1. **Every Dart file `lib/` ships is read by some sweep** — stated as a fact
+     about *files*, not about rules. A narrow rule is not wrong for being
+     narrow; a file nothing reads is the hole.
+  2. **The messenger sweep specifically keeps walking `lib/`** — named, so the
+     exact guard that was bypassed cannot be re-narrowed while other sweeps
+     still cover the file and keep the blanket contract green.
+
+Enumerated through `git ls-files`, not a glob, for the reason
+`tool_clock_seam_test.dart` records: a glob also collects `build/` and
+`.dart_tool/` output, and a rule that polices generated files is a rule whose
+failures nobody can reproduce.
+
+**Two of my own instruments were wrong before the tree was, and both are now
+fixtures in the file:**
+
+  * **Prose shadowed code.** The root was found by taking the first
+    `Directory('…')` in a file — and the first one in `snack_rule_sweep` is the
+    `Directory('lib/src')` **quoted in the doc comment explaining this very
+    fix**. The reader therefore reported the messenger sweep as blind to
+    `main.dart` minutes after it had been widened. Comments are now blanked
+    before the search, which is why the three widened files spell the old root
+    as a bare `lib/src`.
+  * **First match is not the guard's root.** `tool_clock_seam_test.dart` opens
+    a `Directory(...)` on its *fixtures* directory inside a test body, long
+    after the helper that enumerates the repo's real instruments. Roots are
+    therefore **all** of them, and only those declared before `void main(`.
+
+**Not vacuous.** Re-narrowing `snack_rule_sweep_test.dart` to `lib/src` turned
+the pin red and named the exact sweep. The blanket contract correctly stayed
+**green** — seven other sweeps still walk `lib/`, so coverage genuinely
+survives one narrowing, which is the right behaviour and the reason both cases
+exist rather than one. Revert restored 5/5.
+
+**Gate.** `flutter analyze` → **No issues found!** (7.0 s).
+`tool/run_tests.py` → **+2093 ~8 All tests passed (16:41)**, exactly **+5** over
+the previous 2088 — the new file and nothing else. **Not visual**: a rule about
+which files a sweep reads draws nothing, so no screenshot is claimed.
+
+**Next:** `test/` itself. `wall_clock_seam_site_test.dart` and
+`tool_clock_seam_test.dart` both police the suite's own sources, and the
+`git ls-files` census above now covers the *app*; nothing yet checks that the
+**fixtures** those sweeps read (`test/fixtures/*.py.fixture`) are themselves
+governed, so a fixture could drift from the shape its guard assumes without
+anything noticing.
