@@ -90,6 +90,34 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   ProjectStatus? _status = ProjectStatus.open;
   late Future<List<Project>> _future;
 
+  /// The generation [_arm] is on, so a read that settles after a newer one was
+  /// issued is ignored outright. Checked on **both** arms.
+  ///
+  /// **This screen was the last arming screen in the app without one.**
+  /// `chat_list_screen.dart` (`_armToken`), `worker_home_screen.dart`
+  /// (`_feedToken`, `_conversationToken`) and `customer_home_screen.dart`
+  /// (`_workersToken`, `_projectsToken`) all carry it, and the inbox records
+  /// in this app's own words why it exists: *an answer nobody asked for again
+  /// decides a visible state forever*. Here it was worse than a stale count,
+  /// because a tab switch and a pull are both always in flight together on one
+  /// bar of signal, and the callback wrote `_cache` unconditionally — so the
+  /// read a customer **replaced** could install its rows over the newest ones
+  /// for the very same tab.
+  ///
+  /// The tab-keyed [ProjectsRead] could not catch it, and the reason is worth
+  /// keeping: it only holds rows that were read *for the tab on screen*. Three
+  /// taps that leave and come back — «مفتوح» (initState), «الكل», «مفتوح»
+  /// again — ask the **same** question twice, so both «مفتوح» answers are
+  /// equally eligible and the first one wins on arrival order, which is the
+  /// one thing the key was never able to order.
+  ///
+  /// It is also why the damage is quiet. `_future` is what the builder
+  /// listens to, so a late write does not change the frame: the wrong rows
+  /// only surface on the *next* failed refresh, when the fallback draws them
+  /// and the band dates them with a stamp taken when the abandoned answer
+  /// happened to land. Both halves are the same one line.
+  int _projectsToken = 0;
+
   /// The last rows that arrived, kept so a *re-read* that fails can fall back
   /// to them instead of erasing the list.
   ///
@@ -191,10 +219,26 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   /// cross-tab mislabelling this change exists to remove, one layer down. The
   /// tab is decided at the moment the request is issued and travels out with
   /// it, so the read and its label cannot come apart.
+  ///
+  /// **And a read that settles after a newer one is ignored**, for the reason
+  /// [_projectsToken] gives. The parameter above is the *question*; the token
+  /// is the *generation*, and the app needs both: the question stops a read
+  /// from being filed under the wrong tab, and nothing else can stop a read
+  /// from being filed over a newer answer to the **same** question.
   void _arm(Future<List<Project>> read, ProjectStatus? status) {
     _future = read;
+    // Every arming is a new generation. The pull and the tab switch both arm
+    // without taking the other down, so two reads are routinely in flight at
+    // once, and the older one must not write last.
+    final token = ++_projectsToken;
     read.then((list) {
-      if (!mounted) return;
+      // The generation guard, on the success arm too. [_projectsToken] says
+      // why this file had none; without it a read issued at 09:00 and parked
+      // answers *after* the 09:40 read for the same tab and overwrites the
+      // newer rows with older ones, stamping them with their own landing time
+      // so the band reports them fresher than they are. The tab-keyed
+      // [_cache] cannot catch it: both reads asked the same question.
+      if (!mounted || token != _projectsToken) return;
       setState(() {
         // The clock *now*, not the moment the request was issued, so a read
         // that was in flight for forty seconds is dated when it actually
@@ -205,7 +249,13 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       });
       _armAgeTick();
     }, onError: (Object e, StackTrace _) {
-      if (!mounted) return;
+      // The generation is checked here too, and that is the fix. A failure for
+      // a question the reader already moved off would otherwise paint the
+      // amber band over rows that are perfectly current — and, because the
+      // band is drawn whenever `_staleReason != null`, it would do so on a
+      // screen whose own read succeeded. The doubt has to belong to the read
+      // that is on screen.
+      if (!mounted || token != _projectsToken) return;
       setState(() => _staleReason = errorCopy(e));
     });
   }

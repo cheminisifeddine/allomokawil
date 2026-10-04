@@ -441,6 +441,179 @@ void main() {
       expect(find.text('تعذّر جلب المشاريع'), findsOneWidget);
     });
 
+    testWidgets('a late SUCCESS cannot replace newer rows with older ones, nor '
+        're-date them as if they were just read', (tester) async {
+      // **The generation token [_arm] does not have, and every other arming
+      // screen in this app does.** `chat_list_screen` (`_armToken`),
+      // `worker_home_screen` (`_feedToken`, `_conversationToken`) and
+      // `customer_home_screen` (`_workersToken`, `_projectsToken`) all ignore
+      // a read that settles after a newer one was issued. This file is the one
+      // arming screen left that writes unconditionally, and the tab-keyed
+      // `_cache` cannot catch the case below — because both reads asked the
+      // **same** tab.
+      //
+      // The sequence is three taps on a phone, all ordinary: open «مشاريعي»
+      // (read 1, «مفتوح»), tap «الكل» (read 2), tap «مفتوح» again (read 3).
+      // Three reads, two of them in flight at once on one bar of signal. Read
+      // 3 answers with the newest rows and `_cache.readAt` is dated when it
+      // lands. Then read 1 — issued **forty minutes earlier** and parked on a
+      // slow connection the whole time — lands last, and its `then` writes
+      // `_cache` over the record: its older rows, stamped `_now()`.
+      //
+      // The damage is invisible for one frame and then permanent. The rows
+      // drawn come from the FutureBuilder, so read 1 does not change what is
+      // on screen *yet*. The next refresh fails, and then two things are wrong
+      // at once, both from that one late write:
+      //
+      //   1. the fallback draws **read 1's rows**, so a project the newest
+      //      read for this very tab listed has vanished from the customer's
+      //      own project list — over a read he abandoned before it answered;
+      //   2. the band dates them **read 1's landing time**, not the time the
+      //      rows were true, so «ما ن-displayه» is reported 40 minutes fresher
+      //      than it is. On this screen the age is the half that decides
+      //      whether he restarts a job from nothing.
+      //
+      // Both halves are asserted, and the numbers are an hour apart on purpose
+      // so a predicate that took the wrong stamp cannot be mistaken for the
+      // right one.
+      tester.view.physicalSize = const Size(1080, 2532);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+
+      var now = DateTime(2026, 9, 29, 9, 0);
+      final gates = <int, Completer<void>>{1: Completer<void>()};
+      var reads = 0;
+      final api = ApiClient(
+        baseUrls: const ['https://x.test'],
+        httpClient: MockClient((req) async {
+          final path = req.url.path;
+          if (path.endsWith('/api/login') || path.endsWith('/api/register')) {
+            return http.Response(
+                jsonEncode(<String, Object?>{'token': 't', 'user': _me()}),
+                200,
+                headers: {'content-type': 'application/json'});
+          }
+          if (path.contains('/api/mobile/my/projects')) {
+            reads++;
+            if (reads == 1) {
+              // Read 1 (initState, «مفتوح») is issued at 09:00 and parked.
+              // Its answer is the OLD state of the tab: one project only.
+              await gates[1]!.future;
+              return http.Response(
+                  jsonEncode(<dynamic>[_job('p1', 'دهان فيلا')]),
+                  200,
+                  headers: {'content-type': 'application/json'});
+            }
+            // Read 3 (the second «مفتوح» tap, landing at 09:40) and read 2
+            // both see a job that read 1's answer cannot contain — it was
+            // posted while read 1 was in the air. That difference is the
+            // evidence, and it has to be in the data: two identical answers
+            // would make the case vacuous.
+            if (reads >= 4) {
+              return http.Response('', 503,
+                  headers: {'content-type': 'application/json'});
+            }
+            return http.Response(
+                jsonEncode(<dynamic>[
+                  _job('p1', 'دهان فيلا'),
+                  _job('p2', 'سباكة حمام'),
+                ]),
+                200,
+                headers: {'content-type': 'application/json'});
+          }
+          return http.Response(jsonEncode(<String, Object?>{}), 200,
+              headers: {'content-type': 'application/json'});
+        }),
+        // Long, deliberately: read 1 is MEANT to hang, and a 200 ms timeout
+        // fires while it is parked and turns this into a failed-read case it
+        // is not. The same trap the race case above documents, hit a second
+        // time.
+        timeout: const Duration(seconds: 20),
+      );
+
+      final auth = AuthState(api);
+      await auth.restore();
+      await auth.login(
+          phone: '0773000000', password: 'secret123', rememberMe: true);
+      await tester.pumpWidget(AppScope(
+        api: api,
+        auth: auth,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          locale: const Locale('ar'),
+          home: ProjectsScreen(repo: Repository(api), clock: () => now),
+        ),
+      ));
+      // Bounded pumps, not `pumpAndSettle`: the parked read draws a Shimmer,
+      // which animates forever, so settling never returns while it is open.
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+      expect(reads, 1, reason: 'the first read must be issued and parked');
+
+      // Tap «الكل» (read 2, answers at once) then «مفتوح» again (read 3).
+      //
+      // The tap target is the **pill**, not the word. `find.text('مفتوح')`
+      // finds three widgets once the rows are on screen — the tab label and
+      // the status pill on each card — and `tap()` refuses an ambiguous
+      // finder, so the first run of this case failed on its own setup with a
+      // finder error and proved nothing about the defect. Scoped to the
+      // horizontal strip, which is the only one in the tree: the project list
+      // itself scrolls vertically.
+      final strip = find.byWidgetPredicate((w) =>
+          w is ListView && w.scrollDirection == Axis.horizontal);
+      await tester.tap(find.descendant(
+          of: strip, matching: find.text('الكل')));
+      await tester.pump(const Duration(milliseconds: 50));
+      now = DateTime(2026, 9, 29, 9, 40);
+      await tester.tap(find.descendant(
+          of: strip, matching: find.text('مفتوح')));
+      await tester.pumpAndSettle(const Duration(seconds: 3));
+      expect(reads, 3, reason: 'both taps must issue their own read');
+      expect(find.text('سباكة حمام'), findsOneWidget,
+          reason: 'the newest read for this tab listed two jobs');
+
+      // Read 1 lands last, at 09:40, carrying the 09:00 answer.
+      gates[1]!.complete();
+      await tester.pumpAndSettle(const Duration(seconds: 3));
+
+      // The next refresh fails at 11:00, so the band is drawn and the fallback
+      // rows are drawn. Read 1's late write is only visible here, which is
+      // exactly why this case cannot assert anything before the failure.
+      //
+      // **The hour, not the twenty minutes this first used.** The rows on
+      // screen were true at 09:40 and a stamp of `_now()` at read 1's landing
+      // would be 09:40 as well — the two candidates were the same number, so
+      // the discriminator could not discriminate and the case passed on the
+      // bug it was written to catch. An hour out makes them an hour and eighty
+      // minutes, which no rounded wording can collapse into one string.
+      now = DateTime(2026, 9, 29, 11, 0);
+      await tester.drag(find.text('سباكة حمام'), const Offset(0, 340));
+      await tester.pumpAndSettle(const Duration(seconds: 3));
+
+      // **Half 1 — the rows.** The two-project answer for this very tab is
+      // still the newest one, and an answer the user replaced is not allowed to
+      // replace it.
+      expect(find.text('سباكة حمام'), findsOneWidget,
+          reason: 'a read issued at 09:00 and answered at 09:40 must not '
+              'delete a job the 09:40 read listed for this tab');
+
+      // **Half 2 — the stamp.** The rows on screen were true at 09:40, so the
+      // band must say an hour and a half, not eighty minutes.
+      final band =
+          tester.widget<Text>(find.byKey(const Key('stale-projects-line')))
+              .data!;
+      expect(band, contains('قبل ساعة'),
+          reason: 'the rows were read at 09:40, so at 11:00 they are an hour '
+              'and a half old; got: ${band.replaceAll('\n', ' / ')}');
+      expect(band, isNot(contains('قبل 80 دقيقة')),
+          reason: 'eighty minutes is the landing time of a read issued at '
+              '09:00: an abandoned answer cannot be the stamp on the rows it '
+              'did not replace — got: ${band.replaceAll('\n', ' / ')}');
+    });
+
     testWidgets('the band is a header, not a replacement for the list',
         (tester) async {
       await _pumpProjects(tester, succeedingReads: 1, afterLoad: (t) async {
