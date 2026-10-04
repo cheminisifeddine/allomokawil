@@ -19633,3 +19633,96 @@ supply, which is a supply problem, not an app one.
 
 **Next in backlog: none — zero unchecked boxes.** Next tick earns its item by
 audit, and the rule that keeps earning them is unchanged: read the wire.
+
+---
+
+## Tick 4 Oct 2026 (45th) — the sixth member of the unowned-answer class, and
+## the projects half of the one the 44th shipped for the directory
+
+The backlog had **zero unchecked boxes**, so this item was earned by audit, on
+the rule the 43rd tick wrote down: **read the wire, do not reason about it.**
+The obvious place to read next was the endpoint the 44th tick had just fixed a
+sibling of — `workers/search` — so it went to the other one.
+
+**Item (SHIPPED):** `GET /api/mobile/projects?category=` does not answer with
+the jobs filed under that trade. It answers with a **family union**. Measured on
+`finili.medsaidkichene.workers.dev`, 4 Oct 2026, over every slug the app sends:
+
+| slug | rows served | rows that carry the trade |
+| --- | --- | --- |
+| `wallpaper` | 17 | **1** |
+| `painting` | 17 | 16 |
+| `plaster_drywall` | 5 | 3 |
+| `venetian_plaster` | 5 | **2** |
+| the other 12 slugs | 38 | 38 |
+
+**82 rows served, 22 off-trade, across 4 of the 16 trades.** The market drew all
+of them: a contractor who tapped «ورق جدران» — a filter he chose to *narrow*
+with — was served **sixteen painting jobs**, and the one wallpaper job he came
+for (`proj_006` «ورق جدران لغرفة المعيشة») sat unmarked among them.
+
+**The mechanism is NOT the one the 44th tick wrote down, and saying so is the
+useful half of this tick.** `workers/search` matches on a **substring**
+(`category=wall` -> 4 rows, `category=a` -> 15). It is tempting to reuse that
+finding wholesale. It is **wrong here**, and a rule built on it would have been
+right by luck:
+
+```
+category=wall -> 0     category=paint  -> 0     category=plaster -> 0
+category=paper -> 0    category=ter    -> 0     category=a      -> 0
+```
+
+Every *fragment* answers **nothing**, while two slugs sharing no substring answer
+with the **identical** row set: `wallpaper` and `painting` are byte-identical
+17-row lists, and `plaster_drywall` == `drywall` == `venetian_plaster` == the
+same 5. `wallpaper_` and `painting_` (matching no slug at all) also answer 17;
+`epoxy` == `epoxy_flooring` == 3, `aluminum` == `carpentry_aluminum` == 1.
+So the endpoint groups the taxonomy into *finish families* and returns the
+union. That is why two files exist rather than one shared helper: same duty,
+different reason.
+
+**The line that would have been missed by copying:** the 44th tick's own
+header claims `wallpaper` drags in painters *because painters are a substring
+of the family*. On this endpoint the reverse is true — `wallpaper` and
+`painting` are not substrings of each other at all, and each one is returned
+for the other. A "substring superset" comment written here would have been
+falsified by `category=wall -> 0`.
+
+*Changed:* new `lib/src/data/project_trade_exact.dart` +
+`Repository._browseProjectsPage` wired. Wired at the **page** chokepoint, not
+in the two callers, so the filter survives `pages: 5` — the widen a contractor's
+first keystroke triggers — and cannot be undone by the very act of searching.
+Server order preserved exactly; no re-rank. Membership read through
+`Taxonomy.canonical` on **both** sides (a legacy `gypsum` row really does do
+`plaster_drywall`) and through `allCategories`, so a pre-multi-trade job is not
+dropped for an empty list — that would hide the oldest jobs in the market.
+
+*Live-wire prediction, run against the real endpoint:* every slug re-checked
+with the shipped rule, **82 -> 60**, the 22 off-trade rows and nothing else.
+The numbers in the tests are the ones the wire produces, not fixtures chosen to
+pass.
+
+*Gate.* `flutter analyze` -> **No issues found!** (10.8 s). `python3
+tool/run_tests.py` -> **SUITE PASS — 2120 tests across 11 shards, every shard
+green**, was 2106; +14 is exactly the two new files.
+
+*Red before green.* Rule neutered to the identity — the exact pre-fix
+behaviour — **10 of 14 fail** (6 of 9 rule + 4 of 5 repository), including the
+verbatim seventeen-row live body. Real rule -> **14/14**.
+
+**Not claimed, deliberately:** no screenshot. The change is *which rows appear*
+and the design harness's project fixture is a single `_project` row of
+`category: 'painting'`, so its pixel output is identical before and after — a
+shot would prove nothing about the defect. The wire measurement and the
+red-before-green run are the honest pairing for a change with no layout in it.
+
+**Left alone, on purpose:** `wallpaper` now answers **1 row** and `hvac_heating`
+/ `landscaping_exterior` **0**. Both are true answers, the screen already draws
+«لا نتائج مطابقة» with a «مسح البحث والفلاتر» button, and inventing filler to
+make a tile look full is the thing this loop exists to stop.
+
+**Commits:** local `696c437` -> remote `a2f4064`. Trees verified **MATCH**,
+`tool/remote_state.py` -> **IN SYNC**.
+
+**Next in backlog: none — zero unchecked boxes.** Next tick earns its item by
+audit, and the rule is unchanged: read the wire.
