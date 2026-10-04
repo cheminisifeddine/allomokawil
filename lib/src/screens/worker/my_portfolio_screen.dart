@@ -74,6 +74,38 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
   bool _busy = false;
   String? _error;
 
+  /// Bumped by **every path that installs rows**, so a read that is no longer
+  /// the newest thing to touch the gallery cannot write.
+  ///
+  /// One counter and not two, and the reads and the writes share it on purpose.
+  /// A generation per read answers "is this read superseded?", which is the
+  /// question `projects_screen` had to ask and the right one *there*. Here the
+  /// superseding thing is usually not a read:
+  ///
+  ///  * **The app bar's «تحديث» is not a barrier, only a button.** It is
+  ///    `onPressed: _loading ? null : _load`, so it cannot fire a second read
+  ///    — but the body renders on [_settled] (`_worker != null || !_loading`),
+  ///    deliberately true while a re-read is in flight so a refresh does not
+  ///    throw away the contractor's own work. So the add tile and
+  ///    `portfolio-add` stay **live** while a «تحديث» is parked, and
+  ///    [_addPhoto] is gated on `_busy`, never on `_loading`. One photo going
+  ///    up while a «تحديث» goes down is a weak uplink, not a corner case.
+  ///  * **A read answers with rows that were true when it was issued.** The
+  ///    server serialises them at 09:00; a bad uplink delivers them at 09:02,
+  ///    by which time an upload that completed at 09:01 is on the server and on
+  ///    his screen. The late success was installing rows from the past over a
+  ///    photo the app had already seen land.
+  ///
+  /// A read-vs-read token passes straight through that second case — nothing
+  /// else issued a *read*, so the token is still current — which is why the
+  /// first version of this fix left the defect red.
+  ///
+  /// The counter is monotonic on purpose. The upload paths cannot know whether
+  /// their photo is one a pending read already contains, and a union would be
+  /// guessing; refusing the older answer is the honest direction, and it is
+  /// cheap: the write already installed rows that are the server's own plus one.
+  int _galleryEpoch = 0;
+
   /// When the photos on screen were last read successfully.
   ///
   /// Written where the read **settles**, not where it is issued, and refreshed
@@ -216,6 +248,9 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
   }
 
   Future<void> _load() async {
+    // Issued before the first `await`, so the epoch belongs to *this* read and
+    // not to whatever `_load` was when the request went out.
+    final epoch = ++_galleryEpoch;
     setState(() {
       _loading = true;
       _error = null;
@@ -223,7 +258,13 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
     try {
       final worker = await _repo.myProfile();
       final images = await _repo.portfolioImages(worker.id);
-      if (!mounted) return;
+      // The epoch, for the reason [_galleryEpoch] gives. **Checked on the
+      // success arm**, which is the one that used to delete a just-landed
+      // photo.
+      if (!mounted || epoch != _galleryEpoch) {
+        _releaseLoad(epoch);
+        return;
+      }
       setState(() {
         _worker = worker;
         _images = images;
@@ -240,9 +281,19 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
       // a missing progress line and not a spinner that never resolves. The two
       // are separate requests and the gallery is the one the contractor came
       // for.
-      await _loadAllowance(images.length);
+      await _loadAllowance(images.length, epoch);
     } catch (e) {
-      if (!mounted) return;
+      // Checked here too. `_error` is the band this whole screen exists for,
+      // and it is a **one-way** flag: it is cleared by the next read's issue,
+      // so a late failure landing on top of a newer read's rows raises the
+      // band over photographs that were read seconds ago — «الصور المعروضة
+      // قبل ساعتين» about a grid the contractor can see is current. The band is
+      // a claim about the rows underneath it, so it is only true for a read
+      // that is still the current one.
+      if (!mounted || epoch != _galleryEpoch) {
+        _releaseLoad(epoch);
+        return;
+      }
       setState(() {
         _loading = false;
         _error = errorCopy(e);
@@ -254,6 +305,24 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
     }
   }
 
+  /// Lets go of the spinner a superseded [_load] had installed, without
+  /// touching anything the newer one owns.
+  ///
+  /// `_loading` is set true by every read at issue and false only by the read
+  /// that settles, so a superseded read that returned early without writing
+  /// would leave the app bar's «تحديث» disabled forever — a dead control on a
+  /// screen where the gate is `_loading ? null : _load`. The band is the other
+  /// half: this read failed, and the *newer* read is the one whose answer the
+  /// band must describe.
+  ///
+  /// Only called on the refusal path, and only for the read that lost, so the
+  /// newer read's own `setState` is untouched — that is the whole point of
+  /// splitting it out rather than letting the loser clear shared state.
+  void _releaseLoad(int epoch) {
+    if (!mounted || epoch == _galleryEpoch) return;
+    setState(() => _loading = false);
+  }
+
   /// Reads the plan's portfolio allowance, failing open.
   ///
   /// A contractor whose plan cannot be read keeps the whole screen he had
@@ -261,10 +330,22 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
   /// takes away a working gallery. A plan call that throws is not an error the
   /// contractor did anything about, so it is swallowed and the limit stays
   /// unknown.
-  Future<void> _loadAllowance(int used) async {
+  Future<void> _loadAllowance(int used, int epoch) async {
     try {
       final status = (await _repo.subscription()).current;
-      if (!mounted) return;
+      // Two guards, because two different reads write `_allowance`.
+      //
+      //  * [epoch] is [_load]'s stamp, so a plan read belonging to a superseded
+      //    gallery cannot install a count over a newer gallery's — and [used] is
+      //    the count of *that* gallery, so an unchecked write would pair a
+      //    current limit with a stale `used`, which is the exact shape of a
+      //    wrong «بقيت 3 صور».
+      //  * the write arms are also reached by [_addPhoto] and
+      //    [_settleUnconfirmed], which recompute `_allowance` from rows they
+      //    installed themselves. A plan read parked on a slow connection can
+      //    land after either of those, and would undo the count the server
+      //    just told it — the same defect one layer down.
+      if (!mounted || epoch != _galleryEpoch) return;
       setState(() {
         _allowance =
             PortfolioAllowance.fromLimit(status.portfolioLimit, used: used);
@@ -353,7 +434,16 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
       uploadedUrl = url;
       await _repo.addPortfolioImage(worker.id, imageUrl: url);
       if (!mounted) return;
+      // **The write is a new epoch, and that is the load-bearing line here.**
+      // A «تحديث» parked on a slow uplink is holding an answer the server
+      // serialised before this photo existed. Bumping the epoch is what makes
+      // its late `setState` refuse, instead of installing four rows over the
+      // photo the contractor just uploaded *and the server confirmed*. The
+      // first version of this fix guarded read-vs-read and left this exact
+      // case red, because nothing else had issued a read — see
+      // [_galleryEpoch].
       setState(() {
+        _galleryEpoch++;
         _images = [..._images, url];
         _uploadedThisRun++;
         // The count that decides the gate is the server's, and the server has
@@ -434,6 +524,10 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
     final fresh = result.gallery;
     if (fresh != null) {
       setState(() {
+        // Same rule as the landed upload above, for the same reason: this is
+        // the server's own gallery arriving after the write, so any «تحديث»
+        // issued before it is holding rows that predate the photo in question.
+        _galleryEpoch++;
         _images = fresh;
         // **The stamp travels with the rows, in this `setState` and nowhere
         // else.** `_readAt` is written in exactly one other place — the success
