@@ -8,6 +8,7 @@ import '../../core/text/dz_number.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/notification_copy.dart';
 import '../../data/project_commit_outcome.dart';
+import '../../data/quote_write_outcome.dart';
 import '../../data/quote_duration_copy.dart';
 import '../../data/quote_status_copy.dart';
 import '../../data/repository.dart';
@@ -302,6 +303,37 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     if (!mounted) return;
     _openReview(project);
     _reload();
+  }
+
+  /// The quote list as it stood on screen, or an empty list if it never loaded.
+  ///
+  /// A **failed or not-yet-arrived** read is an empty list rather than a throw,
+  /// and that is safe in the only direction it can be: an empty [before] makes
+  /// the re-read *stricter*, so every row in the fresh list looks new and only
+  /// a bid carrying this account's own worker id can be reported as landed.
+  /// The two ways that could lie both need identity to lie with, and identity
+  /// is required independently below.
+  Future<List<Quote>> _quotesSettled() async {
+    try {
+      return await _quotes;
+    } catch (_) {
+      return const <Quote>[];
+    }
+  }
+
+  /// This account's worker id, or null when it cannot be read.
+  ///
+  /// Deliberately allowed to answer null instead of substituting a value: the
+  /// caller reports that as `unknown`, which claims nothing, while a fallback id
+  /// would make the re-read count somebody else's bid as this contractor's
+  /// write. One request, and only on the path where the network already refused
+  /// to answer.
+  Future<int?> _myWorkerId() async {
+    try {
+      return (await widget.repo.myProfile()).id;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// «نتحقّق الآن من القائمة…» — the line that replaces the one sentence it is
@@ -678,25 +710,24 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
             // that follows it is the only sentence that tells this contractor
             // whether he sent one bid or two.
             _showRechecking();
-            final outcome = await resolveWriteOutcome(
-              recheck: () async {
-                // The bid is identified by what this worker asked for on this
-                // job, not by an id the phone never received. Any later bid with
-                // the same amount is the same one as far as the user is
-                // concerned: what he must learn is whether *a* bid from him is
-                // in the list he is looking at.
-                int mine = -1;
-                try {
-                  mine = (await widget.repo.myProfile()).id;
-                } catch (_) {
-                  // A failed identity read is not a failed bid. Fall back to
-                  // matching on the amount alone rather than telling the user
-                  // his bid is missing because we could not read his profile.
-                }
-                final rows = await widget.repo.projectQuotes(project.id);
-                return rows.any((q) =>
-                    q.amount == amt && (mine <= 0 || q.workerId == mine));
-              },
+            // The list the screen was **drawing when he tapped**, not a fresh
+            // one. This is the whole predicate: a bid of his that this list did
+            // not already hold is his write, and one it did hold is somebody's
+            // — his own earlier attempt, or a neighbour's at the same figure.
+            // The old question (`rows.any(amount == amt)`, with an
+            // amount-only fallback whenever `myProfile()` failed) was answerable
+            // *before* the POST was sent, because 70000 دج is a figure the
+            // market sets: measured 4 Oct on production, workers 148 and 149
+            // both hold a 70000 bid on one project. See
+            // `quote_write_outcome.dart`.
+            final before = await _quotesSettled();
+            final outcome = await resolveQuoteWriteOutcome(
+              before: before,
+              // Identity is asked of the caller because it may need its own
+              // request, and a failure to read it resolves to `null` — which is
+              // `unknown`, never a widened match on the amount.
+              workerId: await _myWorkerId(),
+              fetch: () => widget.repo.projectQuotes(project.id),
             );
             if (!mounted) return;
             // Either way the quotes list on screen is now the server's.

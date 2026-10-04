@@ -287,8 +287,15 @@ void main() {
         undocumented.add('${f.path}:${c.line}');
       }
     }
-    // 10 measured; asserted so a new bare `catch (_) {}` cannot land.
-    expect(empty, 10, reason: 'the census moved — re-measure before editing');
+    // **9 measured on 4 Oct 2026, was 10.** The tenth was the identity
+    // swallow in the bid re-read (`project_detail_screen.dart`), and the fix
+    // for the rival-bid defect *removed it* rather than documenting it: that
+    // branch now returns `null` and the caller reads it as `unknown`, so the
+    // failure is reported by the verdict rather than swallowed inside a
+    // `catch`. The count asserts **equality**, not a floor, in both
+    // directions — a new bare `catch (_) {}` cannot land, and a legitimate
+    // removal cannot be silenced by loosening the number to `<=`.
+    expect(empty, 9, reason: 'the census moved — re-measure before editing');
     expect(undocumented, isEmpty,
         reason: 'these catch blocks drop their failure with no reason '
             'in the source: ${undocumented.join(', ')}');

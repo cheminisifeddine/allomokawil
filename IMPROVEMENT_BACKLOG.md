@@ -19791,3 +19791,118 @@ unrelated-looking `setUpAll` error in shard 1 and cost a second full run.
 
 **Next in backlog: none — zero unchecked boxes.** Next tick earns its item by
 audit, and the rule is unchanged: read the wire.
+
+- [x] **A bid was reported as arrived because a rival's bid at the *same
+      amount* was already on the job.**
+      `5974084`.
+
+**Found by the audit, on the wire.** The tree arrived **dirty** — this exact
+item half-written from an interrupted tick (`quote_write_outcome.dart` +
+`bid_neighbour_amount_test.dart` staged at 07:48/07:55, the screen not yet
+gated), so per step 2 this tick finished it rather than opening a new one.
+
+The bid re-read asked the server a question it could answer **before the
+contractor ever tapped «إرسال العرض»**:
+
+```dart
+rows.any((q) => q.amount == amt && (mine <= 0 || q.workerId == mine))
+```
+
+Two things make it the expensive half of this family, and both are measured
+on production rather than argued:
+
+```
+GET /api/mobile/projects/1faff736…/quotes
+[{"id":58,"worker_id":148,"amount":70000,…},
+ {"id":59,"worker_id":149,"amount":70000,…}]
+```
+
+**Identical amounts are ordinary.** 70000 دج is a number the market sets;
+identity is not. Two contractors hold the same figure on the same job and the
+list the re-read reads returns both.
+
+**The fallback is what made it reachable, and it is the ordinary case.** An
+unconfirmed write *is* a dead network — that is the definition of
+`errWriteUnconfirmed` — so `myProfile()`, issued microseconds later on the
+same connection, is the request most likely of all to fail. `mine` stays `-1`
+and the predicate widens to the amount alone. The path that exists to answer
+the question the app cannot answer is the one that stops asking it.
+
+**And the retry it invites cannot work.** Verified live with a real
+contractor (worker 150, registered this tick):
+
+```
+POST …/quotes {"amount":70000}      -> 200 {"id":60,…}
+POST …/quotes {"amount":85000}      -> {"error":"لقد قدّمت عرضاً لهذا المشروع بالفعل"}
+```
+
+The write that **cannot** land twice is the one the app reports as arriving
+when it never left the phone. The contractor is told his bid arrived; if he
+believes the other sentence instead and presses send again, the Worker
+refuses it before it is sent.
+
+*The fix is the rule its siblings already use — a **difference**, not an
+equality.* `verificationLanded` asks whether the document queue **grew**;
+`resolveProjectEditOutcome` asks whether the row now **carries the values the
+form was sending**. A bid of his carrying an id the list he tapped against
+did not hold is his write; a row already in that list is a neighbour's, or
+his own earlier attempt, and is evidence of nothing about a POST that never
+answered.
+
+**Identity is required, and its absence is `unknown`, never a fallback.** The
+first draft of this file read identity off the snapshots themselves —
+intersecting [before] and [after] on `id` — and that is wrong in the *common*
+case: a contractor bidding for the first time has no bids in [before], so the
+intersection is empty and a bid that genuinely landed is reported as missing.
+That direction is the expensive one here, because «did not arrive» is the
+sentence that sends him to press send again on a job the Worker refuses a
+second bid on. So the worker id is asked of the caller, and when it cannot be
+established the answer is [WriteOutcome.unknown] — the phone cannot tell his
+bid from a neighbour's, and `unknown` is the only sentence that claims nothing
+about which of the two it is.
+
+*Red before green, the framework quoting the bug back verbatim.* The rule was
+neutered to the pre-fix behaviour and the **user-facing string** failed as:
+
+```
+Expected: not 'وجدناه في القائمة — الطلب وصل بنجاح'
+  Actual: 'وجدناه في القائمة — الطلب وصل بنجاح'
+Expected: 'تعذّر الاتصال للتحقّق — تحقّق من القائمة قبل إعادة المحاولة'
+  Actual: 'وجدناه في القائمة — الطلب وصل بنجاح'
+```
+
+Two of three cases go red on the exact pre-fix predicate; the real rule is
+3/3. The third case (a genuine landing with a readable identity) stays green
+on **both** — it is the case a careless fix would break, and it is pinned for
+that reason.
+
+**A red check that refused to go red was itself the useful part of this
+tick.** The first neuter touched only `quoteLanded` and the suite stayed
+green — because the nullable-identity guard lives in `resolveQuoteWriteOutcome`,
+one layer up. A guard that passes with the fix removed is not a guard, so the
+neuter was pushed up a layer until it reproduced the production behaviour
+exactly. Recorded because the near-miss is the trap: *a red check that cannot
+go red reads as a passing test, not as a broken experiment.*
+
+**One harness fact worth keeping.** The fix **deleted** the tenth empty
+`catch` in `lib/` — the identity swallow at `project_detail_screen.dart:691`,
+which existed only to say "fall back to the amount". `failure_reported_test.dart`
+asserts that census by **equality** (10) and failed the suite with
+`Expected: <10> Actual: <9>`, which is the guard working exactly as its own
+reason line demands: *re-measure before editing*. Re-measured across the tree,
+`10 -> 9` is exactly the removed block and nothing else, and the number was
+updated to 9 with the reason recorded. The count stays **equality**, not a
+floor — loosening it to `<=` would silence the next legitimate removal.
+
+*Gate.* `flutter analyze` -> **No issues found!** (15.3 s).
+`python3 tool/run_tests.py` -> **SUITE PASS — 2153 tests across 11 shards,
+every shard green**, was 2122; +31.
+
+**Not claimed, deliberately:** no screenshot. No layout, no copy string and no
+pixel changed — the fix changes which of three existing sentences is chosen
+under a network failure. A shot of a SnackBar in its default state would
+prove nothing about the defect; the wire measurements and the red-before-green
+run are the honest pairing for a change with no layout in it.
+
+**Next in backlog: none — zero unchecked boxes.** Next tick earns its item by
+audit, and the rule is unchanged: read the wire.
