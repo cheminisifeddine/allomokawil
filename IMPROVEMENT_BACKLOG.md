@@ -19547,3 +19547,89 @@ no layout in it.
 to earn its item by audit, and the audit rule that found this one is now
 written down: **read the wire, do not reason about it.** The two latent
 predecessors cost this loop three ticks between them; this one took one.
+
+---
+
+## Tick 4 Oct 2026 (44th) — the fifth member of the unowned-answer class, and
+## the first one where the server is not ordering rows wrongly but *matching*
+## them wrongly
+
+The backlog had **zero unchecked boxes** again, so this item was earned by the
+audit rule the 43rd tick wrote down: **read the wire, do not reason about it.**
+This time the wire said something the two latent predecessors could not.
+
+**Item (SHIPPED):** `Repository.searchWorkers` returned the server's rows
+untouched, and the directory draws them. `GET /api/mobile/workers/search`
+**matches `category` on a substring**, so its answer is a superset. Measured
+over **every** slug in `Taxonomy.categories` on 4 Oct 2026 — 16 slugs, **41 rows
+served, 8 of them off-trade, in 2 of 16 trades**:
+
+| slug | rows served | rows that carry the trade |
+| --- | --- | --- |
+| `wallpaper` | 9 | **3** |
+| `plaster_drywall` | 3 | **1** |
+| `painting` | 9 | 9 |
+| the other 13 slugs | 20 | 20 |
+
+The mechanism is not a guess, it is the filter answering on a fragment:
+`category=wall` -> 4 rows, `category=paper` -> 3, `category=paint` -> 9,
+`category=a` -> **15**. A slug the app sends is a *prefix* of a longer one, so
+`plaster_drywall` drags in every `venetian_plaster`, and `wallpaper` every
+`painting`. The two taxonomy entries are adjacent on purpose —
+«جبس بورد وديكور» / «جبس فينيسي وستوكو», both «جبس» to a customer, which is
+exactly why the fuzzy match fires and exactly why they cannot be one result.
+
+A client who taps «ورق جدران» — a filter he chose to *narrow* the list — got
+**two thirds painters**, and the only two men who actually do wallpaper
+(«خالد رحماني» 2, «فريد زروالي» 8) sat in the same nine rows, unmarked.
+
+**Why this one is a defect and not the server's business**, which is the part
+worth writing down: the founder pays for a **ranking** (`search_boost`), and
+`worker_rank.dart` correctly declines to re-derive it. Nobody pays for
+**membership**, membership is not a pricing claim, and the card itself prints
+the man's trades — so «ورق جدران» showing a man whose own row says `painting`
+is a contradiction *on the card that carries him*.
+
+*Changed:* new `lib/src/data/trade_exact.dart` + `Repository.searchWorkers`
+wired. It does **not** re-order: server order is preserved exactly, for the
+reason `worker_rank.dart` gives. Membership is read through
+`Taxonomy.canonical` on **both** sides, so a legacy `stucco` row still answers
+for `venetian_plaster` — filtering on the raw string would re-introduce the
+same superset defect one layer down.
+
+**No filter means no filtering, and that is load-bearing:** 74 of 91 live rows
+carry no trades at all, so the unfiltered directory must not lose them. Those
+rows never appear in a filtered answer today (0 of 41), so the arm is kept
+only so a future row cannot reintroduce it silently.
+
+*Gate.* `flutter analyze` -> **No issues found!** (13.8 s). `python3
+tool/run_tests.py` -> **SUITE PASS — 2106 tests, 11/11 shards, exit 0**, was
+2092; +14 is exactly the two new files.
+
+*Red before green.* With the rule neutered to the identity — the exact pre-fix
+behaviour — **7 of 10 fail**, including the one built from the verbatim
+nine-row live body. Real rule -> 10/10, plus **4/4 through
+`Repository.searchWorkers`** over a real `MockClient`, because a rule file
+nobody calls is the hole `rows_partial_test.dart` and the census sweeps exist
+to keep shut.
+
+**Not claimed:** no screenshot. The change is *which rows appear*, and the
+directory fixture in the design harness carries one row — its pixel output is
+identical before and after, so a shot of it would prove nothing about the
+defect. The wire measurement and the red-before-green run are the honest
+pairing for a change with no layout in it.
+
+**Also measured and left alone, deliberately:** 6 of the 16 trades
+(`renovation`, `general_finishing`, `ironwork_welding`,
+`waterproofing_insulation`, `hvac_heating`, `landscaping_exterior`) have **no
+live professional at all**. The server already answers 0 for those and the
+screen already says «لا نتائج مطابقة» with a «مسح البحث والفلاتر» button, which
+is the truth and an undo — so there was nothing here to fix. Naming them
+because the founder should know that 6 of the 16 tiles he can tap are dead
+supply, which is a supply problem, not an app one.
+
+**Commits:** local `efa5e83` -> remote `a51bacb`. Trees verified **MATCH**,
+`tool/remote_state.py` -> **IN SYNC**.
+
+**Next in backlog: none — zero unchecked boxes.** Next tick earns its item by
+audit, and the rule that keeps earning them is unchanged: read the wire.
