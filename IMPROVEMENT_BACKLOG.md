@@ -19726,3 +19726,68 @@ make a tile look full is the thing this loop exists to stop.
 
 **Next in backlog: none — zero unchecked boxes.** Next tick earns its item by
 audit, and the rule is unchanged: read the wire.
+
+- [x] **A filing the server accepted with a 200 that stored nothing was told
+      to the contractor as «تم إرسال مستنداتك، بانتظار المراجعة».**
+      `0ee3e9e` -> remote `0f248f9`.
+
+**Found by registering a real contractor against production and asking the
+Worker the question this app asks on every filing** — the only way to see it,
+because the defect is a *server* behaviour the app chose to trust:
+
+```
+POST /api/mobile/workers/146/verification
+     {"documents":[{"document_type":"selfie"}]}        -> 200 {"ok":true}
+GET  /api/mobile/my/profile -> verification_pending_docs: 0
+```
+
+The Worker answers `{"ok":true}` for a document row it could not read a URL
+out of, and the review queue goes **to zero** across that call. `ok` is a status
+with no field the app can check, so `_submit` took it at its word. Measured
+across the sequence: `0 -> 3` for the app's real payload, `3 -> 0` for one it
+cannot read, and a **re-submission of an identical accepted payload replaces
+the queue again** — so the retry a man is told to make cannot recover it.
+
+**Why this is the trust gate, not a cosmetic gap.** `verification_pending_docs`
+is the *only* thing separating a contractor who filed his papers from one who
+touched nothing: `verification_status` is `pending` for both, which is precisely
+why `dossierUnderReview` exists (`verification_write_outcome.dart` says so in
+so many words). So a false "awaiting review" tells a man his ID card is with a
+reviewer. He waits 48 hours. Nobody ever looks at it.
+
+**The app already owned the honest half and simply did not call it.** The
+unconfirmed branch re-reads the profile and classifies with
+`resolveVerificationWriteOutcome` / `dossierOutcomeCopy`; the 200 branch did
+neither. The fix runs **the same verdict on every filing** — same re-read, same
+predicate, same sentences. The unconfirmed branch is untouched: it has a failure
+to explain, this one has only a 200 that proved nothing.
+
+*Red before green, the framework quoting the bug back.* The app's only line,
+sampled every 10 ms across the whole filing:
+
+```
+DEBUG all lines seen: {تم إرسال مستنداتك، بانتظار المراجعة}
+```
+
+— the false claim, verbatim, and the honest sentence never appeared. Both
+directions are pinned, because the fix must not over-correct: the false 200 says
+nothing arrived, and a **real** landing (queue `0 -> 3`) is still reported as
+sent, so the re-read cannot talk a man out of a true landing.
+
+*Gate.* `flutter analyze` -> **No issues found!** (9.2 s). `python3
+tool/run_tests.py` -> **SUITE PASS — 2122 tests across 11 shards, every shard
+green**, exit 0; was 2120, +2 is the new file.
+
+*One harness fact worth keeping.* The new file **failed
+`app_source_scope_test.dart` on the first full run** — not the test, the repo's
+own guard: a Dart file under `test/` that `git ls-files` cannot see is "a guard
+written but not added", and every `git ls-files` sweep in the repo is blind to
+it. `git add` on the new file before the suite is not optional politeness here;
+it is what makes the census see it. Recorded because the failure surfaces as an
+unrelated-looking `setUpAll` error in shard 1 and cost a second full run.
+
+*Commits:* local `0ee3e9e` -> remote `0f248f9`. `tool/remote_state.py` ->
+**IN SYNC** (identical tree, verified against the git-data API).
+
+**Next in backlog: none — zero unchecked boxes.** Next tick earns its item by
+audit, and the rule is unchanged: read the wire.
