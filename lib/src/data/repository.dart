@@ -9,6 +9,7 @@ import '../models/plan.dart';
 import '../models/project.dart';
 import '../models/quote_review.dart';
 import '../models/worker.dart';
+import 'trade_exact.dart';
 import 'worker_rank.dart';
 
 /// Screen-facing data layer. Mirrors the web app's loaders/actions and talks
@@ -74,9 +75,14 @@ class Repository {
       if (query != null && query.trim().isNotEmpty)
         'q=${Uri.encodeQueryComponent(query.trim())}',
     ].join('&');
-    return _rows(
+    final rows = _rows(
         await _api.get('/api/mobile/workers/search${q.isEmpty ? '' : '?$q'}'),
         WorkerProfile.fromJson);
+    // The server matches `category` on a substring, so its answer is a
+    // superset: `category=wallpaper` came back with six painters in it on
+    // 4 Oct. See `data/trade_exact.dart` for the measurement. Server order is
+    // kept exactly — this narrows membership, it does not re-rank.
+    return exactTradeOnly(rows, category);
   }
 
   Future<WorkerProfile> getWorker(int id) async {
