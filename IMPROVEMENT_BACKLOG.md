@@ -20086,3 +20086,114 @@ red-before-green run are the honest pairing for a change with no layout in it.
 
 **Next in backlog: none — zero unchecked boxes.** Next tick earns its item by
 audit, and the rule is unchanged: read the wire.
+
+---
+
+## Tick 4 Oct, 50th — **a late read deleted a notification the newest read had
+## listed, and muted the header pip over a count the server had just answered**
+
+*Item: audit (backlog is at zero unchecked boxes, so the item was earned by
+auditing the defect class the 49th tick named). Class found and closed: **the
+notification centre was the last unguarded site of the late-read family.***
+
+**The defect.** `_NotificationsScreenState._load` carried **no generation
+token**, and **five** call sites re-issue that exact read: the first read in
+`didChangeDependencies`, the `RefreshIndicator` pull, `_markRead`, `_markAllRead`
+and the `_settleRead` re-read. All five ask the *same* question — «the whole
+notification list» — so no tab- or id-keyed cache can separate them, which is
+the identical dead end the 49th tick found on `projects_screen.dart`:
+
+```
+read 1  09:00  issued, parked on a slow connection ─┐
+read 2  09:40  answers: 2 rows                      ─┤
+read 1  09:40  lands LAST: 1 row                    ─┘
+```
+
+**Both arms were wrong, and this is the part that made it worth a tick.** The
+projects screen's late read lost *rows*. Here it loses a **number**, because
+`_unread` counts these very rows and `_unread` is what the home header paints:
+
+1. **success arm** — the late list is installed, so the pip is computed from a
+   read the user has already been replaced from. The badge goes **backwards**:
+   a notification that arrived while the user was away is not in the count, and
+   nothing on screen says so.
+2. **failure arm** — worse, because it reaches another screen. The catch calls
+   `_trust.withdraw()`, publishing a doubt about a list nobody is looking at.
+   `NotificationCountTrust.withdraw` is **one-way by design** (only a real
+   `/api/unread` read restores it), so the header goes on muting a count the app
+   had *just* freshly read from the server, for the rest of the session, with
+   nothing left in flight to repair it.
+
+**This was the last site, not a new family.** `chat_list_screen.dart` carries
+`_armToken` with `token != _armToken` on **both** arms and calls
+`_messages?.withdraw()` behind the guard; `customer_home_screen.dart` says in
+its own comment that the unguarded withdraw "made this the third site of one
+defect" and guards `_unreadToken` on both arms. The notification centre was the
+one screen left feeding a pip with no generation at all.
+
+**The fix.** `int _loadToken = 0;` incremented at every arming, checked on the
+success arm (which installs rows) **and** the error arm (which speaks to the
+header). Deliberately two lines of guard and nothing else: `_settleRead`'s own
+`withdraw()` is a synchronous verdict on a re-read it just awaited, not a
+racing one, and it is untouched.
+
+*Red before green*, naming the deleted row rather than a boolean:
+```
+Expected: exactly one matching candidate
+  Actual: _KeyWidgetFinder:<Found 0 widgets with key [<'notification-3'>]: []
+```
+and the failure arm, which is the one that reaches the header:
+```
+Expected: false
+  Actual: <true>
+```
+Both halves were red against the *real* race — the test parks read 1 on a
+`Completer` and releases it only after read 2 has landed, so the late write is
+genuinely late rather than a second call to the same mock.
+
+*Gate.* `flutter analyze` -> **No issues found!** (11.6 s).
+`python3 tool/run_tests.py --deadline 2700 --shard-deadline 600` ->
+**SUITE PASS — 2157 tests across 11 shards, 11/11 green**, was 2155; +2.
+`test/stale_notifications_test.dart`'s "a failed refresh withdraws the header
+pip" still passes, which is the check that matters: a *genuine* failure must
+still withdraw. The token did not turn the withdrawal off.
+
+**A guard in this repo caught the author of the entry, and it is worth the
+lines.** The first full run failed `app_source_scope_test.dart` in `setUpAll`:
+```
+Expected: empty
+  Actual: ['test/stale_notification_read_test.dart']
+  these Dart files sit under test/ but are not tracked by git, so this census
+  — and every `git ls-files` sweep in the repo — cannot see them. A guard
+  written but not added is a rule nobody is enforcing:
+```
+The new test was untracked, so every source sweep in the repo was blind to it —
+the same census that checks copy, contrast and tokens would have reported
+coverage over a file it could not read. `git add` before the run that gates the
+commit is the lesson; the guard did exactly what it was written to do.
+
+**Two harness facts, recorded so the next tick does not re-diagnose them.**
+1. The **default 1800 s `--deadline` is too small for this box now** (after the
+   host rebuild of 26 Sep and the cold `.dart_tool`): the first attempt ran
+   27:31 and died INCOMPLETE with 2 shards never started — 9 run, 7 green. That
+   is a wall-clock verdict, not a code failure. `--deadline 2700` finished in
+   36:22 with 11/11 green. Both failing shards held no reference to this
+   change.
+2. `shard 9/11: HUNG in 2:08` with `Bad state: Cannot close sink while adding
+   stream` is the runner's known stream-channel teardown race on the **shot**
+   files, not a test assertion. On the re-run the identical shard passed in
+   3:38. A HUNG is not evidence of a defect; re-run it before believing it.
+
+**Not claimed, deliberately:** no screenshot. Nothing about layout, copy or
+colour changed — the fix adds one field and two guards inside methods that
+already existed, and every Arabic string on the screen is untouched. The
+red-before-green pair is the honest evidence for a change with no layout in it.
+
+**Next in backlog: none — zero unchecked boxes.** Next tick earns its item by
+audit. The remaining lead is written down rather than left in a head: the
+38-member census of `await` + `setState` methods with **no** token guard is in
+this entry's working notes, and the ones that also write to a *shared* flag or
+count something another screen reads (`customer_home_screen._onGalleryClosed`,
+`worker_home_screen._readProfileForRefresh`, `my_portfolio_screen._load`) are the
+next places a late write could reach another screen. Rule unchanged: a comment
+asserting a property is not evidence of it, and neither is a token on one arm.
