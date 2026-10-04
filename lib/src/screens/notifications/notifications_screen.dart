@@ -144,10 +144,43 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     _load();
   }
 
+  /// The *generation* of the list currently on screen, so a read that is
+  /// still in flight cannot write over one that has already answered.
+  ///
+  /// **This screen had no token at all, and it is the reason the notification
+  /// centre could quietly lose a row the newest read had listed.** Five call
+  /// sites re-issue [_load] — the first read in [didChangeDependencies], the
+  /// [RefreshIndicator] pull, [_markRead], [_markAllRead] and the [_settleRead]
+  /// re-read — and all of them ask the **same** question, «the whole
+  /// notification list». A tab- or id-keyed cache cannot separate them, so
+  /// nothing else stopped an older read from answering last:
+  ///
+  ///     read 1  09:00  issued, parked on a slow connection ─┐
+  ///     read 2  09:40  answers: 2 rows                      ─┤
+  ///     read 1  09:40  lands LAST: 1 row                    ─┘
+  ///
+  /// Which is not merely a stale picture. `[_unread]` counts these very rows,
+  /// so the late list *is* the number the home header paints — the badge goes
+  /// **backwards**, dropping a notification that arrived while the user was
+  /// away, with nothing on screen saying so. The failure arm was worse still,
+  /// because it reaches another screen: a late `_trust.withdraw()` publishes a
+  /// doubt about a list nobody is looking at, and the flag is one-way by
+  /// design (only a real `/api/unread` read restores it), so the header goes on
+  /// muting a count the app has just freshly read from the server.
+  ///
+  /// Every arming is a new generation, and the guard is checked on **both**
+  /// arms — the success arm installs rows, and the error arm is the one that
+  /// speaks to the header.
+  int _loadToken = 0;
+
   Future<void> _load() async {
+    final token = ++_loadToken;
     try {
       final list = await _repo.notifications();
-      if (!mounted) {
+      // The guard, on the success arm too. See [_loadToken]: a read the user
+      // has already replaced must not install its rows last, because
+      // [_unread] — the home header's pip — is counted from them.
+      if (!mounted || token != _loadToken) {
         return;
       }
       setState(() {
@@ -159,7 +192,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       // than arms so a pull-to-refresh cannot leave two live timers behind.
       _armAgeTick();
     } catch (e) {
-      if (!mounted) {
+      // Checked here as well, and this is the half that reaches another
+      // screen: the doubt below belongs to *this* read, so a failure for a
+      // question the reader has already moved off must not paint the amber
+      // banner over rows that are perfectly current — nor withdraw the header
+      // pip for a list that was read from the server after this one was
+      // issued. `withdraw()` cannot be taken back.
+      if (!mounted || token != _loadToken) {
         return;
       }
       setState(() => _error = errorCopy(e, fallback: S.errUnexpected));
