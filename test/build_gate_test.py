@@ -877,6 +877,88 @@ def main():
         except subprocess.TimeoutExpired:
             launcher.kill()
 
+    print("\n14) a reparented TESTER: named, reaped, and the box comes back")
+    # The arm `--reap` was missing until this tick, and it is the one the
+    # loop hits in production: `tool/run_tests.py` SIGTERMs a hung shard, the
+    # engine survives with PPID 1, and from then on the gate answers BUSY
+    # forever. Case 4b proves the gate NAMES that leak (and it does). Nothing
+    # proved anything could CLEAR it: `main()` armed `--reap` on `browsers`
+    # only, so with a leaked tester and no browser on the box the gate
+    # printed a dead end -- "LEAKED flutter_tester", exit 1, and not one
+    # sentence telling the reader the box was recoverable. The documented
+    # escape did not apply to the one leak the loop actually creates.
+    #
+    # Case 4b kills its orphan with SIGKILL from the test, which is precisely
+    # why it never noticed: the suite always tidied up behind the gate.
+    #
+    # Both directions are asserted, and both run against the REAL gate (not a
+    # copy) so the arm under test is the shipped one. A case that only
+    # asserted "exit 1" would pass on the dead-end behaviour unchanged --
+    # which is the trap case 4b already had to be rewritten to escape.
+    binary14 = _reparented_tester_binary()
+    if not binary14:
+        print("  SKIP (no /bin/sleep to copy)")
+    else:
+        orphan14 = _spawn_orphan(binary14)
+        if orphan14 is None:
+            print("  **FAIL** could not reparent a tester")
+            results.append(False)
+        else:
+            print("   tester pid=%d ppid=%d"
+                  % (orphan14, ppid_of(orphan14)))
+            pre = subprocess.run(["python3", os.path.join(REPO, "tool",
+                                                          "build_gate.py")],
+                                 capture_output=True, text=True, cwd=REPO)
+            # Direction 1: the leak is named AND the reader is told how to
+            # clear it. The remedy line is the whole claim -- without it the
+            # gate is a correct detector with no exit.
+            named = "LEAKED flutter_tester" in pre.stdout
+            remedy = "--reap" in pre.stdout and str(orphan14) in pre.stdout
+            results.append(named)
+            print(("PASS  " if named else "**FAIL**  ")
+                  + "reparented tester -> named as a leak")
+            results.append(remedy)
+            print(("PASS  " if remedy else "**FAIL**  ")
+                  + "and the output names --reap and the pid to clear")
+            for line in pre.stdout.strip().split("\n")[1:3]:
+                print("        | " + line)
+
+            # Direction 2: `--reap` actually clears it, and the verdict it
+            # prints is computed AFTER the kill. That second half is why
+            # `main()` re-surveys: reporting the pre-reap survey prints the
+            # pid it just killed and exits 1, which reads as "reaping did
+            # not help" on a box it had just fixed.
+            post = subprocess.run(["python3", os.path.join(REPO, "tool",
+                                                           "build_gate.py"),
+                                   "--reap"], capture_output=True, text=True,
+                                  cwd=REPO)
+            gone = not os.path.exists("/proc/%d" % orphan14)
+            results.append(gone)
+            print(("PASS  " if gone else "**FAIL**  ")
+                  + "--reap reaped the leaked tester (pid %d gone from /proc)"
+                  % orphan14)
+            for line in post.stdout.strip().split("\n")[:2]:
+                print("        | " + line)
+            results.append(post.returncode == 0
+                           and "LEAKED flutter_tester" not in post.stdout)
+            print(("PASS  " if (post.returncode == 0
+                                and "LEAKED flutter_tester" not in post.stdout)
+                   else "**FAIL**  ")
+                  + "after reaping -> verdict recomputed, box CLEAR (exit=%d)"
+                  % post.returncode)
+            # Tidy by hand only if the arm failed to; a leftover here would
+            # poison case 5-style "back to clean" checks in the next run.
+            if not gone:
+                try:
+                    os.kill(orphan14, 9)
+                except OSError:
+                    pass
+                for _ in range(40):
+                    if not os.path.exists("/proc/%d" % orphan14):
+                        break
+                    time.sleep(0.1)
+            time.sleep(0.3)
+
     print("\nBaseline: %s" % _foreign_note())
     ok = sum(results)
     print("== %d/%d ==  %s" % (ok, len(results),

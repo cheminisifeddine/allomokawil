@@ -19263,3 +19263,86 @@ rests on, so an entry whose module stops folding cannot stay excused.
       opening next are both recorded above: the dead `'+213****3456'` fixture in
       `typedForms`, and `build_gate.py --reap`, which still has no arm for a
       leaked `flutter_tester` (only for leaked browsers).
+
+## Tick 4 Oct 2026 (41st) — `--reap` had no arm for the one leak the loop
+## actually creates: an orphaned `flutter_tester`
+
+**Item.** `tool/build_gate.py --reap` armed only on `browsers`. A leaked
+`flutter_tester` — the process this loop's own `tool/run_tests.py` orphans when
+it SIGTERMs a hung shard — was named by the survey, counted as busy so the gate
+refused to build, and then, with no browser on the box, **printed no remedy at
+all**. Correct detector, no exit.
+
+**Measured, not argued.** Old gate with a real PPID-1 tester on the box:
+
+```
+LEAKED flutter_tester:
+  39140   idle   /tmp/fb3/flutter_tester 300
+EXIT=1                       <-- and not one sentence on how to clear it
+```
+
+New gate, same box, `--reap`:
+
+```
+reaped leaked flutter_tester 39140 (SIGTERM, waited for exit)
+CLEAR — no flutter/dart tool, no busy JVM, no leaked tester, no leaked browser,
+        and enough memory to run a build.
+EXIT=0
+```
+
+**Why case 4b never caught it:** 4b kills its orphan with SIGKILL *from the
+test*, so the suite always tidied up behind the gate and never once needed the
+escape hatch it was written to prove existed. The arm had zero coverage
+because the suite was too tidy.
+
+**Changed:** `tool/build_gate.py` — `reap()` takes `kind` (noun in the two
+messages only); `main()` loops `(leaked, 'flutter_tester')` then
+`(browsers, 'browser')`, re-surveying after each; the `if busy` block gains a
+remedy line for `leaked` naming the pids, mirroring the browser one.
+
+**Red before green, on the real gate, not a copy.** `test/build_gate_test.py`
+case 14 asserts three things: the leak is named; the output names `--reap`
+*and* the pid; `--reap` reaps it and the verdict is recomputed to CLEAR at
+exit 0. Against the pre-fix gate, 3 of the 4 fail — including the decisive
+one, `--reap reaped the leaked tester`. A case that only asserted `exit 1`
+would have passed on the dead-end behaviour unchanged, which is the exact trap
+case 4b was once rewritten to escape.
+
+**Gate:** `flutter analyze` -> **No issues found!** (11.0 s).
+`python3 tool/run_tests.py` -> see commit. `test/build_gate_test.py` ->
+**21/21 ALL PASS**, up from 17/17 (+4 assertions in case 14).
+
+Commit: see `git log`.
+
+*Next in backlog: none — zero unchecked boxes.*
+
+**Correction to the 40th tick's notes, both measured this tick and both wrong:**
+
+1. **The `'+213****3456'` "dead masked fixture" finding does not exist.**
+   That entry is a **full** number. Read from inside Dart, codepoint by
+   codepoint (`File('...').readAsLinesSync()`), line 74 is:
+
+   ```text
+   HEXT : 20 20 27 2b 32 31 33 35 35 30 31 32 33 34 35 36 27 2c
+   ```
+
+   `2b 32 31 33 35 35 30 31 32 33 34 35 36` = `+213****3456` -> digits
+   `213****3456`. The asterisks were **never in the file**. They are the
+   *output pipe* redacting phone-shaped digit runs, and they struck twice: on
+   the fixture, and on the 40th tick's own "evidence", where a hex dump read
+   back as `INHEX[2b 20 31 33 2a 2a 2a 2a 33 34 35 36]` — i.e. the hex of a
+   *rendered* string containing spaces and asterisks, presented as proof that
+   the fixture was masked. Hex of what the pipe printed, not of what the file
+   holds. A fixture audit performed through a redacting channel cannot
+   distinguish the subject from its own masking, and this one is a standing
+   reminder on this box: **dump hex from inside the process that reads the
+   file, and be suspicious of any byte pattern you expected to find.**
+   The fixture is legitimate coverage and stays.
+
+2. **The claim that the fixture "never reaches" its assertions was also
+   wrong.** It is `typedForms[2]`, it has been since `f083d71`, and it runs:
+   `flutter test --plain-name 213` reports it as its own test,
+   `+0: ... "+213****3456" -> 05 50 12 34 56, posting 0550123456`, green. The
+   40th tick read a *probe file that hardcoded the masked string* as if it
+   were the shipped one, and generalised from it. A probe that hardcodes its
+   own input measures the probe.

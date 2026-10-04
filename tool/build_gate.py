@@ -595,12 +595,15 @@ def survey():
     return jvms, tools, leaked, browsers
 
 
-def reap(browsers, dry_run=False, grace=6.0, poll=0.2):
-    """SIGTERM the leaked browser roots and wait for them to actually die.
+def reap(browsers, dry_run=False, grace=6.0, poll=0.2, kind='browser'):
+    """SIGTERM the leaked process roots and wait for them to actually die.
 
     Takes only the pids the survey already classified as leaks, so this
     cannot become a second, looser process survey that kills something the
     gate had deliberately called clear. Returns (killed, survivors).
+
+    [kind] is only the noun in the two messages -- the pids are the ones the
+    survey already proved leaked, and the signalling below is identical.
 
     SIGTERM, never SIGKILL, and only after the process has gone: a Chrome
     root with ~13 forked children dies as a group when it does, and a
@@ -659,27 +662,36 @@ def main(argv=None):
     ap = argparse.ArgumentParser(add_help=True)
     ap.add_argument('--quiet', action='store_true')
     ap.add_argument('--reap', action='store_true',
-                    help='SIGTERM leaked browser roots this loop left behind, '
-                         'then re-survey. Acts only on pids already proven '
-                         'leaked; never on a live render.')
+                    help='SIGTERM leaked flutter_tester and browser roots '
+                         'this loop left behind, then re-survey. Acts only '
+                         'on pids already proven leaked; never on a live '
+                         'test run or a live render.')
     args = ap.parse_args(argv)
 
     jvms, tools, leaked, browsers = survey()
 
-    if args.reap and browsers:
-        # Reap, then SURVEY AGAIN. Reporting on the pre-reap survey would
-        # print the browser this call just killed and exit 1, so the caller
-        # would read "reaping did not help" on a box it had just fixed --
-        # the same class of defect as a stale tracker or a stale gate: a
-        # verdict computed from state that no longer exists.
-        killed, survivors = reap(browsers)
+    # Both leak classes, in the order they are printed. A leaked
+    # `flutter_tester` had NO arm here until this tick: the survey named it
+    # (`LEAKED flutter_tester`), counted it as busy so the gate refused to
+    # build, and then -- with no browser on the box -- printed no remedy at
+    # all. The reader was told the box was blocked by a process the one
+    # documented command for unblocking could not touch, which is the same
+    # "an instruction to act, derived from nothing that supports it" defect
+    # case 13 was written for, one class over.
+    #
+    # Both calls re-SURVEY (see below): the verdict must never be computed
+    # from a process this same call is about to kill.
+    for group, kind in ((leaked, 'flutter_tester'), (browsers, 'browser')):
+        if not (args.reap and group):
+            continue
+        killed, survivors = reap(group, kind=kind)
         if not args.quiet:
             for pid in killed:
-                print('reaped leaked browser %d (SIGTERM, waited for exit)'
-                      % pid)
+                print('reaped leaked %s %d (SIGTERM, waited for exit)'
+                      % (kind, pid))
             for pid in survivors:
-                print('browser %d ignored SIGTERM or is not ours to signal; '
-                      'left running and NOT force-killed' % pid)
+                print('%s %d ignored SIGTERM or is not ours to signal; '
+                      'left running and NOT force-killed' % (kind, pid))
         if killed:
             jvms, tools, leaked, browsers = survey()
 
@@ -727,6 +739,13 @@ def main(argv=None):
                       'behind; run `python3 tool/build_gate.py --reap` to '
                       'clear it, then re-run this gate.'
                       % browser_mb(browsers))
+            if leaked:
+                print('A leaked flutter_tester (pid %s) from an earlier tick is '
+                      'still holding the box; nothing else will clear it, '
+                      'because its tool is gone. run `python3 '
+                      'tool/build_gate.py --reap` to clear it, then re-run '
+                      'this gate.'
+                      % ', '.join(str(pid) for pid, _c, _b in leaked))
         elif starved:
             print('NO ROOM — nothing is building, but only %.0f MB is reclaimable '
                   'and a run of this suite was measured to bottom out at 1177 MB. '
