@@ -9,6 +9,7 @@ import '../models/plan.dart';
 import '../models/project.dart';
 import '../models/quote_review.dart';
 import '../models/worker.dart';
+import 'worker_rank.dart';
 
 /// Screen-facing data layer. Mirrors the web app's loaders/actions and talks
 /// to the same Cloudflare Workers API. Endpoint paths here define the mobile
@@ -21,6 +22,15 @@ class Repository {
   // ---- Workers / contractors -------------------------------------------
   /// The best-rated contractors, with the ones in the visitor's own wilaya
   /// first when the app knows where he is.
+  ///
+  /// **"Best-rated" is the app's own claim and this method now enforces it.**
+  /// The server sorts a mean over one review as if it were a mean over
+  /// twenty-four, so measured over 50 live rows on 4 Oct the unfiltered strip
+  /// opened with five accounts of one review, one job and no verified papers
+  /// above a 45-job pro. [evidenceBeforeAssertion] moves those behind the rows
+  /// a customer can compare, and preserves the server's order inside each
+  /// group — the app decides which group a contractor is in, not how a man with
+  /// thirty reviews ranks against a man with fifteen.
   ///
   /// The ordering is client-side on purpose: asking the server to filter would
   /// empty the strip in a wilaya where no contractor has signed up yet, and a
@@ -36,13 +46,21 @@ class Repository {
         await _api.get(
             '/api/mobile/workers/top?limit=${prefer ? limit * 4 : limit}'),
         WorkerProfile.fromJson);
-    if (!prefer) return rows;
+    if (!prefer) return evidenceBeforeAssertion(rows).take(limit).toList();
     final near = <WorkerProfile>[];
     final rest = <WorkerProfile>[];
     for (final w in rows) {
       (w.wilaya == preferWilaya ? near : rest).add(w);
     }
-    return [...near, ...rest].take(limit).toList();
+    // **Partition each group, then take.** The order matters and it is the
+    // whole fix: `take` before the partition would let the first twelve rows
+    // the server sent fill the strip and leave nothing to reorder, which is
+    // precisely how the five single-review accounts got there in the first
+    // place. Same order [customer_home_screen] applies to its project strip.
+    return <WorkerProfile>[
+      ...evidenceBeforeAssertion(near),
+      ...evidenceBeforeAssertion(rest),
+    ].take(limit).toList();
   }
 
   Future<List<WorkerProfile>> searchWorkers({
