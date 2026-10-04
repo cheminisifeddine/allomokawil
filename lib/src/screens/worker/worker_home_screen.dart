@@ -470,6 +470,25 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   /// listening to the same object.
   DateTime? _meReadAt;
 
+  /// Bumped by **every** arm that installs or restores a profile, so a read
+  /// that is no longer the one on screen cannot write over it.
+  ///
+  /// Shared by reads *and* writes, not a per-read generation, for the reason
+  /// the gallery's `_galleryEpoch` records: the losing arm here is the
+  /// `catch`, which is a **write** — it restores a pair it captured at issue.
+  /// A token that only the read arms carried would still be current when that
+  /// restore runs, because the editor's save never touched it.
+  ///
+  /// Read by one guard, in [_readProfileForRefresh]'s `catch`, before it puts
+  /// the previous pair back — the arm this whole thing is for. Every arm that
+  /// *claims* the epoch goes through [_installProfile], including
+  /// [_editProfile]'s, and that is what makes the guard sound.
+  ///
+  /// Nothing else on this screen bumps it, deliberately: a bump that did not
+  /// correspond to a profile on screen would strand a legitimate restore and
+  /// leave the header blank.
+  int _profileEpoch = 0;
+
   /// Ticks once a minute so an honest header does not need a re-read to become
   /// an honest header.
   ///
@@ -575,10 +594,40 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   /// is not credited with being fresh the moment it was issued.
   void _readMe() {
     setState(() {
-      _me = widget.repo.myProfile();
-      _meReadAt = _now();
+      _installProfile(widget.repo.myProfile());
     });
     _armFreshnessTick();
+  }
+
+  /// Points [_me] at [read] and stamps it, keeping all three in one place.
+  ///
+  /// The stamp and the future are one fact. Written three times at the call
+  /// sites instead — once per arm — it is three chances for one of them to
+  /// answer a question the other two already answered, which is how
+  /// [_meReadAt] came to be documented as "set in the same `setState` that
+  /// installs the future" and then was not, on one of the three.
+  ///
+  /// **Must be called inside a `setState`**, and the epoch claim below is why
+  /// that is safe to say here: `setState` runs its argument exactly once,
+  /// synchronously, at the call — a rebuild re-*draws*, it does not re-run it.
+  int _installProfile(Future<WorkerProfile> read) {
+    // **The epoch is claimed here, not at the call sites.** Three arms install a
+    // profile and one of them is a write with no request behind it, so a bump
+    // written at each call site is three chances for one arm to forget — and
+    // the arm that forgets is the one nothing tests through the pull. That is
+    // not hypothetical: with the bump at the call sites this fix's own race
+    // case passed while the refresh arm's bump was dead code, and removing the
+    // editor's bump alone left the test red, which is how the gap was found.
+    //
+    // Safe inside the callback, and the reason is not the usual one: `setState`
+    // invokes its argument **exactly once**, synchronously, at the call
+    // (`State.setState` runs the closure and only then marks the element
+    // dirty). So an increment here is not re-run by a rebuild. The assert this
+    // file was bitten by is about the callback's *return value*, not its body.
+    final epoch = ++_profileEpoch;
+    _me = read;
+    _meReadAt = _now();
+    return epoch;
   }
 
   /// Points the market at a read, and records what that read settled to.
@@ -785,14 +834,30 @@ class _MarketplaceViewState extends State<MarketplaceView> {
     // the header would simply never rebuild, which is the same silent half-fix
     // `_retryProfile` was written to avoid. This is the third time this file
     // has been bitten by it.
+    //
+    late final int epoch;
     setState(() {
-      _me = next;
-      _meReadAt = _now();
+      epoch = _installProfile(next);
     });
     _armFreshnessTick();
     try {
       await next;
     } catch (_) {
+      // **The guard this method was missing.** Nothing between the capture
+      // above and here re-checked whether this read still owns the header, and
+      // two of them can be open at once: the retry button lives in the failure
+      // state and is never covered by `RefreshIndicator`'s status, and the
+      // editor installs its own answer with no request. So a read that failed
+      // late put `_me`/`_meReadAt` back over a profile a newer read had already
+      // landed — rolling the header back *and* re-dating numbers the server had
+      // superseded, which is the precise lie [_meReadAt]'s own comment is
+      // written to stop.
+      //
+      // The refusal is silent on purpose, and it has to be: a read that lost
+      // is not a fact about the header on screen, and saying so would put
+      // «تعذّر جلب ملفك» over a header the contractor is reading. That is the
+      // same sentence the whole screen exists to avoid printing.
+      if (!mounted || epoch != _profileEpoch) return;
       // Not a generic «تعذّر التحميل» banner: the contractor's header is working
       // and his market is changing. The one thing that went wrong is a refresh
       // he did not ask for by name, so it is the one thing that must not cost
@@ -908,11 +973,15 @@ class _MarketplaceViewState extends State<MarketplaceView> {
       MaterialPageRoute(builder: (_) => const ProfileEditScreen()),
     );
     if (updated == null || !mounted) return;
+    // **This is the arm a pull-only test cannot reach**, which is why the epoch
+    // is claimed by [_installProfile] rather than here: the editor is a *write*
+    // with no request behind it, so nothing in [_readProfileForRefresh] can
+    // tell that a newer profile had landed. Without the claim, a refresh read
+    // issued before he opened the editor and still in the air rolls the header
+    // back to whatever it held the moment he pulled — silently discarding the
+    // values he had just saved, and showing them as if the save never happened.
     setState(() {
-      _me = Future<WorkerProfile>.value(updated);
-      // The editor read is as current as this screen's newest data is, and
-      // the numbers it just wrote are the ones now on screen.
-      _meReadAt = _now();
+      _installProfile(Future<WorkerProfile>.value(updated));
     });
     // Specialties may have changed, so re-run the feed against the new trades.
     _reload();
@@ -1290,9 +1359,33 @@ class _HeaderSection extends StatelessWidget {
     return FutureBuilder<WorkerProfile>(
       future: profile,
       builder: (context, snap) {
-        final loading =
-            profile != null && snap.connectionState != ConnectionState.done;
+        // **A read in the air is not an empty header**, and the data is already
+        // there — `_snapshot.inState` keeps it (async.dart:280-281), so handing
+        // `didUpdateWidget` a new future resets the *state* and not the answer.
+        //
+        // What erased the header was this builder asking one question and
+        // answering it wrong. `connectionState != done` is true while a refresh
+        // is still waiting, so **every pull** swapped a working header — his
+        // name, his job count, the three tiles he needs, his plan row — for grey
+        // bars until the request came back. Measured: the skeleton count under a
+        // held-open refresh was 3 on the unfixed tree and the name was nowhere
+        // in it. The gesture added to make this screen answerable was taking
+        // away what the contractor was already reading.
+        //
+        // The market below already owns this rule under a name: `stale-market`
+        // keeps the rows and says out loud that they are the last ones read.
+        // The header had no version of it. It has one now, and the skeleton is
+        // for the one state that genuinely has nothing to keep — the first read.
+        //
+        // A read that *failed* still blanks, and it must: that state is
+        // «تعذّر جلب ملفك» with its retry, and `withError` nulls the data
+        // whatever the caller passes. A header kept over a dead read would be
+        // numbers that can be neither re-read nor explained, which is the dead
+        // end this screen was opened to close.
         final worker = snap.data;
+        final loading = profile != null &&
+            snap.connectionState != ConnectionState.done &&
+            snap.data == null;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

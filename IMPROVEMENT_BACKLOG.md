@@ -20282,3 +20282,139 @@ asserting a property is not evidence of it, and neither is a token on one arm.
   prevent. Its `setState` at issue is also reachable twice: the retry button and
   a second pull both call it, and `RefreshIndicator.show()` is the only guard
   against overlapping pulls.
+
+- [x] **A pull-to-refresh blanked the contractor's header on every refresh,
+      and a read that failed late put an older profile back over a newer one —
+      including silently undoing a save he had been told had landed.**
+      Found on 4 Oct 2026, 52nd tick, by the audit the 51st tick's "Next" named
+      (`worker_home_screen._readProfileForRefresh`, the last of the 38 `await` +
+      `setState` methods in the app with no token guard).
+
+  **Item 1 — the blanking, and it is the bigger of the two.** `setState`
+  installs the new read over a *working* `_me`, so `FutureBuilder.didUpdateWidget`
+  resubscribes and resets the snapshot to `ConnectionState.none`. The builder's
+  rule was `loading = profile != null && snap.connectionState != done`, and that
+  is true while **any** refresh waits:
+
+  ```
+  pull  →  /my/profile answers in 900 ms on a good connection
+        →  header = _skeletonRows()          ← name, job count, 3 tool tiles,
+                                                plan row, all gone, every pull
+  ```
+
+  **Measured on the unfixed tree**, refresh held open by a gate:
+  `skeleton=3 error=0 reads=2`, and the contractor's own name not in the tree.
+  The pull-to-refresh was added on 27 Sep to make this screen answerable; every
+  use of it took away what the contractor was reading, on a healthy connection.
+
+  The answer was never actually lost — `_snapshot.inState` preserves `data`
+  (async.dart:280-281), so the reset cleared the *state* and left the *answer*.
+  The builder asked one question and answered it wrong. Fixed by gating the
+  skeleton on `snap.data == null`, which is the first read and nothing else. The
+  market below already owns this rule under a name (`stale-market`: keep the
+  rows, say they are the last ones read); the header had no version of it.
+
+  **A read that failed still blanks, deliberately.** `withError` nulls the data
+  whatever the caller passes, and «تعذّر جلب ملفك» with its retry is the honest
+  state for a dead read. A header kept over it would be numbers that can be
+  neither re-read nor explained — the dead end `worker_header_failure_test.dart`
+  was written to close.
+
+  **Item 2 — the race the lead actually named.** The `catch` restored
+  `_me`/`_meReadAt` from the pair captured **at issue**, with nothing in
+  between re-checking whether that read still owned the header:
+
+  ```
+  read 1  09:00  pull — held open on a bad connection
+  write   09:01  he opens «ملفي المهني» and saves; _editProfile installs the
+                   saved profile with NO request behind it
+  read 1  09:02  answers: 500 → catch restores the pair from 09:00
+                  → the header silently re-shows the values he was just told
+                    had been saved, with no error anywhere
+  ```
+
+  That is the one the 51st tick predicted, and it also re-dated `_meReadAt`, so
+  the freshness line dated numbers the server had superseded — the exact lie
+  `_meReadAt`'s own comment is written to prevent, reached from the other
+  direction.
+
+  **The counter is claimed by `_installProfile`, not at the call sites**, and
+  that placement is the finding rather than the tidiness. With a bump written at
+  each of the three install sites, this fix's own race case went **green** while
+  the refresh arm's bump was dead code — three arms install a profile and one is
+  a write with no request behind it, so a bump written three times is three
+  chances for one arm to forget. The claim now lives in the one method all three
+  arms call, which is also why it is legal inside a `setState` callback:
+  `setState` runs its argument exactly once, synchronously (the assert this file
+  was bitten by three times is about the callback's *return value*, not its
+  body).
+
+  **Both halves verified load-bearing, separately and on the same tests:**
+
+  | reverted | result |
+  | --- | --- |
+  | epoch claim in `_installProfile` | `Expected: '3'  Actual: '4'` |
+  | `snap.data == null` in the builder | `Found 0 widgets with text "مقاول تجربة"` |
+
+  **Two harness traps, recorded because both cost this tick.**
+  1. **The obvious overlap is closed.** A second pull cannot race a first:
+     `RefreshIndicator._shouldStart` will not arm while `_status != null`
+     (refresh_indicator.dart:417). My first version of the race case asserted
+     `profileReads == 3` when two had been issued — it was measuring its own
+     harness. The retry button is closed too, **by the correct behaviour**: the
+     restore removes the failure state, so `worker-header-retry` is never on
+     screen, and the finder came up empty against correct code. Over-correcting
+     would have meant deleting the restore to make a test reachable — which is
+     why the third case exists.
+  2. **A pinned clock prints no age clause.** `readAgeAr` returns `''` under 60
+     seconds by design, and it reads the clock's *value* — so stepping
+     `tester.pump(minutes: 1)` fires the freshness tick and rebuilds, while the
+     age stays zero. The finder was right and the measurement was empty
+     («Bad state: No element»). The clock's value has to move too.
+
+  **A third case guards against over-correcting:** a lone failed pull must still
+  restore the header, so dropping the restore — the obvious way to make a race
+  test pass — cannot make the suite green.
+
+  **Gate.** `flutter analyze` -> **No issues found!** The five sibling suites
+  that assert this screen's contracts — `stats_freshness_test`,
+  `worker_home_pull_to_refresh_test`, `worker_header_failure_test`,
+  `stale_market_test`, `plan_row_read_truth_test` — **52 passed, 0 failed**, so
+  the pull's contract, the restore's contract and the plan row's truthfulness
+  all still hold.
+
+  **Not claimed, deliberately:** no screenshot. No layout, copy or pixel
+  changed: the diff is one condition in a `builder` and one guard in a `catch`.
+  The measured `skeleton=3 → 0` count is the evidence for this one, and it is a
+  count of real widgets in a real tree, not a claim about how it would look.
+
+  **Files:** `lib/src/screens/worker/worker_home_screen.dart` (+113/-9),
+  `test/stale_profile_refresh_test.dart` (+443, new). Commit `6d0d501`.
+
+  **Next in backlog: none — zero unchecked boxes.** Next tick earns its item by
+  audit, and the census is now exhausted: **every** one of the 38 `await` +
+  `setState` methods without a token guard has been audited and closed or
+  judged unreachable. Two leads worth writing down rather than losing:
+  1. **`Future.then`'s `onError` handler return type — a trap worth a test, not
+     a defect in this file.** An arm written `(_, __) {}` infers `Null` for the
+     returned future, and the chain throws «Invalid argument(s) (onError): the
+     error handler must return a value of the returned future's type» **the
+     moment the read fails** — on the exact path a guard exists to survive.
+     This tick hit it by writing `then((p) => _meAnswer = p, onError: (_, __)
+     {})`; the fix was an explicit `then<void>`, and the red was a *throw*, not
+     an assertion. Checked the two existing arms instead of assuming: [`_arm`]'s
+     `onError` is `(Object e, StackTrace _) { ... setState(...); }`, a block
+     returning `void` from `Future<void>`, and [`_refresh`]'s
+     `_projects!.then((_) {}, onError: (_, __) {})` sits inside a
+     `List<Future<void>>`, which fixes the element type. **Both are correct and
+     neither is annotated** — which is the real shape of the trap: invisible in
+     the source and reachable only on a failed read. Worth one test that fails a
+     read inside a `then` and asserts the chain did not throw. Not a tick.
+  2. **One lead I wrote down and then disproved — recorded because the next
+     tick should not re-derive it.** I listed `_arm`'s `onError` arm as
+     possibly installing a stale band. It does not: `worker_home_screen.dart`
+     guards it on `_feedToken` exactly as it guards the success arm
+     (`if (!mounted || token != _feedToken) return;` on **both**), and
+     `stale_market_test.dart` covers the band. The census's pattern is a method
+     with **no** token check on either arm, and this file now has none — which
+     is the actual confirmation that the 38-member census is closed.
