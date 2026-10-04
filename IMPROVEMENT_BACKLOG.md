@@ -20717,6 +20717,12 @@ neither taken unilaterally:
 Until one is chosen, the next tick should expect to skip a cycle on the
 build-safety trip, and that skip is the schedule's fault, not a busy tree.
 
+**Commits.** Local `5d22fb2`; the API push lands as remote **`4bbc1b5`**
+(`git ls-remote origin main` read after the push, not the local tracker — the
+helper never refreshes `origin/main`). All 7 blobs' local SHA-1s recorded, and
+the remote tip is the API's own commit, so the tree on `main` is this commit's
+tree.
+
 **Also confirmed, because it is cheap and it is a claim the file makes:** the
 remote tip is **`c5fe644`** (`git ls-remote origin main`), i.e. the 52nd's two
 commits. Local `HEAD` was `f99f6bc`, three commits ahead — the tree the 53rd and
