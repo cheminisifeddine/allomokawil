@@ -30,19 +30,42 @@ class PlaceState extends ChangeNotifier {
   /// hand it each of the four failures on purpose.
   final Future<DetectedPlace> Function() detect;
 
-  PlaceState({Future<DetectedPlace> Function()? detect})
-      : _detached = false,
-        detect = detect ?? Locator.detect;
+  /// Whether a fix may be taken without a dialog — the same injection contract
+  /// as [detect], and for the same reason.
+  ///
+  /// `Locator.canDetectQuietly` is a `static` that asks the Geolocator platform
+  /// channel, so it answers *false* in a widget test (its own `catch` swallows
+  /// the missing channel) and `detectQuietly` returned before ever reaching
+  /// [detect]. The branch `PlaceWarmup` exists to exercise — a phone whose
+  /// service is off or whose permission is blocked — was therefore untestable
+  /// without mocking the whole plugin: the detector was injectable and the
+  /// gate in front of it was not. Default is the real platform answer.
+  final Future<bool> Function() canDetectQuietly;
+
+  PlaceState({
+    Future<DetectedPlace> Function()? detect,
+    Future<bool> Function()? canDetectQuietly,
+  })  : _detached = false,
+        detect = detect ?? Locator.detect,
+        canDetectQuietly = canDetectQuietly ?? Locator.canDetectQuietly;
 
   /// A store with no storage behind it.
   ///
   /// Widget tests and any tree pumped without an [AppScope] get the same API
   /// without touching a platform channel, which is also why every method here
   /// tolerates a failure instead of throwing.
-  PlaceState.detached() : _detached = true, detect = _neverDetect;
+  PlaceState.detached()
+      : _detached = true,
+        detect = _neverDetect,
+        // Nothing is ever asked and nothing is ever detected, so the gate is a
+        // plain false — the same answer a phone with the service off gives,
+        // and the only one that keeps a detached store off the plugin.
+        canDetectQuietly = _neverCanDetect;
 
   static Future<DetectedPlace> _neverDetect() async =>
       throw StateError('a detached PlaceState has no detector');
+
+  static Future<bool> _neverCanDetect() async => false;
 
   static const _key = 'place.v1';
   static const _askedKey = 'place.asked.v1';
@@ -182,7 +205,7 @@ class PlaceState extends ChangeNotifier {
   Future<bool> detectQuietly() async {
     if (_detached || _place != null || _busy) return hasPlace;
     try {
-      if (!await Locator.canDetectQuietly()) return false;
+      if (!await canDetectQuietly()) return false;
       return await askAndDetect();
     } catch (_) {
       return false;

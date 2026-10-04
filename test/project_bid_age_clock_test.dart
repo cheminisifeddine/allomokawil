@@ -42,6 +42,29 @@ import 'package:allomokawil/src/core/theme/app_theme.dart';
 import 'package:allomokawil/src/data/repository.dart';
 import 'package:allomokawil/src/screens/project/project_detail_screen.dart';
 
+// **The injected clocks below are `DateTime.utc`, and that is not cosmetic.**
+//
+// Both fixtures here are read the way D1 writes them: `'2026-10-02 09:48:00'`
+// has no zone, and `parseServerTime` reads it as UTC — correctly, because that
+// is what the server sends. The clock these tests inject used to be a **local**
+// `DateTime(2026, 10, 2, 10)`, so the two ends of the subtraction disagreed by
+// whatever offset the machine running them was in. On this box the shell
+// exports `TZ=Africa/Algiers` while `/etc/localtime` points at `Etc/UTC`, and
+// that one-hour disagreement is the whole failure:
+//
+//     Expected: <2>   Actual: <0>       // two cards that must say «12 دقيقة»
+//
+// A 12-minute-old bid read as **two hours** old, because 09:48 UTC against a
+// clock claiming 10:00 local is 10:00-09:48 **plus** the offset. The suite went
+// red on six cases the moment the host timezone and the shell's `TZ` drifted
+// apart — with **no change to `lib/` at all** (`git stash` + rerun reproduces
+// it on clean HEAD). The alarm was on a test fixture, not on the product, which
+// is why the fix is here and not in `relativeTimeAr`: the product's arithmetic
+// is `today.difference(at)` over two absolute instants, and it is correct for
+// every zone. Pinning the clock to UTC makes both ends of that subtraction
+// absolute and the assertions zone-independent, so the file says what it means
+// on a laptop in Algiers and on a CI box in UTC alike.
+
 /// A bid stamped exactly **12 minutes** before the clock this file injects.
 ///
 /// 12 so the two cases land on sentences a glance can tell apart —
@@ -177,7 +200,7 @@ Future<void> _pump(WidgetTester tester, DateTime Function() now) async {
 void main() {
   group('the bid cards age their stamps while the page sits open', () {
     testWidgets('a bid 12 minutes old is labelled 12 minutes', (tester) async {
-      await _pump(tester, () => DateTime(2026, 10, 2, 10));
+      await _pump(tester, () => DateTime.utc(2026, 10, 2, 10));
 
       final lines = _lines(tester);
       expect(
@@ -200,7 +223,7 @@ void main() {
       // clock moved from 10:00 to 12:05. Before the fix both cases printed the
       // wall clock's answer, so the difference this file exists to prove was
       // not observable at all — which is the definition of the fuse.
-      await _pump(tester, () => DateTime(2026, 10, 2, 12, 5));
+      await _pump(tester, () => DateTime.utc(2026, 10, 2, 12, 5));
 
       final lines = _lines(tester);
       expect(
@@ -226,14 +249,14 @@ void main() {
       // Before the fix there was no timer at all, so this pump was a no-op and
       // both cards kept the first frame's sentence for as long as the page sat
       // open.
-      var now = DateTime(2026, 10, 2, 10);
+      var now = DateTime.utc(2026, 10, 2, 10);
       await _pump(tester, () => now);
       expect(_lines(tester).where((t) => t.contains('12 دقيقة')).length, 2,
           reason: 'setup did not reach the minute sentence:\n${_lines(tester)}');
 
       // Only the clock moves, the way a real minute moves while the phone sits
       // in a pocket and the owner is halfway down the list.
-      now = DateTime(2026, 10, 2, 12, 5);
+      now = DateTime.utc(2026, 10, 2, 12, 5);
       await tester.pump(const Duration(minutes: 1, milliseconds: 100));
 
       final lines = _lines(tester);
@@ -252,7 +275,7 @@ void main() {
       // fails the very next test with "A Timer is still pending", which is how
       // one author's widget test becomes everybody's. Cancelling it is part of
       // the feature, so it is pinned.
-      await _pump(tester, () => DateTime(2026, 10, 2, 10));
+      await _pump(tester, () => DateTime.utc(2026, 10, 2, 10));
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(minutes: 1, milliseconds: 100));

@@ -48,21 +48,46 @@ class _PlaceWarmupState extends State<PlaceWarmup> {
 
     // After the frame: a permission dialog is a platform round trip and must
     // never sit between the user and the first painted screen.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      // Quietly first: a launch that already holds the permission must not show
-      // a dialog again. Only a phone that was never asked gets the question.
-      place.detectQuietly().then((ok) {
-        if (ok || !mounted) return;
-        if (!place.asked) place.askAndDetect();
-      }).then((_) {
-        // The quiet arm can fail for the same reasons the asked one does, and it
-        // now reports them through the same field. Read after both, so a launch
-        // that never needed to ask still says so if it tried and was stopped.
-        if (!mounted) return;
-        final failure = place.lastFailure;
-        if (failure != null) _say(failure);
-      });
+      // **No `catch` here, and the removal is the fix.** An earlier revision of
+      // this wrap carried `catch (_) {}`, and `failure_reported_test.dart`
+      // refused the commit: the empty-catch census is an *equality* assertion,
+      // so a tenth silent catch cannot land. The guard was right and the catch
+      // was wrong three times over:
+      //   1. **Unreachable.** `detectQuietly` has its own catch-all and
+      //      `askAndDetect` has one on each arm, so nothing here can throw.
+      //   2. **Silent**, which is the defect the census exists to catch — a
+      //      launch-path failure dropped with no record of any kind.
+      //   3. It contradicted `CrashReporter`, whose own doc says the opposite:
+      //      "Swallowing the error instead is a founder decision, not a
+      //      diagnostics one." `main` installs that reporter at boot and its
+      //      `PlatformDispatcher.onError` captures any async error from here.
+      // So an unexpected throw is *reported* on the way out, which is what
+      // `PlaceState._reportStoreFailure` exists to do for its tolerated writes.
+      //
+      // Quietly first: a launch that already holds the permission must not
+      // show a dialog again. Only a phone that was never asked gets the
+      // question.
+      final ok = await place.detectQuietly();
+      if (!mounted) return;
+      // **Awaited, which is the whole fix.** This was a bare
+      // `place.askAndDetect()` inside a `.then` arm, so the *chain* moved on
+      // to the note while the asked detect was still parked on its first
+      // `await` — and `askAndDetect` opens with `lastFailure = null`
+      // synchronously, before anything can throw. The field the note reads
+      // was therefore null on every launch, for every failure it exists to
+      // report: three non-refusals that this widget's own doc says are named
+      // were silent, with no error anywhere to say so. The cure was not a
+      // retry or a different sentence; it was reading the answer after the
+      // question was answered.
+      if (!ok && !place.asked) await place.askAndDetect();
+      // The quiet arm can fail for the same reasons the asked one does, and it
+      // reports them through the same field. Read after **both**, so a launch
+      // that never needed to ask still says so if it tried and was stopped.
+      if (!mounted) return;
+      final failure = place.lastFailure;
+      if (failure != null) _say(failure);
     });
   }
 

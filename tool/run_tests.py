@@ -119,7 +119,16 @@ _TEST_PATH = re.compile(r"(test/\S*?\.dart)")
 #: The count is monotonic within a run, so the last match in the tail is the
 #: shard's total. Shards are counted independently and summed, which is only
 #: sound because a shard's own count comes from its own process.
-_PROGRESS = re.compile(r"\+(\d+):")
+#: **The optional ` -N` group is the fix, and it recovers a number this file was
+#: throwing away.** When a shard fails, the expanded reporter stops printing the
+#: clean `+NNN:` form and prints `+169 -6:` instead — and `\+(\d+):` cannot match
+#: that, because a colon never follows the pass count on a red line. So
+#: `passed_count` returned None for **every red shard**: the one run the loop most
+#: needs a number from was the only one that could not produce one. Two visible
+#: consequences, both paid for on 4 Oct: the summary line crashed on the `"?"`
+#: fallback (see the `%s` note below) and a failing shard reported no size at
+#: all. `+169 -6:` now yields 169, which is the count that actually ran.
+_PROGRESS = re.compile(r"\+(\d+)(?: -\d+)?:")
 
 
 def culprit(tail):
@@ -366,10 +375,23 @@ def main(argv=None):
                       % (culprit(tail) or "UNKNOWN"), file=sys.stderr)
                 _kill_leaked_tester()
 
-        print("shard %d/%d: %s in %d:%02d (%d attempt(s), %d test(s))"
+        # **The count is `%s`, not `%d`, and that is the fix.** The fallback is
+        # the string "?" and a failing shard is the *only* common way to get it:
+        # `passed_count` reads the reporter's progress lines, and a shard that
+        # dies mid-file ends on a `+169 -6:` line the regex does not match, so
+        # the shard the loop most needs a number for is the one that returns
+        # None. `%d` then raised `TypeError: %d format: a real number is
+        # required, not str` — inside the per-shard print, so the run died
+        # *before* writing `results.append`, before the totals, and before the
+        # final verdict: six red tests, and all the runner said was a Python
+        # traceback. A gate whose failure mode is "lose the evidence" cannot be
+        # the thing that reports the evidence, and it cost this tick a second
+        # 13-minute run to re-establish that the suite was red.
+        count = passed_count(tail)
+        print("shard %d/%d: %s in %d:%02d (%d attempt(s), %s test(s))"
               % (i, len(shards), {0: "PASS", 1: "FAIL", 2: "HUNG"}[status],
                  int(secs // 60), int(secs % 60), attempts,
-                 passed_count(tail) if passed_count(tail) is not None else "?"))
+                 count if count is not None else "?"))
         sys.stdout.flush()
         results.append({"shard": i, "status": status, "tail": tail,
                         "secs": secs, "attempts": attempts,

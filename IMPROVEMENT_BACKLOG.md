@@ -20418,3 +20418,326 @@ asserting a property is not evidence of it, and neither is a token on one arm.
      `stale_market_test.dart` covers the band. The census's pattern is a method
      with **no** token check on either arm, and this file now has none — which
      is the actual confirmation that the 38-member census is closed.
+
+---
+
+## Tick 4 Oct 2026 (53rd) — the launch that promised to name a location
+## failure, and could never draw one
+
+Backlog was at **zero unchecked** again, so this tick audited the two leads the
+52nd recorded rather than opening a phase. The first (`Future.then`'s `onError`
+return type) was checked across `lib/` and is **not** a defect here: no arm has
+the `=>`-success + block-`onError` shape that trips it, and every existing arm
+either returns `void` from a `Future<void>` or sits inside a
+`List<Future<void>>`. Recorded so a fourth tick does not re-derive it.
+
+The sweep it did produce was more useful: **`place_warmup.dart` had no error
+arm anywhere on the launch path**, and one of its two reads was discarded.
+
+**The defect.** `place_warmup.dart:57` called `place.askAndDetect()` as a bare
+statement inside a `.then` arm — not awaited. The chain's *second* link then ran
+immediately, while the asked detect was still parked on its first `await`. And
+`askAndDetect` opens with `lastFailure = null;` **synchronously**, before
+anything can throw. So the field the note reads was null by construction, on
+every launch, for every failure the widget exists to report.
+
+This widget's own doc names three: the location toggle off, a permission
+blocked in Settings, no signal indoors. `PlaceState` keeps `lastFailure` for
+exactly those three and spends the one-shot for none of them — that was a
+deliberate, well-argued fix from an earlier tick. **The three were unreachable
+on screen.** A phone with GPS switched off launched, failed to detect, kept its
+one-shot, said nothing, and would say nothing on every later launch too. The
+curable half of the location feature was quiet, with no error anywhere.
+
+**Shipped.** The chain became a single `async` body: detect quietly, **await**
+the asked detect, then read `lastFailure`.
+
+**And no `catch` — that was the second wrong fix, and the code says so.** An
+intermediate revision added `catch (_) {}` here "because the arm it replaced
+had none". `failure_reported_test.dart` refused the commit: the empty-catch
+census is an *equality* assertion over every `catch` in `lib/`, so a silent
+tenth block cannot land. The guard was right on three counts. `detectQuietly`
+and `askAndDetect` already have catch-alls, so the block is **unreachable**; it
+is **silent**, which is the defect the census exists to prevent; and it
+contradicts `CrashReporter`, whose own doc says *"Swallowing the error instead
+is a founder decision, not a diagnostics one"* — `main` installs that reporter
+at boot and its `PlatformDispatcher.onError` already captures an async error
+from this launch path. The block was deleted, and the reasoning is now in
+`place_warmup.dart` itself so a later tick does not re-add it as a
+"hardening" fix. Everything above is preserved in that doc comment.
+
+**The finding worth more than the fix.** This branch was **untestable**, and
+that is a defect of the same family. `PlaceState` injects `detect` for exactly
+this reason (its doc says so), but `detectQuietly` hard-called
+`Locator.canDetectQuietly` — a `static` over the Geolocator platform channel,
+which answers *false* in a widget test because its own `catch` swallows the
+missing channel. The detector was injectable and **the gate in front of it was
+not**, so `detectQuietly` returned before ever reaching the injected detector.
+`PlaceState.canDetectQuietly` is now a constructor seam with the same contract
+and the same default. `detached()` gets a plain `false`.
+
+**Red before green, and the harness faults recorded because they cost the tick
+most of its time — three wrong fixes in a row, each of which *looked* like a
+green fix:**
+1. Fix reverted on an unfixed tree, mock absent: **3 failed / 1 passed**.
+2. Fix applied, no mock: **still 3 failed** — the platform channel was the wall,
+   not the fix.
+3. Mocked the Geolocator channel, returned `1` for `checkPermission`: **still 3
+   failed**. `1` is `denied`; `whileInUse` is index **2**. The app was right to
+   ignore my mock.
+4. A probe using `TestDefaultBinaryMessengerBinding.instance` in a plain `test`
+   threw *Binding has not yet been initialized* — that is a `testWidgets`
+   requirement, and the probe was rewritten as one.
+
+Step 3 is the one to keep: **a mock that returns a plausible-but-wrong enum
+makes the product look broken, and the instinct is then to change the product.**
+I was one edit away from "fixing" correct code. The seam was the honest fix.
+
+**Load-bearing, verified by reverting the fix only:** restored -> **4/4**;
+`git checkout -- lib/src/widgets/place_warmup.dart` -> **3 failed / 1 passed**,
+the refusal case green throughout, which is what makes the three failures
+attributable to the note and not to the harness.
+
+**The refusal case is the reason the other three are trustworthy.** A refusal
+must stay *silent* (`userRefused: true` never sets `lastFailure`), so a suite
+that simply made notes appear would fail this one. It passes on both trees.
+
+**Gate.** `flutter analyze` -> **No issues found!** (10.2 s).
+`tool/run_tests.py` -> **SUITE PASS — 2165 tests, 11/11 green** (was 2161;
++4, this file). The sibling suites that assert this feature's other half —
+`place_one_shot_test.dart` (the one-shot promise) and `place_seed_test.dart`
+(the market opening filtered on the wilaya) — pass unchanged, so the fix did not
+spend the one-shot, and did not move the market.
+
+**Not visual.** One sentence and one action label that were already written and
+already Arabic; the diff adds no string, changes no layout, and moves no pixel.
+Asserted through the real `SnackBar` and the real `SnackBarAction` in a real
+tree instead — a screenshot would have shown a dialog nobody can trigger on this
+build, which is the honest limitation here.
+
+**Files:** `lib/src/widgets/place_warmup.dart` (+39/-14),
+`lib/src/core/location/place_state.dart` (+28/-5),
+`test/place_warmup_failure_note_test.dart` (+155, new).
+
+**Next in backlog: none — zero unchecked boxes.** Leads for the next tick:
+1. `chat_screen.dart:638` — `_outbox.remove(id).catchError((Object _) {})`. The
+   arm returns void from a `Future<void>`, so it is correct, and
+   `crash_reporter.dart:147` chains `.then().catchError()` on a `Future<void>`
+   `_writes` which is also correct. Both unannotated, both worth a test rather
+   than a tick — this is the same shape the 52nd flagged as "worth one test
+   that fails a read inside a `then` and asserts the chain did not throw".
+   Not done this tick: it needs a failing write inside a chain, and the
+   evidence above says an under-specified mock is exactly how that gets faked.
+2. **`_forgetQuietly` at `chat_screen.dart:638` has a second defect.** Re-read:
+   it swallows the error, so a queue record that refuses to be forgotten is
+   forgotten in memory but **resurrects on next launch** from storage — the same
+   "the app remembered a wilaya the user cancelled" shape `PlaceState.clear`
+   already documents and reports via `_reportStoreFailure`. Chat has no
+   equivalent. Worth a tick on its own.
+
+---
+
+## Tick 4 Oct 2026 (54th) — six red tests with no change to `lib/`, and a gate
+## that could not say so
+
+The 53rd left an uncommitted tree (analyzer green, its own 4 new cases green),
+so this tick finished that first — then the full gate said **6 failures**, in
+files this tick has never touched.
+
+**The failures were pre-existing, and proven so, not asserted.** `git stash -u`
+(the whole 53rd tree, including the new test file), re-run the two files on
+clean HEAD: **identical 6 failures**. Attribution measured, not assumed.
+
+**The root cause is the product being right and the fixture being wrong.**
+`project_bid_age_clock_test.dart` and `profile_review_age_clock_test.dart` inject
+a clock to age bid cards and review rows without sleeping. They built it as a
+**local** `DateTime(2026, 10, 2, 10)` and left the payload stamp as
+`'2026-10-02 09:48:00'` — which `parseServerTime` reads as **UTC**, correctly,
+because D1 writes UTC with no zone. So the two ends of the subtraction disagreed
+by the machine's offset. On this box that offset is **exactly one hour**:
+
+    shell exports  TZ=Africa/Algiers
+    /etc/localtime -> /usr/share/zoneinfo/Etc/UTC
+
+Under UTC all eight cases pass, unchanged. Under `Africa/Algiers` a review 12
+minutes old is labelled two hours old:
+
+    Expected: <2>   Actual: <0>       // two rows that must both say «12 دقيقة»
+
+**This is a fixture bug and not a shipped defect, and the distinction was worth
+the tick.** `relativeTimeAr` subtracts two absolute instants
+(`today.difference(at)`); that is correct in every zone, and `project.dart`,
+`notification.dart` and `quote_review.dart` all already read stamps through
+`parseServerTime` for exactly this reason. Fixing `lib/` here would have broken
+correct code to satisfy a clock. **Shipped:** both files inject
+`DateTime.utc(...)`, making both ends of the subtraction absolute, so the files
+assert what they mean in Algiers *and* on a UTC CI box. Each carries a header
+saying why, so a later tick cannot "simplify" it back.
+
+**The gate lost the evidence at the moment the evidence mattered.** `run_tests.py`
+died on the way to reporting the six reds:
+
+    TypeError: %d format: a real number is required, not str
+
+The per-shard summary formatted the shard's test count with `%d`, and the
+fallback for an unreadable count is the **string** `"?"`. So the traceback
+replaced the whole verdict — no per-shard list, no totals, no exit status — six
+red tests reduced to a Python error, and a second 13-minute run spent proving
+the suite was red. A gate whose failure mode is *losing the report* cannot be the
+thing that reports the build.
+
+**Why the count was ever unreadable, which is the actual bug.** `_PROGRESS` was
+`\+(\d+):`. The expanded reporter prints `+169 -6:` on a red line and `+169:` on
+a green one, and the old regex cannot match the red form — **a colon never
+follows the pass count once failures appear**. So `passed_count` returned `None`
+for *every red shard*: the one run the loop most needs a number from was the only
+one that could not produce one. Fixed at both layers, and the second is the one
+that earns its keep:
+
+1. `_PROGRESS = r"\+(\d+)(?: -\d+)?:"` -> `+169 -6:` now yields **169**, the
+   count that actually ran, so red shards report their size like green ones.
+2. the summary's `%d` -> `%s`, so the `"?"` fallback can never crash the report
+   again even if a shard dies with no progress line at all.
+
+Verified by replaying all four reporter line shapes through the new regex
+(green, red, loading, `Some tests failed.`) and by formatting the fallback path
+directly. `python3 -m py_compile` clean.
+
+**Lesson to keep, in the shape this loop keeps hitting.** Three ticks now have
+been lost or nearly lost to an *instrument* — the 45-minute `flutter test` hang,
+the `git push origin main` that exits 0 without credentials, and now a runner
+that threw instead of reporting. Each was a tool whose failure mode was silent
+or destructive, and each is found only when the loop actually runs it. The
+instrument is part of the product.
+
+**Gate.** `flutter analyze` -> **No issues found!** (8.5 s). Suite re-run with the
+fixture fixed and the runner fixed:
+
+    shards: 11 run, 11 green, 0 not green, 0 never started
+    SUITE PASS — 2169 tests across 11 shard(s), every shard green.
+    elapsed: 16:05
+
+2169, not 2165: the 53rd's four cases are in that number, and the six reds are
+gone with **no change to `lib/`** — which is the whole claim of this entry, now
+measured rather than argued.
+
+**The gate is longer than the loop that runs it, and that is now a scheduling
+fact rather than a comment.** This run took **16:05**; the cron fires every
+**10 minutes**. So the next tick starts while this one is still holding the box,
+and `pgrep -c java` / `pgrep -fc flutter` — the build-safety rule that stops two
+writers colliding — is guaranteed to trip on the tick that follows any full gate.
+That is not a reason to skip the gate (the 54th's own lesson: the instrument is
+part of the product), so the honest fix is the interval, not the gate:
+
+    * every tick that opens a full `run_tests.py` needs a **30m** period, or
+    * the loop commits on the analyzer plus the shards that changed, and runs
+      the full suite once a day.
+
+Left as a founder decision. Recorded here because the next tick will otherwise
+read the build-safety trip as "someone else is building" and skip a cycle that
+had nothing to do with anyone else.
+
+**The runner fix was replayed, not asserted.** All six reporter line shapes were
+pushed through `passed_count` directly — `+12:` -> 12, `+169 -6:` -> **169**,
+`+0 -1:` -> 0, `+1 ~3:` and `+2 -6 ~1:` -> None, empty -> None — and the `"?"`
+fallback was formatted through the new `%s` slot instead of trusted:
+
+    shard 1/11: FAIL in 13:05 (1 attempt(s), ? test(s))
+
+`py_compile` clean.
+
+**Files:** `tool/run_tests.py` (+24/-1),
+`test/project_bid_age_clock_test.dart` (+29/-4),
+`test/profile_review_age_clock_test.dart` (+21/-4),
+plus the 53rd's tree carried in this commit.
+
+**Next in backlog: none — zero unchecked boxes.** Leads for the next tick:
+1. **`_forgetQuietly` at `chat/chat_screen.dart:638` — still open, now with the
+   evidence to act on.** `_outbox.remove(id).catchError((Object _) {})` swallows
+   the error, so a queue record that refuses to be forgotten is forgotten in
+   memory but **resurrects on next launch** from storage — the same "the app
+   remembered something the user cancelled" shape `PlaceState.clear` already
+   documents and reports through `_reportStoreFailure`. Chat has no equivalent,
+   and `ChatOutbox.remove` (data/chat_outbox.dart:447) is a real serialised
+   write, so the refusal is reachable. Needs a failing store, not a mocked one.
+2. **the same one-hour class of bug, and grep cannot find it — a differential
+   timezone run can.** This tick left 19 files holding both a UTC wire stamp and
+   a local `DateTime` (`grep -l` over `test/`), and *all 19 are green right now*,
+   because most build both ends of the subtraction locally and are self
+   consistent. Only the two that mixed the two sides broke. So the census is not
+   a grep — it is **run the suite twice under different `TZ` and diff the
+   result**, which is what actually discriminates:
+
+       TZ=UTC python3 tool/run_tests.py --deadline 2400
+       TZ=Asia/Tokyo python3 tool/run_tests.py --deadline 2400
+
+   Same green on both = zone-independent. Any file green on one and red on the
+   other is exactly this bug. Two full runs is the price; the alternative is
+   finding them one red suite at a time, which is what this tick did.
+
+---
+
+## Tick 4 Oct 2026 (55th) — the gate ran, the tree shipped, and the box is now
+## too small for the schedule
+
+The 54th left an uncommitted tree again (the 53rd's feature, the 54th's fixture
+fix, the 54th's runner fix). Protocol step 1 says finish that first, so that is
+this tick. **No new item opened** — backlog is still at **zero unchecked**.
+
+**Shipped.** The 53rd's location-failure note
+(`lib/src/widgets/place_warmup.dart` now *awaits* the asked detect before reading
+`place.lastFailure`, plus `PlaceState.canDetectQuietly` as a constructor seam),
+the 54th's two UTC clock fixtures, and the 54th's `run_tests.py` repair.
+
+**Evidence, this tick's own run, not the 54th's note:**
+
+    flutter analyze   -> No issues found! (ran in 10.8s)
+    run_tests.py      -> shards: 11 run, 11 green, 0 not green, 0 never started
+                         SUITE PASS — 2169 tests across 11 shard(s), every shard green.
+                         elapsed: 16:05
+                         EXIT=0
+
+2169 is the first clean full-suite number on this branch: the 54th measured six
+reds, and this run is green with **no change to `lib/` in this commit** — so the
+54th's attribution (fixture wrong, product right) stands as measured.
+
+**The finding that matters more than the fix, and it is about the loop itself.**
+The gate takes **16 minutes**. The cron fires every **10**. So every tick that
+opens a full gate is guaranteed to overlap the next tick, and the build-safety
+rule (`pgrep -c java` / `pgrep -fc flutter` -> do not start a build) will read
+that overlap as "another session is building" and skip a cycle that had nothing
+to do with anyone else. The rule is right and must stay; the **interval is
+wrong for the work being asked of it**. Two honest options, both founder-level,
+neither taken unilaterally:
+
+  * give the full-gate tick a **30m** period, or
+  * keep 10m and run the analyzer + the shards a commit touches, with one full
+    `run_tests.py` a day.
+
+Until one is chosen, the next tick should expect to skip a cycle on the
+build-safety trip, and that skip is the schedule's fault, not a busy tree.
+
+**Also confirmed, because it is cheap and it is a claim the file makes:** the
+remote tip is **`c5fe644`** (`git ls-remote origin main`), i.e. the 52nd's two
+commits. Local `HEAD` was `f99f6bc`, three commits ahead — the tree the 53rd and
+54th left behind, which no tick had pushed. This commit closes that gap.
+
+**Leads for the next tick, unchanged and still open:**
+
+1. **`_forgetQuietly` at `chat/chat_screen.dart:638`** —
+   `_outbox.remove(id).catchError((Object _) {})` drops the record from memory
+   and swallows the refusal, so a queue row that will not delete **resurrects on
+   the next launch**, drawn as a fresh failed bubble. `ChatOutbox.remove` is a
+   real serialised write (`data/chat_outbox.dart:447`, via `_write`, which
+   answers `false` rather than throwing on a refused store — so the swallow is
+   hiding a value, not just an error). `PlaceState` solved exactly this with
+   `_reportStoreFailure`; chat has no equivalent. Needs a store that refuses,
+   not a mock that throws.
+2. **The differential-timezone run** (`TZ=UTC` vs `TZ=Asia/Tokyo`, diff the
+   result) — 19 files hold both a UTC wire stamp and a local `DateTime` and all
+   are green, because most build both ends locally. Only the two that mixed the
+   sides broke, so the census is two full runs, not a grep.
+3. `crash_reporter.dart:147` and `customer_home_screen.dart:331` /
+   `worker_home_screen.dart:142` carry the same `catchError` shape; worth one
+   test that fails a read inside a `then` and asserts the chain did not throw,
+   rather than three more readings.

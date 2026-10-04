@@ -69,6 +69,21 @@ const _worker = {
 /// «قبل 12 دقيقة» inside the minute band, «قبل ساعتين» past the hour — and so
 /// neither is «الآن», which would make the fixture pass against any build that
 /// rendered no time at all.
+/// **The injected clocks below are `DateTime.utc`, and that is not cosmetic.**
+///
+/// The fixture is read the way D1 writes it: `'2026-10-02 09:48:00'` carries no
+/// zone and `parseServerTime` reads it as UTC — correctly, because that is what
+/// the server sends. The clock this file injects used to be a **local**
+/// `DateTime(2026, 10, 2, 10)`, so the two ends of the subtraction disagreed by
+/// whatever offset the machine running it was in. On this box the shell exports
+/// `TZ=Africa/Algiers` while `/etc/localtime` points at `Etc/UTC`, and that
+/// one-hour disagreement is the whole failure: a review 12 minutes old was
+/// labelled two hours old, and six cases went red **with no change to `lib/`**
+/// (`git stash` + rerun reproduces it on clean HEAD). The alarm was on a test
+/// fixture, not on the product — `relativeTimeAr` subtracts two absolute
+/// instants and is correct in every zone. Pinning the injected clock to UTC
+/// makes both ends absolute, so the file asserts what it means in Algiers and on
+/// a UTC CI box alike.
 const _review = {
   'id': 5,
   'customer_id': 30,
@@ -169,7 +184,7 @@ void main() {
   group('the contractor profile dates its reviews with the clock it was handed',
       () {
     testWidgets('a review 12 minutes old is labelled 12 minutes', (tester) async {
-      await _pump(tester, () => DateTime(2026, 10, 2, 10));
+      await _pump(tester, () => DateTime.utc(2026, 10, 2, 10));
 
       expect(_when(tester), 'قبل 12 دقيقة',
           reason: 'the page drew:\n${_dump(tester)}');
@@ -182,7 +197,7 @@ void main() {
       // clock moved from 10:00 to 12:05. Before the fix both cases printed the
       // real wall clock's answer, so the difference this file exists to prove
       // was not observable at all — which is the definition of the fuse.
-      await _pump(tester, () => DateTime(2026, 10, 2, 12, 5));
+      await _pump(tester, () => DateTime.utc(2026, 10, 2, 12, 5));
 
       expect(_when(tester), 'قبل ساعتين',
           reason: 'the page drew:\n${_dump(tester)}');
@@ -199,14 +214,14 @@ void main() {
       // Before the fix there was no timer at all, so this pump was a no-op and
       // the card kept the first frame's sentence for as long as the page sat
       // open.
-      var now = DateTime(2026, 10, 2, 10);
+      var now = DateTime.utc(2026, 10, 2, 10);
       await _pump(tester, () => now);
       expect(_when(tester), 'قبل 12 دقيقة',
           reason: 'setup did not reach the minute sentence:\n${_dump(tester)}');
 
       // Only the clock moves, the way a real minute moves while the app sits in
       // a pocket and the customer is halfway down the page.
-      now = DateTime(2026, 10, 2, 12, 5);
+      now = DateTime.utc(2026, 10, 2, 12, 5);
       await tester.pump(const Duration(minutes: 1, milliseconds: 100));
 
       expect(_when(tester), 'قبل ساعتين',
@@ -220,7 +235,7 @@ void main() {
       // A `Timer.periodic` left armed after `dispose` keeps a live handle.
       // Cancel-first is also what makes «إعادة المحاولة» safe — it is pressed
       // up to three times on this page.
-      await _pump(tester, () => DateTime(2026, 10, 2, 10));
+      await _pump(tester, () => DateTime.utc(2026, 10, 2, 10));
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(minutes: 1, milliseconds: 100));
