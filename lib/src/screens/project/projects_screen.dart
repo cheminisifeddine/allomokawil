@@ -11,6 +11,7 @@ import '../../data/project_search.dart';
 import '../../data/project_status_copy.dart';
 import '../../data/stale_projects_copy.dart';
 import '../../data/repository.dart';
+import '../../data/project_order.dart';
 import '../../models/enums.dart';
 import '../../models/project.dart';
 import '../../widgets/feed_search_field.dart';
@@ -378,7 +379,12 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                   if (shown.isEmpty) {
                     return _emptyList(context);
                   }
-                  final projects = narrowProjects(shown, _query);
+                  // Ordered before the search narrows it, so «narrow» cannot
+                  // be the thing that decides the order: every project the
+                  // client owns is drawn newest first, and the filter only
+                  // removes rows from that order. See `project_order.dart`.
+                  final projects =
+                      narrowProjects(newestProjectFirst(shown), _query);
                   if (projects.isEmpty) {
                     return _noMatchList();
                   }

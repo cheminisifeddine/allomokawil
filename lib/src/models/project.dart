@@ -1,4 +1,5 @@
 import '../core/format/money.dart';
+import 'notification.dart' show parseServerTime;
 
 /// Lifecycle of a posted project. Mirrors `ProjectStatus`.
 ///
@@ -157,6 +158,20 @@ class Project {
   final ProjectStatus status;
   final int? selectedWorkerId;
 
+  /// When the job was posted — server `created_at`, read through
+  /// [parseServerTime].
+  ///
+  /// Null when the server did not date the row, and **that is a real state**,
+  /// not a bug to paper over: `project_order.dart` keeps undated rows and
+  /// sends them last, because a row nobody can date is an absence and must
+  /// never float to the top pretending to be fresh.
+  ///
+  /// The field is nullable even though the API always sends it (verified on
+  /// `allomokawil.com`, 4 Oct) — an older server row, or a payload captured
+  /// before the column existed, must read as null rather than throw in
+  /// [Project.fromJson], which is called on every row of every list in the app.
+  final DateTime? createdAt;
+
   const Project({
     required this.id,
     required this.customerId,
@@ -172,6 +187,7 @@ class Project {
     required this.urgency,
     required this.status,
     this.selectedWorkerId,
+    this.createdAt,
   });
 
   /// The budget as the feed and the project page read it, in whole dinars.
@@ -324,6 +340,14 @@ class Project {
       // and a genuinely absent one must stay null, or every project would
       // claim a worker nobody was chosen.
       selectedWorkerId: _nullableInt(json['selected_worker_id']),
+      // The third model to be handed `created_at` and the second to throw it
+      // away (see `review_order.dart`'s header for the first). Read through
+      // [parseServerTime] — D1 writes UTC with no zone, so a plain
+      // `DateTime.parse` would read every stamp as local and put the whole
+      // list out by Algeria's offset. `as DateTime` would throw on the string
+      // the wire actually sends; nullable so an undated row stays undated
+      // instead of failing the whole list that contains it.
+      createdAt: parseServerTime(json['created_at']),
     );
   }
 

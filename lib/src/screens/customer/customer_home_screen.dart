@@ -9,6 +9,7 @@ import '../../core/l10n/strings.dart';
 import '../../core/location/place_state.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/first_run.dart';
+import '../../data/project_order.dart';
 import '../../data/repository.dart';
 import '../../data/stale_home_strip_copy.dart';
 import '../../data/unread_message_trust.dart';
@@ -1008,7 +1009,12 @@ class _ExploreView extends StatelessWidget {
                     ),
                   );
                 }
-                final recent = shown.take(3).toList();
+                // Newest first, and the sort happens BEFORE the take — the
+                // three drawn here have to be the three most recent, which
+                // `take(3)` on server order cannot promise. The heading above
+                // says «مشاريعي الأخيرة» and this is the line that has to make
+                // it true. See `project_order.dart`.
+                final recent = newestProjectFirst(shown).take(3).toList();
                 return SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 18),

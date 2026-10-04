@@ -19346,3 +19346,90 @@ Commit: see `git log`.
    40th tick read a *probe file that hardcoded the masked string* as if it
    were the shipped one, and generalised from it. A probe that hardcodes its
    own input measures the probe.
+
+---
+
+## Tick 4 Oct 2026 (42nd) — the backlog was empty, so this item was found by
+## auditing for the last shape this repo has already paid for twice.
+
+- [ ] **`Project.fromJson` threw `created_at` away, so the client's own
+      «مشاريعي الأخيرة» and the whole «مشاريعي» tab were drawn in whatever order
+      the server happened to send — and no project row anywhere in the app can
+      be dated.**
+      *(opened this tick; commit hash appended on ship)*
+
+      The **third** copy of a class this backlog has already fixed twice. The
+      review fix (`review_order.dart`, 29 Sep) is the precedent and says so in
+      its own header: «the wire sends `created_at` on every review … and
+      `Review.fromJson` **threw it away**». Same defect, different model:
+      `Project` has **no `createdAt` field at all**, and `fromJson` reads 16 keys
+      without touching it.
+
+      **Verified on the live API, not inferred.** `GET /api/mobile/projects`
+      against `allomokawil.com` returns `"created_at":"2026-09-30 12:07:30"` on
+      every row — and the field is present throughout this repo's own fixtures
+      (`project_commit_outcome_test.dart`, `project_bid_age_clock_test.dart`,
+      `project_edit_cancel_test.dart`, `live_payload_models_test.dart`). The app
+      is not missing data; it is refusing data it already receives.
+
+      **What it costs, on the two screens that matter most.**
+      `customer_home_screen.dart:1011` draws `shown.take(3)` under the heading
+      «**مشاريعي الأخيرة**» — *my recent* projects — with no sort anywhere on the
+      path (`Repository.myProjects` → `_rows` → `Project.fromJson`, none of which
+      order anything). A client's three most recent jobs are therefore whatever
+      three rows the API returned first, and the word «الأخيرة» is a claim the
+      code cannot honour. `projects_screen.dart:396` is worse: it draws
+      `projects.length` rows in raw order for **every** job the client owns.
+
+      **Deliberately NOT claimed: that the rows are visibly out of order today.**
+      The public feed does come back DESC (measured over 20 live rows), so on the
+      current server the bug is latent — it is an *unowned* guarantee, not a
+      visible one. That is exactly the failure `review_order.dart` documented:
+      the list is correct only while the server stays correct, and the moment
+      `ORDER BY` changes the app silently dates its own home screen wrong.
+      Nothing is claimed here about the live `my/projects` order — that route
+      needs auth this tick did not have, and the fix is needed either way
+      because the field is thrown away regardless of what the server returns.
+
+      *Shipped:* `Project.createdAt` (nullable `DateTime?`), read through
+      `parseServerTime` — the app's single server-clock reader, not a fourth
+      copy — and `project_order.dart` owns the ordering: **dated rows newest
+      first, undated rows keep server order and go last.** Stable tie-break on
+      the higher id, the same tie-break `newestReviewFirst` uses, because
+      `List.sort` is not stable and two rows in the same second must not swap
+      between two reads.
+
+      *Why the model field rather than a widget-side sort:* a rule that can only
+      be tested by pumping a screen ships untested — the reasoning
+      `review_order.dart` already wrote down.
+
+      *Red before green, and one correction made by the test rather than by
+      reading.* With `lib/` reverted the new file does not compile against the
+      old model at all — `The getter 'createdAt' isn't defined for the type
+      'Project'` — so the defect is a missing field, not a wrong branch. It then
+      failed **green-side** for a reason worth writing down: the first version
+      of the tie-break test asserted «higher id first», copied from
+      `review_order.dart`. That is **wrong for this model**. A `Review.id` is a
+      SQLite autoincrement so «higher» means «inserted later»; a **project id is
+      a 64-character hash** (`961072acd6e7…` on the wire), so comparing two of
+      them lexically says nothing about which job was posted first. The
+      precedent's *argument* does not survive the copy — only its *effect*, which
+      is determinism: `List.sort` is not stable, so two rows sharing a second
+      would swap between two pulls and the list would shimmer. The code comment,
+      the doc header and the test now claim determinism and nothing more.
+
+      *Gate.* `flutter analyze` -> **No issues found!** (11.8 s).
+      `python3 tool/run_tests.py` -> **SUITE PASS — 2085 tests across 11 shard(s),
+      every shard green**, exit 0, 15:38 — up from 2078, exactly the 7 cases in
+      the new file.
+
+      *A note for the next tick, earned the hard way.* The first full run came
+      back **exit 1** on shard 1, and the failure was **not** in the new code:
+      `app_source_scope_test.dart`'s census compares `git ls-files` against the
+      files on disk and hard-fails in **both** directions. The new
+      `lib/src/data/project_order.dart` was still untracked, so the repo was
+      shipping a Dart file no sweep covered — which is precisely the hole that
+      test exists to keep shut. `git add` turned it green on the re-run (shard 1
+      PASS, 220 tests). **Run `git add` on new files before the gate, not after:**
+      the census reads the *index*, so a staged-but-uncommitted new file is
+      already counted and a passing gate genuinely means the sweeps see it.
