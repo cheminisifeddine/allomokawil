@@ -147,7 +147,34 @@ class _VerificationScreenState extends State<VerificationScreen> {
       // Stay put and re-read the profile. The point is that he SEES the
       // dossier turn into "under review" — popping straight back home was how
       // a successful upload came to look like nothing had happened.
-      _showCommitResult('تم إرسال مستنداتك، بانتظار المراجعة');
+      //
+      // **A 200 is not proof that the filing happened, and the sentence below
+      // used to claim it was.** Found 4 Oct 2026 on production: the Worker
+      // answers `{"ok":true}` for a document row it could not read a URL out
+      // of, and the queue goes to *zero* across that call —
+      //
+      //   POST /api/mobile/workers/146/verification
+      //     {"documents":[{"document_type":"selfie"}]}     -> 200 {"ok":true}
+      //   GET  /api/mobile/my/profile -> verification_pending_docs: 0
+      //
+      // `ok` is a status with no field this app can check, so the old branch
+      // took it at its word and printed "sent, awaiting review" to a man whose
+      // three photos are in R2 and in no queue. He waits 48 hours; nobody ever
+      // looks. Re-submitting does not help: the filing replaces the last one
+      // identically, so the second attempt is also "accepted" and also empty.
+      //
+      // The verdict therefore runs on **every** filing, not only on the
+      // ambiguous one — the same re-read, the same predicate, the same
+      // sentences ([resolveVerificationWriteOutcome], [dossierOutcomeCopy]).
+      // The unconfirmed path below stays exactly as it was: it has a failure to
+      // explain, this one has only a 200 that proved nothing.
+      _showRechecking();
+      final outcome = await resolveVerificationWriteOutcome(
+        before: before,
+        fetch: _repo.myProfile,
+      );
+      if (mounted) _refresh();
+      _showCommitResult(dossierOutcomeCopy(outcome));
       setState(() {
         _busy = false;
         _profile = _repo.myProfile();
