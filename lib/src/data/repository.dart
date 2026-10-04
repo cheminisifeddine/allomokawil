@@ -9,6 +9,7 @@ import '../models/plan.dart';
 import '../models/project.dart';
 import '../models/quote_review.dart';
 import '../models/worker.dart';
+import 'project_trade_exact.dart';
 import 'trade_exact.dart';
 import 'worker_rank.dart';
 
@@ -315,8 +316,16 @@ class Repository {
       if (status != null) 'status=${status.wire}',
       'page=$page',
     ].join('&');
-    return _rows(
+    final rows = _rows(
         await _api.get('/api/mobile/projects?$q'), Project.fromJson);
+    // The server answers `category` with a *family union*, so its answer is a
+    // superset: `category=wallpaper` came back with 17 rows and 1 of them was
+    // wallpaper on 4 Oct, while `category=painting` came back with the same 17.
+    // See `data/project_trade_exact.dart` for the measurement — and for why
+    // this endpoint widens by family and not by substring, which is *not* what
+    // the directory's own filter does. Server order is kept exactly: this
+    // narrows membership, it does not re-rank.
+    return exactProjectTrades(rows, category);
   }
 
   Future<Project> getProject(String id) async {
