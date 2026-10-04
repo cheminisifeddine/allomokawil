@@ -19077,3 +19077,74 @@ rests on, so an entry whose module stops folding cannot stay excused.
       which still tells a caller to send `DzPhone.canonical(controller.text)`
       while its formatter's variable is called `digits`.*
 
+
+- [x] **Nothing executed `DzPhoneInputFormatter` directly — every test of the
+      phone field was a paste.** The formatter is the object every keystroke in
+      the account field passes through, and it is reached on *every prefix* of a
+      number, including the ones where the country code is half typed and the
+      length-based repair fires. `dz_phone_test.dart` (235 lines) and
+      `phone_field_test.dart` (9 widget tests) both reach the field only through
+      `tester.enterText`, which sets the whole string in one shot; grep for
+      `DzPhoneInputFormatter` under `test/` found **0 references** before this
+      file. A paste and a typing session arrive by different code, and only the
+      second one is what a user does.
+      *It is not hypothetical:* `phone_field.dart` carries a comment about
+      `00213550123456` losing its last two digits and becoming a
+      **wrong-but-plausible** number — a keystroke-path bug found by hand, and
+      pinned ever since only by the comment that describes it. A hand-found bug
+      with no executable pin is one refactor away from returning.
+      *Shipped:* `test/dz_phone_keystrokes_test.dart`, 16 cases, and the value
+      being pinned is the formatter's own **fixpoint** property. Two fuzz arms
+      (every `typedForms` entry re-formatted; 20k deterministic pseudo-random
+      digit strings) assert that running `formatEditUpdate` on the field's own
+      output answers the same string — because `formatEditUpdate` is called on
+      rebuild paths too, and an unstable answer changes the number under the
+      user's eyes while they are not touching it. Then the honesty arm: a field
+      showing the green tick posts a number the API accepts, and no keystroke
+      can turn one valid number into a different valid one (the over-typing
+      case). Two `testWidgets` cases drive the real `DzPhoneField` through
+      `tester.testTextInput` — the platform path, so the formatter runs once per
+      character instead of once per paste.
+      *Red before green, and the honest part is which mutation failed.* `lib/`
+      was reverted under the new file and it stayed **green** — correctly, since
+      this is a pin, not a fix, and the shipped code is right. So the file was
+      given a licence to fail: re-running it with `DzPhone.digits` stripped of
+      its `ArabicSearch.normalize` fold took it red **by name** on the two Arabic
+      keyboards —
+      `Expected: '05 50 12 34 56'  Actual: ''` for `٠٥٥٠١٢٣٤٥٦` and
+      `۰۵۵۰۱۲۳۴۵۶`. The historical `group`-then-`cap` ordering mutation stayed
+      green, which is worth saying plainly: the `00213550123456` truncation it
+      once caused is already covered elsewhere, so this file is not the pin for
+      it and does not pretend to be.
+      *The gate caught the file before I did, and that is the row worth
+      keeping.* The first full run came back
+      `shards: 11 run, 10 green, 1 not green`, failing in
+      `test/app_source_scope_test.dart:1139` —
+      `Expected: empty / Actual: ['test/dz_phone_keystrokes_test.dart']`,
+      *"these Dart files sit under `test/` but are not tracked by git, so this
+      census — and every `git ls-files` sweep in the repo — cannot see them."*
+      The tick that wrote this file had been cut off before `git add`, so it
+      would have been invisible to every sweep in the repo while sitting in
+      `test/`. Fixed by `git add`, which is exactly what the guard exists for.
+      *Also recorded against myself, twice, and both cost this tick real time:*
+      (1) The first full run was piped through `tail -25`, which **swallowed the
+      runner's exit code and truncated the shard summary** — the command printed
+      shards 4 through 8 and exited 0 while shard 1 was already red. Piping a
+      verdict-bearing command into a pager hides the verdict; the log has to go to
+      a file. (2) A timed-out suite run orphaned a `flutter_tester` with `PPID 1`,
+      which `build_gate.py --reap` will not touch (it reaps leaked *browsers*).
+      It was this loop's own leak, so it was SIGTERMed and waited on — gone after
+      two polls, gate back to CLEAR. `--reap` still has no arm for a leaked
+      tester; a later tick should decide whether it should.
+      *Gate.* `flutter analyze` -> **No issues found!** (18.1 s).
+      `python3 tool/run_tests.py` -> see the commit; the suite was run twice, once
+      red on the untracked file and once after `git add`.
+
+      Commit: `aa91520`
+
+      *Next in backlog: none — this was the last open item. The finding worth
+      taking next is the one the 38th tick left named: `phone_field.dart:30`
+      still tells a caller to send `DzPhone.canonical(controller.text)`, while the
+      formatter's own variable is called `digits` — the exact
+      canonical-everything-vs-canonical-already-folded disagreement that hid the
+      `canonicalFromDigits` hole for a tick.*
