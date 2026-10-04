@@ -20197,3 +20197,88 @@ count something another screen reads (`customer_home_screen._onGalleryClosed`,
 `worker_home_screen._readProfileForRefresh`, `my_portfolio_screen._load`) are the
 next places a late write could reach another screen. Rule unchanged: a comment
 asserting a property is not evidence of it, and neither is a token on one arm.
+
+---
+
+- [x] **A late «تحديث» on the gallery deleted a photo that had just landed, and
+      recomputed the plan's photo allowance off rows that answer predates.**
+      Found on 4 Oct 2026, 51st tick, by the audit the 50th tick's "Next" named
+      (`my_portfolio_screen._load` as one of the 38 `await` + `setState`
+      methods with **no** token guard that writes state another part of the
+      same screen reads). Last member of the family the last four ticks closed.
+
+  **Item:** `_load` installed its rows on every settled read with no
+  generation token, so a read that was no longer the current one still wrote.
+  The app bar's `onPressed: _loading ? null : _load` looks like the guard and
+  is not one — it is a gate on **the button**, and the body renders on
+  [`_settled`] (`_worker != null || !_loading`), deliberately true while a
+  re-read is in flight so a refresh does not throw the contractor's own work
+  away. So the add tile and `portfolio-add` stay **live** during a parked
+  read, and [`_addPhoto`] is gated on `_busy`, never on `_loading`.
+
+  ```
+  read 2  09:00  «تحديث» tapped, /portfolio answers 4 rows, held on a slow
+                  uplink before the screen's setState
+  write   09:01  an upload lands: server holds 5, the app installs 5
+  read 2  09:02  lands LAST and installs its 4 → the photo he uploaded *and
+                  the server confirmed* is gone from his grid
+  ```
+
+  **The money half is [`_loadAllowance`], and it is worse than the rows.** It is
+  not handed the rows it read — it is handed `images.length` from the `setState`
+  above it — so the plan's photo count came from whatever gallery was installed
+  **last**. Five photos on a five-photo plan, recomputed off a stale four as
+  «بقيت صورة», is the app offering a sixth slot to a contractor whose plan is
+  already spent. The rule that a gate computed from a guess locks a paying man
+  out of a gallery that has room is written on [`_allowance`] itself, and the
+  post-write [`_settleUnconfirmed`] path already respected it (it recomputes
+  from `fresh.length`) — so this screen held two rules about one number.
+
+  **Red before green**, naming the deleted photo rather than a boolean:
+  ```
+  Expected: exactly one matching candidate
+    Actual: _TextWidgetFinder:<Found 0 widgets with text "5 صور في معرض أعمالك": []>
+  ```
+
+  **What the fix is, and the thing the first attempt got wrong.** One counter,
+  `_galleryEpoch`, shared by reads **and** writes — not a per-read generation.
+  A read-vs-read token passes straight through this case: nothing else issued a
+  read, so the token is still current and the stale rows install anyway. **The
+  write is the superseding thing**, and the first version of this fix guarded
+  read-vs-read and left the defect red. Both arms of `_load` are checked, and
+  `_loadAllowance` carries `_load`'s epoch so a plan read cannot pair a current
+  limit with a stale `used` — the exact shape of a wrong «بقيت صورة». Refusals
+  go through `_releaseLoad`, which clears **only** `_loading` for the read that
+  lost: without it a superseded read returning early would leave the app bar's
+  «تحديث» disabled forever.
+
+  **The guard is load-bearing, and that was checked rather than assumed:**
+  removing *only* the two write-path `_galleryEpoch++` lines — every read guard
+  left in place — puts the same test back to red on the same missing photo.
+
+  **Gate.** `flutter analyze` -> **No issues found!** `python3 tool/run_tests.py
+  --deadline 2700 --shard-deadline 600` -> **SUITE PASS — 2158 tests across 11
+  shards, 11/11 green**, 33:53 (was 2157). The existing allowance cases in
+  `portfolio_allowance_widget_test.dart` and the seven write-outcome cases in
+  `portfolio_write_outcome_test.dart` all still pass, so a *genuine* failure
+  still raises the band and a landed write still resolves.
+
+  **Not claimed, deliberately:** no screenshot. No layout, copy or pixel
+  changed — one counter, four guards, one helper, all inside methods that
+  already existed.
+
+  **Files:** `lib/src/screens/worker/my_portfolio_screen.dart` (+104),
+  `test/stale_portfolio_reload_test.dart` (+287, new). Commit `e3f4e81`, remote
+  `20d79a5`.
+
+  **Next in backlog: none — zero unchecked boxes.** Next tick earns its item by
+  audit. The lead this tick leaves behind: the census's remaining member is
+  **`worker_home_screen._readProfileForRefresh`**, and it is the same family
+  with the arms the other way round. Its `catch` restores `_me` and `_meReadAt`
+  from the values captured at issue with **no** epoch check, so a late failure
+  puts the previous profile back over rows a newer read installed — and the
+  failed read is what puts «تعذّر جلب ملفك» on screen for a header that was
+  working, which is precisely the loss that method's own doc comment exists to
+  prevent. Its `setState` at issue is also reachable twice: the retry button and
+  a second pull both call it, and `RefreshIndicator.show()` is the only guard
+  against overlapping pulls.
