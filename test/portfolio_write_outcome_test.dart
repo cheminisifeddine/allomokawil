@@ -35,6 +35,8 @@ import 'package:allomokawil/src/core/network/api_client.dart';
 import 'package:allomokawil/src/core/security/auth_state.dart';
 import 'package:allomokawil/src/core/theme/app_theme.dart';
 import 'package:allomokawil/src/data/portfolio_write_outcome.dart';
+import 'package:allomokawil/src/data/photo_count_copy.dart';
+import 'package:allomokawil/src/data/stale_gallery_copy.dart';
 import 'package:allomokawil/src/data/repository.dart';
 import 'package:allomokawil/src/screens/worker/my_portfolio_screen.dart';
 
@@ -42,8 +44,33 @@ import 'package:allomokawil/src/screens/worker/my_portfolio_screen.dart';
 /// comparison that always answers true cannot pass by reusing a fixture.
 const String uploaded = 'https://r2.test/portfolio/room-1.jpg';
 
+
+/// The two taps a contractor makes to add a photo from his phone: the add tile,
+/// then the sheet's gallery option.
+///
+/// Shared so a case that drives the add itself drives the **same** taps this
+/// helper does — a second copy of these two lines is a third thing that can
+/// drift from the button key the screen actually draws.
+Future<void> _tapAddFromGallery(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('portfolio-add')));
+  await tester.pumpAndSettle(const Duration(seconds: 1));
+  await tester.tap(find.text('من معرض الصور'));
+  await tester.pumpAndSettle(const Duration(seconds: 2));
+}
+
 http.Response _json(Object body) => http.Response(jsonEncode(body), 200,
     headers: <String, String>{'content-type': 'application/json'});
+
+/// The band's own sentence, read off the keyed `Text` so the claim is about the
+/// tree and not about a `find.text` guess.
+///
+/// The key is the one `_StaleGalleryBanner` draws its line with, so this reads
+/// the same widget the contractor reads.
+String? _bandLine(WidgetTester tester) {
+  final found = find.byKey(const Key('stale-gallery-line'));
+  if (found.evaluate().isEmpty) return null;
+  return tester.widget<Text>(found).data;
+}
 
 /// The app's own [Repository], with **one** method replaced.
 ///
@@ -213,6 +240,9 @@ void main() {
       WidgetTester tester, {
       required List<String> Function(int read) after,
       bool stallUpload = false,
+      DateTime Function()? clock,
+      Set<int> failingReads = const <int>{},
+      bool addFlow = true,
     }) async {
       tester.view.physicalSize = const Size(1080, 3400);
       tester.view.devicePixelRatio = 2.75;
@@ -234,6 +264,15 @@ void main() {
           }
           if (p.endsWith('/portfolio')) {
             reads++;
+            // A **5xx**, not a stall: this is the «تحديث» that fails on hotel
+            // wifi, which is a refusal the app can name, so it takes the
+            // `_load()` catch and raises the band. Distinct from the stalled
+            // POST below, which is the ambiguous write that reaches the
+            // recheck.
+            if (failingReads.contains(reads)) {
+              return http.Response('boom', 500,
+                  headers: <String, String>{'content-type': 'text/plain'});
+            }
             return _json(<Object>[
               for (final u in after(reads)) <String, Object>{'image_url': u},
             ]);
@@ -313,17 +352,18 @@ void main() {
           locale: const Locale('ar'),
           home: MyPortfolioScreen(
             repo: _RepoWithFakeUpload(api, uploadFails: stallUpload),
+            clock: clock,
           ),
         ),
       ));
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
       // The add button, then the sheet's gallery option — the two taps a
-      // contractor makes.
-      await tester.tap(find.byKey(const Key('portfolio-add')));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
-      await tester.tap(find.text('من معرض الصور'));
-      await tester.pumpAndSettle(const Duration(seconds: 2));
+      // contractor makes. Skippable because a case that needs a read to land
+      // *between* the load and the add (a failing «تحديث») has to spend those
+      // reads itself, in that order, and this helper issues the add on the way
+      // out.
+      if (addFlow) await _tapAddFromGallery(tester);
 
       return (
         said: <String>[
@@ -397,6 +437,130 @@ void main() {
     // so «تحقّق من القائمة» is unfollowable and a landed verdict is impossible.
     // What must NOT happen is the old claim that the file did not upload while
     // the transport layer is the one saying it might have.
+    // ---- the stamp outlives the rows it dates, and then lies about them ----
+    //
+    // The predicate this pins is not in this file's helper and not in the
+    // verdict — both of those are correct, and both are covered above. It is in
+    // the **state a re-read leaves behind when it lands.**
+    //
+    // `_settleUnconfirmed` exists to answer «did that photo reach my profile?».
+    // To answer it honestly it puts **the server's own rows** on screen — the
+    // whole point of a re-read is that the grid it already had cannot prove
+    // anything. And that is where the stamp is lost: `_readAt` is written in
+    // exactly one place in this screen, the success path of `_load()`, and
+    // `_settleUnconfirmed` is not that path. It writes `_images`, the run
+    // counter and the plan's count, and it leaves `_readAt` describing a
+    // gallery that is no longer on the screen.
+    //
+    // The band itself is fine in the middle of this — `_addPhoto` clears
+    // `_error` when the write starts, so the band is withdrawn and the fresh
+    // grid is drawn clean. Nothing is false at that moment; the band is simply
+    // not there. The false claim arrives on the **next** failure, which is the
+    // ordinary one:
+    //
+    //   1. the gallery loads at 09:48 — `_readAt` = 09:48, three photos;
+    //   2. a «تحديث» fails — the band appears, correctly dating those photos;
+    //   3. the contractor adds a photo, the registration stalls, and the
+    //      re-read **lands** — `_settleUnconfirmed` installs the server's four
+    //      rows. The band is withdrawn. `_readAt` is still 09:48;
+    //   4. another «تحديث» fails at 12:30 — the band comes back, and now it is
+    //      drawn over a grid that was read at 11:55 while the band says 09:48.
+    //
+    // Step 4 is the defect, and it is worse than printing no age at all, because
+    // «these photos are from 09:48» is a **specific** claim about **these**
+    // rows and it is false: the grid under it is the 11:55 re-read. On this
+    // screen an age is a *commercial* claim, not a convenience — the whole
+    // reason the band exists is that a contractor deciding whether to spend his
+    // evening re-uploading everything is reading it as evidence about the
+    // pictures in front of him. Here it is evidence about a set of pictures
+    // that has been gone for two hours.
+    //
+    // So the rule is the one this screen's own comment already states, and the
+    // one `projects_screen.dart` puts in one sentence: **rows, and the stamp
+    // that dates them, are one fact.** Every write that installs fresh rows
+    // writes the stamp in the same `setState` that installs them, because a
+    // stamp older than the rows it dates is a stamp about a gallery that is
+    // gone.
+    testWidgets('a re-read that lands re-stamps the rows it installs',
+        (tester) async {
+      // Three reads, in the order the screen issues them, and the two ages they
+      // imply are deliberately far apart («2 ساعتين» against «35 دقيقة») so a
+      // predicate that took the wrong one cannot be mistaken for the right one.
+      //
+      // Read 1 is the screen's own load and stamps `_readAt`. Read 2 is the
+      // re-read after the stalled write, and it answers with the four rows the
+      // server holds. Read 3 is the «تحديث» that fails and raises the band.
+      final readAt = DateTime(2026, 10, 4, 9, 48);
+      final recheckAt = DateTime(2026, 10, 4, 11, 55);
+      final refreshAt = DateTime(2026, 10, 4, 12, 30);
+      var now = readAt;
+      final three = <String>[
+        'https://r2.test/portfolio/a.jpg',
+        'https://r2.test/portfolio/b.jpg',
+        'https://r2.test/portfolio/c.jpg',
+      ];
+
+      await stalledRegistration(
+        tester,
+        clock: () => now,
+        addFlow: false,
+        failingReads: const <int>{3},
+        after: (read) => read == 1 ? three : <String>[...three, uploaded],
+      );
+
+      // --- step 2 and 3: the write stalls, and the re-read lands ---
+      //
+      // The clock moves **before** the add, because the re-read settles when
+      // the POST's answer is chased — 11:55 is what «when the server's rows
+      // arrived» means. Stamping afterwards would date a read already composed.
+      now = recheckAt;
+      await _tapAddFromGallery(tester);
+
+      expect(
+        find.textContaining(portfolioCountLineAr(4)),
+        findsOneWidget,
+        reason: 'the re-read did not install the server\'s own rows, so the '
+            'case is not reaching the state it claims',
+      );
+
+      // --- step 4: the refresh that raises the band again ---
+      now = refreshAt;
+      await tester.tap(find.byTooltip('تحديث'));
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      expect(
+        find.byKey(const Key('stale-gallery')),
+        findsOneWidget,
+        reason: 'the failed refresh did not raise the band, so the case under '
+            'test is not the state it claims',
+      );
+
+      // The band must date the re-read — 11:55 — and not the load that preceded
+      // it. Both ages are asserted so a band that printed *neither* cannot pass.
+      final ageOfRecheck = staleGalleryAgeAr(recheckAt, now: refreshAt);
+      final ageOfLoad = staleGalleryAgeAr(readAt, now: refreshAt);
+      expect(ageOfRecheck, isNotEmpty,
+          reason: 'the fixture is wrong, not the app: a clock 35 minutes past '
+              'the stamp must produce an age to assert');
+      expect(ageOfLoad, isNot(ageOfRecheck),
+          reason: 'the fixture is wrong, not the app: both stamps produce the '
+              'same sentence, so this case cannot tell them apart');
+      expect(
+        _bandLine(tester),
+        contains(ageOfRecheck),
+        reason: 'the band is dating the load\'s rows over a grid the re-read '
+            'replaced. Every read here answered HTTP 200 except the last, so '
+            'nothing in the band can notice the rows moved — which is exactly '
+            'why the stamp has to travel with them. Band was: '
+            '${_bandLine(tester)}',
+      );
+      expect(
+        _bandLine(tester),
+        isNot(contains(ageOfLoad)),
+        reason: 'the band is reporting the age of a gallery that is no longer '
+            'on the screen',
+      );
+    });
+
     testWidgets('an unconfirmed upload says the upload, not a re-read',
         (tester) async {
       final r = await stalledRegistration(

@@ -435,6 +435,31 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
     if (fresh != null) {
       setState(() {
         _images = fresh;
+        // **The stamp travels with the rows, in this `setState` and nowhere
+        // else.** `_readAt` is written in exactly one other place — the success
+        // path of `_load()` — and a re-read that lands is just as much a read of
+        // the gallery as that one is. Leaving it stale here made the next band
+        // lie: the contractor adds a photo, the registration stalls, the
+        // re-read answers with the server's own four rows, and the following
+        // failed «تحديث» raised a band dating **09:48** over a grid read at
+        // **11:55**. «الصور المعروضة قبل ساعتين» is a specific claim about
+        // *these* photographs, and it is false — the pictures it was measuring
+        // have been gone for two hours.
+        //
+        // It is worse here than on the nine siblings, and this is why. On a
+        // market or a directory, a stale age over fresh rows is mildly
+        // confusing. On a gallery an age is a **commercial** claim: the band
+        // exists so a contractor can tell whether the work he is looking at is
+        // what he finished this morning or what he has not touched since the
+        // spring. He reads the line as evidence about the photographs in front
+        // of him and then spends an evening re-uploading pictures the server
+        // has already told him about.
+        //
+        // `_now()` and not the moment the request was issued, for the reason
+        // every other stamp on this screen does it that way: a re-read on a
+        // cell network can take forty seconds, and dating it at issue time
+        // under-reports the age by exactly the case where the number matters.
+        _readAt = _now();
         // Counted here rather than after the setState, because the header that
         // prints it is built by this very call and a counter bumped after it
         // would not reach the screen until some other rebuild.

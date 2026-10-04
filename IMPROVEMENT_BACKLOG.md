@@ -19906,3 +19906,122 @@ run are the honest pairing for a change with no layout in it.
 
 **Next in backlog: none — zero unchecked boxes.** Next tick earns its item by
 audit, and the rule is unchanged: read the wire.
+
+## Tick 4 Oct 2026 (48th) — a re-read that landed left the band dating rows
+## that were no longer on the screen
+
+**Backlog was closed (zero unchecked boxes), so this item came from the audit,
+and the rule that found it is the one this loop has run on for eleven ticks:
+read the wire.** The last three ticks fixed *writes reported as landed when they
+were not*; the write-outcome family is now genuinely closed — all ten resolvers
+in `lib/src/data/` were read this tick and every one of them asks an **identity**
+question (a request id, a plan movement, a document queue that grew, an exact
+URL), never an equality on a value the market sets. That closure is worth
+recording as a measurement rather than an assumption.
+
+**The defect is one missing line in `_settleUnconfirmed`, and it is the cost of
+the fix that file already makes.** That method re-reads the gallery after an
+ambiguous write and deliberately puts **the server's own rows** on screen
+instead of the grid it already had — because a stale grid cannot prove anything
+about a write. It writes `_images`, `_uploadedThisRun` and the plan's count.
+It did **not** write `_readAt`, which is the stamp the stale band's age is
+computed from and which lives in exactly one other place: the success path of
+`_load()`.
+
+The reachable sequence is the ordinary one, and **every read in it answers HTTP
+200**:
+
+1. the gallery loads at **09:48** — `_readAt = 09:48`, three photos;
+2. a «تحديث» fails — the band appears over those rows, correctly dated;
+3. the contractor adds a photo, the registration POST stalls, and the re-read
+   **lands** — `_settleUnconfirmed` installs the server's four rows. The band is
+   withdrawn (correctly: `_addPhoto` clears `_error`). **`_readAt` is still
+   09:48**;
+4. another «تحديث» fails at **12:30** — the band comes back, and it is drawn
+   over a grid that was read at **11:55**, dating it **09:48**.
+
+Measured, quoting the failing assertion verbatim:
+
+```
+Expected: contains 'قبل 35 دقيقة'   (the re-read's age, 11:55 -> 12:30)
+  Actual: '… خلل مؤقّت في الخادم. أعد المحاولة …\nالصور المعروضة قبل ساعتين.'
+```
+
+«الصور المعروضة قبل ساعتين» is a **specific** claim about **these**
+photographs, and it is false: the pictures it measures have been gone for two
+hours. The fixture puts the two ages far apart on purpose — «ساعتين» against
+«35 دقيقة» — so a predicate that took the wrong stamp cannot be mistaken for
+the right one, and the case asserts **both**: it requires the re-read's age and
+forbids the load's.
+
+**It is worse here than on the nine siblings that wear this band, and that is
+why it is worth a tick.** On a market or a directory, a stale age over fresh
+rows is mild confusion. On a gallery an age is a **commercial** claim: the band
+exists so a contractor can tell whether the work he is looking at is what he
+finished this morning or what he has not touched since the spring. He reads the
+line as evidence about the photographs in front of him, and then spends an
+evening re-uploading pictures the server has already confirmed. `stale_gallery_copy.dart`
+says this in its own comment — *«to the client who lands on
+`worker_profile_screen.dart` they are the same pictures too»* — so the error
+does not stay on this screen: it is what a visitor is shown as evidence.
+
+**The fix is the rule `projects_screen.dart` already states in one sentence:
+rows, and the stamp that dates them, are one fact.** `_readAt = _now()` moves
+into the same `setState` that installs `fresh`, next to the rows it describes.
+Dated at `_now()` rather than at issue, for the reason every other stamp on this
+screen does it that way: a re-read on a cell network can take forty seconds and
+dating it at issue under-reports by exactly the case where the number matters.
+
+*Red before green, and the neuter had to be pushed down to the right layer.*
+The first neuter removed the **first** occurrence of `_readAt = _now();` in the
+file — which is the pre-existing one in `_load()` at line 233 — and **the suite
+stayed green**. That is the identical near-miss recorded yesterday on
+`quoteLanded`: a guard that passes with the fix removed is not a guard, and a
+red check that cannot go red reads as a passing test rather than as a broken
+experiment. Removing only line 462 puts it red on the exact user-facing string
+(`does not contain 'قبل 35 دقيقة'`). The file now has two occurrences of the
+assignment and only one of them is the fix, which is precisely why the mutation
+had to be aimed by line rather than by text.
+
+**Three harness notes, because two of them cost real time here.**
+
+1. *The premise was wrong twice before the test was right.* The first draft
+   asserted the re-read's **band** would be dated — and no band exists there,
+   because `_addPhoto` clears `_error`. A test written from the shape of the
+   code rather than from its behaviour is a test of a state the screen never
+   reaches. The second assumed the band would print **no** age (a null `_readAt`
+   read as silence), which is also false on this path. Both were caught by
+   running them, not by reading them.
+2. *The band is a two-line string.* The first grep of the failure showed
+   `Actual: <null>` and then a truncated sentence, which read as "the band
+   disappeared" — a completely different defect. The full assertion string ends
+   `\nالصور المعروضة قبل ساعتين.`; the age is the **second** line. Any future
+   case reading this band must take `.data!` whole.
+3. *Read ordering is a real dependency, and it is invisible.* The harness's own
+   add-flow spends gallery reads, so a case that needs read 2 to land *before*
+   the add has to skip it (`addFlow: false`) and issue those reads itself. Left
+   as it was, the fixture returned 3 photos where the case asserted 4 and the
+   failure pointed at the fix instead of at the setup.
+
+*Gate.* `flutter analyze` -> **No issues found!** (8.7 s).
+`python3 tool/run_tests.py` -> **SUITE PASS — 2154 tests across 11 shards,
+every shard green**, was 2153; +1.
+
+**One process note, because the box is the failure surface here.** A run of the
+suite was interrupted and left a `flutter_tester` (pid 30941) holding 1.5 GB of
+a 7.9 GB box with no swap. The next run refused to start and printed
+`BUSY — not starting a second suite on this box.` — the gate doing exactly what
+it exists for. `tool/build_gate.py` named its own reaper and named the process,
+so clearing it was one command and needed no guessing:
+`python3 tool/build_gate.py --reap`. Worth recording because the standing rule
+is **report, never kill** — and this one was *mine*, started by this tick, so
+the reaper was the correct instrument rather than an exception to it. The
+runner then passed on every shard.
+
+**Not claimed, deliberately:** no screenshot. Nothing about layout, copy or
+colour changed — the fix writes one more field inside an existing `setState`,
+and the sentence the contractor reads is unchanged. The wire measurement and the
+red-before-green run are the honest pairing for a change with no layout in it.
+
+**Next in backlog: none — zero unchecked boxes.** Next tick earns its item by
+audit, and the rule is unchanged: read the wire.
