@@ -219,6 +219,16 @@ const _appRuleGuards = <String, String>{
   'test/first_char_measurement_test.dart':
       'the first-character rule: no string is measured by its first '
       'character except the avatar',
+  // Added 4 Oct (40th). `phone_field.dart:30` tells every future screen to post
+  // `DzPhone.canonical(controller.text)`, and nothing read the number off the
+  // wire to check it: the test that looked closest defined it instead
+  // (`postedFor()` is `DzPhone.canonical` with a comment claiming otherwise).
+  // Measured on that tick -- posting `_phone.text` raw, so the sign-in path sent
+  // `05 50 12 34 56` with its spaces, left all 58 tests in the three existing
+  // phone files green. The rule was documented and unenforced at the same time.
+  'test/phone_posted_value_test.dart':
+      'the posted-phone rule: a phone reaches the API canonicalised, or not at '
+      'all',
 };
 
 /// The literal each named guard must still carry to be the guard it is
@@ -268,6 +278,13 @@ const _ruleEvidence = <String, List<String>>{
   'test/payload_coverage_test.dart': ['/api/mobile/workers/top'],
   'test/quote_count_copy_test.dart': ['quoteLimit|quotesUsedThisMonth'],
   'test/first_char_measurement_test.dart': [r'substring\s*\(\s*0'],
+  // `phone:` was the first token tried and it is wrong: it also matches
+  // `seen.add(...)` and every other bookkeeping call in this guard, so the
+  // applier reader credited enforcement through an undeclared name and the
+  // census went red on the guard that was being registered. The token has to
+  // be one only a real call site can carry -- the named argument itself, with
+  // the colon and the label spelled the way a call spells it.
+  'test/phone_posted_value_test.dart': [r'phone:\s*(.+?),?\s*$'],
 };
 
 /// The literal roots a source sweep enumerates, read out of its own source.

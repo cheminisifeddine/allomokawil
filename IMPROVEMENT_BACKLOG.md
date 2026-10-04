@@ -19148,3 +19148,118 @@ rests on, so an entry whose module stops folding cannot stay excused.
       formatter's own variable is called `digits` — the exact
       canonical-everything-vs-canonical-already-folded disagreement that hid the
       `canonicalFromDigits` hole for a tick.*
+
+
+- [x] **The number a phone takes on the wire was never observed by anything —
+      the promise lived in a docstring and the test nearest to it *defined* the
+      answer instead of reading it.** `phone_field.dart:30` says, to every screen
+      that will ever hold one of these fields:
+
+      ```text
+      The controller is owned by the screen (the screens read it on submit), and
+      the digits it holds are grouped for display — always send
+      `DzPhone.canonical(controller.text)` to the API.
+      ```
+
+      A promise in a comment is enforced by whoever edits it next. The test that
+      looks like it enforces it does the opposite — `dz_phone_keystrokes_test.dart:68`
+      is `String postedFor(String fieldText) => DzPhone.canonical(fieldText);`,
+      and it is then asserted with the reason *"this is the value that reaches
+      the API"*. That expression is `expect(DzPhone.canonical(field), '0550123456')`
+      wearing a comment that claims to be end-to-end. **`auth_screen.dart` is not
+      in it.** It is the same defect `header_trust_wiring_test.dart` exists for:
+      the mechanism exercised by a test that built the wiring itself rather than
+      by the production path, so the gate proved the function works, which is a
+      different claim from "the function is connected".
+
+      **Measured, not argued.** `auth_screen.dart` posts the number on two lines
+      (`:116` sign-in, `:158` sign-up). Reverting `:116` to
+      `phone: _phone.text` — the field text, straight through — sent
+      **`05 50 12 34 56`** to `/api/login`, spaces included:
+
+      ```text
+      Expected: '0550123456'
+        Actual: '05 50 12 34 56'
+      ```
+
+      and **all 58 tests across the three existing phone files stayed green**:
+
+      ```text
+      $ flutter test test/dz_phone_keystrokes_test.dart test/dz_phone_test.dart \
+            test/phone_field_test.dart
+      00:05 +58: All tests passed!
+      ```
+
+      A spaced number is what `AuthState.login` forwards verbatim to
+      `/api/login`'s `phone` field. The rule was documented, believed, and
+      enforced by nothing on the one path that creates every account in the app.
+
+      *Shipped:* `test/phone_posted_value_test.dart`, 20 cases. The harness is the
+      **production path** — real `AuthScreen`, real `AuthState`, real
+      `ApiClient`, and a `MockClient` that **captures `req.body`**. The number is
+      read off the bytes that would go to `/api/register`; it is not recomputed
+      from a helper this file imports. If a future change ever has to inject the
+      value to make a test pass, the file fails. Three groups:
+
+      1. *the number on the wire is the one the field promised* — eight ways a
+         real Algerian mobile arrives (plain, zero dropped, `213…`, `00213…`,
+         `+213 550 12 34 56`, Arabic-Indic, Extended-Arabic) × both submit paths,
+         asserting the captured body. Both lines are covered because
+         `auth_screen.dart` posts on two separate lines and a third screen may
+         appear.
+      2. *a number the field refuses never reaches the wire* — the other half of
+         the promise and the half nobody had written down. A landline, a bad
+         operator prefix and a short number must produce **zero** POSTs, or a
+         user told «رقم الهاتف غير صحيح» gets a second, different sentence about
+         the same number.
+      3. *no screen posts a phone it did not canonicalise* — a sweep of
+         `lib/src` for `phone:` arguments, so a **third** screen inherits the
+         rule instead of the file going green the moment one appears wrong. It
+         fails with a floor assertion first (`expect(seen, isNotEmpty)`) so the
+         sweep cannot pass by reading nothing, and it skips comments and
+         `json[` columns, because reading prose as code is the mistake
+         `app_source_scope_test.dart` documents twice.
+
+      *Red before green, in both directions.* The wire group went red on the
+      `:116` mutation above, by name and with the spaced value quoted. The sweep
+      group went red when `lib/` was reverted with `DzPhone.digits` stripped of
+      its `ArabicSearch.normalize` fold. And the guard is registered in
+      `app_source_scope_test.dart` (`_appRuleGuards` + `_ruleEvidence`), because
+      a sweep reading `lib/src` that no census names is a rule nobody is
+      enforcing — the file failed me for exactly this on the first attempt,
+      reporting `Actual: ['test/phone_posted_value_test.dart']`.
+
+      *Two errors of my own, both recorded because both cost this tick time:*
+      (1) the evidence token `phone:` was wrong and the census said so — it also
+      matches `seen.add(...)` and every other bookkeeping call, so the applier
+      reader credited enforcement through an undeclared name
+      (`Actual: Set:['add']`). The token is now the named-argument regex, which
+      only a real call site can carry. (2) The first run reported
+      `capture.path == null` for all sixteen wire cases and looked like a fold
+      failure; it was `tap()` silently missing an off-screen submit button on the
+      default 800×600 surface. `ensureVisible` first. Neither is the defect the
+      file exists for, and both are recorded so a later tick reading a red run
+      here does not re-diagnose them.
+
+      *One thing measured and left alone, because it is not a defect.*
+      `'+213****3456'` in `typedForms` is a **masked** number — its only digits are
+      `2133456` — and it folds to `21 33 45 6`, not to a number. Verified in hex,
+      because the two look identical when printed:
+      `INHEX[2b 20 31 33 2a 2a 2a 2a 33 34 35 36] OUTHEX[32 31 20 33 33 20 34 35 20 36]`.
+      The shipped assertions still pass because that entry never reaches them —
+      it is consumed by the fixpoint and honesty arms, which hold whatever shape
+      they are given. It is a **useless test case dressed as coverage**: a
+      fixture that proves nothing about a real number, in the group whose name is
+      *"lands where it was aimed"*. Left as-is because fixing it is a different
+      item and this file is a pin, not a repair.
+
+      *Gate.* `flutter analyze` -> **No issues found!** (9.6 s).
+      `python3 tool/run_tests.py` -> **SUITE PASS, 11/11 shards green**, exit 0.
+      Up from 2054 by the 20 new cases, plus the census re-registration.
+
+      Commit: see `git log` — the guard, its census entry and this note together.
+
+      *Next in backlog: none — zero unchecked boxes.* The two findings worth
+      opening next are both recorded above: the dead `'+213****3456'` fixture in
+      `typedForms`, and `build_gate.py --reap`, which still has no arm for a
+      leaked `flutter_tester` (only for leaked browsers).
