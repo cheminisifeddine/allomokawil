@@ -19433,3 +19433,117 @@ Commit: see `git log`.
       PASS, 220 tests). **Run `git add` on new files before the gate, not after:**
       the census reads the *index*, so a staged-but-uncommitted new file is
       already counted and a passing gate genuinely means the sweeps see it.
+
+---
+
+## Tick 4 Oct 2026 (43rd) — the first member of this class that was not latent,
+## and the first version of the fix that was worse than the bug
+
+The backlog had **zero unchecked boxes**, so this item was earned by audit, and
+the audit had a rule the previous two ticks could not use: **do not reason about
+the wire, read it.** `review_order.dart` (29 Sep) and `project_order.dart`
+(4 Oct) were both latent — the server happened to answer in the order the
+screen wanted, and this tick's own predecessor says so in those words. So this
+one went to `allomokawil.com` and pulled the payload the app actually parses.
+
+**Item (SHIPPED):** `Repository.topWorkers` returned the server's order
+untouched, and the strip under «أفضل المقاولين» draws it. Measured over **50 live
+rows** on 4 Oct, the twelve cards a client actually saw opened with:
+
+| # | id | rating | reviews | jobs | verification |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 14 | 5.0 | 1 | 1 | pending |
+| 2 | 68 | 5.0 | 1 | 1 | pending |
+| 3 | 71 | 5.0 | 1 | 1 | pending |
+| 4 | 142 | 5.0 | 1 | 1 | pending |
+| 5 | 143 | 5.0 | 1 | 1 | pending |
+| 6 | 3 | 4.9 | 15 | 28 | verified |
+| 7 | 1 | 4.8 | 24 | 45 | verified |
+
+**Five of the first five cards a client ever saw were accounts with a single
+review, one completed job and no verified documents**, drawn above a 45-job
+verified pro. The server sorts a mean over one review as if it were a mean over
+twenty-four. A mean is a claim about a *set*, and a set of one carries no
+information about the rest of the man's work.
+
+This is the **mirror** of a decision the repo already made, which is the part
+worth writing down: `hasRating` folds `avg_rating: 0` to null because 0 is not
+the mean of a 1–5 form, and both card variants then print «لا تقييمات بعد» in
+place of five empty stars and a **«0.0»**. The server sends `0` for «never
+rated» and `5.0` for «one customer was pleased», and the app had refused the
+first and printed the second — on the card a customer picks a tradesman from.
+
+*Changed:* new `lib/src/data/worker_rank.dart` + `Repository.topWorkers`
+wired — **and the partition runs before the `take`**, which is the whole fix:
+`take` first would let the first twelve server rows fill the strip and leave
+nothing to reorder, which is exactly how those five accounts got there.
+
+### The correction, which is the more useful half of this tick
+
+The first version sorted each group by review count, the obvious shape. Measured
+against the same live rows it was **worse than the defect it replaced**: inside
+the rows that have real evidence the server already answers in strict rating
+order (4.9, 4.8, 4.7, 4.6, 4.5, 4.4, 4.3, 4.1, 4.0) with a paid
+`search_boost` interleaved (gold 5, pro 3, basic 1, free 0). Sorting by
+evidence would have put a **4.7 with 30 reviews above a 4.9 with 15** — i.e.
+the app would have started overruling a ranking the founder **pays for**, in
+the name of fixing a ranking bug. This is the `review_order.dart` /
+`project_order.dart` lesson arriving from the other direction: those two files
+warned against *copying a precedent's argument*, and the same instinct stopped
+me from re-implementing the server's formula. The server is the only party here
+that knows what its ranking weighs.
+
+So the shipped rule is a **stable partition, not a sort**: server order is
+preserved *exactly* inside each group, and the app decides only which group a
+contractor is in. `isRankable` was written, found to have no caller, and
+**deleted** rather than shipped as a dead, unbacked claim. As a stable
+partition uses no `List.sort`, it also needs none of the tie-break machinery
+`project_order.dart` required — the determinism property is free here.
+
+**What is deliberately NOT claimed:** nobody is demoted off the screen. A
+brand-new contractor with no reviews is a real man and the strip is where he
+gets found — which is precisely why `topWorkers` fetches `limit * 4` when a
+wilaya is preferred. He goes last, never off-screen. And the same 4 Sep rule
+`plan_reach_copy.dart` states applies to the `search_boost` the fix declines to
+read: **a weight is not a sentence the app may print**, and the server's ranking
+formula is not this repo's to re-derive.
+
+*Gate.* `flutter analyze` -> **No issues found!** (8.7 s). `python3
+tool/run_tests.py` -> **SUITE PASS — 2092 tests across 11 shards, every shard
+green, exit 0**, was 2085; +7 is exactly the new file. The two files that
+already exercised `topWorkers` (`rows_partial_test.dart`,
+`api_shape_guard_test.dart`) are unchanged and green, which is the real
+regression risk here.
+
+*Red before green.* With the rule neutered to the identity — the exact
+pre-fix behaviour — **3 of the 7 tests fail**, including the one built from the
+verbatim twelve-row live payload, and the two unrated/ordering cases. Reverted
+to the real rule -> 7/7. The identity and the fix are therefore distinguishable
+on the real wire's order, not on a hand-picked arrangement that would pass
+either way.
+
+*End-to-end, through `Repository.topWorkers` and not just the helper* (both
+branches, real `MockClient`):
+```
+no-wilaya : [3, 1, 5, 2, 14, 68]     proven rows lead; 1-review rows pushed past the limit
+wilaya=16  : [11, 13, 9, 12]         near-group preserved, partition applied *inside* it
+```
+
+**Commits:** local `7eefaf8` -> remote `297a0a8`. All 3 blobs verified **MATCH**
+against the real remote tree, `tool/remote_state.py` -> **IN SYNC** (the
+`ahead 137, behind 119` line counts commits, not content — the documented
+signature of `gh_push.py` minting its own commit, not a divergence).
+
+**No screenshot, and the reason is the rule's own shape:** the change is which
+rows appear and in what order, and the twelve-card fixture the design harness
+draws contains a single contractor (`_worker` in `design_shots_test.dart`,
+3 reviews / 7 jobs), so the strip's pixel output is identical before and after.
+A screenshot of that fixture would prove nothing about the defect and I will
+not present one as if it did. The pixels are backed by the wire measurement and
+the red-before-green run instead — which is the honest pairing for a change with
+no layout in it.
+
+**Next in backlog: none — zero unchecked boxes.** Next tick will likewise have
+to earn its item by audit, and the audit rule that found this one is now
+written down: **read the wire, do not reason about it.** The two latent
+predecessors cost this loop three ticks between them; this one took one.
