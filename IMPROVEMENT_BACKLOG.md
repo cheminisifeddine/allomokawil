@@ -19352,7 +19352,7 @@ Commit: see `git log`.
 ## Tick 4 Oct 2026 (42nd) — the backlog was empty, so this item was found by
 ## auditing for the last shape this repo has already paid for twice.
 
-- [ ] **`Project.fromJson` threw `created_at` away, so the client's own
+- [x] **`Project.fromJson` threw `created_at` away, so the client's own
       «مشاريعي الأخيرة» and the whole «مشاريعي» tab were drawn in whatever order
       the server happened to send — and no project row anywhere in the app can
       be dated.**
