@@ -19796,6 +19796,67 @@ audit, and the rule is unchanged: read the wire.
       amount* was already on the job.**
       `5974084`.
 
+- [x] **A read of «مشاريعي» that was issued 40 minutes earlier and answered late
+      deleted a job the newest read had listed, and dated the survivors as if
+      they had just been fetched.**
+      `3f6fd3e` -> remote `48298ef`.
+
+**Found by finishing the previous tick, which shipped half a fix.** The tree
+arrived dirty: the item below it was half-written, and on inspection the half
+was the *wrong* one. `_arm` grew a generation token (`_projectsToken`) and its
+doc comment asserted the check is made "on **both** arms" — but only the
+**error** arm carried it. The success arm still read `if (!mounted) return;`,
+which is precisely the arm a late read writes through.
+
+    read 1  09:00  «مفتوح» (initState) ── parked on a slow connection ──┐
+    read 2  09:00  «الكل»                                            │
+    read 3  09:40  «مفتوح» ── answers, installs 2 rows, stamps 09:40 ──┤
+    read 1        09:40  ── lands LAST, overwrites _cache ─────────────┘
+
+Three taps on a phone, two reads in flight at once on one bar of signal, and
+**the same tab asked twice** — which is why the tab-keyed `_cache` from the
+earlier item cannot catch it: «مفتوح» -> «الكل» -> «مفتوح» produces two
+equally eligible answers to one question, and arrival order picks the loser.
+
+*The damage is invisible for exactly one frame*, because the builder listens
+to `_future` and a late cache write changes nothing on screen. It becomes
+permanent on the **next failed refresh**, when the fallback draws the cache
+and both halves go wrong together:
+
+1. a project the newest read listed for this very tab **vanishes** from the
+   customer's own list, replaced by a read he abandoned before it answered;
+2. the amber band stamps the survivors **09:40** — the landing time of the
+   abandoned read — instead of the time they were true.
+
+On this screen the age is not decoration: it is the half that decides whether
+a contractor restarts a job from nothing.
+
+*Red before green, the deleted job quoted back.* With the guard absent the new
+case fails on the rows, naming the missing project rather than a boolean:
+
+    Expected: exactly one matching candidate
+      Actual: Found 0 widgets with text "سباكة حمام": []
+    a read issued at 09:00 and answered at 09:40 must not delete a job the
+    09:40 read listed for this tab
+
+*Evidence:* `flutter analyze` -> **No issues found!**; `tool/run_tests.py` ->
+**SUITE PASS — 2155 tests, 11/11 shards** (was 2154). No screenshot: no
+layout, copy or pixel changed — this is state arbitration behind the frame.
+
+*Two facts worth writing down.* (1) The previous tick's comment claimed a
+guarantee the code did not make, and no gate caught it because the test that
+would have caught it was part of the same uncommitted dirt — **a comment
+asserting a property is not evidence of it**. (2) The first full-suite run
+this tick showed `shard 1/11: HUNG` twice. It is not this change: shard 1 is the
+first 24 files alphabetically (`a11y_semantics` .. `chat_day_divider_clock`)
+and contains **no** `ProjectsScreen` reference; the same 24 files pass
+standalone in 2:20 / 219 tests. The cause is the runner's 300 s per-shard cap
+meeting a **cold** `.dart_tool` cache (203 tests reached in 5:00). It is a
+harness budget, not a regression — `--shard-deadline 600` cleared all 11.
+
+**Next, unchanged:** backlog at **0 unchecked** again; this was found by
+finishing a dirty tree rather than by reading the wire.
+
 **Found by the audit, on the wire.** The tree arrived **dirty** — this exact
 item half-written from an interrupted tick (`quote_write_outcome.dart` +
 `bid_neighbour_amount_test.dart` staged at 07:48/07:55, the screen not yet
