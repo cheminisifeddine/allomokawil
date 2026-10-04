@@ -19356,7 +19356,7 @@ Commit: see `git log`.
       «مشاريعي الأخيرة» and the whole «مشاريعي» tab were drawn in whatever order
       the server happened to send — and no project row anywhere in the app can
       be dated.**
-      *(opened this tick; commit hash appended on ship)*
+      local `cca5dad` -> remote `6baf488`. **SHIPPED.**
 
       The **third** copy of a class this backlog has already fixed twice. The
       review fix (`review_order.dart`, 29 Sep) is the precedent and says so in
