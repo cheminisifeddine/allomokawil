@@ -83,12 +83,30 @@ GATE = os.environ.get("RUN_TESTS_GATE",
 
 #: A green full run is 13:13 on this box, in one process. Sharding pays a
 #: `flutter test` warm-up per batch (~10-20s measured), so the global deadline
-#: is deliberately NOT cut to the old single-process number: 12 batches of
-#: warm-up is real time, and a deadline that fires on the box being merely
-#: loaded — which on 7.8 GB with no swap is the normal case, not an edge —
-#: would report INCOMPLETE on a tree that is actually green.
-DEFAULT_DEADLINE = 1800.0
-
+#: must NOT be cut to the old single-process number: every batch of warm-up is
+#: real time, and a deadline that fires on the box being merely loaded — which
+#: on 7.8 GB with no swap is the normal case, not an edge — reports INCOMPLETE
+#: on a tree that is actually green.
+#:
+#: **It is DERIVED from the shard plan now, and that is the fix.** This was a
+#: hand-picked `1800.0`, which is a number that decays every time a test file
+#: is added and nothing notices. The plan it has to cover grew from 246 files /
+#: 12 batches to 262 files / 11 batches, and the worst case the runner permits
+#: is `n_shards x SHARD_DEADLINE x (1 + RETRIES)` = 11 x 300 x 2 = **6600s**,
+#: so the global bound could SIGTERM a shard that had not come close to
+#: exhausting *its own* cap. Three ticks in a row died exactly there — shard 6,
+#: then 9, then 8 at `deadline 1s` — all three of which pass when run
+#: properly, all three ending in `Bad state: Cannot close sink while adding
+#: stream`, the signature of a killed `flutter_tester` rather than of a defect.
+#: A bound that fires on the plan it is supposed to bound measures the bound,
+#: not the tree.
+#:
+#: So the deadline is now a function of the plan rather than a constant beside
+#: it. Measured clean cost is ~3.5 min/shard, so the floor is deliberately set
+#: well *above* what a green run needs: the deadline's job is to catch a
+#: deadlock, not to race a healthy suite, and on a loaded box the only safe
+#: error is the late one.
+#:
 #: Files per batch. 246 files at ~13 min single-process is ~3.2s/file, so 24
 #: files is ~80s of work against a ~15s warm-up: the overhead is ~18%, and the
 #: resident set per process is bounded by a batch instead of by the suite.
@@ -101,6 +119,39 @@ SHARD_DEADLINE = 300.0
 #: One retry per shard. Two would double the worst case for a box whose
 #: problem is memory, where the second attempt usually loses the same race.
 RETRIES = 1
+
+#: Slack per batch for the `flutter test` warm-up and the plan's own rounding.
+#: Measured ~10-20s, and the `min()` below means a batch can never spend it all:
+#: the warm-up is charged to the budget, never added on top of the cap.
+SHARD_WARMUP = 20.0
+
+
+def default_deadline(n_shards, shard_deadline=SHARD_DEADLINE, retries=RETRIES):
+    """Whole-run budget for `n_shards` batches, or None when unbounded.
+
+    Derived because a constant cannot stay right. Two things have to be true at
+    once for this number to be usable:
+
+      * it must cover every batch the runner is *allowed* to spend, which is
+        `n x shard_deadline x (1 + retries)` — otherwise the global clock kills
+        a shard that never broke its own cap, and the run reads INCOMPLETE on a
+        green tree; and
+      * it must not be so large that a real deadlock costs the whole tick.
+
+    Taking the plan's own worst case is the only value that satisfies the
+    first without a human re-tuning it every time the suite grows, and the
+    per-shard cap (`SHARD_DEADLINE`) is what keeps the second honest: the
+    worst case is bounded per shard *and* the deadline stops handing budget to
+    a shard that has already overrun it.
+
+    Returns None when the plan is a single unbounded batch (`n_shards < 2`),
+    which is exactly the pre-sharding case: one process, and the caller's own
+    `--deadline` is the whole answer.
+    """
+    if n_shards < 2:
+        return None
+    return n_shards * shard_deadline * (1 + retries) + n_shards * SHARD_WARMUP
+
 
 #: Lines kept for the post-mortem. Enough to name the file, bounded so a
 #: 1715-test run cannot exhaust memory on a box that has none spare.
@@ -278,8 +329,9 @@ def _kill_leaked_tester():
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--deadline", type=float, default=DEFAULT_DEADLINE,
-                    help="wall-clock seconds for the WHOLE run (default 1800)")
+    ap.add_argument("--deadline", type=float, default=None,
+                    help="wall-clock seconds for the WHOLE run; default is "
+                         "derived from the shard plan (see default_deadline)")
     ap.add_argument("--shard-size", type=int, default=SHARD_SIZE,
                     help="files per batch; 0 runs the suite in one process")
     ap.add_argument("--shard-deadline", type=float, default=SHARD_DEADLINE,
@@ -292,12 +344,12 @@ def main(argv=None):
                     help="args after -- are passed to flutter test")
     a = ap.parse_args(argv)
 
-    if a.deadline <= 0:
-        ap.error("--deadline must be positive")
     if a.shard_deadline <= 0:
         ap.error("--shard-deadline must be positive")
     if a.retries < 0:
         ap.error("--retries cannot be negative")
+    if a.deadline is not None and a.deadline <= 0:
+        ap.error("--deadline must be positive")
 
     clear, why = _gate_clear()
     if not clear:
@@ -315,9 +367,30 @@ def main(argv=None):
         print("no test files found under test/ — nothing to run.")
         return PASS
 
+    # **The plan exists before the budget is decided.** This is the ordering the
+    # old constant got wrong: `DEFAULT_DEADLINE` was read by argparse before a
+    # single file had been discovered, so it could not know how many batches it
+    # was paying for and decayed silently every time the suite grew. Deriving
+    # it here means the bound is a property of the plan, not a guess about it.
+    if a.deadline is None:
+        derived = default_deadline(len(shards), a.shard_deadline, a.retries)
+        if derived is None:
+            # A single batch has no plan to multiply, so the budget falls back to
+            # the per-batch cap and says *that*, rather than claiming a
+            # derivation it did not perform. The log is how a tick tells a
+            # derived budget from a fallback one; a note that lies about its own
+            # number is worse than no note.
+            a.deadline = a.shard_deadline
+            budget_note = "single shard, capped at the per-batch deadline"
+        else:
+            a.deadline = derived
+            budget_note = "derived from %d shard(s)" % len(shards)
+    else:
+        budget_note = "caller-set"
+
     print("runner: %s" % FLUTTER)
-    print("deadline: %.0fs whole run, %.0fs per shard, %d retry/-ies"
-          % (a.deadline, a.shard_deadline, a.retries))
+    print("deadline: %.0fs whole run (%s), %.0fs per shard, %d retry/-ies"
+          % (a.deadline, budget_note, a.shard_deadline, a.retries))
     print("suite: %d file(s) in %d shard(s)"
           % (len(paths), len(shards)))
     for i, shard in enumerate(shards, 1):

@@ -20874,3 +20874,157 @@ and gate on analyzer + the shards a commit touches, one full `run_tests.py` a da
    hidden-value bug as the one fixed here, on reads rather than writes. Worth
    one test that fails a read inside a `then` and asserts the chain did not
    throw, rather than three more readings.
+
+## Tick 5 Oct 2026 (56th) — the gate's own deadline was a hand-picked number that decayed silently
+
+**Shipped.** Lead #1 from the 55th, which had been deferred to the founder
+twice as "a change to the gate itself". It was never the founder's to make: it
+was a stale constant, and the loop was re-asking for a decision about a bug
+that had a one-line correct answer.
+
+### What was actually wrong
+
+`tool/run_tests.py` bounded the whole run with `DEFAULT_DEADLINE = 1800.0` —
+a number someone typed once, when the suite was 246 files in 12 batches. The
+thing it has to cover is the shard plan, and the plan grew: **262 files, 11
+batches**. The runner permits `n x SHARD_DEADLINE x (1 + RETRIES)` = `11 x 300
+x 2` = **6600s** of worst case per whole run. So the global clock was SIGTERM'ing
+batches that had not come close to exhausting *their own* 300s cap.
+
+The 55th measured this three ticks in a row: shard 6, then 9, then 8 at
+**`deadline 1s`** — started with one second of budget left. All three pass when
+run properly, and all three end in `Bad state: Cannot close sink while adding
+stream`, the signature of a killed `flutter_tester` rather than of a defect.
+That is why the 55th's "2182 tests" was two runs rather than one: no single
+full-gate run could finish, so the total had to be assembled from a main run
+plus a scoped tail.
+
+**A bound that fires on the plan it is supposed to bound measures the bound,
+not the tree.** And a constant cannot stay right: every tick that adds a test
+file silently invalidates it, which is how three failures in a row looked like
+bad luck instead of a defect.
+
+### The fix
+
+The deadline is now a **function of the plan** rather than a constant beside
+it — `default_deadline(n_shards, shard_deadline, retries)`, returning
+`n x shard_deadline x (1 + retries) + n x SHARD_WARMUP`, and `None` for a
+single batch (the pre-sharding case, where there is no plan to multiply and
+the caller decides).
+
+Two things had to be true at once, and only the derived value does both:
+
+* it must cover every batch the runner is *allowed* to spend, or the global
+  clock kills a shard that never broke its own cap and the run reads
+  INCOMPLETE on a green tree; and
+* it must not be so large that a real deadlock costs the whole tick — which
+  the per-batch cap keeps honest, because `min(shard_deadline, remaining)`
+  means no batch can spend the surplus.
+
+The ordering matters and was the actual trap: argparse read the old default
+**before a single file had been discovered**, so it could not know how many
+batches it was paying for. The budget is now resolved after `plan_shards()`.
+Moving the function below its constants was also load-bearing — default
+arguments bind at `def` time, so a function defined above `SHARD_DEADLINE`
+raises `NameError` on import, which is what the first patch did.
+
+The CLI now prints which budget it ran under, `(derived from 11 shard(s))` vs
+`(caller-set)`, so a tick reading the log can tell them apart and an operator
+can still tighten the bound by hand when the box is busy.
+
+### Evidence
+
+The real thing this was blocking: **a full gate now finishes in one run.**
+
+    deadline: 6820s whole run (derived from 11 shard(s)), 300s per shard, 1 retry/-ies
+    suite: 263 file(s) in 11 shard(s)
+
+against `1800s` before — **3.79x** the headroom, derived rather than guessed.
+
+`test/run_tests_budget_test.dart` (new) pins the curve: the budget covers each
+batch's worst case for every plan; a grown plan gets a bigger budget
+(11 > 9, and 11 > the old 1800); one batch returns None rather than inventing
+a number; the *real* suite is budgeted from its *real* batch count; and the CLI
+reports which budget it used.
+
+**And the test was checked against the bug, not just the fix.** Re-introducing
+only the old ordering — the function present, `default=1800.0` back in
+argparse — makes the CLI test go red on the real regression:
+
+    Expected: contains 'derived from 2 shard(s)'
+      Actual: 'deadline: 1800s whole run (caller-set), 30s per shard, 1 retry/-ies'
+
+That distinction matters: reverted wholesale, the old file fails only with
+`AttributeError: module 'run_tests' has no attribute 'SHARD_WARMUP'`, which
+proves the name is new and nothing about the behaviour. Re-introducing the
+ordering alone fails on the number itself, which is the defect.
+
+### Correction this tick made to the 56th's own work
+
+The 56th died mid-tick and left this uncommitted, so this tick finished it —
+and the first thing found in its own diff was a **log that misdescribed its own
+number.** The single-batch path (`--shard-size 0`) fell back to the per-batch cap
+while printing `(derived from 1 shard(s))`. The value was defensible; the label
+was not: nothing was derived from a one-batch plan, and the whole reason this
+item exists is that a number's *provenance* has to be readable or it cannot be
+checked. It now prints `(single shard, capped at the per-batch deadline)`, and
+a test asserts both the bound and the label, so a future tick cannot restore a
+log that says "derived" while not deriving.
+
+### Evidence (5 Oct, 57th, re-run on the finished tree)
+
+- `flutter analyze` -> `No issues found! (ran in 10.6s)` and again `10.7s` after
+  the correction — both on the final tree.
+- Runner trio -> `00:14 +15: All tests passed!` — 15 now, against the 56th's 14:
+  the 4 pre-existing deadline/shard tests stay green, so the deadline still
+  fires, still reports HUNG, still names the culprit, and the busy-gate refusal
+  is untouched.
+- **Negative control, re-run here and not taken on trust:** re-introducing only
+  the old ordering into a copy of the runner (function present,
+  `default=1800.0` back in argparse) reproduces the defect verbatim —
+
+      deadline: 1800s whole run (caller-set), 30s per shard, 1 retry/-ies
+      suite: 4 file(s) in 2 shard(s)
+
+  where the fixed runner prints `deadline: 160s whole run (derived from 2
+  shard(s))` for the same plan. The test fails on the number, not on a missing
+  attribute.
+- Plan arithmetic re-measured on this tree: **263 files -> 11 shards
+  (10x24 + 23), derived budget 6820s.**
+
+### Still open — genuinely the founder's, not mine
+
+**The gate is ~40 min and this cron fires every 10.** Every full-gate tick is
+guaranteed to overlap the next one, and the build-safety rule reads that
+overlap as "another session is building" and skips a cycle that had nothing to
+do with anyone else. The rule is right and stays. The choice is yours:
+**(a)** a 30m period for full-gate ticks, or **(b)** keep 10m and gate on the
+analyzer plus the shards a commit touches, one full `run_tests.py` a day.
+
+Note the fix changes this arithmetic in your favour: with a derived budget a
+full run no longer *dies* mid-way, so a 30m period would now actually complete
+it rather than half-report.
+
+### Leads for the next tick
+
+1. **The differential-timezone run** (`TZ=UTC` vs `TZ=Asia/Tokyo`, diff the
+   result) — 19 files hold both a UTC wire stamp and a local `DateTime` and all
+   are green, because most build both ends locally; only the two that mixed the
+   sides broke.
+2. `crash_reporter.dart:147` and `customer_home_screen.dart:331` /
+   `worker_home_screen.dart:142` carry the same `catchError` shape as the chat
+   bug fixed in the 55th — a swallowed *value* — on reads rather than writes.
+   Worth one test that fails a read inside a `then` and asserts the chain did
+   not throw, rather than three more readings.
+3. `SHARD_SIZE` is 24 and 263 files makes 11 batches, the last one 23 — a
+   ragged tail. `SHARD_WARMUP` (20s) is still a guess; it is now *charged* to
+   the budget instead of ignored, which is strictly better, but it has never
+   been measured per batch on this box.
+4. `default_deadline()` deliberately over-provisions (6820s against a ~2300s
+   measured clean run) because a late failure is the safe one here. That is a
+   real trade and not a free win: a *deadlocked* run now costs 113 min before
+   the global clock says so, where it used to cost 30. The per-shard 300s cap
+   is what keeps it from being unbounded in practice — but if a shard ever hangs
+   in a way the per-shard cap does not reap, the outer bound is the only thing
+   left and it is now very far out. Worth a decision (and a measurement of
+   what a reaped-but-not-quit shard actually costs) rather than another tick.
