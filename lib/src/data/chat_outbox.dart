@@ -444,7 +444,7 @@ class ChatOutbox {
 
   /// Forgets one message: called the moment the server stores it, and when a
   /// queued photo's file is gone and it can never be sent.
-  Future<void> remove(String id) async {
+  Future<bool> remove(String id) async {
     // Locked for the same reason [add] is: a forget that interleaves with a
     // send would write back a queue the send never saw, and the record for the
     // message the user is *right now* typing would be the one that disappears.
@@ -454,8 +454,8 @@ class ChatOutbox {
         for (final m in items)
           if (m.id != id) m,
       ];
-      if (kept.length == items.length) return;
-      await _write(kept);
+      if (kept.length == items.length) return true;
+      return _write(kept);
     });
   }
 

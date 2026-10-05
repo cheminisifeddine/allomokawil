@@ -328,11 +328,15 @@ class _ChatScreenState extends State<ChatScreen> {
       final url = p.uploadedUrl;
       if (url != null && url.isNotEmpty) _pendingUrls[p.id] = url;
     }
+    // Records the server turns out to hold, settled **after** the redraw: the
+    // writes are async, and a `setState` callback must not await. Collected here
+    // so the answer each one gives can be reported once, below.
+    final settled = <String>[];
     setState(() {
       for (final p in pending) {
         // A record whose answer never came may already be stored. If the thread
         // we just read holds the same words from the same person, the server
-        // has it: forget the record and draw nothing.
+        // has it: settle the record and draw nothing.
         if (p.uncertain != null) {
           final stored = _messages.any((m) => threadHolds(
               m,
@@ -340,7 +344,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   text: p.text, imagePath: p.imagePath, uploadedUrl: p.uploadedUrl),
               me: me));
           if (stored) {
-            _forgetQuietly(p.id);
+            settled.add(p.id);
             continue;
           }
         }
@@ -362,6 +366,49 @@ class _ChatScreenState extends State<ChatScreen> {
         _messages = [..._messages, bubble];
       }
     });
+    if (settled.isEmpty) return;
+    await _settleStored(settled);
+  }
+
+  /// Settles records the fresh read has just proved the server already holds.
+  ///
+  /// **Delete first, and mark only what the delete could not.** The record's
+  /// purpose is over the moment the thread holds the same words from the same
+  /// person: it should leave the disk, and on an ordinary phone it does. So
+  /// [ChatOutbox.remove] is asked first and its answer is read — which the old
+  /// `_forgetQuietly` threw away. It ran `remove` and swallowed the refusal, so
+  /// a device that would not delete the row left behind a delivered message
+  /// reading `uncertain: null`, the one value [_flushQueued] treats as a retry
+  /// candidate. On the next cold start the app handed the contractor's address
+  /// to the wire a second time with no tap from anyone: the duplicate this
+  /// outbox exists to kill, produced by the app at the moment it succeeded, and
+  /// nothing on screen said so.
+  ///
+  /// A record that outlives its delete gets the «do not send me again» mark
+  /// instead — the same word [_markUnconfirmed] writes, and the only one that
+  /// makes [_restoreQueued]'s question answerable next launch. It comes back as
+  /// a neutral line with no retry affordance, and the next read settles it,
+  /// which is the truth: the server really does hold the row.
+  ///
+  /// **Marking unconditionally would be the opposite error and just as bad.**
+  /// Every settled record would sit on the disk forever, `pendingFor` would
+  /// never be empty, and the two tests that state the ordinary contract — «the
+  /// row is on the server, so the record must be dropped» — go red. The mark is
+  /// the fallback for a refused delete, never the first move.
+  ///
+  /// One sentence for the whole set, because [ScaffoldMessenger] queues: three
+  /// stale records meant three SnackBars four seconds apart, and the one on
+  /// screen when the user looked was a verdict about whichever happened to be
+  /// last. The same rule [_recheckUnconfirmed] states, for the same reason.
+  Future<void> _settleStored(List<String> ids) async {
+    var unmarked = 0;
+    for (final id in ids) {
+      if (await _outbox.remove(id)) continue;
+      if (!await _outbox.markUncertain(id, uncertain: SendState.unconfirmed)) {
+        unmarked++;
+      }
+    }
+    if (unmarked > 0 && mounted) _toast(S.markUnconfirmedNotSaved);
   }
 
   /// One attempt per queued message when the thread opens, without a snackbar
@@ -575,6 +622,13 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
       setState(
           () => _replace(local.id, sent.copyWith(sendState: SendState.sent)));
+      // A device that refused the delete keeps the record, and [_forget] has
+      // written «do not send me again» onto it — but if that mark did not land
+      // either, this delivered message is one cold start away from being
+      // posted a second time with nothing on screen saying so. The sentence
+      // already exists for exactly this case ([S.markUnconfirmedNotSaved], used
+      // by the swallowed-write path), and it is the only warning the user gets.
+      if (_markStored[local.id] == false) _toast(S.markUnconfirmedNotSaved);
     } catch (e) {
       if (!mounted) return;
       if (isWriteUnconfirmed(e)) {
@@ -630,14 +684,6 @@ class _ChatScreenState extends State<ChatScreen> {
   String _failureCopy({required bool persisted}) =>
       persisted ? _retryCopy : S.chatNotSaved;
 
-  /// Forgets a queue record by id from inside a `setState` callback, where
-  /// [forget] would re-enter the build. The write is fire-and-forget on
-  /// purpose: the record is settled either way, and a storage failure must not
-  /// stop the thread from drawing.
-  void _forgetQuietly(String id) {
-    _outbox.remove(id).catchError((Object _) {});
-  }
-
   /// Writes the URL a picture's upload returned onto its queue record.
   ///
   /// Best-effort by design, and the difference is deliberate: a refused write
@@ -689,9 +735,30 @@ class _ChatScreenState extends State<ChatScreen> {
   final Map<String, String> _pendingUrls = <String, String>{};
 
   /// Drops [local]'s queue record, if it has one.
+  ///
+  /// **A device that refuses the delete gets the mark instead**, and this is the
+  /// whole reason the method answers anything. A record left behind a *successful*
+  /// send reads `uncertain: null`, which is this file's word for «the server
+  /// refused it, re-send it» — so [ChatScreen._restoreQueued] skips the question,
+  /// [_flushQueued] hands the words to the wire on the next thread open with no
+  /// tap from anyone, and the contractor receives the same address twice. That
+  /// is the duplicate the entire outbox design exists to kill, produced by the
+  /// app at the one moment it succeeded, and nothing on the screen said so.
+  ///
+  /// So the refused delete writes «do not send me again» onto the row instead:
+  /// the record survives, it comes back as a neutral line with no retry
+  /// affordance, and the only thing that can settle it is the next read — which
+  /// is the truth, because the server really does hold the row.
+  ///
+  /// The mark's own answer is kept for [Message.sendState], because a bubble
+  /// claiming «already sent» while the phone may still re-post it is exactly
+  /// the promise this codebase has been auditing for since the monogram tick.
   Future<void> _forget(Message local) async {
     final id = _queuedIds.remove(local.id);
-    if (id != null) await _outbox.remove(id);
+    if (id == null) return;
+    if (await _outbox.remove(id)) return;
+    _markStored[local.id] =
+        await _outbox.markUncertain(id, uncertain: SendState.unconfirmed);
   }
 
   /// Stops the bubble from looking retryable while the app is deciding, and

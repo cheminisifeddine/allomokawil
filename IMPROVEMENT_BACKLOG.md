@@ -20747,3 +20747,130 @@ commits. Local `HEAD` was `f99f6bc`, three commits ahead — the tree the 53rd a
    `worker_home_screen.dart:142` carry the same `catchError` shape; worth one
    test that fails a read inside a `then` and asserts the chain did not throw,
    rather than three more readings.
+
+
+---
+
+## Tick 4 Oct, 56th — `_forgetQuietly`: the refused delete now gets the mark, and the mark is the *fallback* not the first move
+
+**Item:** lead 1 from the 55th — `_forgetQuietly` at
+`chat/chat_screen.dart:638`. **Shipped.**
+
+### What the 55th left behind, and what this tick found in it
+
+The 55th started this item and ran out of tick before it could gate it: the
+tree was dirty (`chat_outbox.dart`, `chat_screen.dart`, and an untracked
+`test/chat_forget_refused_test.dart`) with nothing committed. Finishing it was
+therefore this tick's item, per the protocol.
+
+The shape it was fixing is real and worth stating, because the fix is about one
+stored word. A record the server refused to take is written to the phone
+*before* the first attempt and dropped the moment a row lands. The old call
+site was:
+
+    _outbox.remove(id).catchError((Object _) {});
+
+which guards a future that **cannot throw** — `remove` ends in `_write`, which
+catches the store's refusal and answers `false`. So the swallow was hiding a
+*value*. On a phone that would not delete the row, a delivered message survived
+reading `uncertain: null`, the one value `_flushQueued` treats as a retry
+candidate: the next cold start handed the contractor's address to the wire a
+second time with no tap from anyone. The duplicate the outbox exists to kill,
+produced by the app at the moment it succeeded, and nothing on screen said so.
+
+**Shipped:**
+- `ChatOutbox.remove` answers `Future<bool>` — did the record really leave the
+  disk — like `markUncertain` already did.
+- `_forget` reads that answer. On `false` it writes «do not send me again» onto
+  the surviving row (`SendState.unconfirmed`, the same word `_markUnconfirmed`
+  writes) and keeps *that* write's answer in `_markStored`, because a bubble
+  claiming «already sent» while the phone may still re-post it is the exact
+  promise this repo has been auditing for since the monogram tick.
+- `_forgetQuietly` is gone. Its one caller in `_restoreQueued` now runs
+  `_settleStored`, after the redraw (a `setState` callback must not await), and
+  reports once for the whole set with `S.markUnconfirmedNotSaved` — one sentence,
+  because `ScaffoldMessenger` queues and three SnackBars four seconds apart
+  makes the one on screen a verdict about whichever happened to be last.
+- `test/chat_forget_refused_test.dart` (315 lines): `remove`'s three answers
+  (took the delete / id was never there and nothing is written / refused), the
+  refused-delete-then-mark sequence asserted at the **write count** rather than
+  guessed from the final bytes, and the refused-forget-*and*-refused-mark case
+  asserting the user is told.
+
+### The regression this tick measured, and it is the part worth keeping
+
+The 55th's `_settleStored` **marked unconditionally** instead of
+delete-then-mark. The first full gate said so immediately and precisely:
+
+    shard 1/11: FAIL — app_source_scope_test.dart (setUpAll)
+      [the new test file was untracked; the census is exactly right about this]
+    shard 2/11: FAIL — chat_photo_not_lost_test.dart:
+      "an unconfirmed photo the server DID hold is settled and forgotten"
+    shard 2/11: FAIL — chat_unconfirmed_dup_test.dart:
+      "a message the app could not confirm is not redrawn when the thread
+       already holds those words"
+
+Both are the same sentence — «the row is on the server, so the record must be
+dropped» — and both are correct. Marking unconditionally is the *opposite*
+error and just as bad: every settled record sits on the disk forever,
+`pendingFor` is never empty, and a queue nobody can drain is worse than a
+duplicated one because it is permanent and silent. The mark is the fallback for
+a refused delete, **never the first move**. `_forget` already had the right
+order; `_settleStored` did not. Both now do, and the doc comment on
+`_settleStored` states the inverse error explicitly so the next tick cannot
+re-introduce it by reading only the happy path.
+
+Note what the two existing tests were worth here: this is the second tick in a
+row where a plausible-looking fix was caught by a test written for a different
+defect. The suite is not bureaucracy here, it is the only reason a
+wrong-but-reasonable branch order did not ship.
+
+### Evidence (this tick's own runs)
+
+- `flutter analyze` -> `No issues found! (ran in 19.1s)`
+- Scoped re-run of the four touched files -> `00:45 +32: All tests passed!`
+- Full gate, main run: shards 1-8 green (`2:50 3:39 4:40 4:07 2:56 3:43 3:01` + shard 8 green at `2:47`).
+- Tail shards 9-11 (see the deadline note below), scoped: `SUITE PASS — 602
+  tests across 3 shard(s), every shard green.`
+- **Total 2182**, against the 55th's clean baseline of 2169: **+13, no drop.**
+
+### The runner's whole-run deadline is now too small, measured
+
+`--deadline` defaults to **1800s** and the 11 shards cost ~3.5 min each, so a
+clean full run needs **~40 minutes** and the budget hands out ~2:45 for the last
+shard. Three runs in a row have now died on the clock rather than on a red:
+shard 6 SIGTERM'd mid-file, then shard 9, then shard 8 at **`deadline 1s`** —
+started with one second of budget left. All three passed when run properly, and
+all three failures were `Bad state: Cannot close sink while adding stream`, the
+signature of a killed `flutter_tester`, not of a defect.
+
+So the number to trust is **2182 across the two runs**, not any single one. And
+the honest fix is one line: `DEFAULT_DEADLINE` in `tool/run_tests.py` wants to
+be **~2700s**, or the shards want to be **larger** (24 -> 32) so the per-shard
+`flutter` warm-up is amortised. That is a change to the gate itself, so it goes
+to the founder rather than being slipped in beside a chat fix.
+
+### Founder decision, still open from the 55th
+
+The gate takes 16 min (and the honest version ~40). The cron fires every 10.
+Every tick that opens a full gate is guaranteed to overlap the next one, and the
+build-safety rule will read that overlap as "another session is building" and
+skip a cycle that had nothing to do with anyone else. The rule is right and
+stays. Pick one: **(a)** a 30m period for full-gate ticks, or **(b)** keep 10m
+and gate on analyzer + the shards a commit touches, one full `run_tests.py` a day.
+
+### Leads for the next tick
+
+1. **`DEFAULT_DEADLINE` in `tool/run_tests.py` (1800s) vs the ~40 min a clean
+   full run actually costs.** Three runs in a row have ended on the clock. Raise
+   it to ~2700s or widen the shards — one line, and until then no single full-gate
+   run can report a clean total.
+2. **The differential-timezone run** (`TZ=UTC` vs `TZ=Asia/Tokyo`, diff the
+   result) — 19 files hold both a UTC wire stamp and a local `DateTime` and all
+   are green, because most build both ends locally. Only the two that mixed the
+   sides broke, so the census is two full runs, not a grep.
+3. `crash_reporter.dart:147` and `customer_home_screen.dart:331` /
+   `worker_home_screen.dart:142` carry the same `catchError` shape — same
+   hidden-value bug as the one fixed here, on reads rather than writes. Worth
+   one test that fails a read inside a `then` and asserts the chain did not
+   throw, rather than three more readings.
