@@ -21265,3 +21265,150 @@ same schedule question as (a)/(b), now on its **fourth** unanswered tick.
    comment only — a 12-month property test (the guard being *every month's
    length is honoured*; `== y*372+m*31+d` must **never** be used) would pin it
    cheaper than the comment does.
+
+---
+
+## Tick 5 Oct 59th — the two remaining leads closed, and the schedule question is now the only one left
+
+Backlog was at zero unchecked items, so this tick ran the two open leads from
+the 58th. **Both closed. Lead 2 was a clean sweep; lead 3 shipped.**
+
+### Lead 2 — the serialised-write sweep: CLEAN, all three stores correct
+
+The generalisation the 58th asked for was *snapshot taken outside the queue
+that owns it*. Swept every preferences-backed store in `lib/`, not just the
+crash log:
+
+- `lib/src/data/chat_outbox.dart` — **correct, and already defended at every
+  one of the four sites.** `_serialised` is a `static` per-key lock
+  (`_locks[chatOutboxKey]`, line 483), the lookup is keyed on `chatOutboxKey`
+  rather than the instance *because* the app builds more than one `ChatOutbox`
+  over the same key, and — the point of the 58th's bug — **the read is inside
+  the lock in all four callers**: `add` (:302), `markUncertain` (:383),
+  `noteUploadedUrl` (:424), `remove` (:452). The lock is released in a
+  `finally` so one failed send cannot wedge the queue, and the entry is only
+  retired by the holder that owns it.
+- `lib/src/core/security/auth_state.dart` — **no read-modify-write to lose.**
+  `_persist` (:279) writes one envelope string, and the header explains why it
+  used to be a two-key pair and what the half-written window cost. The sweep's
+  shape cannot apply: there is no read.
+- `lib/src/core/location/place_state.dart` — `_save` (:236) overwrites a whole
+  blob, never a merge. No queue owns it.
+
+So the 58th's defect was **specific to the crash reporter**, not a house style.
+It was the only store that had a `restore()` racing its own writes; the outbox
+got this right the first time. Worth recording, because the natural reading of
+"one store lost data this way" is "the pattern is everywhere", and sweeping it
+is the only way to know it is not.
+
+### Lead 3 — SHIPPED. The `_jdn` trap is no longer comment-defended
+
+`test/calendar_day_month_lengths_test.dart` (+198, **8 tests**).
+
+The header already warned that `y*372 + m*31 + d` is a trap and that `==` on it
+must never be used. A warning is not a guard, and the twelve assertions that
+touched `calendarDaysBetween` were **all named dates** — a named-date test
+passes against a wrong formula whenever the formula happens to be right on that
+one date. A second packing defect would have shipped green.
+
+The file states the property instead of the examples:
+
+- a whole leap year walked **day by day** (366 consecutive pairs, with an
+  assertion that the walk really was 366, so it cannot quietly test less than
+  it claims);
+- **every month boundary in twelve consecutive years** (2023–2034, both the
+  forward span and its exact negative, plus each month's own length);
+- a symmetric 400-pair sweep in both directions;
+- the named regression the header cites: 27 Sep -> 1 Oct is **4**, and one day
+  earlier is 5.
+
+The oracle shares **no term** with the Julian Day Number — `DateTime.utc(...).
+difference(...).inDays`, exact because UTC has no DST to truncate against.
+Checked in Python before writing a line of Dart: `_jdn` is `toOrdinal +
+1721425` for every date in years 1–9998, one constant offset, so differences
+are exact and the oracle is a real second path rather than a restatement.
+
+**Two negative controls**, and they are why the guards mean anything: the old
+packing is re-derived in the test (`_packed`) and asserted to **disagree** — 5
+for the September span where the calendar says 4, and a flat 31 for every month
+advance. A test file that only proves the current code right cannot tell a
+correct formula from a lucky one.
+
+**Verified by mutation, not by assertion.** Reverting `_jdn` to the old
+packing: **5 of the 6 property tests go red** —
+
+```
+00:00 +0 -1: a whole leap year, day by day, matches the oracle [E]
+  Expected: <1>
+    Actual: <3>            <- Feb 28 -> Mar 1
+00:00 +0 -2: every month boundary in twelve consecutive years is exact [E]
+  Expected: <1>
+    Actual: <4>
+00:00 +0 -3: the September-to-October span the header names is four days [E]
+  Expected: <4>
+    Actual: <5>
+00:00 +0 -4: spans across a leap day count the leap day [E]
+  Expected: <2>
+    Actual: <4>
+00:00 +0 -5: a symmetric sweep agrees with the oracle in both directions [E]
+```
+
+Note which one stayed green: "the clock on either end does not move the count".
+Correct — a clock test cannot see a wrong month length. Recorded because it is
+the one that would make a future reader over-trust the file.
+
+Restored to the shipped formula, `git diff lib/` empty, re-analyzed clean.
+
+**No production change.** Nothing user-visible: this pins behaviour that was
+already correct and only a comment defended.
+
+### Evidence
+
+- `flutter analyze` -> `No issues found! (ran in 10.2s)`; re-run after the
+  restore -> `No issues found! (ran in 8.6s)`.
+- `calendar_day_month_lengths_test.dart` -> **8 green**.
+- day-count shard (`calendar_day_month_lengths` + `notification_center` +
+  `plan_expiry_dst` + `layering`) -> **43 green, 0 red, 5 skipped**. The 5
+  skips are the pre-existing DST group that needs `TZ=Europe/Paris`, unchanged
+  by this tick.
+- **Commits.** Local `97f2796`; remote `c440f14`
+  (`tool/remote_state.py` -> `IN SYNC`, both blobs `MATCH`).
+
+**The full gate still did not run.** `python3 tool/run_tests.py` is ~40 min
+against a 10-minute tick and the call timed out at 420 s on the 58th. The shard
+above is the whole `calendarDaysBetween` consumer set; the other ~256 files are
+unverified this tick, so the count-vs-previous-count clause of step 4 is
+**unproven, not passed**.
+
+**A protocol bug, found and worked around — worth a line in the table.** Step 6
+of the Loop protocol says to run `gh_push.py` from `/home/hatch/workspace/repos`,
+and the table in that file records that directory as the helper's home. Run
+from there it **refuses**:
+
+```
+git ls-files returned nothing for . - refusing to guess. The tree is
+deleted, or not a git checkout.
+```
+
+The helper resolves paths against **its own cwd**, so it has to be invoked from
+inside the repo, not from its own directory. It exits **0** while refusing, so
+this is the second push helper trap here after the empty-upload-set one. The
+protocol's recipe is wrong as written; this tick used the working form. Fixing
+the text is a documentation tick of its own.
+
+### Leads for the next tick
+
+1. **The full suite, and the schedule decision with it. Now on its FIFTH
+   unanswered tick, and it is the only thing on this list.** (a) 30m period for
+   full-gate ticks, or (b) 10m with analyzer + touched shards, one full suite a
+   day. Every other lead has been code; this one is waiting on the founder and
+   no amount of app work will clear it.
+2. **Fix the push recipe in the Loop protocol table** (above) — one line, but it
+   is a command in the protocol that dies on arrival, which is exactly how this
+   file lost two ticks on 26 Sep.
+3. **Sweep by *oracle*, not by shape, is the transferable lesson.** Both of the
+   last two shipped bugs were caught by a *second path to the same answer* — a
+   read that must not race a write, and a day count that must not assume a
+   31-day month. The negative control is what tells a guard from a decoration.
+   The next store, the next date arithmetic: look for a comment defending a
+   property, and write the thing that would disagree.
