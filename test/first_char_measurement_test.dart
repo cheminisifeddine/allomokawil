@@ -722,6 +722,23 @@ void main() {
     // every case that follows.
     List<String> candidates = const <String>[];
 
+    // **Hoisted out of `setUpAll` on the 70th tick, because the file was
+    // building this collection TWICE and claiming in a comment that it did
+    // not.** The comment under the probe case read "resolves a real file
+    // through the same `AnalysisContextCollection` the `lib/` walk uses" --
+    // and the line under it constructed a second, cold one. The claim was
+    // the intent, the code was the opposite, and nothing noticed because a
+    // comment is not checked.
+    //
+    // So the collection is group state now, and [_probeResolvedThrough]
+    // records which instance actually resolved the planted probe, which is
+    // what makes "the same one" an assertion instead of a sentence.
+    AnalysisContextCollection? walkCollection;
+
+    /// The collection the planted probe was resolved through, for the case
+    /// that holds the probe and the walk to the same instance.
+    Object? probeResolvedThrough;
+
     setUpAll(() async {
       candidates = _candidateFiles();
       // Non-empty, or the walk below is vacuous against a tree never read —
@@ -735,6 +752,7 @@ void main() {
         includedPaths: [Directory.current.absolute.path],
         sdkPath: _dartSdkPath(),
       );
+      walkCollection = collection;
       for (final path in candidates) {
         final file = File(path);
         final abs = file.absolute.path;
@@ -858,13 +876,51 @@ void main() {
     test('the resolved shape is caught in a real resolved walk', () async {
       // `codeUnitAt(0)` cannot be proved by a parsed probe: `_isString` reads
       // `staticType`, and an unresolved receiver has none. So this case
-      // resolves a real file through the same `AnalysisContextCollection` the
-      // `lib/` walk uses, with the probe planted in `lib/` for the duration --
-      // planted and reverted inside the case, never committed, because a probe
-      // shipped in the tree would be a site the allow-list has to excuse.
+      // resolves a real file through **the** `AnalysisContextCollection` the
+      // `lib/` walk uses -- `walkCollection`, the instance `setUpAll` built,
+      // which this case now holds to by identity rather than by a comment
+      // saying so. The probe is planted in `lib/` for the duration and
+      // reverted inside the case, never committed, because a probe shipped in
+      // the tree would be a site the allow-list has to excuse.
       //
       // Written this way because the alternative -- asserting the branch by
       // reading it -- is the failure this whole file keeps re-learning.
+      //
+      // **Measured on the 70th tick, and the cost was not what the backlog
+      // said it was.** The open lead was the `includedPaths` root -- it
+      // resolves the whole 404-file repo to measure 12 files under `lib/` --
+      // so that was the first thing measured. Three roots, same 12 files,
+      // same 8 sites, zero unresolved errors each:
+      //
+      // ```text
+      // repo root (404 files) : 13.4 s      lib root (137 files) : 13.2 s
+      // the 12 candidates     : 12.5 s      <- narrowest, and no cheaper
+      // ```
+      //
+      // The first run of that table read 27.5 / 17.2 / 12.5 and looked like a
+      // clean win for narrowing the root. It was an artefact of ORDER: the
+      // first collection built in a process pays for the SDK context, and
+      // re-running the sequence with the narrowest variant FIRST put all
+      // three at ~13 s. **The root is not the cost.** A lead that would have
+      // shipped a behavioural change to a type-resolving guard on the strength
+      // of a warm second run -- and would have bought nothing -- is recorded
+      // as measured DEAD rather than implemented.
+      //
+      // What IS the cost is the line this case actually ran: a second, cold
+      // `AnalysisContextCollection`, built because the comment above claimed
+      // a shared one that did not exist. Same probe file, same visitor:
+      //
+      // ```text
+      // second cold collection : 1155 ms      shared collection : 6 ms
+      // ```
+      //
+      // 193x, for a file already resolved. Both returned
+      // `codeUnitAt(0) on s`, so this was never a correctness bug -- it was
+      // the 42 s the 67th and 68th measured and could not explain.
+      expect(walkCollection, isNotNull,
+          reason: 'the probe case needs the collection setUpAll built, and it '
+              'is null -- so the probe below would have to build its own and '
+              'the "same collection" claim would be prose again.');
       final probe = File('lib/src/core/text/_first_char_probe.dart');
       expect(probe.existsSync(), isFalse,
           reason: 'a planted probe was left behind in lib/; it would ship as '
@@ -874,15 +930,17 @@ void main() {
 String probeCodeUnit(String s) => s.codeUnitAt(0).toString();
 ''');
       try {
-        final collection = AnalysisContextCollection(
-          includedPaths: [Directory.current.absolute.path],
-          sdkPath: _dartSdkPath(),
-        );
+        final collection = walkCollection!;
         final abs = probe.absolute.path;
         final SomeResolvedUnitResult result = await collection
             .contextFor(abs)
             .currentSession
             .getResolvedUnit(abs);
+        // The identity, asserted: the comment above claims this case rides the
+        // walk's collection, and this is the only thing that makes the claim
+        // true or false. Without it, restoring a second `AnalysisContextCollection`
+        // here costs ~1.2 s per run and every case above stays green.
+        probeResolvedThrough = collection;
         expect(result, isA<ResolvedUnitResult>(),
             reason: 'the planted probe could not be resolved, so this case '
                 'would be asserting the shape half of a branch it never ran.');
@@ -898,6 +956,30 @@ String probeCodeUnit(String s) => s.codeUnitAt(0).toString();
       } finally {
         if (probe.existsSync()) probe.deleteSync();
       }
+    });
+
+    test('the probe rides the walk\'s collection, not its own', () {
+      // **The 70th tick's actual fix, asserted.** The probe case above used to
+      // construct its own cold `AnalysisContextCollection` while its comment
+      // said it shared the walk's. It is now the walk's instance, and this is
+      // what keeps it that way.
+      //
+      // Ordering note, because it decides whether this case can fail: this
+      // group runs its cases in declaration order and the probe case is
+      // declared immediately above, so `probeResolvedThrough` is set by the
+      // time this reads it. If someone reorders the two, the `isNotNull` arm
+      // goes red and names the cause instead of the probe case passing on a
+      // collection nobody set.
+      expect(probeResolvedThrough, isNotNull,
+          reason: 'the probe case did not record the collection it resolved '
+              'through. Either it failed above, or the cases were reordered so '
+              'this runs first.');
+      expect(identical(probeResolvedThrough, walkCollection), isTrue,
+          reason: 'the probe was resolved through a DIFFERENT collection than '
+              'the lib/ walk uses, so "the same AnalysisContextCollection" is '
+              'a comment and not a fact again. A second cold collection costs '
+              '~1.2 s per run -- measured 1155 ms against 6 ms for the warm '
+              'one -- and the cost is invisible to every other case here.');
     });
 
     test('every excuse names a fold, and every fold an excuse names', () {

@@ -22657,3 +22657,89 @@ open lead is the one the 68th left: the `AnalysisContextCollection` scope in
 `test/first_char_measurement_test.dart`, whose `setUpAll` burns 42 s resolving
 10 of 131 `lib/` files against a 403-file repo root. Still needs a tick with
 room to re-validate the guard.
+
+## Tick 5 Oct 2026 (70th) — the 42 s was not the analysis root, and the comment that cost it
+
+**Item (commit below):** lead carried from the 68th — narrow the `AnalysisContextCollection`
+scope in `test/first_char_measurement_test.dart` (its `setUpAll` "burns 42 s
+resolving 10 of 131 `lib/` files against a 403-file root"). SHIPPED, as a
+**measured-DEAD lead plus the real defect underneath it** — 1 Dart test file,
++1 case, **0 `lib/` files touched**.
+
+**The lead is falsified, and it is worth recording why it looked true.** I
+measured all three roots over the same candidate set, asserting the *measured
+site set* rather than just "it resolved", because `ResolvedUnitResult` is not
+proof -- a file whose `package:` imports failed to resolve still returns one,
+with `staticType == null`, which would make the visitor record zero sites and
+every case below go green on nothing. Same 12 files, same **8 sites**,
+**0 non-unused errors**, under each:
+
+```text
+repo root (404 files) : 13.4 s      lib root (137 files) : 13.2 s
+the 12 candidates     : 12.5 s      <- narrowest, and no cheaper
+```
+
+My first pass at that table read **27.5 / 17.2 / 12.5 s** and looked like a
+clean 15 s win for narrowing the root -- it would have shipped a behavioural
+change to the one guard in this repo that decides `String` from `List`, on the
+strength of the number. **It was an ordering artefact.** The first collection
+built in a process pays for the SDK context; re-running the sequence with the
+narrowest variant **first** put all three at ~13 s. The root is not the cost.
+
+So narrowing the root would have bought nothing *and* risked resolution. Both
+facts are recorded at the call site so the next tick does not re-measure it.
+
+**What actually cost the 42 s** is one line, and it was a comment lying:
+
+```dart
+// resolves a real file through the same `AnalysisContextCollection` the
+// `lib/` walk uses
+final collection = AnalysisContextCollection(...);   // <- a SECOND, cold one
+```
+
+The probe case said it shared the walk's collection and constructed its own.
+Same probe file, same visitor, measured on the box:
+
+```text
+second cold collection : 1155 ms      the walk's collection : 6 ms
+```
+
+**193x**, for a file the walk had already resolved. That is the 67th's and
+68th's unexplained 42 s, and it was never the root.
+
+**Fixed** (`test/first_char_measurement_test.dart`): the collection is hoisted
+to group state (`walkCollection`), the probe case rides **that** instance, and
+a new case -- `the probe rides the walk's collection, not its own` -- asserts
+`identical(probeResolvedThrough, walkCollection)`. The identity is the claim,
+so it is checked rather than written down. File-level cost **51 s -> 43 s**
+wall on this box, and the ~1.2 s is back on any future addition to the file.
+
+**Evidence**
+- **Green -> red -> green, with the control being the exact regression.**
+  Fixed: **15/15**, exit 0. Control (second cold collection restored):
+  **+4 -1**, and the failure is the diagnosis, not a count --
+  `Expected: true / Actual: <false>` on `identical(...)`, naming "the probe was
+  resolved through a DIFFERENT collection". Restored, 15/15 again.
+- `flutter analyze` -> **No issues found!** (9.5s), twice.
+- `python3 tool/run_tests.py` -> **12/12 shards PASS**, 0 failures.
+- **0 `lib/` files touched.** Nothing user-visible changed, so there is no
+  screenshot: this is suite cost, not pixels, and asserting a layout here would
+  be inventing evidence.
+
+**Two corrections to my own work, both recorded because each nearly shipped.**
+(1) The probe I wrote first did not compile -- `SomeErrorsResult` has no
+`errors` getter in analyzer 14.4.0 (it is on `AnalysisResultWithDiagnostics`,
+which `ErrorsResult` implements), and the AST types need
+`package:analyzer/dart/ast/ast.dart`, which the first version imported from
+the wrong path. A measurement that does not run is not a measurement. (2) The
+root-ordering artefact above, which is the reason this tick's headline is a
+falsification rather than the 15 s win the first table appeared to promise.
+
+**Still yours, unchanged:** (1) may a tick reap a `flutter_tester` older than
+30 min? (2) Schedule, sixteenth tick -- recommend **(b)** 10 m period, analyzer
++ touched shards, one full suite daily; a full suite is 12 shards and did not
+fit comfortably inside one tick again.
+
+**Next item:** nothing unchecked (243/243 + this entry). Next lead is the
+suite's own 12-shard wall time, which is the schedule question above and is
+founder-gated.
