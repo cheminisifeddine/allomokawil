@@ -21032,3 +21032,117 @@ it rather than half-report.
    in a way the per-shard cap does not reap, the outer bound is the only thing
    left and it is now very far out. Worth a decision (and a measurement of
    what a reaped-but-not-quit shard actually costs) rather than another tick.
+
+---
+
+## Tick 5 Oct 2026 (57th) — the differential-timezone census, run: two files
+## were asserting the box's timezone, not the app's
+
+**Item:** lead 2 from the 55th, re-stated as "next item" by the 56th — the
+**differential-timezone run** (`TZ=UTC` vs `TZ=Asia/Tokyo`, diff the result).
+**Shipped.** Backlog stays at **zero unchecked**; no new item opened.
+
+**The census, and the cheap version of it.** The 55th priced this at *two full
+runs* of the whole suite — 2 x 16 minutes on a box that cannot hold one run and
+a 10-minute cron. **It does not need to be two full runs.** A file can only
+disagree across zones if it holds *both* sides of the comparison, so the
+candidate set is a grep, and the grep is 15 files, not 271:
+
+```
+for f in test/*.dart; do
+  grep -q "toUtc()" "$f" && grep -qE "DateTime\.now\(\)" "$f" && echo "$f"
+done
+```
+
+Those 15 run in **1:13** under `--shard-size 0` — one-eighth of the whole
+suite, and it fits a tick. The grep does not *replace* the two runs (it can
+miss a file that gets its zone from an argument rather than a literal, which is
+why the two full runs stay the backstop), it makes the census affordable
+enough to actually run.
+
+**Result: 2 of 15 disagree.**
+
+| zone | result |
+| --- | --- |
+| `TZ=UTC` | **121 green** |
+| `TZ=Asia/Tokyo` (before) | 119 green, **2 red** |
+| `TZ=Asia/Tokyo` (after) | **121 green** |
+
+Both reds were **test** bugs. No `lib/` file changed in this commit, and the
+assertions the screen actually makes are untouched.
+
+### 1. `review_date_and_order_test.dart` — the fixture measured the machine
+
+The old row was stamped `10:00:00` against a `21:00` **UTC** clock, and
+`calendarDaysBetween` counts **local** midnights — deliberately, so DST cannot
+floor the count. So the span is 10 local days in UTC and **11** in any zone
+east of roughly `11:00 UTC`:
+
+    Expected: ['قبل 36 دقيقة', 'قبل 10 أيام']
+      Actual: ['قبل 36 دقيقة', 'قبل 11 يوم']
+
+The screen was right and the fixture was wrong, which is the same verdict the
+54th reached on the other two clock fixtures and for the same reason. Fixed by
+moving the stamp to `21:00:00` — **same time of day as the clock** — so every
+offset shifts both instants equally and the span is 10 calendar days in every
+zone. The literal stays written out: deriving the expectation from the function
+under test would make it circular, and `arabic_agreement_test.dart` owns the
+grammar.
+
+### 2. `subscription_clock_test.dart` — a test that describes the host
+
+Its meta-test asserted `DateTime.now().timeZoneOffset.inMinutes == 0`. That is
+a claim about **the machine**, not about the code:
+
+    Expected: <0>
+      Actual: <540>          # Asia/Tokyo
+
+The whole group went red for no reason other than the box being in Tokyo, and
+**every real probe in the group was still green** — the probes run in a
+subprocess with their own `TZ`, so the drift cases they cover were never at
+risk. A test that describes the host fails on a laptop in Dubai, on a CI runner
+outside UTC, and in every screenshot device that is not set to UTC.
+
+The premise is now asserted the way it is *actually* true, which holds anywhere:
+the `Africa/Algiers` probe's offset **differs from this process's**, and equals
+`60`. If a future box did sit at UTC+1, the assertion tells you the subprocess
+probes can be replaced by in-process tests *before* someone deletes them
+without knowing.
+
+**Evidence, this tick's own runs**
+- `flutter analyze` -> `No issues found! (ran in 5.7s)`.
+- 15-file subset: `TZ=UTC` **121 green**, `TZ=Asia/Tokyo` **121 green** (was
+  `119 + 2 red`).
+- **Negative control, both fixes, in this shell:** re-introducing only the old
+  `10:00:00` stamp prints `Actual: ['قبل 36 دقيقة', 'قبل 11 يوم']`;
+  re-introducing only `expect(inProcess, 0)` prints `Expected: <0> Actual: <540>`.
+  Both fail on the original number, not on a missing attribute.
+- Files: `test/review_date_and_order_test.dart` (+17/-1),
+  `test/subscription_clock_test.dart` (+36/-7). **No `lib/` change.**
+
+**Commits.** Local `c473df6`; remote `84f2767` (`tool/remote_state.py` ->
+  `IN SYNC`, both blobs `MATCH`).
+
+**Still open for the founder — schedule, not code.** The gate is ~40 min for a
+full run and cron fires every 10, so full-gate ticks still guarantee overlap.
+**(a)** 30m period for full-gate ticks, or **(b)** 10m with analyzer + touched
+shards, one full suite a day. Still unanswered across three ticks; this tick's
+work fits either way because it never needed the whole suite.
+
+**Next in backlog: none — zero unchecked boxes.** Leads for the next tick:
+
+1. **The other 256 files have never been run under a second `TZ`.** The grep
+   narrowed the *candidates* to 15 and all 15 are now clean, but a file can get
+   its zone from a helper argument or a fixture constant and never mention
+   `DateTime.now()` itself. The full two-run backstop is still unrun and is a
+   genuine **~32 min** job — which is exactly case **(a)/(b)** above. Do not
+   start it inside a 10-minute tick; it needs the schedule decision first.
+2. **`crash_reporter.dart:147`** and `customer_home_screen.dart:331` /
+   `worker_home_screen.dart:142` carry the same `catchError`-on-a-serialised-
+   write shape `_forgetQuietly` had, and chat's fix is now the reference
+   implementation. Worth one test that fails a *read* inside a `then` and
+   asserts the chain did not throw, rather than three more readings.
+3. The `_jdn` packing trap in `calendar_day.dart` is defended by comment only —
+   a 12-month property test (`calendarDaysBetween` == `y*372+m*31+d` must
+   **never** be used; the real guard is that every month's length is honoured)
+   would pin it cheaper than the comment does.
