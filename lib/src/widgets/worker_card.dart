@@ -102,6 +102,28 @@ class WorkerCard extends StatelessWidget {
             Text(years,
                 style: AppTheme.caption.copyWith(fontSize: AppTheme.fsBadge)),
           ],
+          // Same answer as the row variant, on the other customer-facing
+          // surface. The strip is a fixed 168 dp column, so this is the plain
+          // line the years line uses rather than a pill: a Wrap at that width
+          // would wrap a second time and push the card out of its 168 dp.
+          if (availabilityAr(worker.isAvailable) case final a?) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                const Icon(Icons.pause_circle_filled_rounded,
+                    size: 12, color: AppTheme.textSecondary),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(a,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.caption.copyWith(
+                          fontSize: AppTheme.fsBadge,
+                          color: AppTheme.textSecondary)),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -115,6 +137,11 @@ class WorkerCard extends StatelessWidget {
     // whether he has a price.
     final hasYearsToPrint = experienceYearsAr(worker.experienceYears) != null;
     final hasPriceToPrint = hasPriceRange(worker.priceRangeMin, worker.priceRangeMax);
+    // Sixth answer read once, same reason as the two above: the gate and the
+    // tag it wraps must not be able to disagree about whether this contractor
+    // is taking work. Before this tick the field had no reader on this card at
+    // all, so a contractor who paused drew exactly like one who did not.
+    final availability = availabilityAr(worker.isAvailable);
     return _Pressable(
       onTap: onTap,
       child: Row(
@@ -202,12 +229,18 @@ class WorkerCard extends StatelessWidget {
                 // printed rather than off the raw column, so the row cannot be
                 // dropped around a tag that exists (the empty-Wrap defect) nor
                 // built around a tag that does not.
-                if (hasYearsToPrint || hasPriceToPrint) ...[
+                if (hasYearsToPrint || hasPriceToPrint || availability != null) ...[
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 6,
                     runSpacing: 6,
                     children: [
+                      if (availability != null)
+                        _MiniTag(
+                          icon: Icons.pause_circle_filled_rounded,
+                          text: availability,
+                          tone: AppTheme.textSecondary,
+                          wash: AppTheme.lineSoft),
                       if (experienceYearsAr(worker.experienceYears)
                           case final years?)
                         _MiniTag(
@@ -293,24 +326,38 @@ class _Avatar extends StatelessWidget {
 class _MiniTag extends StatelessWidget {
   final IconData icon;
   final String text;
-  const _MiniTag({required this.icon, required this.text});
+
+  /// The two tokens this tag draws with, so a caller that needs to state the
+  /// opposite of the default does not hand-roll a second recipe here. The
+  /// defaults are the original neutral pair, byte for byte: every tag that
+  /// existed before this tick still renders the same colour.
+  final Color? tone;
+  final Color? wash;
+
+  const _MiniTag({
+    required this.icon,
+    required this.text,
+    this.tone,
+    this.wash,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final color = tone ?? AppTheme.textSecondary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
-        color: AppTheme.lineSoft,
+        color: wash ?? AppTheme.lineSoft,
         borderRadius: BorderRadius.circular(AppTheme.rPill),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 13, color: AppTheme.textSecondary),
+          Icon(icon, size: 13, color: color),
           const SizedBox(width: 4),
           Text(text,
               style: AppTheme.caption.copyWith(
-                  fontSize: AppTheme.fsBadge, color: AppTheme.textSecondary)),
+                  fontSize: AppTheme.fsBadge, color: color)),
         ],
       ),
     );

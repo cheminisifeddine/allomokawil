@@ -144,3 +144,56 @@ String? responseTimeAr(int? hours) {
   if (hours <= 0) return 'أقل من ساعة';
   return arabicCounted(hours, 'ساعة', two: 'ساعتين', few: 'ساعات');
 }
+
+/// «متاح الآن» / «غير متاح الآن» — whether this contractor is taking work.
+///
+/// **The sixth number-to-word gap, and the first of the six that is a
+/// decision rather than a measurement.** The first five live above and all of
+/// them exist because the app was printing something the server had not said:
+/// a zero radius, a zero reply time, a zero star score. This one is the
+/// mirror image, and it is worse than the other five, because **the customer
+/// path never asked the question at all**.
+///
+/// `is_available` is a column the worker sets on his own profile — the switch
+/// on `profile_edit_screen.dart` writes it through `updateMyProfile`. It is a
+/// man saying "I am not taking work right now". Until this tick it was drawn
+/// in exactly one place, `_availabilityPill` in `worker_home_screen.dart:1581`,
+/// which is **the worker's own home screen**: the man who paused sees a grey
+/// «غير متاح» on his own dashboard, and no customer ever does.
+///
+/// Measured live on 5 Oct 2026, not inferred: `GET /api/mobile/workers/search`
+/// returned **97 rows, exactly one with `is_available: 0`** — id 73, a real
+/// September signup — and the API **serves it in browse**. Nothing between the
+/// payload and the card filters it: `isAvailable` appears in no file under
+/// `lib/src/screens/browse/` or `lib/src/screens/customer/`, and the only
+/// reader of the field outside the worker-facing screens is the model. So on
+/// the one row in the market that is genuinely paused, the customer-facing
+/// card drew the same verified avatar, the same stars and the same tap target
+/// as a man who is taking work today. He could message it, and quote it, and
+/// wait on a reply that its owner has already said will not come.
+///
+/// That is not a styling omission. Every other state that changes what a
+/// customer may *do* with a row is drawn: the verified tick, the price, the
+/// radius, the reply speed. Availability is the only one of them that is
+/// invisible on the surface where the decision is actually made.
+///
+/// Why the tag and not the filter — the two are not interchangeable, and this
+/// is a deliberate limit, not an omission. **The server does not filter, so
+/// the app must draw rather than hide.** Dropping paused contractors from the
+/// list would be inventing a market the payload does not describe: browse
+/// results are what the API returned, and a customer searching «plombier»
+/// for a contractor who is busy until March deserves to see him *and* to know
+/// he is busy. The 96 other rows are all available, so the tag is invisible on
+/// the overwhelming majority of the market — it costs nothing where it is not
+/// true and it is the whole answer where it is.
+///
+/// One deliberate omission of the badge, and it is the same rule the card
+/// already follows for the score: **an available contractor gets no tag.** The
+/// default is `is_available = 1` on every row that has never been touched
+/// (96 of 97 rows live), so printing «متاح الآن» everywhere would be a wall of
+/// green chips that says nothing. The card already made this exact call for
+/// stars — a score of 0 is not a rating, and the row is dropped rather than
+/// printed — and availability takes the same shape: only the **unusual**
+/// state earns ink. «غير متاح» is worth a customer's attention precisely
+/// because it is the one answer that is not true of everybody else.
+String? availabilityAr(bool isAvailable) => isAvailable ? null : 'غير متاح الآن';

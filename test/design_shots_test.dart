@@ -216,6 +216,12 @@ ApiClient _fakeApi({
   /// screen has more than one real state (fresh / filed / half-accepted /
   /// verified) and each one is a different screen, so a shot needs to choose.
   Map<String, Object?>? profile,
+
+  /// The rows `/workers/search` and `/workers/top` return. The directory and
+  /// the top-rated strip are two different surfaces reading the same list, and
+  /// a shot that only ever sees one available contractor cannot tell whether
+  /// the *other* state is drawn at all.
+  List<Map<String, Object?>>? searchRows,
 }) =>
     ApiClient(
       baseUrls: ['https://x.test'],
@@ -250,8 +256,9 @@ ApiClient _fakeApi({
         if (p.endsWith('/projects') || p.contains('/my/projects')) {
           return _json([_project]);
         }
-        if (p.contains('/workers/search')) return _json([_worker]);
-        if (p.contains('/workers/top')) return _json([_worker]);
+        if (p.contains('/workers/search') || p.contains('/workers/top')) {
+          return _json(searchRows ?? [_worker]);
+        }
         if (p.contains('/workers/')) return _json(_worker);
         if (p.contains('/workers')) return _json([_worker]);
         if (p.contains('/conversations')) return _json([_conversation]);
@@ -662,6 +669,51 @@ void main() {
   testWidgets('shots: browse + chat + misc', (tester) async {
     final s = await boot();
     await _shoot(tester, '10_browse', const BrowseScreen(), s.api, s.auth);
+    // The same directory with one contractor who paused. `is_available` is a
+    // column the worker sets on his own profile, and until this tick the only
+    // widget that drew it was on *his own* home screen — so on the surface a
+    // customer picks a tradesman from, a paused man was indistinguishable
+    // from one taking work. Live on 5 Oct this was 1 row in 97. This shot is
+    // the evidence that the row now says so, and that the 1 available row
+    // beside it prints no tag at all.
+    await _shoot(
+        tester,
+        '21_browse_paused_contractor',
+        const BrowseScreen(),
+        _fakeApi(searchRows: [
+          _worker,
+          {
+            ..._worker,
+            'id': 73,
+            'full_name': 'جبير بن قويدر',
+            'is_available': 0,
+            'user_wilaya': '09',
+            'bio': null,
+          },
+        ]),
+        s.auth);
+    // The control for the shot above: the same two rows, byte for byte, with
+    // the second one available. Diffing this against `21_browse_paused_...`
+    // is what turns "a tag is somewhere in the picture" into "the only pixels
+    // this tick adds are the tag and the row it pushed down", and it is the
+    // half that proves the other row stayed clean — a pill that appeared on
+    // *both* cards would look identical in the shot above and be a bug.
+    await _shoot(
+        tester,
+        '22_browse_two_available',
+        const BrowseScreen(),
+        _fakeApi(searchRows: [
+          _worker,
+          {
+            ..._worker,
+            'id': 73,
+            'full_name': 'جبير بن قويدر',
+            'is_available': 1,
+            'user_wilaya': '09',
+            'bio': null,
+          },
+        ]),
+        s.auth);
     await _shoot(tester, '11_chat_list',
         ChatListScreen(repo: Repository(s.api)), s.api, s.auth);
     await _shoot(
