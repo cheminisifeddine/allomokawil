@@ -22982,3 +22982,133 @@ null`. **Both are already safe**, so neither is a lead. The real next lead is a
 JSON into the repo by hand (dated 11 Sep), so nothing notices a column the
 Worker renames until a user does. A fetch-and-parse test would catch that
 before release, and is the one piece of this family still missing.
+
+## Tick 5 Oct 2026 (72nd) — the copied wire was never fetched, so a rename on
+## the Worker was invisible to every check in the tree
+
+- [x] **`live_payload_models_test.dart` hand-copies its JSON, and nothing ever
+      fetched a payload and parsed it — so a renamed column reached the browse
+      card, where the failure is a missing contractor, not a crash.**
+      `live_wire_contract_test.dart` (22 cases). `dd8d4b4` -> remote `ee8d3f7`.
+
+      The 71st left this as the named next lead. Taken, and it is the whole
+      remaining hole in the "unowned answer" family this loop has been
+      working for three weeks.
+
+**Why both existing checks miss it.** `live_payload_models_test.dart` copies
+its JSON by hand and the copies are dated **11 Sep**. `payload_coverage_test.dart`
+compares `lib/` against **its own** captured key list, so a rename on the Worker
+moves both sides of its own comparison out of date together and the census reads
+green. The two files look like they cover each other and neither can see a
+column the server changed — the one defect this family has produced nine times
+(`quote_limit`, `portfolio_limit`, `search_boost`, `wilaya_span`, `auto_renew`,
+`renew_note_ar`, `worker_avatar_url`, `worker_verification_status`,
+`amount_paid`).
+
+**Not tagged `live`, deliberately.** The three `live_*_e2e_test.dart` files
+are skipped by the default gate because a run of each registers real accounts
+on production, uploads into R2 and posts reviews — by 13 Sep the feed a real
+client browsed held ~30 junk contractors with no route to remove them. Every
+line here is a GET, so it creates nothing and it runs on **every** gate. A
+contract checked only on demand is a contract nobody checks.
+
+**Driven through `Repository`, with the routes read out of the run.** A bare
+`http` call would grade the wire against nothing the app actually asks for.
+The route half was got wrong first and the repo's own census caught it: the
+first version read `data/repository.dart` and grepped for the literal, and
+`app_source_scope_test.dart` refused it — **a test that reads another file's
+source text is a source sweep, it must declare a root, and it was declaring
+one it never walked.** The census was right, and the grep was the weaker
+instrument anyway: a route string can sit in the source while nothing calls it.
+So the routes come from `_Recorder`, a `http.BaseClient` that records what was
+actually sent. Measured on the run: `/api/mobile/workers/search?q=a`,
+`/api/mobile/workers/top?limit=20`, `/api/mobile/projects?page=1`,
+`/api/mobile/plans` — failover to the second host de-duplicated, because a
+retry is one route twice.
+
+**The zip is the part that matters, and the first draft did not have it.**
+Parsed rows alone **cannot** catch a rename, because `fromWire` folds every
+unknown value to a fallback the app HAS a name for: a parser that folded every
+column to `pending`/`open`/`flexible` sails through. So the wire string is read
+beside the parsed state and the two must name the same thing. The first draft
+compared parsed values against a hand-written list of spellings and would have
+passed a parser that was wrong in the same direction.
+
+**Falsified, not asserted green.** Three controls, each reverted after:
+ * drop `verified` from the app's names -> **7 rows named**, each with the wire
+   value and the value the app read it as;
+ * drop `completed` -> **6 postings**, both readings shown;
+ * point a zipped prefix at a route the app never issues -> the failure prints
+   every route the run really asked for.
+A file that cannot go red certifies nothing, and the first version of this one
+was green by construction.
+
+**Two more defects the gates caught in this file, both kept in its comments**
+1. **`request.url.query` is unencoded raw text.** The recorder wrote
+   `'${request.url.path}${request.url.query}'`, which produced
+   `/api/mobile/projectspage=1` — every route unrecognised, the zip empty, and
+   `setUpAll` dying on a dead `_decode` while the real fault was a string built
+   from two halves that already shared their separator.
+2. **`_rawFor` was typed `Map<String, dynamic>?`** when two of the three routes
+   answer a **list**, so every row accessor threw
+   `type 'List<dynamic>' is not a subtype of type 'Map<String, dynamic>?'` —
+   red for a reason in the declaration rather than in the wire.
+
+**One assertion of mine was wrong and was corrected, not the fix.** The zip's
+"did I actually pair a row" check compared a `List` against a `Map` and read
+0. It is now the **id** equality between wire row *i* and parsed row *i*, which
+is the stronger question anyway: the two fetches are separate requests, so a
+filter, a drop or a reorder between them shows up as a mismatch rather than as
+every row silently graded against the wrong one.
+
+**Measured against the live API, not fixtures.** All **96** worker rows and
+**20** postings fetched and parsed: no undrawable row, every id positive and
+distinct, every `user_wilaya` in the 58-entry table, every specialty slug and
+every project trade resolving to an Arabic name, every verification/status/
+urgency value named, no rating without a review behind it, no inverted budget,
+every plan id parseable, every plan priced for both periods, `note_ar` present.
+Both hosts were compared column-for-column on all four routes and **agree**.
+
+**Live defect found while measuring, not fixed this tick (recorded, not hidden).**
+3 of the 96 contractors carry `verification_status: "verified"` with
+`is_certificate_verified: 0` (ids 2, 4, 8 — 12-18 reviews, 10-32 jobs each).
+`worker.dart` documents this as the server's design (the status flips once every
+document row is approved, the flags approve one row at a time), so the app's
+reading is defensible — **but it means the green tick a customer uses to choose
+between tradesmen is currently showing on a half-verified dossier.** That is a
+product call, not a parse bug, so it is queued as the next item rather than
+silently changed here.
+
+**Evidence**
+- `flutter analyze` -> **No issues found!** (7.8 s)
+- `test/live_wire_contract_test.dart` -> **22 green**, whole file in ~5 s.
+- `python3 tool/run_tests.py` -> **12 shards, 9 green / 3 not**. Passing count on
+  the green shards **1588**, up from 1363 on the previous run **with one fewer
+  green shard** — the difference is this file plus the shard-1 census failure it
+  caused being gone.
+- **Control: the 3 red shards are not mine.** `notification_centre_clock_test`
+  (3), `stale_inbox_age_test` (1), `subscription_clock_test` (1) — all clock
+  cases, and all fail **identically with this file stashed** (control run this
+  tick). Cause is the box: `TZ=Africa/Algiers` is exported while
+  `/etc/localtime -> Etc/UTC`, so the process reads two clocks at once.
+  **A host fix, and still the only thing between this tree and 12/12.**
+- No screenshot: **nothing user-visible changed.** No `lib/` file was touched at
+  all, so claiming a layout here would be inventing evidence.
+
+**The build gate refused me once and it was right.** I launched a second
+`run_tests.py` while the first was still going; `build_gate.py` answered BUSY
+and named the two dartvm processes. Two suites on 7.8 GB with no swap is the
+OOM this loop's build-safety rule exists to prevent. Not re-launched until the
+first finished.
+
+*Commit:* local `dd8d4b4`, remote `ee8d3f7`. Trees **identical**
+(`9692c9a4`), IN SYNC, 0 strays.
+
+**Next item:** the 3 contractors whose green tick is showing on a
+half-verified dossier (ids 2, 4, 8). The question is a product one — does the
+badge require the *status* or the *two flags* — and it is the last known case of
+this family where the app draws a promise the server has not fully made. Also
+still open and still unanswered by the founder: **may a tick reap a
+`flutter_tester` older than 30 min**, and the **schedule** (recommended: 10 min
+period, analyzer + touched shards, one full suite daily — 12 shards does not fit
+a 10-min tick).
