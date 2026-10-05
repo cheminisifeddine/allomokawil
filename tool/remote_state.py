@@ -796,15 +796,45 @@ def render(info, rows, as_json, as_why, truncated, diffs, drift, blob_drift):
     """
 
     if as_json:
+        # The 68th's item. These three lists are built by `why()` alone -- with
+        # no `--why` they are the empty lists main() initialised, which are the
+        # SAME value `why()` returns for a real tree with no drift. So plain
+        # `--json` published `"index_content_drift": []` next to a live
+        # `exit 0 / IN SYNC`, and an empty list is the canonical encoding of
+        # "I looked and there is none". It is not the encoding of "I never
+        # looked". The same lie was available for `remote_truncated`.
+        #
+        # Measured on the pre-fix file, with a real staged blob drift in the
+        # index and `--json` passed WITHOUT `--why`:
+        #
+        #     in_sync  : True      index_content_drift : []
+        #     verdict  : IN SYNC   index_mode_drift    : []
+        #
+        # and `--json --why` on the same tree named it:
+        #
+        #     index_content_drift : [{'path': 'tool/remote_state.py',
+        #                             'head': 'c730970...',
+        #                             'index': 'e9b775f...'}]
+        #
+        # So the payload said the index was clean while the index was not, and
+        # every committed-tree verdict in the same document is computed blind
+        # to the index -- a consumer reading this JSON has no way to tell a
+        # clean index from an unexamined one. `null` is the honest value: JSON
+        # has a dedicated null for "absent", and an absent measurement is
+        # exactly what it is. A list here means the question was asked.
         print(json.dumps({"info": info, "files": rows,
                           "why": [{"path": p, "kind": k, "detail": d}
-                                  for p, k, d in diffs],
+                                  for p, k, d in diffs]
+                                 if as_why else None,
                           "index_mode_drift": [{"path": p, "head": h,
-                                                "index": i} for p, h, i in drift],
+                                                "index": i} for p, h, i in drift]
+                                               if as_why else None,
                           "index_content_drift": [{"path": p, "head": h,
                                                    "index": i}
-                                                  for p, h, i in blob_drift],
-                          "remote_truncated": truncated}, indent=2))
+                                                  for p, h, i in blob_drift]
+                                                  if as_why else None,
+                          "remote_truncated": truncated if as_why else None},
+                         indent=2))
         return 0 if info["in_sync"] else 1
 
     print("local  HEAD  %s" % info["local_head"])

@@ -28,6 +28,7 @@ nothing at all, which is the exact input a failed read produces.
 """
 import contextlib
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -1066,6 +1067,130 @@ def main():
     check("a healthy --files run still exits 0", healthy.returncode, 0)
     check("  ...and still prints the MATCH row", "MATCH" in healthy.stdout, True)
     check("  ...and still prints its verdict", "IN SYNC" in healthy.stdout, True)
+
+    # ---- 68th: `--json` published an UNMEASURED list as an empty one. ----
+    #
+    # `why()` is the only producer of `drift`, `blob_drift` and `truncated`,
+    # and main() only calls it under `--why`. Without that flag the json
+    # projection emitted all three as `[]` -- indistinguishable from a real
+    # measurement that found nothing, which is the 64th's INDEX-STAGED bug
+    # again, one layer up: a staged drift that `--why` names in full came out
+    # of `--json` as a clean index beside `exit 0 / IN SYNC`.
+    #
+    # Driven as real processes through main(), because the value under test is
+    # the JSON on stdout, and a unit test of a helper would not have shown it.
+    def _json_driver(mod, stub, argv):
+        # Built by substitution rather than `%` on a concatenation: the stub is
+        # spliced in the middle and `%` binds tighter than `+`, so it would
+        # format only the last literal group. That is the TypeError the first
+        # version of this helper raised on its first run.
+        head = (
+            "import sys, importlib, json\n"
+            "sys.path[:0] = [TOOLDIR, TESTDIR]\n"
+            "m = importlib.import_module(MODNAME)\n"
+            "m.classify = lambda: {'in_sync': True, 'local_head': 'h',\n"
+            "        'local_tree': 't', 'remote_tip': 'r', 'remote_tree': 't',\n"
+            "        'verdict': 'IN SYNC', 'ahead_behind': '(clean)',\n"
+            "        'uncommitted': ['staged.py']}\n"
+            "m.file_check = lambda paths: []\n"
+        )
+        head = head.replace("TOOLDIR", repr(os.path.join(ROOT, "tool")))
+        head = head.replace("TESTDIR", repr(HERE))
+        head = head.replace("MODNAME", repr(mod))
+        # `argv` is a LIST, not a joined string: `main()` reads sys.argv[1:],
+        # so "prog --json" as a single element hides the flag in argv[0] and
+        # the text path runs instead. Every flag has to be its own element.
+        return (head + stub + "sys.argv = list(%r)\n" % (list(argv),) +
+                "sys.exit(m.main())\n")
+
+    def _json_run(mod, stub, argv=("remote_state.py", "--json")):
+        path = os.path.join(tempfile.mkdtemp(), "jdrv.py")
+        with open(path, "w") as fh:
+            fh.write(_json_driver(mod, stub, argv))
+        proc = subprocess.run([sys.executable, path], capture_output=True,
+                              text=True, timeout=120)
+        if proc.returncode != 0:
+            return proc, None
+        try:
+            return proc, json.loads(proc.stdout)
+        except ValueError:
+            return proc, None
+
+    # A staged drift exists on disk in every one of these runs -- the stub is
+    # what supplies it, and it is the same drift in every arm.
+    DRIFT = ("m.why = lambda: m.WhyResult([], False, [], False, "
+             "[('staged.py', 'HEADAAA', 'INDEXBBB')])\n")
+
+    # (a) WITHOUT --why: the index was never examined, so the payload must say
+    #     so with `null` and must not claim a clean index with `[]`.
+    j_proc, j_body = _json_run("remote_state", DRIFT,
+                                ["remote_state.py", "--json"])
+    check("plain --json still exits 0 on an in-sync tree", j_proc.returncode, 0)
+    check("  ...and still emits parseable JSON", j_body is not None, True)
+    if j_body is not None:
+        check("an UNMEASURED index drift is null, not []",
+              j_body.get("index_content_drift"), None)
+        check("  ...mode drift too", j_body.get("index_mode_drift"), None)
+        check("  ...and the truncation flag, for the same reason",
+              j_body.get("remote_truncated"), None)
+        check("  ...`why` itself is null as well",
+              j_body.get("why"), None)
+        # The guard against regressing into `[]`: the empty list is the one
+        # value that reads as a completed check.
+        check("NEGATIVE: no unmeasured key is an empty LIST",
+              any(j_body.get(k) == [] for k in
+                  ("why", "index_mode_drift", "index_content_drift")), False)
+
+    # (b) WITH --why: the question WAS asked, so a real drift must survive
+    #     into the payload. A fix that nulled these unconditionally would
+    #     pass (a) and silently break the machine-readable `--why`.
+    jw_proc, jw_body = _json_run("remote_state", DRIFT,
+                                 ["remote_state.py", "--json", "--why"])
+    check("--json --why still exits 0", jw_proc.returncode, 0)
+    if jw_body is not None:
+        check("a MEASURED drift is still reported, not nulled",
+              [d["path"] for d in (jw_body.get("index_content_drift") or [])],
+              ["staged.py"])
+        check("  ...with both shas, so it is actionable",
+              [d["index"] for d in (jw_body.get("index_content_drift") or [])],
+              ["INDEXBBB"])
+        check("  ...and a clean measured list stays a list",
+              jw_body.get("index_mode_drift"), [])
+
+    # (c) NEGATIVE CONTROL against the pre-fix blob, same driver, same stubs.
+    #     The old file ships in the repo for exactly this. A re-implementation
+    #     would prove nothing, so the pre-fix module is imported directly.
+    check("the pre-fix blob travels with the test",
+          os.path.exists(os.path.join(HERE, "remote_state_pre_fix.py")), True)
+    old_proc, old_body = _json_run("remote_state_pre_fix", DRIFT,
+                                   ["remote_state_pre_fix.py", "--json"])
+    check("NEGATIVE CONTROL: pre-fix DID publish the unmeasured list",
+          (old_body or {}).get("index_content_drift"), [])
+    check("  ...beside a clean in_sync verdict, which is the whole harm",
+          (old_body or {}).get("info", {}).get("in_sync"), True)
+    #     Same tree, same drift, same flag -- and the payload is now DIFFERENT,
+    #     which is the whole point. `[]` above, the named drift below. The two
+    #     answers were previously indistinguishable; that is exactly the harm.
+    check("  ...so the SAME drift now yields a DIFFERENT payload",
+          (old_body or {}).get("index_content_drift")
+          != (jw_body or {}).get("index_content_drift"), True)
+    check("  ...the pre-fix payload was indistinguishable from a CLEAN index",
+          (old_body or {}).get("index_content_drift"), [])
+    check("  ...and it claimed a clean in_sync verdict while doing so",
+          (old_body or {}).get("info", {}).get("verdict"), "IN SYNC")
+
+    # (d) NO CRY-WOLF CONTROL. `null` must not cost the happy path: a real
+    #     verdict, the per-file rows and a parseable payload all survive.
+    ok_proc, ok_body = _json_run(
+        "remote_state",
+        "m.file_check = lambda paths: [('h.py', 'MATCH', 'disc', 'sha',\n"
+        "                               '100644', '100644', None)]\n",
+        ["remote_state.py", "--json", "--files", "h.py"])
+    check("a healthy --json --files run still exits 0", ok_proc.returncode, 0)
+    check("  ...and still returns its per-file rows",
+          [r[0] for r in (ok_body or {}).get("files", [])], ["h.py"])
+    check("  ...and still says IN SYNC",
+          (ok_body or {}).get("info", {}).get("verdict"), "IN SYNC")
 
 
     print("")
