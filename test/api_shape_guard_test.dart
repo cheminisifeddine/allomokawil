@@ -13,6 +13,7 @@ import 'package:allomokawil/src/core/l10n/strings.dart';
 import 'package:allomokawil/src/core/network/api_client.dart';
 import 'package:allomokawil/src/core/security/auth_state.dart';
 import 'package:allomokawil/src/data/repository.dart';
+import 'package:allomokawil/src/data/taxonomy.dart';
 import 'package:allomokawil/src/widgets/ui.dart';
 
 /// Every way a response can arrive in a shape the app did not ask for, and the
@@ -97,12 +98,43 @@ void main() {
       await expectLater(repo.searchWorkers(), _unexpectedArabic);
     });
 
-    test('a row whose wilaya column came back as a number', () async {
+    test('a row whose wilaya column came back as a number is a real row',
+        () async {
+      // **This assertion used to be the opposite, and it was wrong.** It read
+      // «the row's wilaya came back as `16` instead of `"16"`, therefore the
+      // feed must raise» — which was only true because `worker.dart` cast the
+      // column with `as String?`. A number is not an error; it is the same
+      // wilaya, unquoted, and JSON has no rule requiring an identifier to be a
+      // string. `project.dart` has always read its own `wilaya` through
+      // `_wireText`, which flattens a number, and that was correct there.
+      //
+      // So the two worker models disagreed about the same column in the same
+      // API, and this test pinned the one that lost the contractor. The row is
+      // now read, the chip names the wilaya the row actually stated, and the
+      // drop still happens for the case it exists for — a row with no identity
+      // to draw (the two cases either side of this one).
       final repo = Repository(_api(
           (_) async => _json([
                 {'id': 1, 'user_id': 2, 'full_name': 'م', 'user_wilaya': 16}
               ])));
-      await expectLater(repo.topWorkers(), _unexpectedArabic);
+
+      final workers = await repo.topWorkers();
+      expect(workers.map((w) => w.id), [1]);
+      expect(Taxonomy.wilayaNameOrNull(workers.single.wilaya), 'الجزائر');
+    });
+
+    test('a wilaya that is a sentence names no wilaya', () async {
+      // The drift this file's other cases guard, kept after that change: a
+      // column that stopped being a code must draw no chip, not a chip reading
+      // whatever arrived.
+      final repo = Repository(_api(
+          (_) async => _json([
+                {'id': 1, 'user_id': 2, 'full_name': 'م', 'user_wilaya': 'الجزائر'}
+              ])));
+
+      final workers = await repo.topWorkers();
+      expect(workers.map((w) => w.id), [1]);
+      expect(Taxonomy.wilayaNameOrNull(workers.single.wilaya), isNull);
     });
 
     test('a page that is an HTML portal instead of JSON', () async {

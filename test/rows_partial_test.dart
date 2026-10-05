@@ -196,15 +196,31 @@ void main() {
       await expectLater(repo.topWorkers(), throwsA(isA<ApiException>()));
       final detail = reporter.log.records.single.detail;
       expect(detail, contains('4 of 4 rows could not be read'));
-      expect(detail, contains('TypeError'),
-          reason: 'a column that came back as the wrong type is named');
+
+      // **The first cause changed, and it is the honest one.** The three rows
+      // carrying only a `full_name` used to arrive as `TypeError`, because
+      // `worker.dart` cast `json['id'] as int`. They now arrive as
+      // «unreadable row identity»: nothing threw, the row simply could not be
+      // drawn — which is what happened. A support reader is sent to look for a
+      // *cast* that no longer exists; the sentence must name the model rule
+      // that dropped the row instead. The cause list keeps both halves —
+      // 'unreadable row identity' from the three id-less rows and 'String' from
+      // the row that is not an object at all — because those are still two
+      // different columns to go and look at.
+      expect(detail, contains('unreadable row identity'),
+          reason: 'the model rule that dropped the row is named');
+      expect(detail, contains('String'),
+          reason: 'a row that is not an object at all is named too');
+      expect('unreadable row identity'.allMatches(detail).length, 1,
+          reason: 'the same cause three times is one line, not three');
+
+      // The public-name rule this case was written for still holds for every
+      // cause that *is* a type: nothing private reaches a support log.
       expect(detail, isNot(contains('_TypeError')),
           reason: "Dart's private type names must not reach a support log as "
               '`_TypeError` — a class the project has never heard of');
-      expect(detail, contains('String'),
-          reason: 'a row that is not an object at all is named too');
-      expect('TypeError'.allMatches(detail).length, 1,
-          reason: 'the same cause three times is one line, not three');
+      expect(detail, isNot(contains('_UndrawableRow')),
+          reason: 'a private sentinel type must not leak either');
     });
   });
 }

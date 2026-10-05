@@ -10,6 +10,7 @@ import '../models/project.dart';
 import '../models/quote_review.dart';
 import '../models/worker.dart';
 import 'project_trade_exact.dart';
+import '../models/row_identity.dart';
 import 'trade_exact.dart';
 import 'worker_rank.dart';
 
@@ -730,6 +731,8 @@ String _whyItFailed(Object error) {
 /// missing key. What a support reply can act on is *which shape arrived where
 /// an int was expected* — that names the line in the model to go and read, and
 /// the same value can be perfectly valid somewhere else.
+///
+/// [Type] as a support log should read it: `TypeError`, not `_TypeError`.
 String _whyRowFailed(ApiException error) {
   final cause = error.cause;
   if (cause == null) return error.message;
@@ -737,6 +740,22 @@ String _whyRowFailed(ApiException error) {
   // `TypeError`. `runtimeType` is the part of either that survives being a user
   // datum — and it is the part that points at a line of a model to go and read.
   return _publicName(cause.runtimeType);
+}
+
+/// The cause recorded for a row that parsed and is still not drawable.
+///
+/// A word and not a type, because nothing failed: the row answered, it just
+/// could not be drawn. It is what makes this line tell a support reader that
+/// the fix is in the model's identity rule rather than in a column on the
+/// Worker.
+const _undrawable = 'unreadable row identity';
+
+/// The cause for a feed whose rows all read and none of them can be drawn.
+///
+/// A private type so a support log names a *shape* («UndrawableRow»), which is
+/// what `_whyRowFailed` was written to print, and never a server value.
+class _UndrawableRow {
+  const _UndrawableRow();
 }
 
 /// [Type] as a support log should read it: `TypeError`, not `_TypeError`.
@@ -802,7 +821,21 @@ List<T> _rows<T>(
   var lost = 0;
   for (var i = 0; i < arrived.length; i++) {
     try {
-      out.add(_row(arrived[i], fromJson));
+      final row = _row(arrived[i], fromJson);
+      // **Readable, or drawable.** A tolerant parser no longer throws on a
+      // shape it did not expect, which left this loop with no way to notice a
+      // row that parsed and is still undrawable — the models made tolerant
+      // carry `RenderableRow` for exactly this, and the check is what keeps
+      // «a card whose profile link can only 404» out of the market.
+      //
+      // A model that does not declare it is renderable, so the opt-in costs a
+      // row nothing: it can only ever drop a row that says it cannot be drawn.
+      if (row is RenderableRow && !row.isRenderable) {
+        lost++;
+        if (!causes.contains(_undrawable)) causes.add(_undrawable);
+        continue;
+      }
+      out.add(row);
     } on ApiException catch (e) {
       firstFailure ??= e;
       lost++;
@@ -824,9 +857,23 @@ List<T> _rows<T>(
           '${causes.isEmpty ? '' : ' · ${causes.join(', ')}'}',
     );
   }
+  // **Nothing drawable is still a failure**, and after this change that case can
+  // arrive without any exception to re-throw: a tolerant model reads a row the
+  // app cannot draw and says so, so `firstFailure` is null while `lost` is not.
+  // The boundary is the same one the doc states — rows arrived, and none of them
+  // can be drawn, so «there is nothing here» would be a lie — and the sentence
+  // is the same one, built from the same Arabic string every other unexpected
+  // read uses.
+  //
+  // The cause is a private sentinel, not a row: a record must never print the
+  // server's value (`rows_partial_test` pins that), and there is no value here
+  // anyway — nothing failed, the rows simply could not be drawn.
   final failure = firstFailure;
   if (out.isEmpty && failure != null) {
     throw failure;
+  }
+  if (out.isEmpty && lost > 0) {
+    throw ApiException(S.errUnexpected, cause: const _UndrawableRow());
   }
   return out;
 }

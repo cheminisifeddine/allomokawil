@@ -22821,3 +22821,164 @@ comfortably in one tick.
 other half of this tick's finding: the box was at 878 MB **because a service
 this loop does not own is holding ~680 MB of it** — that is a founder call,
 not a loop one.
+
+## Tick 5 Oct 2026 (71st) — the last model that CAST instead of reading, and the seam a tolerant parser costs
+
+- [x] **A contractor whose `id` came back as a string was dropped from the
+      market — and so was any row the app could not read, silently.**
+      `worker_wire_shape_test.dart` (16 cases) + `row_identity.dart`.
+
+      `chat.dart`, `notification.dart` and `project.dart` were each taken off
+      `json['x'] as String?` — the cast that succeeds on a `String` and on
+      `null` and **throws on everything else**. `worker.dart` was left behind,
+      with **7 hard casts** (`id`, `user_id`, `full_name`, `bio`,
+      `verification_status`, both image URLs, `wilaya`, `commune`) and **11
+      `as num?`**. It is the only model in `lib/src/models/` where a column
+      shape could still raise.
+
+      **Why a throw is not survivable on this model.** `repository._rows` turns
+      a model `TypeError` into an `ApiException` and **drops the row**. A
+      dropped worker row is not a bad field — it is a contractor who does not
+      exist on the browse screen: no card, no name, no error, no empty slot. The
+      customer sees a shorter directory with no way to know the man he was
+      scrolling towards is missing. `notification.dart` calls this exact
+      failure "worse, because nothing on the screen is broken-looking; the
+      screen simply lies". A contractor directory is that same class of screen,
+      and it is the one the founder's own marketplace brief is about.
+
+      **Two of the shapes are already here, not hypothetical.**
+      * `_asInt` in `data/repository.dart` says it in its own words — "a null
+        from a LEFT JOIN, a string from SQLite". `/api/mobile/workers` is a
+        **joined** query (it carries `user_wilaya`, `commune`, `wilaya_name`
+        from the users table), so the string form is what a joined column does.
+      * a **JSON bool** where a 0/1 flag is expected. `is_available`,
+        `is_identity_verified`, `is_certificate_verified` were all
+        `(x as num?)?.toInt() == 1`, and **the app's own writer sends
+        `is_available` as a JSON bool** (`repository.dart:173`,
+        `updateMyProfile`). So the profile the app writes is read back by
+        `ProfileSnapshot` on the very next read through a parser that could not
+        read it: the save screen would have reported «تم حفظ ملفك بنجاح» over a
+        contractor who had just vanished from his own directory.
+
+      *Shipped* — `worker.dart` **reads** like its three siblings, 18 casts
+      gone: `_int` / `_nullableInt` (a numeric string is a count), `_wireText`
+      for the two **code** columns, `_text` for copy (never flattened into
+      digits), and one new rule, `_flag`, where **unreadable is false** because
+      both false readings are the safe ones — an unverified contractor is shown
+      his dossier, an unavailable one is offered, rather than a verified badge
+      nobody confirmed.
+
+      **The defect the tolerance created, and the seam that closes it.** This is
+      the part worth the tick. `rows_partial_test` pins the drop-a-row contract
+      with **throw-based fixtures**: a missing `id` "is" a `TypeError`. Once the
+      parser stopped throwing, those rows arrived as `id: 0` — which is *not* a
+      fix, it is a **real-looking card** whose only possible answer is a 404 on
+      `/api/mobile/workers/0`, and a «مراسلة» button wired to user 0. Both
+      failure modes are wrong and they are opposite, so the parser cannot be
+      asked to carry the answer alone.
+
+      Hence `models/row_identity.dart` — `RenderableRow`, one `isRenderable`
+      getter, **opt-in** so a row that implements nothing keeps exactly what its
+      own screen says. `WorkerProfile.isRenderable` is `id > 0 && userId > 0`:
+      both ids, because `id` opens the profile and `userId` is what
+      «مراسلة ${fullName}» sends to the chat screen
+      (`worker_profile_screen.dart:226`). A user id this phone has no session
+      for is **not** the test — the browse directory is full of contractors
+      nobody here is signed in as, and those rows must draw.
+
+      The all-dropped boundary moved with it: rows arrived and none drawable no
+      longer has any exception to re-throw, so `_rows` raises the **same**
+      Arabic sentence with a private `_UndrawableRow` sentinel — a type, because
+      `_whyRowFailed` is written to print a shape and `rows_partial_test` pins
+      that a raw server value never reaches the on-device log.
+
+**Two tests that pinned the old cast were wrong, and are corrected here**
+- `api_shape_guard_test`: «a row whose wilaya column came back as a number» must
+  raise. It was only true because of `as String?`. A number is not an error, it
+  is the same wilaya unquoted — and `project.dart` has always flattened its own
+  `wilaya` the same way. **The two worker models disagreed about the same column
+  in the same API, and the test pinned the one that lost the contractor.** Now:
+  the row reads, and the chip names the wilaya the row actually stated.
+  Added next to it: a `user_wilaya` that is a **sentence** still names no
+  wilaya, which is the drift the case was written for.
+- `rows_partial_test`: the record's first cause was `TypeError`, because
+  `worker.dart` cast `json['id'] as int`. A support reader would be sent to hunt
+  a cast that no longer exists, so the cause is now the model rule that dropped
+  the row — «unreadable row identity» — while the cause list keeps `String` too,
+  because those are still two different columns to go and look at.
+
+**Two defects the 71st's own gates caught, both recorded here**
+
+1. **`models/` reached up into `data/`, and the project's own rule says no.**
+   The seam was written to `data/row_identity.dart`, which `models/worker.dart`
+   then imported. `layering_test.dart` failed both of its cases naming that
+   edge, and it is right: `models/` holds pure types and may reach `core/` and
+   nothing else — the one historical violation (`plan.dart` ->
+   `data/chat_time.dart`) was resolved by moving the helper **down** into
+   `core/format/`, not by an allow-list entry. `RenderableRow` is a pure type
+   contract with **zero** imports, so it belongs beside the models that
+   implement it: it now lives at `models/row_identity.dart`, next to the
+   `plan_id.dart` that set the same-layer precedent. `data/repository.dart`
+   imports it **upward**, which is the direction that layer allows.
+2. **An untracked `lib/` file fails the whole suite, and that is the suite
+   working.** `app_source_scope_test.dart` reads `lib/` twice — on disk and
+   from `git ls-files` — and fails hard in **both** directions. The new file
+   existed on disk and was untracked, so the run failed in `setUpAll` before a
+   single assertion about the feature ran. The file is staged in this commit;
+   the lesson is that a tick which dies *between* writing a file and committing
+   it leaves a tree that is red for a reason that has nothing to do with the
+   change, and the next tick pays for it.
+
+**Evidence**
+- **Red before green, framework quoting the bug back.** 6 green / **9 red**,
+  the failures naming the casts verbatim — `type 'String' is not a subtype of
+  type 'num?'` at `worker.dart:124`, `type 'int' is not a subtype of type
+  'String?'` at `:146`. Restored the pre-fix model against the finished test to
+  confirm the control: **9 red again**.
+- **One assertion of mine was wrong and was corrected, not the fix.** The new
+  file first demanded that a numeric wilaya draw **no** chip, quoting
+  `project.dart`'s "an unreadable code must be blank and stay blank". That note
+  is about a code the app *cannot read* — and it is contradicted two lines below
+  itself, because `project.dart` reads its `wilaya` with `_wireText`, which
+  flattens a number. The test now asserts the true contract: the number is the
+  same code, **and agrees with the quoted form on the same row**, because the two
+  arrive from the same column in two different deploys.
+- `flutter analyze` -> **No issues found!**
+- Touched-shard sweep, **36 files / every test that parses a worker row**:
+  **282 green, 0 red** in four batches (`worker_wire_shape`, `rows_partial`,
+  `api_shape_guard` 39; the browse/profile/quote/bid batch 93; shots +
+  `screen_smoke` + reviews + trades 96; verification + rank + zero-score 94).
+- `python3 tool/run_tests.py` -> **12 shards, 9 green, 3 not green**, and the 3
+  are **an environment fault, not this change**. Every failing case is a clock
+  one — `notification_centre_clock_test` (3), `stale_inbox_age_test` (1),
+  `subscription_clock_test` (1) — and the cause is the box, not the code: the
+  cell was rebuilt at 16:38 today and left `TZ=Africa/Algiers` **exported**
+  while `/etc/localtime` points at **`Etc/UTC`**. A process told it is in Algiers
+  by the environment and handed UTC by the kernel reads two clocks at once,
+  which is exactly what a probe-against-injected-clock test exists to catch.
+  **Control: the same 5 cases fail on the pre-change tree** (stashed this
+  tick's three `lib/` files, ran them, same 5 names and assertions), so nothing
+  here regressed. These shards go green again once the TZ mismatch is fixed —
+  **a host fix, not a loop fix**, and the only thing between this tree and
+  12/12.
+- No screenshot: **nothing user-visible changed.** The same card draws the same
+  for every payload the live API actually sends (all 96 rows read 5 Oct), so
+  claiming a layout here would be inventing evidence.
+
+**Verified against the live API, not just against fixtures.** A throwaway
+harness parsed all **96 rows** of `/api/mobile/workers/search?q=a` through the
+shipped model: **96 parsed, 0 dropped, all `isRenderable`** — `named=96`,
+`wilayaChip=9`, `rated=17`, `history=17`. Those four numbers match the wire
+census of the same 96 rows exactly, so the parser did not gain or lose a field
+on real data. The harness was **deleted** and is not in the commit, same rule as
+the earlier shot harness.
+
+**Next item:** nothing unchecked. `lib/src/models/` now holds **no cast that can
+raise** — the two that remain are guarded on both sides and were re-read before
+being recorded here: `plan.dart:610` is `json['auto_renew'] is bool ? ... :
+null` and `subscription_ack.dart:84` is `json['period'] is String ? ... :
+null`. **Both are already safe**, so neither is a lead. The real next lead is a
+**contract test over live payloads**: `live_payload_models_test.dart` copies its
+JSON into the repo by hand (dated 11 Sep), so nothing notices a column the
+Worker renames until a user does. A fetch-and-parse test would catch that
+before release, and is the one piece of this family still missing.
