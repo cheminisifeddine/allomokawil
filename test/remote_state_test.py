@@ -412,6 +412,95 @@ def main():
     finally:
         shutil.rmtree(tmp3, ignore_errors=True)
 
+
+    # 10. `--files` collapsed the WORKING FILE and the COMMITTED TREE into
+    #     one DIFFER label. The 62nd split the MODE axis into MODE-DIFFER
+    #     (committed) and MODE-STAGED (index); content had the same defect one
+    #     axis further out and nobody had driven it.
+    #
+    #     `file_check` read `git hash-object` (the file on DISK) and compared it
+    #     to the remote, then printed DIFFER -- while the verdict above it
+    #     compares HEAD to the remote. Two states, one label, opposite
+    #     repairs:
+    #
+    #       HEAD == remote, disk edited -> verdict IN SYNC. Uncommitted work.
+    #       HEAD != remote              -> verdict DIVERGED. Real push.
+    #
+    #     A reader cannot tell those from the row, and neither can a script.
+    print("")
+    print("--files: name WHICH HOP a content difference is in")
+    check("trees agree, disk edited -> EDITED, not a divergence",
+          remote_state.choose_content_row("work1", "head1", "head1"), "EDITED")
+    check("committed trees differ -> CONTENT-DIFFER",
+          remote_state.choose_content_row("head1", "head1", "remote1"),
+          "CONTENT-DIFFER")
+    check("on remote, absent from HEAD -> REMOTE-ONLY",
+          remote_state.choose_content_row("work1", "", "remote1"), "REMOTE-ONLY")
+    check("everything agrees -> no content row at all",
+          remote_state.choose_content_row("head1", "head1", "head1"), None)
+    # The negative control: the OLD one-label view, re-implemented, on the
+    # EDITED input. It cannot separate the two states, which is the defect --
+    # so this is what the code under test had to be able to disagree with.
+    def old_label(work_sha, head_sha, remote_sha):
+        if not remote_sha or remote_sha == "-":
+            return None
+        return "DIFFER" if work_sha != remote_sha else None
+
+    check("control: the old view says DIFFER where trees AGREE",
+          old_label("work1", "head1", "head1"), "DIFFER")
+    check("  ...and cannot tell it from a real divergence",
+          old_label("head1", "head1", "remote1"), old_label("work1", "head1", "head1"))
+    check("  ...while the new one separates the two",
+          remote_state.choose_content_row("head1", "head1", "remote1")
+          != remote_state.choose_content_row("work1", "head1", "head1"), True)
+
+    # The same split through the real file_check, on a real repo, with a
+    # stubbed remote that holds HEAD's bytes.
+    tmp4 = tempfile.mkdtemp(prefix="rs-workaxis-")
+    try:
+        subprocess.run(["git", "init", "-q", tmp4], check=True)
+        subprocess.run(["git", "-C", tmp4, "config", "user.email", "t@t"], check=True)
+        subprocess.run(["git", "-C", tmp4, "config", "user.name", "t"], check=True)
+        with open(os.path.join(tmp4, "w.py"), "w") as fh:
+            fh.write("committed\n")
+        subprocess.run(["git", "-C", tmp4, "add", "-A"], check=True)
+        subprocess.run(["git", "-C", tmp4, "commit", "-q", "-m", "one"], check=True)
+
+        saved = remote_state.LOCAL
+        remote_state.LOCAL = tmp4
+        blob = subprocess.run(["git", "-C", tmp4, "hash-object", "w.py"],
+                              capture_output=True, text=True).stdout.strip()
+        remote_state.remote_blobs = lambda: {"w.py": (blob, "100644")}
+
+        check("clean checkout against a matching remote -> MATCH",
+              [r[1] for r in remote_state.file_check(["w.py"])], ["MATCH"])
+
+        # The exact shape the 62nd's probe hit: edit on disk, do NOT stage.
+        # The verdict stays IN SYNC, and the row must not claim otherwise.
+        with open(os.path.join(tmp4, "w.py"), "w") as fh:
+            fh.write("edited on disk\n")
+        dirty = remote_state.file_check(["w.py"])
+        check("unstaged edit against a matching remote -> EDITED",
+              [r[1] for r in dirty], ["EDITED"])
+        check("  ...and the row is NOT a committed divergence",
+              [r[1] for r in dirty if r[1] == "CONTENT-DIFFER"], [])
+        # The label is only honest if the verdict it sits under agrees. Read
+        # the tree this repo actually has and compare it to itself-as-remote.
+        tree = subprocess.run(["git", "-C", tmp4, "rev-parse", "HEAD^{tree}"],
+                              capture_output=True, text=True).stdout.strip()
+        check("  ...so the tree verdict on this state is IN SYNC",
+              remote_state.verdict(tree, tree), (True, "IN SYNC"))
+
+        # Now push the difference INTO the commit: real unpushed work, the
+        # label that is allowed to say "push".
+        subprocess.run(["git", "-C", tmp4, "add", "-A"], check=True)
+        subprocess.run(["git", "-C", tmp4, "commit", "-q", "-m", "two"], check=True)
+        check("committed edit against a stale remote -> CONTENT-DIFFER",
+              [r[1] for r in remote_state.file_check(["w.py"])], ["CONTENT-DIFFER"])
+        remote_state.LOCAL = saved
+    finally:
+        shutil.rmtree(tmp4, ignore_errors=True)
+
     print("")
     if FAILED:
         print("%d FAILED: %s" % (len(FAILED), ", ".join(FAILED)))

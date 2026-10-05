@@ -368,6 +368,47 @@ def head_mode(path, repo=None):
     return ""
 
 
+def choose_content_row(work_sha, head_sha, remote_sha):
+    """PURE: name the CONTENT difference, or say there is not one.
+
+    Three objects, three hops, and the old code collapsed the first two:
+
+      working file  --(unstaged edit)-->  HEAD  --(push)-->  remote
+
+    `file_check` read the WORKING file's sha (`git hash-object`) and the
+    remote's, and printed one label for "these differ". But the verdict above
+    it compares COMMITTED trees, i.e. HEAD vs the remote. So a single DIFFER
+    row covered two states that are opposites and have different repairs:
+
+      HEAD == remote, working file edited -> verdict IN SYNC, and the work is
+        uncommitted ON THIS DISK. Repair: `git add`, commit, push. Calling it
+        a divergence invites a re-push of a tree that already matches, and
+        the printed "local" sha is a blob that exists in NO commit.
+      HEAD != remote -> a real unpushed divergence, verdict DIVERGED, and the
+        repair is the push.
+
+    A reader cannot tell those apart from the row, and neither can the label.
+    So each state gets its own name and they cannot be swapped.
+
+    This is the content-axis twin of the mode axis the 62nd tick split into
+    MODE-DIFFER (committed) and MODE-STAGED (index). Same discipline: name
+    WHICH HOP the difference is in, because the repair differs per hop.
+    """
+    if not remote_sha or remote_sha == "-":
+        return None
+    if not head_sha:
+        # On the remote, absent from HEAD: a committed deletion.
+        return "REMOTE-ONLY"
+    if head_sha != remote_sha:
+        # The committed trees differ. This is the real thing, and it agrees
+        # with the verdict printed above it.
+        return "CONTENT-DIFFER"
+    if work_sha and work_sha != head_sha:
+        # Trees agree; the disk does not. Verdict stays IN SYNC and it must.
+        return "EDITED"
+    return None
+
+
 def file_check(paths):
     """Per-file check against the COMMITTED tree, with the staged leak named.
 
@@ -382,40 +423,55 @@ def file_check(paths):
       MODE-STAGED  the index disagrees with HEAD. Not a divergence yet; it
                    becomes one on the next commit. The repair is printed,
                    because undoing it costs one line now and a bisect later.
-      DIFFER       the working file's bytes differ from the remote. Also not
-                   a committed divergence -- it is an uncommitted edit, which
-                   `classify()` already lists -- but it is the thing a tick
-                   is about to commit, so it must not read as MATCH.
+      EDITED       HEAD agrees with the remote; the WORKING FILE does not.
+                   Uncommitted work on this disk, which `classify()` also
+                   lists. The verdict is IN SYNC and it must stay there.
+      CONTENT-DIFFER
+                   the committed trees differ -- the real unpushed work, and
+                   the label that agrees with a DIVERGED verdict.
+      REMOTE-ONLY  on the remote, absent from HEAD: a committed deletion.
+
+    The last three were one label, `DIFFER`, which is what the 63rd split.
+    It is not a rename: it is one row covering two opposite states with
+    different repairs, read against a verdict that could only see one of them.
     """
     remote = remote_blobs()
+    # HEAD's blob and mode from ONE read of the committed tree -- the same
+    # object `verdict()` hashes. `head_mode` shelled out per path before,
+    # which was the 62nd's axis fix; this closes the same gap on content by
+    # reading the pair together instead of mixing a worktree sha with a
+    # separately-fetched mode.
+    head = local_blobs()
     rows = []
     for p in paths:
         out = subprocess.run(["git", "hash-object", p], capture_output=True,
                              text=True, cwd=LOCAL)
-        local = out.stdout.strip()
+        work = out.stdout.strip()
         want = remote.get(p)
         r_sha, r_mode = want if want else ("-", "-")
-        l_mode = head_mode(p)
+        h = head.get(p)
+        h_sha, l_mode = h if h else ("", head_mode(p))
         i_mode = mode_of(p)
         staged_leak = bool(i_mode and l_mode and i_mode != l_mode)
-        if not local:
+        content = choose_content_row(work, h_sha, r_sha)
+        if not work:
             rows.append((p, "UNTRACKED", "-", r_sha, "-", r_mode, i_mode))
         elif want is None:
-            rows.append((p, "ABSENT-REMOTE", local, "-", l_mode, "-", i_mode))
-        elif local != r_sha:
-            rows.append((p, "DIFFER", local, r_sha, l_mode, r_mode, i_mode))
+            rows.append((p, "ABSENT-REMOTE", work, "-", l_mode, "-", i_mode))
+        elif content:
+            rows.append((p, content, work, r_sha, l_mode, r_mode, i_mode))
         elif staged_leak:
             # Committed trees agree. The index does not, so the NEXT commit
             # diverges. Named here rather than silently folded into MATCH,
             # because MATCH is what a tick reads before it commits.
-            rows.append((p, "MODE-STAGED", local, r_sha, l_mode, r_mode, i_mode))
+            rows.append((p, "MODE-STAGED", work, r_sha, l_mode, r_mode, i_mode))
         elif l_mode and r_mode and l_mode != r_mode:
             # Same bytes, different mode, in the trees themselves. This is
             # the real thing: `git update-index --chmod=-x`, then commit,
             # then push.
-            rows.append((p, "MODE-DIFFER", local, r_sha, l_mode, r_mode, i_mode))
+            rows.append((p, "MODE-DIFFER", work, r_sha, l_mode, r_mode, i_mode))
         else:
-            rows.append((p, "MATCH", local, r_sha, l_mode, r_mode, i_mode))
+            rows.append((p, "MATCH", work, r_sha, l_mode, r_mode, i_mode))
     return rows
 
 
@@ -538,12 +594,34 @@ def main():
 
     if rows:
         print("")
+        head = local_blobs()
         for row in rows:
             p, verdict, local, want = row[0], row[1], row[2], row[3]
+            head_sha = (head.get(p) or ("",))[0]
             print("%-12s %s" % (verdict, p))
-            if verdict == "DIFFER":
-                print("             local  %s" % local)
+            if verdict == "CONTENT-DIFFER":
+                # A real committed divergence: HEAD vs the remote. This is the
+                # only content label that may say "push it", because it is the
+                # only one whose verdict agrees.
+                print("             COMMITTED trees differ (HEAD vs remote)")
+                print("             HEAD   %s" % (head_sha or "?"))
                 print("             remote %s" % want)
+                print("             real unpushed work -- commit, then push")
+            elif verdict == "EDITED":
+                # Trees agree; the disk does not. Saying "DIFFER" here put an
+                # uncommitted local edit next to an IN SYNC verdict, and the
+                # sha printed was the working file's -- a blob that exists in
+                # no commit at all, so it could never be matched or pushed.
+                print("             COMMITTED trees AGREE; this file on disk does not")
+                print("             HEAD   %s" % (head_sha or "?"))
+                print("             disk   %s" % local)
+                print("             uncommitted edit -- git add, commit, then push")
+                print("             this is NOT a divergence; the verdict above is right")
+            elif verdict == "REMOTE-ONLY":
+                print("             on the remote, absent from the committed tree")
+                print("             HEAD   %s" % (head_sha or "(absent)"))
+                print("             a committed deletion, or a truncated listing --")
+                print("             check --why before pushing it")
             elif verdict == "MODE-DIFFER":
                 # The repair lead 2 asked for. Both halves now exist: the
                 # reader names HEAD's mode, and the fix restores the REMOTE's,
