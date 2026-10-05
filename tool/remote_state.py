@@ -333,14 +333,59 @@ def index_drift():
     return explain_index(index, head), bool(staged.stdout.strip())
 
 
-def file_check(paths):
-    """Per-file content check. CONTENT only -- mode is a separate axis.
+def head_mode(path, repo=None):
+    """The mode the last COMMIT recorded for `path`, or ''.
 
-    That split is deliberate and it is what the 60th tick tripped over: a
-    file can MATCH here and still be why the tool says DIVERGED, because
-    `hash-object` reads bytes and says nothing about the executable bit. So
-    every MATCH row now carries the mode next to it, and a mode difference
-    gets its own verdict rather than hiding behind a green MATCH.
+    `file_check` needs this and not `mode_of`, and the difference is the whole
+    point. `mode_of` reads the INDEX -- what the NEXT commit will record.
+    `file_check`'s verdict is compared against `verdict()`, which compares
+    COMMITTED trees. So the row was answering a question one commit ahead of
+    the question the tool reports.
+
+    The two disagree exactly when a mode was staged and not committed, in
+    either direction, and then `--files` is wrong while the verdict is right:
+
+      HEAD 100755 / index 100644 / remote 100644  ->  MATCH printed, and the
+      trees DIVERGED. The reverse (HEAD 100644 / index 100755 / remote
+      100644) printed MODE-DIFFER next to an IN SYNC verdict -- an invented
+      divergence, the mirror of the 60th tick's defect and the same class:
+      a row that disagrees with the verdict it sits under.
+
+    A repair printed on top of either one is worse than no repair, because
+    running it fixes a file whose committed tree was never wrong. `ls-tree -r
+    HEAD` is what the tree hash is taken over, so this reads the same object
+    `verdict()` does.
+    """
+    out = subprocess.run(["git", "-C", repo or LOCAL, "ls-tree", "-r", "HEAD",
+                          "--", path], capture_output=True, text=True)
+    if out.returncode != 0:
+        return ""
+    for line in out.stdout.splitlines():
+        head, _, _p = line.partition("\t")
+        parts = head.split()
+        if len(parts) >= 3:
+            return parts[0]
+    return ""
+
+
+def file_check(paths):
+    """Per-file check against the COMMITTED tree, with the staged leak named.
+
+    CONTENT and mode, both read on the axis the verdict uses: HEAD vs the
+    remote commit. A mode difference is still its own row rather than hiding
+    behind a green MATCH, because that is what the 60th tick tripped over --
+    545/545 blobs MATCH while the tool correctly said DIVERGED.
+
+    Two things that are NOT the committed tree get their own rows, because
+    neither can be reported as a divergence:
+
+      MODE-STAGED  the index disagrees with HEAD. Not a divergence yet; it
+                   becomes one on the next commit. The repair is printed,
+                   because undoing it costs one line now and a bisect later.
+      DIFFER       the working file's bytes differ from the remote. Also not
+                   a committed divergence -- it is an uncommitted edit, which
+                   `classify()` already lists -- but it is the thing a tick
+                   is about to commit, so it must not read as MATCH.
     """
     remote = remote_blobs()
     rows = []
@@ -350,20 +395,27 @@ def file_check(paths):
         local = out.stdout.strip()
         want = remote.get(p)
         r_sha, r_mode = want if want else ("-", "-")
-        l_mode = mode_of(p)
+        l_mode = head_mode(p)
+        i_mode = mode_of(p)
+        staged_leak = bool(i_mode and l_mode and i_mode != l_mode)
         if not local:
-            rows.append((p, "UNTRACKED", "-", r_sha, "-", r_mode))
+            rows.append((p, "UNTRACKED", "-", r_sha, "-", r_mode, i_mode))
         elif want is None:
-            rows.append((p, "ABSENT-REMOTE", local, "-", l_mode, "-"))
+            rows.append((p, "ABSENT-REMOTE", local, "-", l_mode, "-", i_mode))
         elif local != r_sha:
-            rows.append((p, "DIFFER", local, r_sha, l_mode, r_mode))
+            rows.append((p, "DIFFER", local, r_sha, l_mode, r_mode, i_mode))
+        elif staged_leak:
+            # Committed trees agree. The index does not, so the NEXT commit
+            # diverges. Named here rather than silently folded into MATCH,
+            # because MATCH is what a tick reads before it commits.
+            rows.append((p, "MODE-STAGED", local, r_sha, l_mode, r_mode, i_mode))
         elif l_mode and r_mode and l_mode != r_mode:
-            # Same bytes, different mode. This is the row the old version
-            # could not produce, and its absence is why a 100755 leak printed
-            # MATCH next to DIVERGED.
-            rows.append((p, "MODE-DIFFER", local, r_sha, l_mode, r_mode))
+            # Same bytes, different mode, in the trees themselves. This is
+            # the real thing: `git update-index --chmod=-x`, then commit,
+            # then push.
+            rows.append((p, "MODE-DIFFER", local, r_sha, l_mode, r_mode, i_mode))
         else:
-            rows.append((p, "MATCH", local, r_sha, l_mode, r_mode))
+            rows.append((p, "MATCH", local, r_sha, l_mode, r_mode, i_mode))
     return rows
 
 
@@ -493,8 +545,22 @@ def main():
                 print("             local  %s" % local)
                 print("             remote %s" % want)
             elif verdict == "MODE-DIFFER":
-                print("             same bytes, mode local %s / remote %s"
+                # The repair lead 2 asked for. Both halves now exist: the
+                # reader names HEAD's mode, and the fix restores the REMOTE's,
+                # which is the side gh_push.py will mint. Restoring HEAD would
+                # be wrong here -- HEAD is the wrong one.
+                print("             same bytes, mode HEAD %s / remote %s"
                       % (row[4], row[5]))
+                print("             git update-index --chmod=%s %s"
+                      % ("+x" if row[5] == "100755" else "-x", p))
+                print("             then commit and push -- the trees differ")
+            elif verdict == "MODE-STAGED":
+                print("             trees AGREE (HEAD %s); index says %s"
+                      % (row[4], row[6]))
+                print("             git update-index --chmod=%s %s"
+                      % ("+x" if row[4] == "100755" else "-x", p))
+                print("             undo it before committing, or the next")
+                print("             commit makes this a real divergence")
     return 0 if info["in_sync"] else 1
 
 

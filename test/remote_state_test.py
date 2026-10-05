@@ -85,6 +85,7 @@ def main():
     #    box was in exactly this state and `git status` called it
     #    "ahead 12, behind 12".
     saved_api, saved_git = remote_state.api, remote_state.git
+    saved_blobs = remote_state.remote_blobs
     real_api = remote_state.api
     real_git = remote_state.git
     try:
@@ -296,6 +297,120 @@ def main():
         remote_state.LOCAL = saved
     finally:
         shutil.rmtree(tmp2, ignore_errors=True)
+
+    # 9. `--files` read the INDEX while the VERDICT reads HEAD. The 61st fixed
+    #    `--why`'s reporting; `--files` had the mirror image of the same bug
+    #    and it was never noticed because MODE-DIFFER was only ever exercised
+    #    on a committed leak.
+    #
+    #    `file_check` built its mode row from `mode_of()` = `git ls-files -s` =
+    #    the index = what the NEXT commit records. `verdict()` compares
+    #    COMMITTED trees. The two axes differ exactly when a mode is staged and
+    #    not committed, and then the row contradicts the verdict printed above
+    #    it -- which is the one thing a row under a verdict must never do.
+    print("")
+    print("--files: the mode row must read the axis the verdict reads")
+    tmp3 = tempfile.mkdtemp(prefix="rs-axis-")
+    try:
+        subprocess.run(["git", "init", "-q", tmp3], check=True)
+        subprocess.run(["git", "-C", tmp3, "config", "user.email", "t@t"], check=True)
+        subprocess.run(["git", "-C", tmp3, "config", "user.name", "t"], check=True)
+        with open(os.path.join(tmp3, "h.py"), "w") as fh:
+            fh.write("x\n")
+        subprocess.run(["git", "-C", tmp3, "add", "-A"], check=True)
+        subprocess.run(["git", "-C", tmp3, "commit", "-q", "-m", "one"], check=True)
+
+        saved = remote_state.LOCAL
+        remote_state.LOCAL = tmp3
+        # Remote believes the same bytes at 100644 -- i.e. HEAD is IN SYNC.
+        blob = subprocess.run(["git", "-C", tmp3, "hash-object", "h.py"],
+                              capture_output=True, text=True).stdout.strip()
+        remote_state.remote_blobs = lambda: {"h.py": (blob, "100644")}
+
+        clean = remote_state.file_check(["h.py"])
+        check("committed trees agree -> MATCH",
+              [r[1] for r in clean], ["MATCH"])
+
+        # Now stage the leak the 61st warns about: index 100755, HEAD still
+        # 100644. The committed trees still AGREE, so MODE-STAGED is the only
+        # honest row. The OLD reader took its mode from the index and would
+        # have printed MODE-DIFFER here -- inventing a divergence the trees
+        # do not have, and printing a repair for a file that is not wrong.
+        subprocess.run(["git", "-C", tmp3, "update-index", "--chmod=+x", "h.py"],
+                       check=True)
+        rows = remote_state.file_check(["h.py"])
+        check("staged 100755 over a committed 100644 is MODE-STAGED",
+              [r[1] for r in rows], ["MODE-STAGED"])
+        check("  ...and the row carries BOTH modes, HEAD first",
+              (rows[0][4], rows[0][6]), ("100644", "100755"))
+        # The committed trees really do agree, which is what makes MODE-STAGED
+        # the honest verdict. Assert it on the axes that exist rather than
+        # inventing a remote sha for verdict() to disagree with: the first
+        # version of this line passed a literal "TREE" and went red, which
+        # says nothing about the code.
+        check("  ...and the committed trees really do agree (HEAD == remote)",
+              (rows[0][4], rows[0][5]), ("100644", "100644"))
+        check("  ...while the index does not",
+              rows[0][6], "100755")
+
+        # THE CONTROL: the pre-fix reader, driven on the same repo. It reads
+        # the index, so it reports MODE-DIFFER on an input where the committed
+        # trees are identical -- the divergence the new code refuses to invent.
+        def old_file_check_mode(path):
+            return remote_state.mode_of(path)
+        check("control: old reader sees the index, reports a fake difference",
+              (old_file_check_mode("h.py"), remote_state.head_mode("h.py")),
+              ("100755", "100644"))
+
+        # The repair printed for MODE-STAGED must restore HEAD's mode, i.e.
+        # -x for a 644->755 staged leak. Inverted is how the 61st's repair was
+        # wrong once already.
+        h, i = rows[0][4], rows[0][6]
+        check("MODE-STAGED repair restores HEAD 100644 from index 100755",
+              "+x" if h == "100755" else "-x", "-x")
+        subprocess.run(["git", "-C", tmp3, "update-index", "--chmod=-x", "h.py"],
+                       check=True)
+        check("  ...and running it clears the row",
+              [r[1] for r in remote_state.file_check(["h.py"])], ["MATCH"])
+
+        # The committed case, which is the one MODE-DIFFER is FOR: HEAD carries
+        # the leak, the remote does not. The repair must restore the REMOTE's
+        # mode (gh_push.py mints every file 100644), not HEAD's.
+        subprocess.run(["git", "-C", tmp3, "update-index", "--chmod=+x", "h.py"],
+                       check=True)
+        subprocess.run(["git", "-C", tmp3, "commit", "-q", "-m", "leak"],
+                       check=True)
+        committed = remote_state.file_check(["h.py"])
+        check("committed 100755 vs remote 100644 -> MODE-DIFFER",
+              [r[1] for r in committed], ["MODE-DIFFER"])
+        check("  ...and the repair restores the REMOTE's 100644, not HEAD's",
+              "+x" if committed[0][5] == "100755" else "-x", "-x")
+        subprocess.run(["git", "-C", tmp3, "update-index", "--chmod=-x", "h.py"],
+                       check=True)
+        subprocess.run(["git", "-C", tmp3, "commit", "-q", "-m", "fix"],
+                       check=True)
+        check("  ...and after the repair the trees agree again",
+              [r[1] for r in remote_state.file_check(["h.py"])], ["MATCH"])
+
+        # An existing but never-committed file: `git hash-object` hashes any
+        # file that is on disk, tracked or not, so the sha is real and the row
+        # is ABSENT-REMOTE -- the file is not on the remote, which is the
+        # honest answer. I first asserted UNTRACKED here and went red; that
+        # label only fires when `hash-object` FAILS, i.e. when the file is
+        # missing from disk entirely, not when it is merely uncommitted.
+        with open(os.path.join(tmp3, "new.py"), "w") as fh:
+            fh.write("y\n")
+        check("existing-but-uncommitted file reads ABSENT-REMOTE, not a crash",
+              [r[1] for r in remote_state.file_check(["new.py"])],
+              ["ABSENT-REMOTE"])
+        # A path that is not on disk at all: hash-object fails, and the row
+        # must still be produced rather than raising.
+        check("missing file still classifies without raising",
+              [r[1] for r in remote_state.file_check(["gone.py"])], ["UNTRACKED"])
+        remote_state.LOCAL = saved
+        remote_state.remote_blobs = saved_blobs
+    finally:
+        shutil.rmtree(tmp3, ignore_errors=True)
 
     print("")
     if FAILED:
