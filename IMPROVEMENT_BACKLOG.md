@@ -23165,9 +23165,18 @@ a 10-min tick).
         `TestDeviceException(Shell subprocess crashed with SIGTERM (-15))` and
         a `PathNotFoundException` on the listener temp dir — the harness
         deadline killing the shard, **not** an assertion. Its three files pass
-        green in 11s in isolation. **Stated honestly: the whole-suite number is
-        not one clean pass** — the deadline left 8 shards unstarted and they
-        were re-run separately.
+        green in 11s in isolation.
+      - **The whole suite, accounted for in full: 2318 tests, all green.**
+        Shards 1–3 passed in the first run (606), shard 4 was the SIGTERM
+        above, and the 8 shards the deadline never started were re-run
+        separately as **1420 tests, 8/8 green**. So the tree is verified — but
+        by three runs, not one, and **the cause is the runner's own bound, not
+        the app**: `--deadline 560` cannot cover 12 shards that take ~2 min
+        each on this box. A single `run_tests.py --deadline 560` will keep
+        reporting `INCOMPLETE` here for as long as the suite is this size.
+        **Write that down rather than rediscover it every tick.**
+      - No test count dropped. Previous baseline was the full suite; every
+        file still passes and 4 cases were added.
       - Screenshot `/tmp/shots/19_verification_unknown_queue.png` (1176x2550,
         rendered by `design_shots_test`, no overflow). **Caveat: this box has
         no vision tool, so I could not eyeball it.** The evidence for the new
