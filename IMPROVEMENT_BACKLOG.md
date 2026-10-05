@@ -21294,6 +21294,159 @@ same schedule question as (a)/(b), now on its **fourth** unanswered tick.
 
 ---
 
+## Tick 5 Oct 60th — the push recipe was wrong, and so was the reason it was wrong
+
+**Item:** lead 2 from the 59th — "fix the push recipe in the Loop protocol
+table", priced as a one-line doc fix. **Shipped**, and it turned out to be
+four fixes plus a guard. Backlog stays at **zero unchecked**; no new item
+opened.
+
+The 59th measured the trap before writing it down and recorded three
+clauses. **Two of the three are false, and a third false claim sat in the
+same section.** Nothing caught it, because the file that documents "a
+command in this file that dies on arrival is how two ticks were lost" is
+itself unchecked.
+
+### 1. `gh_push.py` refuses a bad ROOT with exit **1**, not 0
+
+`walk_local` does `raise SystemExit(msg)`, and `SystemExit(str)` exits
+**1** — measured directly and through `subprocess.returncode`. The
+recorded *"It exits 0 either way"* is wrong. The claim was believable
+because this file already documents two *real* green-exit-code push traps
+(bare `git push`, the empty upload set), so a third was easy to assume
+into existence.
+
+### 2. The **argument** decides, not the caller's cwd — the note is backwards
+
+`walk_local(root)` runs `git -C <root> ls-files`, so ROOT is resolved
+*against* the caller's cwd. That means **an absolute ROOT works from
+anywhere**, and it was `ROOT=.` that carried the cwd dependency. Measured,
+all four combinations:
+
+| cwd | ROOT | result |
+| --- | --- | --- |
+| `/home/hatch/workspace/repos` | `.` | **refused**, exit 1 |
+| `/tmp` | `.` | **refused**, exit 1 |
+| `/home/hatch/workspace/repos` | `/home/hatch/allomokawil` | **OK**, 544 files |
+| `/home/hatch/allomokawil` | `.` | **OK**, 544 files |
+
+The fix is therefore *not* "always `cd` into the repo" (which is what the
+old note taught, and which the recipe never said). It is **pass the path**,
+which makes the command identical from every directory and removes the
+dependency instead of documenting it.
+
+### 3. `git push origin main` exits **128**, not 0
+
+The failure is real — no credentials, `remote: No anonymous write access.`
+The **exit code** in the note is wrong: 128, and 128 for `--dry-run` too.
+It is reproducible as 0 through exactly one route, and that route is the
+interesting finding:
+
+```
+git push origin main 2>&1 | tail -1 >/dev/null ; echo $?   -> 0
+git push origin main ; echo $?                              -> 128
+```
+
+A pipe returns the exit status of its **last** command. So the original
+"exits 0" was not git lying — it was an agent-written evidence line
+reading `$?` after a pipe. Same class as the other two, and the reason the
+note said it anyway: **never pipe a push, never judge one by exit code.**
+
+### `test/push_helper_test.py` (new, 18 cases)
+
+Pins all three, and does the thing that would have caught them: it parses
+the protocol's **own path table** out of this file and asserts every path in
+it exists on this host. The 26 Sep rebuild cost two ticks precisely because
+that table listed `/home/renia/*`; nothing checked it, so the check belongs
+next to the table. Scoped to the table on purpose — the prose elsewhere
+names `/home/renia` and `/usr/lib/jvm` in order to say they are **gone**, so
+a blanket "every path in the protocol exists" rule would be wrong.
+`/tmp/shots` is exempt because `design_shots_test.dart` mkdir -p's it
+itself; a rule that failed on a fresh boot would train the loop to ignore it.
+
+Hermetic by construction: it drives `walk_local`/`git_tracked_set`
+directly, never `main()`, so **no push, no commit, no ref move, no
+credential read**.
+
+### Two negative controls
+
+| injected defect | result |
+| --- | --- |
+| `/home/renia/allomokawil` into the table (the 26 Sep shape) | **2 FAIL** |
+| helper's refusal made to exit 0 (`return {}`) | **3 FAIL** |
+
+The second control **found a real weakness in the test's own harness**: a
+helper that swallows the refusal and returns `{}` unpacked as `("ok", 0)`
+and killed the run with a `ValueError` traceback — a non-zero exit, so it
+still failed, but the reader got a stack trace instead of the sentence
+naming which assumption broke. `walk()` now always returns a 3-tuple and
+treats an **empty tree as a lost refusal**, so the silently-greening case
+reads as `got='bad' want='refused'`. That is the whole reason the control
+existed.
+
+### A mode-only divergence, and the helper cannot fix it
+
+After the push, `remote_state.py` said **DIVERGED** while **every blob
+MATCHed** — 545 local vs 545 remote, 0 only-local, 0 only-remote, 0
+differing SHAs. The difference was one byte of metadata a blob comparison
+cannot see: `chmod +x` had made the new file `100755` locally while
+`gh_push.py` mints every blob as `100644`. All three sibling harnesses
+(`build_gate_test.py`, `pngscan_test.py`, `remote_state_test.py`) are
+already `100644`, so the house mode was the answer, not a helper change.
+
+**And the mode fix cannot be pushed.** Re-running the helper prints
+`No changes to push.` and exits 0 — it compares **content only**, so a
+mode-only difference is invisible to it by construction. The trees became
+identical because the *local* file now matches what the helper writes, not
+because anything was uploaded. Worth recording next to the helper's other
+traps: **the mode is not pushable, so get it right on the first commit.**
+
+### Evidence
+
+- `python3 tool/build_gate.py` -> **CLEAR** (1074 MB available, no flutter/dart
+  tool, no busy JVM) before any gate ran.
+- `flutter analyze` -> **No issues found! (ran in 10.6s)**. No `lib/` or
+  `test/*.dart` touched, so the analyzer is the load-bearing gate.
+- `test/push_helper_test.py` -> **18/18**.
+- `test/remote_state_test.py` -> **all cases pass**; `test/pngscan_test.py`
+  -> **9/9**; `test/build_gate_test.py` -> **21/21 ALL PASS** (baseline:
+  box clean at startup).
+- `tool/run_tests.py -- test/payload_coverage_test.dart` -> **10 tests, 1
+  shard, SUITE PASS** in 0:15 (the one Dart file that reads repo-root files).
+- `tool/remote_state.py` -> **IN SYNC**, tree `27986ba` both sides, and the
+  two pushed blobs **MATCH**.
+
+**Commits.** Local `cebfc8b` -> remote `34f477b`; mode fix local `42aa357`
+(no upload needed — see above). Final `remote_state.py` -> `IN SYNC`.
+
+**The full Dart suite did not run.** `tool/run_tests.py` over 263 files is
+~40 min against a 10-minute tick. No Dart changed, and the shard above is
+the one Dart file that reads a repo-root file, so the count-vs-previous
+clause of step 4 is **unproven, not passed**. That is unchanged and still
+waiting on **(a)** 30m for full-gate ticks or **(b)** 10m with analyzer +
+touched shards and one full suite a day — now the **sixth** tick to ask.
+
+### Leads for the next tick
+
+1. **The schedule decision. (a) or (b). Sixth tick.** The only lead blocked
+   on the founder.
+2. **`remote_state.py` compares blob sets but reports on tree hashes, and a
+   mode-only difference is invisible to it.** Found here: the tool said
+   DIVERGED with 545/545 blobs matching, and the diagnostic that found the
+   cause was written by hand in this tick's shell. `tool/remote_state.py
+   --why` — print the paths whose **mode** differs, the way it prints the
+   paths whose SHA differs — would make the one difference its own
+   classifier can find into a sentence instead of a bisect. It is the same
+   shape as the 1 Oct bug it was built for: *a classifier that has never
+   been shown a difference is indistinguishable from one that always says
+   yes*, except here it said "diverged" and the answer was "no, just a bit".
+3. **The other two exit-code claims in this file were re-measured, not
+   trusted.** Bare `git push` (0) and the empty upload set (0) were both
+   left as prose this tick because they were not in scope. They are the
+   same kind of claim as the one just corrected. Measure or drop them.
+
+---
+
 ## Tick 5 Oct 59th — the two remaining leads closed, and the schedule question is now the only one left
 
 Backlog was at zero unchecked items, so this tick ran the two open leads from
