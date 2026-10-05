@@ -284,6 +284,23 @@ def _free_port():
     return port
 
 
+def _in_tree(pid, root):
+    """True when `pid` is `root` or a descendant of it. Used only to tidy up
+    the tree case 15 spawned; the assertion itself never asks this."""
+    root, pid = int(root), int(pid)
+    seen = 0
+    while pid and pid not in (0, 1) and seen < 64:
+        if pid == root:
+            return True
+        try:
+            stat = open("/proc/%d/stat" % pid).read()
+            pid = int(stat[stat.rfind(")") + 2:].split()[1])
+        except (IOError, OSError, IndexError, ValueError):
+            return False
+        seen += 1
+    return False
+
+
 def check(label, expect):
     r = _run()
     ok = r.returncode == expect
@@ -876,6 +893,161 @@ def main():
             launcher.wait(timeout=5)
         except subprocess.TimeoutExpired:
             launcher.kill()
+
+    print("\n15) a starved box must NAME its largest holder, and that name "
+          "must survive a real process tree")
+
+    # The defect this arm fixes, kept as a test. Measured 5 Oct 2026, on this
+    # box, on the denial that cost this tick its gate: the gate answered
+    # `NO ROOM ... 878 MB reclaimable` and stopped there. It named no holder,
+    # so the reader had to go find one by hand -- and the answer turned out to
+    # be a supervised `waha-lite` Chrome with a LIVE parent, which is exactly
+    # why `--reap` (correctly) refused to touch it. The number was right and
+    # the tick still could not act, because "NO ROOM" and "NO ROOM because of
+    # a service you may not kill" are different instructions.
+    #
+    # Asserted against the REAL gate, not a copy, and against the starved
+    # fixture so the assertion does not depend on the box being hungry.
+    mod15 = _gate_module()
+
+    # A real process tree with a known root and a known cwd, so "names the
+    # tree root" and "names the owner" are both checkable facts rather than
+    # assertions about whatever else happens to be running.
+    tree_dir = tempfile.mkdtemp(prefix="gate_holder_")
+    code15 = (
+        "import os, sys, time\n"
+        "os.setsid()\n"
+        "if os.fork():\n"
+        "    os._exit(0)\n"
+        "os.chdir(%r)\n"
+        "for _ in range(3):\n"
+        "    if os.fork() == 0:\n"
+        "        time.sleep(120)\n"
+        "time.sleep(120)\n" % tree_dir)
+    spawner = subprocess.Popen([sys.executable, "-c", code15],
+                               stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL)
+    root15 = None
+    deadline15 = time.monotonic() + 5
+    while time.monotonic() < deadline15 and root15 is None:
+        for entry in os.listdir('/proc'):
+            if not entry.isdigit():
+                continue
+            pid = int(entry)
+            try:
+                if mod15._cwd(pid) == tree_dir and mod15._ppid(pid) == 1:
+                    root15 = pid
+                    break
+            except (IOError, OSError, ValueError):
+                continue
+        time.sleep(0.2)
+
+    if root15 is None:
+        print("  **FAIL** could not spawn a reparented tree with a known cwd")
+        results.append(False)
+    else:
+        # Give the children a moment to be counted in the tree size, then ask
+        # the census directly -- this is the unit under test.
+        time.sleep(1.0)
+        # floor_mb=0, on purpose. A 4-process sleep tree holds ~4 MB, so the
+        # SHIPPED floor (64 MB) filters it out -- correctly: a reader does not
+        # need a line about a 4 MB tree. Asserting against the shipped default
+        # would therefore test the floor, not the root charging this case is
+        # about, and would fail for the right reason. The floor is a separate
+        # claim and it is asserted below, on the printed summary.
+        # limit=0 is "no cap": the tree holds ~5 MB and this box has four
+        # services above 400 MB, so the SHIPPED default of 4 rows would cut it
+        # off -- correctly, because a reader does not need a line about a
+        # 5 MB tree when four services are holding a gigabyte between them.
+        # The limit and the floor are separate claims from the root charging
+        # this case is about; they are asserted below, on the summary.
+        rows15 = mod15.holder_census(limit=0, floor_mb=0)
+        roots15 = {r[0] for r in rows15}
+        cwds15 = {r[4] for r in rows15}
+
+        # (a) the tree is charged ONCE, to its root. Every version of the root
+        # walk that was wrong on this box came back with the tree split across
+        # several rows -- 26775, 26773 and a bare 424 MB renderer at 26877 --
+        # because `parents` was keyed by the children map's keys and so a
+        # leaf had no parent entry and stopped the walk on itself.
+        charged_once = (sum(1 for r in rows15 if r[4] == tree_dir) == 1
+                        and any(r[0] == root15 for r in rows15))
+        results.append(charged_once)
+        print(("PASS  " if charged_once else "**FAIL**")
+              + "a 4-process tree is charged once, to root %d (rows=%d)"
+              % (root15, sum(1 for r in rows15 if r[4] == tree_dir)))
+
+        # (b) init is never charged, and never absorbs the box. PID 1 is the
+        # parent of every reparented tree on this kernel, so a walk that
+        # reaches it attributes the whole machine to systemd. The first
+        # version of this census did: `1  2011MB  32proc  systemd`, with the
+        # 669 MB service it was sent to find nowhere in the list.
+        no_init = (0 not in roots15 and 1 not in roots15
+                   and all(r[1] < 2000 for r in rows15))
+        results.append(no_init)
+        print(("PASS  " if no_init else "**FAIL**")
+              + "PID 1/0 never charged (a forest, not one %d MB row)"
+              % max((r[1] for r in rows15), default=0))
+
+        # (c') the shipped floor and limit are not broken by the seam above.
+        # The default 4-row cap must still return rows, and the 64 MB floor must
+        # still hide a 5 MB tree -- both are what keeps the summary short on a
+        # busy box, and both would pass vacuously if `limit` were the only
+        # thing being checked.
+        shipped = mod15.holder_census()
+        floor_ok = (len(shipped) <= 4
+                    and not any(r[4] == tree_dir for r in shipped))
+        results.append(floor_ok)
+        print(("PASS  " if floor_ok else "**FAIL**")
+              + "shipped defaults cap at 4 rows and hide a 5 MB tree (%d rows)"
+              % len(shipped))
+
+        # (c) the pid is named AT ALL. This is the whole claim: a verdict with
+        # no subject is not an answer. Fails on the pre-fix gate unchanged.
+        results.append(root15 in roots15)
+        print(("PASS  " if (root15 in roots15) else "**FAIL**")
+              + "the holder's pid is nameable at all")
+
+        # (d) the starvation SUMMARY names it, which is what a tick reads.
+        # Asserted on the printed output, so it cannot pass on a census that
+        # is correct but never called.
+        if starved:
+            r15 = subprocess.run(["python3", starved], capture_output=True,
+                                 text=True, cwd=REPO)
+            named = ("Largest memory holders" in r15.stdout
+                     and r15.returncode == 1)
+            results.append(named)
+            print(("PASS  " if named else "**FAIL**")
+                  + "the NO ROOM summary names its largest holders, exit 1")
+            # ...and the negative: on a healthy box there is nothing to name,
+            # so the census must not run and must not print. A census printed
+            # on every invocation is noise that trains the reader to skip it.
+            clear15 = subprocess.run(["python3", GATE[1]], capture_output=True,
+                                     text=True, cwd=REPO)
+            if clear15.returncode == 0:
+                quiet_ok = "Largest memory holders" not in clear15.stdout
+                results.append(quiet_ok)
+                print(("PASS  " if quiet_ok else "**FAIL**")
+                      + "a CLEAR box prints no census (the arm is on the "
+                        "starved branch, not every run)")
+            else:
+                print("   SKIP (box not CLEAR right now; nothing to assert "
+                      "about silence)")
+
+        # Tidy: the tree's own root, and the harness's spawner.
+        for pid in sorted([root15] + [p for p in os.listdir('/proc')
+                                     if p.isdigit() and _in_tree(p, root15)],
+                          key=int, reverse=True):
+            try:
+                os.kill(int(pid), 9)
+            except OSError:
+                pass
+        try:
+            spawner.kill()
+        except OSError:
+            pass
+        shutil.rmtree(tree_dir, ignore_errors=True)
+        time.sleep(0.3)
 
     print("\n14) a reparented TESTER: named, reaped, and the box comes back")
     # The arm `--reap` was missing until this tick, and it is the one the

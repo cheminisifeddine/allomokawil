@@ -22743,3 +22743,81 @@ fit comfortably inside one tick again.
 **Next item:** nothing unchecked (243/243 + this entry). Next lead is the
 suite's own 12-shard wall time, which is the schedule question above and is
 founder-gated.
+
+---
+
+## Tick 5 Oct 2026 (17th) — the gate refused a build and named no holder
+
+**The `NO ROOM` verdict was correct and still left the tick with nothing to
+do** — 2 tool files, +373 lines, **0 `lib/` files touched**.
+
+The backlog had nothing unchecked (243/243), so this tick went looking for a
+lead and found the denial it had been standing in for the last several ticks:
+`tool/build_gate.py` printed
+
+```
+NO ROOM — nothing is building, but only 878 MB is reclaimable ...
+```
+
+and stopped. No holder. The loop's rule is "take a non-build item instead",
+which is exactly what that line prescribes — but it prescribes it by *not
+saying why*, and the reader cannot act on the difference between **"retry
+later"** and **"this box is at its floor and will be there tomorrow"**. So
+this tick spent **ten hand-run process lookups** learning the answer the gate
+already had:
+
+```text
+~700 MB  headless Chrome   cwd=/home/hatch/workspace/services/waha-lite
+         parent ALIVE (node supervisor, PPID 26773)  -> not a leak
+```
+
+which is precisely why `--reap` (correctly, and by design) refused to touch
+it. A correct detector with **no exit**.
+
+**Shipped: the starvation branch now names what it is refusing because of.**
+`holder_census()` charges each **process tree to its root**, in **PSS** (the
+correction `browser_mb` already records: sum(VmRSS) 1167 MB vs sum(PSS)
+444 MB on a real tree), and prints pid / MB / process count / comm / **cwd** —
+cwd being the one field that names an *owner*. Measured cost **0.049 s over
+34 pids**, which is why it runs only on the starved branch; a CLEAR box prints
+no census (asserted).
+
+**Three defects I introduced and caught before committing**, all the same
+shape — a census that names a falsehood:
+
+1. **PID 1 absorbed the whole box.** `1  2011MB  32proc  systemd` — init is
+   the parent of everything reparented, so walking up to it "owns" every
+   tree on the machine, and it **hid the 669 MB service the reader was sent
+   to find**. Roots now stop at init; the row is a forest, not one number.
+2. **Leaves stopped the walk.** `parents` keyed by the children map's keys
+   means a leaf has no entry, so every leaf-wrapped tree re-rooted at its own
+   leaf — the `waha-lite` tree came back **split across 26775, 26773 and a
+   bare 424 MB renderer**. `parents` is now keyed by *every* pid.
+3. **`limit=0` returned nothing.** `kept[:0]` is an empty slice, so the one
+   caller asking for every row got none. Caught by the new test, not by
+   reading — a test that asserts "the tree is named" earns its keep.
+   Plus a PID-0 phantom row, for `hatch daemon` (487 MB, PPID 0): a kernel
+   sentinel, not a parent to walk to.
+
+**Evidence**
+- **Green -> red -> green**, control being the exact regression: fixed
+  **27/27**; with the census block removed the starved branch names **no**
+  holder at all (assertion on pid `26773` -> `False`); restored, 27/27.
+- New **case 15** (5 assertions) covers the three defects above plus the
+  claim itself, against a **real reparented 4-process tree with a known
+  cwd** — not a fixture of shapes I invented. Also asserts the shipped
+  4-row cap and 64 MB floor still hold, and that a CLEAR box stays silent.
+- `flutter analyze` -> **No issues found!** (11.2s).
+- `python3 tool/run_tests.py` -> see the run note below.
+- No screenshot: nothing user-visible changed, so claiming a layout would be
+  inventing evidence.
+
+**Still yours, unchanged:** (1) may a tick reap a `flutter_tester` older than
+30 min? (2) Schedule, **seventeenth** tick — recommend **(b)** 10 m period,
+analyzer + touched shards, one full suite daily; 12 shards again did not fit
+comfortably in one tick.
+
+**Next item:** nothing unchecked (243/243 + this entry). The next lead is the
+other half of this tick's finding: the box was at 878 MB **because a service
+this loop does not own is holding ~680 MB of it** — that is a founder call,
+not a loop one.

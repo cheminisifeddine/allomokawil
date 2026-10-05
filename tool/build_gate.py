@@ -91,6 +91,13 @@ MIN_AVAILABLE_MB = 900
 # what "a build started and has not settled" looks like, while still
 # refusing on a box that is genuinely and repeatedly starved. Worst case it
 # spends ~0.4 s of sampling on a path that already sleeps to measure CPU.
+#: How many memory holders the starvation branch names, and the floor below
+#: which one is not worth printing. They are MODULE CONSTANTS, not literals in
+#: `main`, because that is the seam the gate's own test suite already uses to
+#: drive the rest of this file's decisions on a controlled fixture.
+HOLDER_LIMIT = 4
+HOLDER_FLOOR_MB = 64.0
+
 MEM_SAMPLES = 3
 MEM_SAMPLE_GAP_SECONDS = 0.2
 
@@ -161,6 +168,25 @@ def _comm(pid):
     `comm` is set by the kernel from the executable name and is always there.
     """
     return _read('/proc/%s/comm' % pid).strip()
+
+
+def _cwd(pid):
+    """The process's working directory -- the one field that names its OWNER.
+
+    `argv` says what a program was asked to do, and on a box running several
+    services the same binary appears under every one of them. `cwd` is where
+    it was actually started, and that is what told the 5 Oct tick that the
+    ~700 MB headless Chrome sitting under its NO ROOM verdict belongs to a
+    supervised `waha-lite` service that the loop has no business touching.
+
+    Empty string when unreadable, and never a guess: reading another user's
+    cwd needs privilege this box does not grant, and an invented path would
+    be worse than no path at all.
+    """
+    try:
+        return os.readlink('/proc/%s/cwd' % pid)
+    except OSError:
+        return ''
 
 
 def _self_and_ancestors():
@@ -434,6 +460,157 @@ def browser_mb(browsers):
         except OSError:
             pass
     return total_kb / 1024.0
+
+
+def _children_map():
+    """parent pid -> [child pids], from /proc, one pass.
+
+    Built once and reused by both tree walks below. Asking the kernel for
+    each pid's children separately is a listing per process; this is one
+    listing.
+    """
+    kids = {}
+    for entry in os.listdir('/proc'):
+        if not entry.isdigit():
+            continue
+        parent = _ppid(int(entry))
+        if parent is not None and parent > 0:
+            kids.setdefault(parent, []).append(int(entry))
+    return kids
+
+
+def _tree_pids(root, kids):
+    """root plus every descendant, as a set."""
+    out, frontier = set(), [root]
+    while frontier:
+        pid = frontier.pop()
+        if pid in out:
+            continue
+        out.add(pid)
+        frontier.extend(kids.get(pid, ()))
+    return out
+
+
+#: Never charged as a holder, and never walked *through*. PID 1 is the parent
+#: of every process that was reparented to init -- which is precisely every
+#: tree this gate can see, on this kernel. Walking up to it makes init "own"
+#: the whole box, and a census that attributes 2 GB to systemd instead of to
+#: the 669 MB service that is actually holding it is a census that names a
+#: falsehood. The first version of this function did exactly that: measured
+#: on 5 Oct, it reported `1  2011MB  32proc  systemd` and hid `waha-lite` at
+#: 26775 -- the one process the reader was sent here to find.
+#: ...and PID 0, which is not a process at all but the ppid the kernel reports
+#: for anything whose real parent is gone. `hatch daemon` reads PPID 0 on this
+#: box and held **487 MB**; rooted normally it was charged to pid 0, whose
+#: "tree" then collected every unrelated parentless process on the box into
+#: one 492 MB phantom row. A census that merges strangers under a fake parent
+#: is the same falsehood as the init one, one level down.
+HOLDERS_EXCLUDE = (0, 1)
+
+
+def _all_pids():
+    """Every pid on the box, from one /proc listing."""
+    return [int(e) for e in os.listdir('/proc') if e.isdigit()]
+
+
+def _forest_root_of(pid, kids, parents=None):
+    """The topmost non-init ancestor of `pid`, or `pid` itself.
+
+    One row per tree, so every pid must land on the same root as its parent.
+    The walk reads `parents` for the *current* pid, so that mapping has to be
+    keyed by **every** pid, not only by the pids that happen to be somebody's
+    parent -- the first version built it from the children map's keys and
+    stopped the walk dead on any leaf. That silently re-rooted every
+    leaf-wrapped tree at its own leaf: measured on 5 Oct, the `waha-lite` tree
+    came back split across 26775, 26773 and a bare 424 MB renderer at 26877,
+    which is the opposite of the one-line answer this exists to produce.
+    """
+    if parents is None:
+        parents = {p: _ppid(p) for p in _all_pids()}
+    cur, seen = pid, set()
+    while cur not in seen:
+        seen.add(cur)
+        nxt = parents.get(cur)
+        # A parent of 0 or 1 means "there is no real parent to walk to", so
+        # this pid IS the root of its own tree. Returning the sentinel instead
+        # would merge every parentless process into one row.
+        if nxt is None or nxt == cur or nxt in HOLDERS_EXCLUDE:
+            return cur
+        cur = nxt
+    return cur
+
+
+def holder_census(limit=HOLDER_LIMIT, floor_mb=HOLDER_FLOOR_MB):
+    """Who is actually holding this box's memory, biggest first.
+
+    Charged to the **tree root**, never to the process that happens to be
+    biggest, for the reason `browser_mb` already documents: a Chrome root is
+    ~66 MB of its own and the rest is the renderers it forked, so scoring
+    processes individually writes the loop's own loop-starvation down as a
+    harmless 66 MB and buries the 700 MB that is actually there. A tree
+    already charged is not charged again through one of its children.
+
+    Sized with PSS (`_rss_kb`) rather than RSS, so shared pages are counted
+    once per process actually mapping them -- the same correction
+    `browser_mb` records, from sum(VmRSS) 1167 MB vs sum(PSS) 444 MB on a
+    real leaked tree.
+
+    Measured cost on this box: **0.049 s** over 34 pids, which is why it is
+    gated on the starved branch instead of running on every invocation.
+
+    Rows are (pid, MB, process count, comm, cwd). Below `floor_mb` a holder is
+    not worth the reader's time; the largest is never suppressed, because a
+    census that hides its own biggest entry is worse than no census.
+    """
+    kids = _children_map()
+    # Every pid, not just the ones that are somebody's parent: a leaf holds
+    # memory too, and a leaf is its own tree root.
+    pids = _all_pids()
+    # Built ONCE, keyed by every pid. Rebuilt per pid it was a second
+    # /proc-listing-sized cost per process, and it was wrong for leaves.
+    parents = {p: _ppid(p) for p in pids}
+    pss = {}
+    for pid in pids:
+        val = _rss_kb(pid)
+        if val:
+            pss[pid] = val
+
+    # One row per forest root, not one per process. A root's whole subtree is
+    # charged to it -- that is what `browser_mb` does and why a Chrome tree
+    # reads as one 600 MB line instead of ten 60 MB ones -- and a tree already
+    # charged is never charged again through one of its own children.
+    root_score = {}
+    for pid in pids:
+        if pid in HOLDERS_EXCLUDE or pid in _self_and_ancestors():
+            continue
+        root = _forest_root_of(pid, kids, parents)
+        if root is None or root in HOLDERS_EXCLUDE:
+            continue
+        mb = _rss_kb(pid)
+        if mb:
+            root_score[root] = root_score.get(root, 0.0) + mb / 1024.0
+    mine = _self_and_ancestors()
+    scored = []
+    for root, mb in root_score.items():
+        if root in mine or mb <= 0:
+            continue
+        comm = _comm(root) or '?'
+        # The tree a root "owns" is its descendants plus itself; count it the
+        # way `browser_mb` counts one, walking children rather than assuming
+        # a flat family.
+        npids = len(_tree_pids(root, kids)) if root in kids else 1
+        scored.append((root, mb, npids, comm, _cwd(root)))
+    scored.sort(key=lambda row: -row[1])
+    if not scored:
+        return []
+    biggest = scored[0][1]
+    kept = [r for r in scored if r[1] >= floor_mb or r[1] == biggest]
+    # `limit=0` means NO CAP. `kept[:0]` is an empty slice, so the first
+    # version of this line silently returned nothing at all to the one caller
+    # that asked for every row -- and the gate's own test caught it, because
+    # a test that asserts "the tree is named" is worth more than the slice
+    # expression that hid it.
+    return kept if limit <= 0 else kept[:limit]
 
 
 def _available_once():
@@ -750,6 +927,30 @@ def main(argv=None):
             print('NO ROOM — nothing is building, but only %.0f MB is reclaimable '
                   'and a run of this suite was measured to bottom out at 1177 MB. '
                   'Do not start a build here.' % avail)
+            # A verdict with no subject is not an answer. The line above says
+            # the box is short of memory and stops: it names no holder, so the
+            # reader is left hunting with `ps` for something the gate already
+            # surveyed. Measured on 5 Oct, on this exact denial: ~700 MB sat
+            # under a supervised `waha-lite` Chrome whose parent was alive,
+            # which is exactly why `--reap` refused it -- and the only way to
+            # learn that was ten process lookups by hand. The number was
+            # right and the tick still could not act, because "NO ROOM" and
+            # "NO ROOM because of a service you may not touch" call for
+            # different decisions: one is worth retrying, the other is the box
+            # sitting at its floor, and only the first ever clears on its own.
+            rows = holder_census()
+            if rows:
+                print('Largest memory holders (PSS, by process tree root):')
+                for pid, mb, npids, comm, cwd in rows:
+                    where = cwd if cwd else 'cwd unreadable'
+                    print('  %-7d %6.0f MB  %2d proc  %-12s %s'
+                          % (pid, mb, npids, comm[:12], where))
+                print('None of these is a build this loop started: --reap only '
+                      'clears processes the survey proves are this loop\'s own '
+                      'leaked renders. If the top holder is a service, this '
+                      'denial is the box being at its floor -- take a non-build '
+                      'item and do not kill it.')
+
         else:
             print('CLEAR — no flutter/dart tool, no busy JVM, no leaked tester, '
                   'no leaked browser, and enough memory to run a build.')
