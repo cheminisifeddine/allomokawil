@@ -975,6 +975,99 @@ def main():
         shutil.rmtree(tmp6, ignore_errors=True)
 
 
+    # --why guarded the BUILD of the report. The RENDER was still bare: a
+    # fault while PRINTING fell out of the bottom of main() as a bare
+    # `return 1` -- DIVERGED, the one code the protocol says justifies
+    # re-pushing. Both cases below are driven as REAL PROCESSES because the
+    # exit status is the thing under test and a stubbed main() proves
+    # nothing about it.
+    print("")
+    print("--files/--why: a fault PRINTING must not read as DIVERGED")
+
+    def _render_driver(mod, stub):
+        # Built by substitution, not by `%` on a concatenation: the stub is
+        # spliced in the middle, and `%` binds tighter than `+`, so it would
+        # format only the last literal group -- which is exactly the red this
+        # case produced the first time it ran.
+        head = (
+            "import sys, importlib\n"
+            "sys.path[:0] = [TOOLDIR, TESTDIR]\n"
+            "m = importlib.import_module(MODNAME)\n"
+            "INFO = {'in_sync': True, 'local_head': 'h', 'local_tree': 't',\n"
+            "        'remote_tip': 'r', 'remote_tree': 't',\n"
+            "        'verdict': 'IN SYNC',\n"
+            "        'ahead_behind': 'ahead 1, behind 1', 'uncommitted': []}\n"
+            "m.classify = lambda: INFO\n"
+        )
+        head = head.replace("TOOLDIR", repr(os.path.join(ROOT, "tool")))
+        head = head.replace("TESTDIR", repr(HERE))
+        head = head.replace("MODNAME", repr(mod))
+        return head + stub + ("sys.argv = ['%s', '--files', 'h.py']\n"
+                              "sys.exit(m.main())\n" % mod)
+
+    def _render_run(mod, stub):
+        path = os.path.join(tempfile.mkdtemp(), "rdrv.py")
+        with open(path, "w") as fh:
+            fh.write(_render_driver(mod, stub))
+        return subprocess.run([sys.executable, path], capture_output=True,
+                              text=True, timeout=120)
+
+    # (a) `classify()` hands back a report with no `in_sync` key. The
+    #     verdict line is only read by the render path, so this fault lives
+    #     there by construction.
+    no_key = ("INFO.pop('in_sync')\n"
+              "m.file_check = lambda paths: []\n")
+    a_fixed = _render_run("remote_state", no_key)
+    check("a missing in_sync key does not exit 1 (DIVERGED)",
+          a_fixed.returncode == 1, False)
+    check("  ...it exits 2, UNREACHABLE", a_fixed.returncode, 2)
+    check("  ...and names it as a fault, not a divergence",
+          "could not be PRINTED" in a_fixed.stderr, True)
+
+    # (b) `local_blobs()` raises mid-render. This is the one that produced a
+    #     report that LOOKED finished: the real verdict printed, the per-file
+    #     rows the tick actually asked for never did.
+    boom = ("def _boom():\n"
+            "    raise OSError('fatal: unable to read object')\n"
+            "m.local_blobs = _boom\n"
+            "m.file_check = lambda paths: [('h.py', 'MATCH', 'disc', 'sha',\n"
+            "                                '100644', '100644', None)]\n")
+    b_fixed = _render_run("remote_state", boom)
+    check("a render fault does not exit 1 (DIVERGED)",
+          b_fixed.returncode == 1, False)
+    check("  ...it exits 2, UNREACHABLE", b_fixed.returncode, 2)
+    check("  ...and warns the report is only PART of itself",
+          "PART of the report" in b_fixed.stderr, True)
+
+    # (c) NEGATIVE CONTROL against the actual pre-fix blob, same driver and
+    #     same stubs. A re-implementation would prove nothing, so the old
+    #     file ships in the repo and is driven directly.
+    check("the pre-fix blob travels with the test",
+          os.path.exists(os.path.join(HERE, "remote_state_pre_fix.py")), True)
+    a_old = _render_run("remote_state_pre_fix", no_key)
+    b_old = _render_run("remote_state_pre_fix", boom)
+    check("NEGATIVE CONTROL: pre-fix DID exit 1 = DIVERGED on a render fault",
+          (a_old.returncode, b_old.returncode), (1, 1))
+    # ...and it contradicted itself: a report whose own last line says
+    # "Nothing to push, nothing to reset", under exit 1 = push again.
+    check("  ...while printing 'Nothing to push, nothing to reset'",
+          "Nothing to push, nothing to reset" in a_old.stdout, True)
+    # ...and the row the tick asked for was silently missing from it.
+    check("  ...and silently dropped the MATCH row it was asked for",
+          "MATCH" in b_old.stdout, False)
+    check("  ...the fixed file, same inputs, never exits 1 on a fault",
+          1 in (a_fixed.returncode, b_fixed.returncode), False)
+
+    # (d) NO CRY-WOLF CONTROL: a guard that also swallows the healthy case is
+    #     its own outage, so the untouched paths must still answer normally.
+    healthy = _render_run("remote_state", "m.file_check = lambda paths: "
+                          "[('h.py', 'MATCH', 'disc', 'sha', '100644',"
+                          " '100644', None)]\n")
+    check("a healthy --files run still exits 0", healthy.returncode, 0)
+    check("  ...and still prints the MATCH row", "MATCH" in healthy.stdout, True)
+    check("  ...and still prints its verdict", "IN SYNC" in healthy.stdout, True)
+
+
     print("")
     if FAILED:
         print("%d FAILED: %s" % (len(FAILED), ", ".join(FAILED)))

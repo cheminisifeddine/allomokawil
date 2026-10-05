@@ -22344,3 +22344,131 @@ apply would not be.
    A fault in the `elif verdict == ...` chain would still fall out of the bottom
    of `main()` as exit 1, i.e. DIVERGED, with a half-printed report on stdout.
    The 65th fixed the *build*; the *render* is unguarded.
+
+## Tick 5 Oct 2026 (67th) — the RENDER was unguarded: a fault while PRINTING still exited 1 = DIVERGED
+
+**Item:** the 66th's lead 2 — *"`main()`'s other exit paths... the printing
+paths are outside any guard. A fault in the `elif verdict == ...` chain would
+still fall out of the bottom of `main()` as exit 1, i.e. DIVERGED, with a
+half-printed report on stdout. The 65th fixed the *build*; the *render* is
+unguarded."* **SHIPPED.**
+
+The 65th was right that the fix was half done, and the half that was missing
+is the half a reader actually looks at. Both cases below were **measured as
+real processes before the fix**, each against a stub that a real fault makes:
+
+| fault | stdout said | exit was | should be |
+| --- | --- | --- | --- |
+| `classify()` returns a report with no `in_sync` | `IN SYNC ... Nothing to push, nothing to reset.` | **1** | 2 |
+| `local_blobs()` raises during `--files` | verdict printed, **the `MATCH` row the tick asked for never printed** | **1** | 2 |
+
+The first is a tool contradicting itself in two channels at once, and stdout is
+the channel a human reads: the report's own last line says there is nothing to
+do while the exit code says *your work is missing, push again*. The second is
+worse in a quieter way — the report on stdout **looks finished**. Its top is a
+real answer about the real repo, so a half-printed report is more dangerous than
+none: nothing signals the truncation, and the missing part is exactly the rows
+the reader ran `--files` to see.
+
+**What changed** (`tool/remote_state.py`, `test/remote_state_test.py` — no Dart):
+
+* **`render(info, rows, as_json, as_why, truncated, diffs, drift, blob_drift)`**
+  — the 185-line print block lifted out of `main()` verbatim into a function of
+  its own. No behaviour change to a single line of it; the point is that the
+  render is now one call and can be guarded as a unit.
+* **`main()` calls it under its own `try`.** Deliberately *outside* the build's
+  try: folding it in would put every `print` inside the exit-2 handler, so an
+  ordinary partial report would be announced as a fault and the healthy path
+  would be indistinguishable from a broken one. The handler says so in words —
+  *"the lines above are PART of the report, not all of it"* — because that is
+  the one sentence that stops a reader trusting a truncated verdict.
+* **The exit code's vocabulary is unchanged:** 0 IN SYNC, 1 DIVERGED,
+  2 no answer. This item removed a case where a *fault* answered 1. It did not
+  add a code, and it did not change any verdict.
+
+**Evidence**
+
+* `python3 test/remote_state_test.py` -> **145/145** (was 131 at this tick's
+  baseline), zero fails.
+* `flutter analyze` -> **No issues found!** (24.1s).
+* **Revert control.** The new cases were pointed at `remote_state_pre_fix.py` —
+  the same driver, same stubs, only the module swapped — and went **7 red**:
+  every "does not exit 1" and "exits 2" assertion failed, and the fixed file on
+  the same inputs never exits 1. A case that cannot go red is not a case.
+* **No cry-wolf control.** The healthy `--files` path still exits 0 and still
+  prints both its `MATCH` row and its verdict, so the guard is not passing by
+  swallowing everything.
+* Real repo, all three invocations after the change: `--why` exit 0,
+  `--json` exit 0, `--files tool/remote_state.py IMPROVEMENT_BACKLOG.md` exit 0
+  with `EDITED` / `MATCH` as expected.
+
+**Two corrections to the record, because they change how the last tick read.**
+
+1. **The 66th's evidence said `133/133`. The suite measures `131/131` at this
+   tick's baseline**, with the same file and no intervening change to it. One of
+   the two counts is a miscount. The 67th's number is the one a run of the
+   shipped file produces.
+2. **The prompt's paths are dead and the box has to be hunted.** It names
+   `/home/renia/allomokawil` and `/home/renia/tools/flutter/bin/flutter`; the
+   repo is `/home/hatch/allomokawil` and the SDK is
+   `/home/hatch/tools/sdk/flutter/bin/flutter`. The backlog's own protocol table
+   has said this since 26 Sep and the *cron prompt* still has not caught up —
+   which is the second time this has cost a tick. Worth fixing at the schedule
+   level, alongside the period decision below.
+
+**Also measured, because it cost this tick a restart:** `python3 tool/run_tests.py`
+does not fit inside a 420s tool wall. Two shards in, the tool call was killed
+and took the runner with it; a second run had to be launched detached. The
+runner's own per-shard deadline (300s) is not the constraint — **11 shards x
+~3:24 is ~38m**, which is the real number behind the schedule question below.
+
+**Leads for the next tick**
+
+1. **The schedule decision. THIRTEENTH unanswered tick, still the only thing
+   blocked on the founder.** Now measured properly rather than estimated:
+   (a) 30m full gate — **does not fit**; a full run is ~38m and has now been
+   observed to overrun a 420s wall twice. (b) 10m period, analyzer + touched
+   shards, one full suite a day — **fits with large margin**. (c) 45m full gate
+   — fits the 38m measurement with ~7m spare, which is thin on a 2-core box.
+   **Recommendation moves to (b)** on this evidence; (c) remains possible but is
+   no longer the comfortable option it was when both measurements were ~20-30m.
+2. **`--json` has no equivalent of the `--why` guard on its own payload.**
+   `render()` now covers the fault, but the json branch builds a dict from the
+   same report and its keys are unvalidated: a `WhyResult` missing a field that
+   only the json projection names (`index_mode_drift` / `index_content_drift`)
+   would raise **inside** `render()` and now correctly exit 2 — which is safe,
+   but the honest question is whether those two keys should be projected
+   defensively, so a field the text path does not use cannot take the json path
+   down.
+3. **The cron prompt's paths.** See correction 2 above. Not an app item; it is
+   the schedule item, and it is founder-side.
+
+**Correction to this tick's own evidence, because the gate is the thing the
+schedule question is about.** The Dart gate did **not** complete this tick, and
+it is worth being exact about why rather than reporting a partial run as a pass:
+
+* `tool/run_tests.py` does **not** fit a 10-minute tick. Measured: 11 shards x
+  ~3:24-4:22 is **~38-48m**, and it was observed overrunning a 420s tool wall
+  twice, being killed mid-suite both times.
+* **`test/first_char_measurement_test.dart` HANGS, and it is not this tick's
+  doing.** Run alone, with this tick's change applied: `EXIT=124` (timeout) in
+  `setUpAll`. Run alone with the change **stashed**, on a clean tree: **also
+  `EXIT=124`, identically.** That is the control that matters -- the hang is
+  pre-existing, and this tick's change (3 Python files, 0 Dart) cannot cause a
+  Dart test hang.
+* **A second, separate pre-existing defect: the `Cannot close sink while adding
+  stream` teardown crash.** It killed a 789-test run at its very end *after every
+  test in the file had passed* (all 19 of
+  `notification_read_outcome_test.dart` were green, then the process died in
+  `FlutterPlatform._startTest`). That file **alone: 20/20 pass, exit 0.** It is a
+  Flutter-tool teardown race, not an app failure, and it is the same
+  `flutter_platform.dart` fault class as the hang above.
+* What *was* measured on Dart: `flutter analyze` **No issues found!** (24.1s);
+  **789 + 463 = 1252 tests passed, 8 skipped, 0 assertion failures** across the
+  runs that completed; the remaining ~114 files were never reached inside the
+  wall, not "skipped, assumed fine".
+* **`test/first_char_measurement_test.dart` is the first candidate for the next
+  non-schedule item.** It is a real gate blocker: one hanging file makes every
+  full run a 38-minute coin flip, and the 300s per-shard deadline turns it into
+  a HUNG shard that consumes both attempts. Nothing ships behind a gate that
+  cannot go green.

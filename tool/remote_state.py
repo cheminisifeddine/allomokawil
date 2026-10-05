@@ -745,6 +745,56 @@ def main():
         print("report that cannot be built is NOT evidence that work is missing.", file=sys.stderr)
         return 2
 
+    # The 66th's lead 2. The 65th guarded the BUILD of the report; this
+    # guards the RENDER. `render()` is deliberately outside the try above:
+    # it prints, and folding it in would put every print inside a handler
+    # that reports faults as exit 2 -- but a report cut off mid-sentence is
+    # worse than no report, because the top of it is a real answer about
+    # the real repo and reads as a finished one. So it is called here under
+    # its own guard, and the three exits mean the same three things they
+    # always have: 0 IN SYNC, 1 DIVERGED, 2 no answer at all.
+    try:
+        return render(info, rows, as_json, as_why, truncated, diffs,
+                       drift, blob_drift)
+    except Exception as exc:
+        print("UNREACHABLE: the report could not be PRINTED: %s: %s"
+              % (type(exc).__name__, exc), file=sys.stderr)
+        print("This is a fault in remote_state.py, not a divergence. The",
+              file=sys.stderr)
+        print("lines above are PART of the report, not all of it -- do not",
+              file=sys.stderr)
+        print("act on a verdict from a half-printed report.",
+              file=sys.stderr)
+        return 2
+
+
+def render(info, rows, as_json, as_why, truncated, diffs, drift, blob_drift):
+    """Print the answer, and answer 0 (IN SYNC) or 1 (DIVERGED).
+
+    Split out of `main()` by the 66th's lead 2, for the reason the 65th had
+    to guard the build: everything below is RENDERING, and it reads names
+    (`info["in_sync"]`, `local_blobs()`) that only this layer touches, so a
+    fault in it used to land on the floor of `main()` as a bare return 1 --
+    which is DIVERGED, the one code the protocol says justifies re-pushing.
+    The 65th made a fault while BUILDING the report say exit 2. Building was
+    only half of it: a fault while PRINTING it still said DIVERGED, with a
+    report cut off mid-sentence on stdout.
+
+    Two shapes, both measured, both on the pre-fix file:
+
+      * `classify()` hands back a report with no `in_sync` key. stdout said
+        "IN SYNC ... Nothing to push, nothing to reset." and the exit code
+        said DIVERGED -- a tool contradicting itself in two channels at once,
+        and the stdout channel is the one a human reads.
+      * `local_blobs()` raises. The verdict printed, the per-file rows never
+        did, exit 1. The half-printed report is the dangerous part: it looks
+        complete, because the top of it is a real answer about the real repo.
+
+    The caller wraps this, so the function itself stays a straight
+    sequence of prints: no `try` here, because a guard that wraps rendering
+    has to live where the exit code is chosen, and that is `main()`.
+    """
+
     if as_json:
         print(json.dumps({"info": info, "files": rows,
                           "why": [{"path": p, "kind": k, "detail": d}
