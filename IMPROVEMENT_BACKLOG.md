@@ -22567,3 +22567,93 @@ recommendation (b): 10 m period, analyzer + touched shards, one full suite a
 day. New evidence for it: a full suite is 66 shards at size 4 and cannot be
 finished inside one 10-minute tick — this tick measured 46/66 shards in 900 s
 and had to impose its own cap to stop mid-suite.
+
+## Tick 5 Oct 2026 (69th) — the orphan that cost this tick its build is now impossible
+
+**Item:** lead carried from the 68th — `tool/run_tests.py` had no way to reap
+its suite when the RUNNER ITSELF died. SHIPPED. `cc0cf11` -> remote `525b914`.
+
+This tick could not build for its first ~20 minutes because of it, and that is
+the evidence: pid 21434, `flutter_tester`, **PPID 1**, RSS 169 MB, born
+**12:12:13** — the minute the 68th's full-suite run started, and that run was
+cut at shard 47/66 by an external 900 s cap. The tool that would have reaped
+it was gone, so its children were reparented to init and kept running. Memory
+was 148 MB free of 7.9 GB, no swap, and `build_gate.py` correctly answered
+BUSY. Per the standing rule ("report it, do not kill it") the tick shipped
+nothing until `test/build_gate_test.py` happened to reap it.
+
+**The defect.** `run()` reaped its child on exactly two paths — its own
+internal deadline, and a shard that failed. Both need the runner ALIVE to call
+`_kill_group`. `start_new_session=True` puts the suite in its **own** process
+group, so a group-kill aimed at the runner cannot reach it either. Confirmed on
+the box: the orphan held process group 21236 **on its own**, its leader long
+gone.
+
+**Why not `PR_SET_PDEATHSIG`.** It is the obvious fix and it does not work
+here: it signals the DIRECT child only. The process that leaks is a
+*grandchild* — `flutter_tester`, spawned by `flutter test` — so it would kill
+`flutter test` and orphan the engine anyway, reproducing the bug in a new
+shape. **The signal has to reach the group, and only a process that outlives
+the runner can send it.**
+
+*Changed* (`tool/run_tests.py` +145/-4, `test/run_tests_orphan_test.dart` new,
+**0 Dart**): a watchdog process holds the group's fate to a **pipe**. It blocks
+in `read()`; the runner holds the write end; when the runner dies for any
+reason — SIGTERM, SIGKILL, OOM — the kernel closes the last write end, `read()`
+returns EOF, and the watchdog `killpg`s the group. No polling, no timer, and no
+dependence on the runner being alive to notice. Two details are load-bearing:
+the watchdog gets **its own session** (a group-wide SIGTERM at the runner must
+not take the reaper down with the thing it reaps), and its argv is a bare pid
+with **no flutter path** (a watchdog naming `bin/flutter` would read as a live
+tool to `build_gate.py` and make the box look BUSY forever — the same class of
+bug as the argv-vs-comm arms already in that file). `_finish()` closes the pipe
+and joins the watchdog on **every** exit path, so a clean run cannot leak the
+reaper either.
+
+*Red before green, with a control.* The new test is red on the pre-fix runner,
+green after, and **red again with the watchdog disabled** — three states, so
+"passing" is a measurement rather than a coincidence:
+```
+pre-fix :  1/2 — killed runner pid 26304; still alive:
+           26308 bash .../flutter test   26310 .../sleep 600   26311 .../sleep 600
+fixed   :  2/2 — All tests passed!
+control :  1/2 — watchdog disabled
+```
+The stub deliberately hangs **and leaves a grandchild of its own**, and `sleep`
+is copied into the temp dir so `pgrep -f <dir>` matches child *and* grandchild:
+a fix that only reached the direct child would still pass a child-only test.
+Also 17 s -> 0 s, because the kill is immediate instead of waiting out a reap.
+
+*Evidence*
+- `flutter analyze` -> **No issues found!** (10.0s). **0 Dart files touched.**
+- `test/run_tests_orphan_test.dart` -> **2/2**, exit 0.
+- The four tool test files -> **40/40**, exit 0, including
+  `tool_clock_seam_test.dart`, whose guard forbids a wall-clock read in any
+  tracked `.py` (the watchdog uses `time.monotonic()`).
+- `remote_state_test.py` -> **165/165** exit 0; `push_helper_test.py` pass.
+- No leak after 3 s: no `watchdog-pgid` process survives, and
+  `build_gate.py` -> **CLEAR**, 2781 MB available.
+
+*Correction to my own first attempt, recorded because it nearly shipped a test
+that proves nothing:* the first version SIGTERM'd the runner's whole process
+group, and the fixed code still failed it. That was the test being wrong, not
+the fix — a group-kill reaches the suite itself, and it let the watchdog die
+too. The real evidence says the narrow signal is what happens: the 68th's
+`flutter test` survived at PPID 1, which is impossible if its group had been
+signalled. The test now kills the runner alone, and the watchdog's own session
+covers the broader case as well.
+
+**Two things the founder has been asked and still has not answered.** (1) May
+a tick reap a `flutter_tester` older than 30 min? This is now the **fourth**
+consecutive tick that lost build time to an orphan — though this tick's cause
+was self-inflicted (the 68th's own cap) and is now fixed at the source.
+(2) **Schedule, fifteenth tick, still yours:** recommend (b) 10 m period,
+analyzer + touched shards, one full suite daily. Unchanged and unchanged for a
+reason this tick measured again: a full suite is 66 shards at size 4, and
+46/66 fitted in 900 s last tick. It cannot finish inside one tick.
+
+**Next item:** nothing is unchecked in the backlog (243/243 ticked), so the
+open lead is the one the 68th left: the `AnalysisContextCollection` scope in
+`test/first_char_measurement_test.dart`, whose `setUpAll` burns 42 s resolving
+10 of 131 `lib/` files against a 403-file repo root. Still needs a tick with
+room to re-validate the guard.
