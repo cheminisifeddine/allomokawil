@@ -21703,3 +21703,102 @@ unchanged from the 59th and 60th.
    defending a property, and write the thing that would disagree — but apply
    it to the *loop's own Python*, which this file's first 34 ticks never did.
    Two of the last three defects lived in the harness, not the app.
+
+---
+
+## Tick 5 Oct 2026 (62nd) — `--files` was arguing with its own verdict
+
+**Item:** lead 2 from the 61st — "`--files` reports a MODE-DIFFER row but does
+not offer the repair that `--why` prints. One line, now that both the reader
+and the repair exist." **Shipped**, and it was not one line. Backlog stays at
+**zero unchecked**; no new item opened.
+
+I did not start by writing the repair. I checked that the row the repair
+would hang on is *true*, because a repair printed on a false row is worse
+than no repair — it fixes a file that was never wrong. It was not true.
+
+### The defect: `--files` read the index, the verdict reads HEAD
+
+`file_check` built its mode from `mode_of()` = `git ls-files -s` = **the
+INDEX**, i.e. what the *next* commit will record. `verdict()` compares
+**committed** trees. The row answered a question one commit ahead of the
+question the tool reports, so the two disagree exactly when a mode is staged
+and not committed — in **both** directions:
+
+| HEAD | index | remote | `--files` printed | committed verdict |
+| --- | --- | --- | --- | --- |
+| 100644 | 100755 | 100644 | **MODE-DIFFER** | **IN SYNC** |
+| 100755 | 100644 | 100644 | **MATCH** | **DIVERGED** |
+
+The first row is an invented divergence, with a repair printed on it that
+would have "fixed" a file whose committed tree was never wrong. The second is
+the mirror of the 60th tick's defect — MATCH printed under DIVERGED — and it
+was invisible for four days because **MODE-DIFFER was only ever exercised on
+a committed leak**. No test drove the index-vs-HEAD gap in either direction;
+all 31 existing cases went through the pure reader or a committed repo.
+
+### The fix
+
+`head_mode()` reads `ls-tree -r HEAD` — the same object the tree hash is taken
+over, i.e. the axis the verdict actually compares. A staged leak no longer
+becomes a divergence claim; it gets its own row, **MODE-STAGED**, carrying
+both modes, because MATCH is what a tick reads *before* it commits and a
+staged leak is exactly what becomes a divergence on the next one.
+
+Lead 2's repair is printed on both rows, and **each restores a different
+side**: MODE-DIFFER restores the **remote's** mode (gh_push.py mints every
+file 100644, so remote wins; restoring HEAD would be wrong — HEAD is the wrong
+one), MODE-STAGED restores **HEAD's** (undo the leak before it is committed).
+
+### Evidence
+
+- `python3 tool/build_gate.py` — refused at first (**620 MB** available, needs
+  >= 900 MB), so this started as a non-build item; cleared to 1143 MB later and
+  the analyzer and the full suite both ran then.
+- `flutter analyze` -> **No issues found! (ran in 11.4s)** — no Dart touched.
+- `remote_state_test.py` -> **44/44** (was 31).
+- **Proved on the real repo, not a fixture.** Staged `+x` on
+  `tool/build_gate.py` in this checkout:
+  ```
+  MODE-STAGED  tool/build_gate.py
+               trees AGREE (HEAD 100644); index says 100755
+               git update-index --chmod=-x tool/build_gate.py
+  ```
+  The old reader, run on the *same* state from a backup of the file, printed
+  **MODE-DIFFER** — and the committed-tree verdict was **IN SYNC**. Running
+  the printed repair cleared it to MATCH. The control is the old code, not an
+  argument about it.
+- **Push verified, not trusted.** Local `d20ee3a` -> remote `5c5a2e3`; both
+  blobs **MATCH**; `--why --json` after the push: `why: []`, `drift: []`,
+  `remote_truncated: false`, verdict IN SYNC.
+
+### Two more reds, both mine again — the harness, not the code
+
+Fourth tick running, so this is now a *rate* worth naming: (a) I asserted
+`verdict()` against a literal `"TREE"` sha I had just made up, so it went red
+for reasons that had nothing to do with the code; (b) I expected `UNTRACKED`
+for a file that exists on disk, but `git hash-object` hashes **any** file,
+tracked or not — that label only fires when the file is *missing*, and an
+existing-but-uncommitted file is `ABSENT-REMOTE`, which is the honest answer.
+Both reds appeared the moment the guard was written and the code was right
+both times. The rule that keeps catching me: **a red on the first run of a
+new guard means check which of the two is wrong before touching the code.**
+
+### Leads for the next tick
+
+1. **The schedule decision. EIGHTH unanswered tick, and still the only thing
+   on this list.** (a) 30m period for full-gate ticks, or (b) 10m with analyzer
+   + touched shards, one full suite a day. No amount of app work clears this.
+2. **The remaining index-vs-HEAD gap, if any is left.** `--files` and `--why`
+   now agree on the committed axis, and the staged leak is named in both. The
+   one axis still read nowhere is the **working file** vs HEAD: an *unstaged*
+   edit prints `DIFFER` (its sha is read with `hash-object`) while
+   `classify()` lists it under UNCOMMITTED and the verdict stays IN SYNC. That
+   one is *correct* and honest, unlike the two above — but nobody has said so
+   in a test, and an unlabelled "DIFFER" is the shape the next reader will
+   mistake for unpushed work.
+3. **The transferable lesson, fourth tick running.** Look for a comment
+   defending a property, and write the thing that would disagree — applied to
+   the loop's own Python, which this file's first 34 ticks never did. Three of
+   the last four defects were an axis or a reader being right about one thing
+   and silently about another.
