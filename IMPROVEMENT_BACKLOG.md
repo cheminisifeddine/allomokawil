@@ -21941,3 +21941,31 @@ pushed. The repair is already known — `git restore --staged <path>` — and th
 label has an obvious name (INDEX-STAGED, pairing with the existing
 MODE-STAGED). That is the next tick's item, and it is a real defect, not a
 shaped one.
+
+### The full suite finally ran — step 4's count clause is PASSED, not unproven
+
+```
+shards: 11 run, 11 green, 0 not green, 0 never started
+elapsed: 20:46
+SUITE PASS — 1990 tests across 11 shard(s), every shard green.
+```
+
+`python3 tool/run_tests.py`, started at the top of this tick so it could run
+alongside the work. **1990 tests, every shard green, first attempt on all
+eleven.** This is the first tick in four (59th, 60th, 61st, 62nd) where the
+count clause of step 4 is *passed* rather than *unproven* — it had been
+recorded as "no Dart changed, so the clause does not apply", which is a
+weaker thing and was true of every previous tick.
+
+Two facts for the schedule decision that is now on its **ninth** unanswered
+tick, both measured rather than estimated:
+
+1. **20:46, not ~40.** The "~40 minutes" in the last four tick notes was an
+   estimate that was never checked. The real number is **under the 30-minute
+   option** and more than twice the 10-minute period.
+2. It fit **inside this tick** because it was launched in the background at
+   the start and polled, while the tick's actual work (a Python-only change)
+   ran concurrently and needed no Dart. So the two options are not as opposed
+   as the framing has implied: a 30m period would run the full gate with no
+   scheduling gymnastics at all, on a box that is otherwise idle for 20
+   minutes.
