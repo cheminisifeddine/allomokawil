@@ -23558,3 +23558,68 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       `/workers/search` disagree with `/workers/$id/reviews` on **8 of 17** rated
       rows in the live market. Any future audit of one surface should ask the
       other one about the same rows.
+
+- [x] **51 of the 58 wilayas the filter sheet offers have no contractor in
+      them, and the directory answered that by blaming the reader's search.**
+      *Found 5 Oct 2026 by asking the live API the same question the sheet
+      asks — 58 reads, one per id in `Taxonomy.wilayas`:*
+      ```
+      GET /api/mobile/workers/search?wilaya=<id>   -> row count
+
+      51 of 58 -> 0 rows
+      7 with rows:  16 الجزائر 3 · 09 البليدة 1 · 15 تيزي وزو 1
+                    19 سطيف 1 · 25 قسنطينة 1 · 31 وهران 1 · 35 بومرداس 1
+      ```
+      **The cause is in the same payload and is not a server bug:** 88 of the
+      97 live rows carry no `user_wilaya`, no `wilaya_name` and no `commune`
+      at all. Filtering by place can only ever return the nine located
+      contractors, so tapping a real wilaya — spelled correctly, in the right
+      place in the list — is the **majority outcome of this screen**.
+      It answered:
+      ```
+      لا نتائج مطابقة
+      جرّب تغيير التخصص أو الولاية
+      [ مسح البحث والفلاتر ]
+      ```
+      Every word true, together actively harmful: it says *your search matched
+      nothing* — blaming the reader and a trade chip he may never have set —
+      and the button offered undoes the filter he did not know was the problem.
+      The one sentence that helps, that nobody is registered there and to widen,
+      was stated nowhere.
+      *Shipped:* `data/empty_wilaya_copy.dart` names the place instead, and
+      owns that case only — null whenever a category or a search word is also
+      set, because then the emptiness may be the trade and this file does not
+      get to claim the wilaya is empty. Same contract as the other arms here: a
+      null means *there is nothing to reconcile*. `BrowseScreen.initialWilaya`
+      adds the seam `initialCategory` already had, and it was needed for a
+      measured reason: driving the sheet from the shot harness pumps a fake
+      clock by hand and **timed out at 10 minutes, twice**; with the seam both
+      shots render in **2 s**.
+      *Evidence:*
+      - `flutter analyze` -> **No issues found!** (8.8 s)
+      - **149/149** across the 17 files that touch `BrowseScreen`, including
+        **6 new** in `test/empty_wilaya_copy_test.dart`
+      - **Red before green:** the rule stubbed to `null` -> **3 fail**; restored
+        -> **6 pass**
+      - Shots `27_browse_empty_wilaya.png` and its control
+        `28_browse_wilaya_with_rows.png` — same screen, same filter, rows
+        present. No `.ERROR.txt`. Measured off the raster: heading and body
+        **8.07:1**, amber action button **7.37:1**, one **888x168** amber box at
+        `(144,1407)`.
+      *Commit:* local `795bd6e` -> remote `dbc9bc3`, all four blobs verified
+      **MATCH** against the remote tree.
+
+      **Correction to the 77th tick's handoff, and it matters:** that tick
+      reported that "aggregates on `/workers/search` disagree with
+      `/workers/$id/reviews` on 8 of 17 rated rows". **They do not.** Measured
+      all three reads on all 17 rated rows this tick: `total_reviews` and
+      `avg_rating` from `/workers/search` and from `/workers/$id` are
+      **identical on 17 of 17**. What disagrees is the *list*: 8 of 17 rows
+      return fewer review cards than the aggregate claims (5 empty, 3 short by
+      14–29). That is the aggregate-vs-list gap the app already handles, not a
+      cross-endpoint backend bug. The real backend defect is the one above —
+      88 of 97 rows have no wilaya — and no app change can fix a filter over
+      rows that have no location.
+
+      **Next item:** no unchecked items remain (247 boxes). Source the next one
+      from live measurement.
