@@ -44,9 +44,7 @@ every API push, always, and means nothing.
 Exit codes:
   0  IN SYNC    -- local tree is byte-identical to the remote tree
   1  DIVERGED   -- real difference; unpushed work exists or remote work is missing
-  2  UNREACHABLE-- no answer: no creds, no network, bad repo, or a fault in
-                  this file while building the report. A crash here is NOT a
-                  divergence -- see the comment in main().
+  2  UNREACHABLE-- could not read the remote (no creds, network, bad repo)
 
 `DIVERGED` is the only state that is allowed to make a tick re-push, and even
 then the repair is `gh_push.py`, never a reset.
@@ -577,63 +575,14 @@ def file_check(paths):
     return rows
 
 
-class WhyResult(object):
-    """What `--why` found, by NAME instead of by position.
-
-    The 65th tick's item. `why()` used to return a bare five-tuple and
-    `main()` unpacked it positionally, so the contract lived in one
-    `return (...)` and one `a, b, c, d, e = why()` far apart in the file, and
-    nothing connected them except that both said five.
-
-    **Measured, and worse than the lead claimed.** The lead said a wrong tuple
-    count was swallowed by `except SystemExit` and surfaced as a bare
-    "unreachable". It is not: a bad unpack raises `ValueError`, which is not
-    caught at all. Driven as a real subprocess, `why()` returning four values
-    gave:
-
-        exit code 1, zero bytes on stdout, a traceback on stderr
-
-    **Exit code 1 is DIVERGED** -- the one code the protocol says authorises
-    re-pushing, and the one code a tick is built to act on. So the honest
-    description of the old behaviour is not "prints the wrong message", it is
-    "a crash in the reporting path is indistinguishable from a real
-    divergence", which is the exact failure this tool exists to remove. An
-    unreadable remote and an unpushed commit both had a code; an arity bug
-    quietly borrowed the DIVERGED one.
-
-    Named attributes cannot be mis-unpacked, and a field added here fails
-    loudly at construction instead of silently at the far end of the file.
-    Positional compatibility is kept through `__iter__` only so the existing
-    cases (and any by-hand call) keep working -- unpack in the new code, do
-    not add to the new code.
-    """
-
-    __slots__ = ("diffs", "truncated", "mode_drift", "staged", "blob_drift")
-
-    def __init__(self, diffs, truncated, mode_drift, staged, blob_drift):
-        self.diffs = diffs
-        self.truncated = truncated
-        self.mode_drift = mode_drift
-        self.staged = staged
-        self.blob_drift = blob_drift
-
-    def __iter__(self):
-        """Positional view, for the tests that already unpack this."""
-        return iter((self.diffs, self.truncated, self.mode_drift, self.staged,
-                     self.blob_drift))
-
-    def __len__(self):
-        return 5
-
-
 def why():
     """The per-path difference between the two trees, as sentences."""
     local = local_blobs()
     remote = remote_blobs()
     truncated = remote_truncated()
-    mode_drift, staged = index_drift()
-    return WhyResult(explain(local, remote), truncated, mode_drift, staged,
-                     staged_content_drift())
+    drift, staged = index_drift()
+    return (explain(local, remote), truncated, drift, staged,
+            staged_content_drift())
 
 
 def main():
@@ -654,35 +603,12 @@ def main():
         staged = False
         blob_drift = []
         if as_why:
-            report = why()
-            diffs, truncated, drift = report.diffs, report.truncated, \
-                report.mode_drift
-            staged, blob_drift = report.staged, report.blob_drift
+            diffs, truncated, drift, staged, blob_drift = why()
     except urllib.error.URLError as exc:
         print("UNREACHABLE: %s" % exc, file=sys.stderr)
         return 2
     except SystemExit as exc:
         print(str(exc), file=sys.stderr)
-        return 2
-    except Exception as exc:
-        # The 65th's item. A crash while BUILDING the report must never fall
-        # out of the bottom of `main()` as exit 1. Exit 1 is DIVERGED, and
-        # DIVERGED is the only code step 6 of the protocol says justifies
-        # re-pushing -- so an unpacking slip, a typo, a NoneType five lines
-        # later, all used to read to a tick as "your work is not on the
-        # remote, push again". Measured on the pre-fix code: a `why()`
-        # returning four values exited 1 with no stdout and a traceback on
-        # stderr, which is exactly a real divergence as far as the exit code
-        # is concerned.
-        #
-        # It is UNREACHABLE, and deliberately so: this code path means "the
-        # tool could not produce an answer", which is what exit 2 has always
-        # meant. Printing the traceback keeps the diagnosis, and exit 2 keeps
-        # it from being mistaken for a verdict.
-        print("UNREACHABLE: --why could not be built: %s: %s"
-              % (type(exc).__name__, exc), file=sys.stderr)
-        print("This is a fault in remote_state.py, not a divergence. A", file=sys.stderr)
-        print("report that cannot be built is NOT evidence that work is missing.", file=sys.stderr)
         return 2
 
     if as_json:

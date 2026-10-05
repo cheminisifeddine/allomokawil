@@ -679,6 +679,126 @@ def main():
     finally:
         shutil.rmtree(tmp5, ignore_errors=True)
 
+    # 13. Lead 2 from the 64th, and the lead was WRONG about half of it.
+    #     It said a wrong tuple count was swallowed by `except SystemExit`
+    #     and surfaced as a bare "unreachable". Measured on the real
+    #     pre-fix code as a real subprocess: exit code 1, empty stdout, a
+    #     traceback on stderr. Exit 1 is DIVERGED -- the one code the
+    #     protocol says authorises a re-push. The honest failure is that a
+    #     crash in the reporting path was indistinguishable from a real
+    #     divergence, not that it printed the wrong sentence.
+    print("")
+    print("--why: a fault building the report must not read as DIVERGED")
+
+    saved_why = remote_state.why
+    saved_api2 = remote_state.api
+
+    # (a) The report is named, not positional: no unpack can be wrong.
+    rep = saved_why()
+    check("why() returns a named report",
+          isinstance(rep, remote_state.WhyResult), True)
+    check("  ...with every field present",
+          sorted(remote_state.WhyResult.__slots__),
+          ["blob_drift", "diffs", "mode_drift", "staged", "truncated"])
+    # The positional view still exists, so the 64th's case above is untouched.
+    check("  ...and still unpacks for the old callers",
+          len(list(rep)), 5)
+
+    # (b) THE EXIT CODE, as a real process. This is the number step 6 of the
+    #     protocol acts on, so a stubbed main() return would prove nothing: it
+    #     is the OS exit status that a tick reads. `classify()` is stubbed so
+    #     nothing here touches the network -- the only variable under test is
+    #     what main() does when `why()` hands back the wrong shape.
+    def _driver(mod, ret):
+        return (
+            "import sys\n"
+            "sys.path[:0] = [%r, %r]\n"
+            "import %s as m\n"
+            "m.classify = lambda: {'in_sync': True, 'local_head': 'h',"
+            " 'local_tree': 't', 'remote_tip': 'r', 'remote_tree': 't',"
+            " 'verdict': 'IN SYNC', 'ahead_behind': 'ahead 1, behind 1',"
+            " 'uncommitted': []}\n"
+            "m.why = lambda: %s\n"
+            "sys.argv = ['%s', '--why']\n"
+            "sys.exit(m.main())\n"
+            % (os.path.join(ROOT, "tool"), HERE, mod, ret, mod)
+        )
+
+    def _run(mod, ret):
+        path = os.path.join(tempfile.mkdtemp(), "drv.py")
+        with open(path, "w") as fh:
+            fh.write(_driver(mod, ret))
+        return subprocess.run([sys.executable, path], capture_output=True,
+                              text=True, timeout=120)
+
+    results = {}
+    for label, ret in [("arity-4", "([], False, [], False)"),
+                       ("arity-6", "([], False, [], False, [], 'extra')")]:
+        proc = _run("remote_state", ret)
+        results[label] = proc
+        check("%s does not exit 1 (DIVERGED)" % label,
+              proc.returncode == 1, False)
+        check("  ...it exits 2, UNREACHABLE", proc.returncode, 2)
+        check("  ...and says so in words", "UNREACHABLE" in proc.stderr, True)
+
+    # The healthy path must still work. A fault handler that eats the normal
+    # case is its own outage, so `--why` on a real report has to exit 0.
+    # The stub returns a REAL WhyResult, because that is the contract now --
+    # my first version of this case passed a plain five-list, which the named
+    # access in main() rejects, and the failure it produced was correct
+    # behaviour being asserted against.
+    # The module is bound as `m`, so the expression has to be spelled `m.` --
+    # I wrote `remote_state.` and the new fault handler reported the
+    # NameError as exit 2, which is the handler working exactly as intended
+    # and the test being wrong.
+    good = _run("remote_state", "m.WhyResult([], False, [], False, [])")
+    check("a well-formed report still runs", good.returncode, 0)
+    check("  ...and prints its verdict", "IN SYNC" in good.stdout, True)
+
+    # The contract is now NAMED, and that is the point of the item: a bare
+    # five-sequence is no longer what main() consumes. It is still handled
+    # SAFELY -- exit 2, named as a fault -- which is the difference between
+    # "the contract moved" and "the contract moved and now it lies".
+    duck = _run("remote_state", "([], False, [], False, [])")
+    check("a bare five-list is no longer accepted", duck.returncode, 2)
+    check("  ...but it is refused, not mistaken for a divergence",
+          "UNREACHABLE" in duck.stderr, True)
+
+    # (c) NEGATIVE CONTROL, against the ACTUAL pre-fix file rather than a
+    #     re-implementation of it. My first attempt at this asserted that
+    #     main() raises, and it did not -- because the fix had just made
+    #     main() CATCH. The control was exercising the fixed code and
+    #     passing for the wrong reason, which is worse than no control: it
+    #     would have kept passing if the fix were reverted. The only way to
+    #     show the old behaviour is to RUN the old file, which is why the
+    #     pre-fix blob travels with the test instead of living in a temp dir
+    #     nobody else can reach. Same driver, same monkeypatch, same input:
+    #     the only variable is the file.
+    check("the pre-fix blob travels with the test",
+          os.path.exists(os.path.join(HERE, "remote_state_pre_fix.py")), True)
+    old_proc = _run("remote_state_pre_fix", "([], False, [], False)")
+    check("NEGATIVE CONTROL: pre-fix file DID exit 1 = DIVERGED",
+          old_proc.returncode, 1)
+    check("  ...with no verdict on stdout at all", old_proc.stdout.strip(), "")
+    check("  ...while the fixed file, same input, does not",
+          results["arity-4"].returncode != old_proc.returncode, True)
+    check("  ...pre-fix raised ValueError; the fixed one reports a fault",
+          "ValueError" in old_proc.stderr
+          and "ValueError" not in results["arity-4"].stderr, True)
+    # And the pre-fix file is healthy on a well-formed report, so the
+    # difference above is the arity handling and not two broken copies.
+    # The pre-fix file consumes a bare five-sequence, so this one DOES hand it
+    # a list -- which is the whole difference between the two files, stated as
+    # a test: old contract accepted, new contract refused, neither crashes.
+    old_good = _run("remote_state_pre_fix", "([], False, [], False, [])")
+    check("pre-fix accepted a bare five-list", old_good.returncode, 0)
+    check("  ...and the fixed file, given the same, refuses safely",
+          old_good.returncode != duck.returncode, True)
+
+
+    remote_state.why = saved_why
+    remote_state.api = saved_api2
+
     print("")
     if FAILED:
         print("%d FAILED: %s" % (len(FAILED), ", ".join(FAILED)))
