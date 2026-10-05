@@ -22134,3 +22134,119 @@ repo.** The 63rd shipped a lead that a 20-line probe refuted the same tick.
    unmentioned. Deliberate for now (rule 1 above) but it is a choice, not an
    oversight, and a next tick should either test that the choice is right or
    close the gap.
+
+---
+
+## Tick 5 Oct 2026 (65th) — a crash in the reporting path was wearing DIVERGED's exit code
+
+**Item:** lead 2 from the 64th — *"`why()` grew a third return value and every
+caller unpacks it... a wrong tuple count is now indistinguishable from a dead
+network."* **SHIPPED.** `d649ee3` → remote `89e563b`.
+
+**This tick did not open a new item.** The tree arrived dirty: the previous
+tick had written `WhyResult`, the 20 new cases and the pre-fix snapshot, then
+stopped without gating, committing, or ticking its box. Protocol step 2 says
+finish that first. So this tick gated it, proved it on a real repo, and
+committed it. The uncommitted work is the 64th's, the fix is the 64th's, the
+item is closed once.
+
+### The lead was wrong about half of it, and the truth is worse
+
+It claimed a wrong tuple count was swallowed by `except SystemExit` and
+surfaced as a bare "unreachable". **It was not swallowed — nothing caught it.**
+`ValueError` is not a `SystemExit`, so the unpack in `main()` propagated out of
+the bottom of the function and killed the process. Driven as a real subprocess
+against the **actual pre-fix file**:
+
+```
+$ python3 drv_old.py          # why() -> 4 values
+Traceback (most recent call last):
+  File ".../tool/remote_state.py", line 606, in main
+    diffs, truncated, drift, staged, blob_drift = why()
+ValueError: not enough values to unpack (expected 5, got 4)
+EXIT=1
+```
+
+**Exit 1 IS DIVERGED** — the one code step 6 says authorises a re-push, the
+code a tick is built to act on. So the honest description of the old behaviour
+is not "prints the wrong message". It is **"a fault in the reporting path was
+indistinguishable from real lost work"** — which is the exact confusion this
+tool exists to eliminate. An arity slip had quietly borrowed DIVERGED's exit
+code and would have read to a tick as "your work is not on the remote, push
+again." Note also stdout was **empty**: not even the wrong verdict, no verdict.
+
+### What changed (`tool/remote_state.py`, `test/remote_state_test.py`, `test/remote_state_pre_fix.py`; no Dart)
+
+* **`WhyResult`** — a `__slots__` class. The contract now lives in one place,
+  and a field added to it fails loudly at construction instead of silently at
+  the far end of the file. `__iter__` keeps the positional view so the 64th's
+  case and any by-hand call keep working. New code unpacks by name; old code
+  still iterates.
+* **`main()` catches `Exception` around report building** and returns **2
+  (UNREACHABLE)**, naming the exception type and the message, plus two lines in
+  plain words: *"This is a fault in remote_state.py, not a divergence. A report
+  that cannot be built is NOT evidence that work is missing."* Deliberate:
+  this path means "the tool could not produce an answer", which is what exit 2
+  has always meant. The exception is still printed, so the diagnosis survives.
+* **`main()` consumes the report BY NAME** (`report.diffs`, `report.mode_drift`,
+  …), so no unpack in `main()` can be wrong.
+
+The duck case is handled and tested rather than left to luck: a bare five-list
+is *refused* (exit 2, named as a fault) — the contract moved, and now it says
+so instead of lying.
+
+### Evidence
+
+* `python3 test/remote_state_test.py` → **106/106**, zero fails, was 86.
+* `flutter analyze` → **No issues found!** (12.0s)
+* **Before/after on the same input, same driver, only the file swapped:**
+
+  | file | `why()` returns 4 | `why()` returns a well-formed report |
+  | --- | --- | --- |
+  | pre-fix | **exit 1**, stdout empty, `ValueError` traceback | exit 0 |
+  | fixed | **exit 2**, `UNREACHABLE: --why could not be built: AttributeError…` | exit 0 |
+
+  The control column matters: the pre-fix file is **not** broken on a good
+  report, so the two rows differ on *arity handling* and not on one copy being
+  damaged.
+* **The negative control runs the real old file.** `test/remote_state_pre_fix.py`
+  is checked in (byte-identical to `HEAD:tool/remote_state.py` at the 64th, so
+  the control cannot rot). My first attempt asserted that `main()` raises — it
+  did not, because the fix had just made `main()` *catch*; the control was
+  exercising the fixed code and passing for the wrong reason, which is worse
+  than no control, because it would have kept passing if the fix were reverted.
+  Running the old blob is the only way to show the old behaviour.
+* **Real repo, untouched paths:** `--why` on this repo exits **0** and prints
+  the full verdict; `--files` on the three changed files printed `EDITED` while
+  they were still dirty and `MATCH` after the push — no label regressed.
+
+### Self-inflicted reds, 7th tick running
+
+1. Guessed `test/remote_state_guard_test.dart` for the Dart-side gate and ran
+   it. No such file exists — the tool has no Dart test; its harness is
+   `test/remote_state_test.py`. I should have listed the directory first, as I
+   did for every other path this tick.
+2. A `sed` one-liner to build the healthy-path control emitted a syntax error
+   and exited 1 — a broken probe masquerading as a control. Rewrote it as a
+   real file. Worth stating plainly: **a red exit from my own bad probe is
+   exactly the shape this tool exists to stop being trusted on**, and I nearly
+   logged it as evidence.
+
+### Leads for the next tick
+
+1. **The schedule decision. ELEVENTH unanswered tick, still the only thing
+   blocked on the founder.** (a) 30m full gate — **measured wrong twice now**
+   (20:46 then 30:13 on the same 11 shards / 1990 tests), so it is a coin flip
+   on box load. (b) 10m period, analyzer + touched shards, one full suite a
+   day — **fits with margin**. (c) 45m full gate — fits both measurements.
+   Recommendation stays **(b)**, honest alternative **(c)**.
+2. **The mode-axis gap from the 64th, lead 3 — still open.** `choose_content_row`
+   can say `MODE-DIFFER` from `l_mode != r_mode`, but nothing reads the
+   **index** mode when the content row fires, so a staged mode hide behind a
+   real content divergence goes unmentioned. Deliberate for now (rule 1) but it
+   is a choice, not an oversight — a next tick should either test that the
+   choice is right or close the gap.
+3. **`main()`'s other three exit paths are still bare `return 1`s.** Having just
+   made the `--why` path loud, check whether the same "silent wrong verdict"
+   shape exists in the `--json` and `--files` branches, which also unpack
+   results from helpers that can raise.
