@@ -77,6 +77,16 @@ import '../core/l10n/strings.dart';
 import '../core/l10n/write_outcome.dart';
 import '../models/worker.dart';
 
+/// Did the document queue grow between two reads?
+///
+/// Both counts must be **real**. `verificationPendingDocs` is nullable (a
+/// route that does not send it has not measured it), and comparing two nulls
+/// with `>` answers "no" while comparing null to a number throws in Dart, so
+/// the honest question is asked explicitly rather than by operator luck: an
+/// unknown count can never be evidence that a filing landed.
+bool _queueGrew(int? after, int? before) =>
+    after != null && before != null && after > before;
+
 /// True when [after] proves the documents this screen just sent arrived.
 ///
 /// [before] is the profile the screen was drawing when the contractor tapped
@@ -95,7 +105,7 @@ bool verificationLanded({
     // (1) The queue grew. The strongest of the four, and the one that fires on
     // the ordinary path: a filing that reached the server put more document
     // rows in front of the reviewer than there were before.
-    after.verificationPendingDocs > before.verificationPendingDocs ||
+    _queueGrew(after.verificationPendingDocs, before.verificationPendingDocs) ||
         // (2) A reviewer reached a verdict. The dossier left the `pending`
         // every profile in the product starts at, so this is a real movement
         // even though `pending` on its own never was.

@@ -577,13 +577,34 @@ class _VerifiedBanner extends StatelessWidget {
 /// verification" for documents he had never uploaded, which is a claim about a
 /// review that does not exist. `verification_pending_docs` is what separates
 /// the two.
+///
+/// **And a fourth word when the count never arrived**: «غير معروف». The queue
+/// size is nullable, because the server does not send it on every route (5 Oct,
+/// live: absent from 0/96 browse rows, present on `/api/mobile/my/profile`),
+/// and "the queue is empty" is as much a claim about the server as "the
+/// queue is under review". Both directions of guessing were once drawn from
+/// the same missing number.
 class _PartsStatusCard extends StatelessWidget {
   const _PartsStatusCard({required this.worker});
 
   final WorkerProfile worker;
 
   /// True once anything at all has reached the reviewer.
-  bool get _sent => worker.verificationPendingDocs > 0;
+  ///
+  /// [WorkerProfile.hasFiledDocuments] rather than a raw `> 0`, because the
+  /// count is nullable: an unmeasured queue is not an empty one.
+  bool get _sent => worker.hasFiledDocuments;
+
+  /// True when the server never sent a queue size for this row.
+  ///
+  /// This is the third state the card used to be missing. Measured 5 Oct, the
+  /// key is absent from **0 of 96** browse rows and present on
+  /// `/api/mobile/my/profile` — so on the routes that feed this card today it
+  /// is false, and that is the honest reading to record rather than a lie to
+  /// paper over. The state exists so that when a second route is ever wired to
+  /// this card, the screen says "I was not told" instead of "nothing was
+  /// sent" on the server's behalf.
+  bool get _unknown => worker.dossierCountUnknown;
 
   @override
   Widget build(BuildContext context) {
@@ -613,7 +634,9 @@ class _PartsStatusCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            !_sent
+            _unknown
+                ? 'لم نتمكن من قراءة حالة وثائقك من الخادم. ارفع وثائقك من الأسفل، وسيتغيّر هذا الجدول عند تحديثه.'
+                : !_sent
                 ? 'لم تُرسل أي وثيقة بعد. ارفع وثائقك من الأسفل، وسيتغيّر هذا الجدول بعد الإرسال وقبل المراجعة.'
                 : (underReview
                     ? 'وصلت وثائقك وهي قيد المراجعة. تُقبل المستندات واحداً واحداً، وسيتغيّر هذا الجدول مع كل قبول.'
@@ -631,13 +654,17 @@ class _PartsStatusCard extends StatelessWidget {
     required String label,
     required bool ok,
   }) {
-    // Three honest states, not two.
+    // Four honest states, not two. An accepted part is true on any route; an
+    // unaccepted part needs the queue count to say *why* it is unaccepted, and
+    // a route that does not send that count cannot supply the reason.
     final (String text, IconData mark, Color colour) = ok
         ? ('موثّقة', Icons.check_circle_rounded, AppTheme.success)
-        : _sent
-            ? ('بانتظار التحقق', Icons.hourglass_empty_rounded,
-                AppTheme.textMuted)
-            : ('لم تُرسل', Icons.upload_file_rounded, AppTheme.textMuted);
+        : _unknown
+            ? ('غير معروف', Icons.help_outline_rounded, AppTheme.textMuted)
+            : _sent
+                ? ('بانتظار التحقق', Icons.hourglass_empty_rounded,
+                    AppTheme.textMuted)
+                : ('لم تُرسل', Icons.upload_file_rounded, AppTheme.textMuted);
     return Row(
       children: [
         Icon(icon, size: 20, color: ok ? AppTheme.success : AppTheme.textMuted),

@@ -23115,6 +23115,68 @@ a 10-min tick).
 
 ## Tick 5 Oct 2026 (73rd) — the badge question, **answered by measurement**: the
 ## two columns disagree only on 3 seed rows, and no reviewer has ever written
+- [x] **`verification_pending_docs` was folded to `0` on the way in, so
+      `_PartsStatusCard` drew «لم تُرسل» for a queue it was never told about —
+      and the queued premise about *where* was falsified on the way in.**
+      The 73rd tick queued this and asserted the field "is absent from *every*
+      route except `/api/mobile/my/profile`". **Measured before implementing,
+      and that is wrong in the direction that mattered.** It is absent from
+      **0 of 96** browse rows *and present on `/api/mobile/my/profile`* — which
+      is the **only** route any reader of this count is wired to. Registered a
+      throwaway worker live to read it: `POST /api/register` `{type: "worker"}`
+      -> 201, then `GET /api/mobile/my/profile` -> **200 with
+      `verification_pending_docs: 0` present**. Every consumer of the count
+      (`_PartsStatusCard`, `_VerificationBadge`, the home pills, the setup
+      step, `verificationLanded`) resolves through `repo.myProfile()`, verified
+      by reading each call site — **no browse row reaches any of them.** So the
+      lie is not live today.
+
+      **Shipped anyway, because the `?? 0` was load-bearing in the wrong
+      direction and the gap is real the moment a second route is wired.**
+      `verificationPendingDocs` is now `int?`, parsed without a default, with
+      three predicates that cannot disagree:
+      `dossierUnderReview` (fails closed — an unknown count is never "under
+      review"), `hasFiledDocuments`, and `dossierCountUnknown`.
+      `_PartsStatusCard` draws a **fourth** state, «غير معروف», where it used
+      to claim «لم تُرسل».
+
+      *Why the `?? 0` was not merely redundant.* Null-vs-zero here was already
+      a documented law in this file ([serviceRadiusKm], [avgRating]) — an absent
+      measurement must not be rendered as a certain one. This field was the one
+      place that law was broken, and the test at `verification_review_test.dart`
+      **pinned the broken behaviour as intended**: `expect(legacy
+      .verificationPendingDocs, 0)` for a row with the key removed. A defect
+      with a green test is not an oversight, it is a decision nobody re-examined.
+      That assertion is now `isNull`, with the two cases separated.
+
+      **`verificationLanded` needed the same care.** Comparing the two counts
+      with `>` in Dart throws when one side is null, and silently answers "no"
+      when both are, so the growth check is now an explicit `_queueGrew` helper
+      that requires both counts to be real. An unmeasured queue is never
+      evidence that a filing landed — which is the whole contract of that file.
+
+      **Evidence**
+      - `flutter analyze` -> `No issues found! (ran in 10.6s)`.
+      - `test/verification_review_test.dart` **18/18** (4 new: absent-count
+        model, measured-zero model, and two widget tests pinning the rendered
+        word in both directions); the 4 verification files together **30/30**.
+      - Full suite: shards 1–3 green (**606 tests**); shard 4 **HUNG** with 130
+        green before it, culprit `test/flutter_platform.dart`, ending in
+        `TestDeviceException(Shell subprocess crashed with SIGTERM (-15))` and
+        a `PathNotFoundException` on the listener temp dir — the harness
+        deadline killing the shard, **not** an assertion. Its three files pass
+        green in 11s in isolation. **Stated honestly: the whole-suite number is
+        not one clean pass** — the deadline left 8 shards unstarted and they
+        were re-run separately.
+      - Screenshot `/tmp/shots/19_verification_unknown_queue.png` (1176x2550,
+        rendered by `design_shots_test`, no overflow). **Caveat: this box has
+        no vision tool, so I could not eyeball it.** The evidence for the new
+        state is the two widget assertions on the rendered strings plus a clean
+        render; a pixel-level eyeball is not claimed.
+
+      **Also recorded, unchanged and still a backend ticket:** seed ids 2/4/8
+      carry `verified` with no certificate row (from the 73rd tick).
+
 ## a flag on this market
 
 - [x] **The 72nd left this as the next item and called it a product call: "does

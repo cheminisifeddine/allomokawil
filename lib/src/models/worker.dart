@@ -59,7 +59,24 @@ class WorkerProfile implements RenderableRow {
   /// dossier. Without this count the UI has to guess, and it guesses wrong in
   /// both directions (empty form for a man who uploaded everything, false
   /// "under review" for a man who uploaded nothing).
-  final int verificationPendingDocs;
+  ///
+  /// **Null, not 0, and 0 is not null.** Measured 5 Oct, live: the key is
+  /// absent from **0 of 96** `/api/mobile/workers/search` rows (every other
+  /// field is 96/96) and present on `/api/mobile/my/profile` — the only route
+  /// any reader of this count is wired to. So today this is null defensively,
+  /// not routinely, which is exactly the case a `?? 0` hides forever: the day
+  /// one of those two shapes changes, or a new route is added, the folded 0
+  /// reads as "the queue is empty" and the verification screen draws
+  /// «لم تُرسل» — "nothing was sent" — for a part whose state was never
+  /// received. That is an absent measurement rendered as a certain one, the
+  /// same lie as [serviceRadiusKm] and [avgRating].
+  ///
+  /// Note what the safe default is for each direction. A **missing** count must
+  /// never become "under review" (that is the claim the whole
+  /// [dossierUnderReview] gate exists to refuse), so null fails *closed* here.
+  /// But "under review" is not the only lie available: "nothing was sent" is
+  /// also a claim, and the screen now draws a third state for it.
+  final int? verificationPendingDocs;
   /// Whether the identity half of the dossier (ID card + selfie) has already
   /// been accepted by a reviewer.
   ///
@@ -113,7 +130,7 @@ class WorkerProfile implements RenderableRow {
     this.serviceRadiusKm,
     required this.isAvailable,
     required this.verificationStatus,
-    this.verificationPendingDocs = 0,
+    this.verificationPendingDocs,
     this.identityVerified = false,
     this.certificateVerified = false,
     required this.avgRating,
@@ -167,8 +184,10 @@ class WorkerProfile implements RenderableRow {
       // never be a status this app will not recognise.
       verificationStatus:
           VerificationStatus.fromWire(_wireText(json['verification_status'])),
-      verificationPendingDocs:
-          _nullableInt(json['verification_pending_docs']) ?? 0,
+      // Null when the key is absent, NOT 0: see [verificationPendingDocs]. A
+      // route that does not send the count must be readable as a route that
+      // did not measure it.
+      verificationPendingDocs: _nullableInt(json['verification_pending_docs']),
       identityVerified: _flag(json['is_identity_verified']),
       certificateVerified: _flag(json['is_certificate_verified']),
       // A stored 0 is the server's "never rated" sentinel, not a mean: see
@@ -206,7 +225,24 @@ class WorkerProfile implements RenderableRow {
   /// surfaces, so they can never disagree about the same profile.
   bool get dossierUnderReview =>
       verificationStatus == VerificationStatus.pending &&
-      verificationPendingDocs > 0;
+      verificationPendingDocs != null &&
+      verificationPendingDocs! > 0;
+
+  /// True when documents have been filed at all — a queue the reviewer has to
+  /// look at, whether or not the status says they are under review.
+  ///
+  /// Separate from [dossierUnderReview] because "something was sent" and
+  /// "something is being reviewed" are two different claims and the screen
+  /// draws a different word for each.
+  bool get hasFiledDocuments =>
+      verificationPendingDocs != null && verificationPendingDocs! > 0;
+
+  /// True when this row's queue size was **not** sent by the server.
+  ///
+  /// The third state, and the one that was missing: a route that omits
+  /// `verification_pending_docs` has not said the queue is empty, and the
+  /// screen must not say it on the server's behalf.
+  bool get dossierCountUnknown => verificationPendingDocs == null;
 
   /// True once a contractor has something to show for himself — a finished job
   /// or a review. Until then a rating and a job count are both zeroes, which is

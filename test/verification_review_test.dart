@@ -107,6 +107,8 @@ void main() {
       final fresh = WorkerProfile.fromJson(_profile());
       expect(fresh.verificationStatus, VerificationStatus.pending);
       expect(fresh.verificationPendingDocs, 0);
+      expect(fresh.dossierCountUnknown, isFalse);
+      expect(fresh.hasFiledDocuments, isFalse);
       expect(fresh.dossierUnderReview, isFalse);
     });
 
@@ -131,8 +133,35 @@ void main() {
       final legacy = WorkerProfile.fromJson(_profile()..remove(
         'verification_pending_docs',
       ));
-      expect(legacy.verificationPendingDocs, 0);
-      expect(legacy.dossierUnderReview, isFalse);
+      // Null, and the screen's contract changed with it. The old assertion was
+      // `0`, which meant the two cases below were indistinguishable: a route
+      // that measured an empty queue, and a route that measured nothing at
+      // all, both read 0 and both drew «لم تُرسل».
+      expect(legacy.verificationPendingDocs, isNull);
+      expect(legacy.dossierUnderReview, isFalse,
+          reason: 'an unmeasured queue must never read as under review');
+      expect(legacy.hasFiledDocuments, isFalse,
+          reason: 'an unmeasured queue must never read as filed');
+      expect(legacy.dossierCountUnknown, isTrue);
+    });
+
+    // The gap the 73rd tick queued, measured first: the key is absent from
+    // 0/96 live browse rows and present on /api/mobile/my/profile, so the
+    // card's input is the route that carries it today. The third state exists
+    // so that stops being load-bearing by accident.
+    test('an absent count is unknown, not empty', () {
+      final absent = WorkerProfile.fromJson(_profile(pendingDocs: 3)..remove(
+        'verification_pending_docs',
+      ));
+      expect(absent.dossierCountUnknown, isTrue);
+      expect(absent.hasFiledDocuments, isFalse);
+      expect(absent.dossierUnderReview, isFalse);
+    });
+
+    test('a real zero is measured and is not the unknown state', () {
+      final real = WorkerProfile.fromJson(_profile());
+      expect(real.verificationPendingDocs, 0);
+      expect(real.dossierCountUnknown, isFalse);
     });
 
     // The reviewer approves documents one row at a time, so a profile can sit
@@ -201,6 +230,33 @@ void main() {
     // a review status invented out of the fact that a fresh profile row holds
     // the same 'pending' default as a submitted dossier. Waiting is something
     // the app may only say when documents have actually arrived.
+    // The lie this pins: the card used to fold a missing count to 0 and draw
+    // «لم تُرسل» — "nothing was sent" — on a row whose state was never sent.
+    testWidgets(
+        'a row with no queue count says so instead of claiming nothing was sent',
+        (tester) async {
+      final api = _api(_profile(pendingDocs: 0)..remove(
+        'verification_pending_docs',
+      ));
+      await _pump(tester, api);
+      final shown = _shown(tester).join(' | ');
+      expect(shown, contains('غير معروف'),
+          reason: 'an unmeasured queue must draw its own word');
+      expect(shown, isNot(contains('لم تُرسل')),
+          reason: '«لم تُرسل» is a claim about the server, not an absence');
+      expect(shown, isNot(contains('بانتظار التحقق')),
+          reason: 'an unmeasured queue must not read as under review');
+    });
+
+    testWidgets('a measured empty queue still says nothing was sent',
+        (tester) async {
+      await _pump(tester, _api(_profile(pendingDocs: 0)));
+      final shown = _shown(tester).join(' | ');
+      expect(shown, contains('لم تُرسل'));
+      expect(shown, isNot(contains('غير معروف')),
+          reason: 'a real zero is a measurement, and must keep its own word');
+    });
+
     testWidgets('a contractor who sent nothing is not told he is under review',
         (tester) async {
       await _pump(tester, _api(_profile()));

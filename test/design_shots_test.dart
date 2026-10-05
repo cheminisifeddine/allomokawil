@@ -694,6 +694,21 @@ void main() {
           'verification_pending_docs': 0,
         }),
         s.auth);
+    // The unmeasured queue. `verification_pending_docs` is absent from every
+    // browse row and present on /my/profile, so this third state is defensive
+    // today — the shot is the evidence that such a row reads «غير معروف», and
+    // not the «لم تُرسل» that `?? 0` used to draw on the server's behalf.
+    await _shoot(
+        tester,
+        '19_verification_unknown_queue',
+        const VerificationScreen(),
+        _fakeApi(profile: {
+          ..._worker,
+          'verification_status': 'pending',
+          'is_identity_verified': 0,
+          'is_certificate_verified': 0,
+        }..remove('verification_pending_docs')),
+        s.auth);
     // The rating input: the unselected stars are the track the user picks
     // from, and they used to be drawn in `line` (1.22:1). This shot is the
     // evidence that `AppTheme.starEmpty` reached the widget tree.
