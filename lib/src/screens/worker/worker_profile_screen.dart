@@ -868,12 +868,51 @@ class _ReviewsSection extends StatelessWidget {
             ),
           );
         }
+        // The list can be shorter than the header's claim without being empty,
+        // and that is the shape **three** of the seventeen rated rows on
+        // production carry today — the empty-list arm above covers five more
+        // and neither covers these. Drawing the cards and then saying nothing
+        // leaves «(30)» at the top of the page with one card under it and no
+        // indication that the other 29 are missing rather than absent, which
+        // reads as the app having lost them.
+        //
+        // An annotation under the list, never a replacement: the reviews that
+        // did arrive are real and are drawn exactly as before. Only the
+        // sentence the section was silent about is added. See
+        // `reviewsSectionPartialAr` for why this cannot collapse into the
+        // empty-list arm above.
+        final partial = reviewsSectionPartialAr(
+          headerCount: headerReviewCount,
+          shownCount: list.length,
+        );
         return Column(
           children: [
             for (final r in list)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: _ReviewCard(review: r, clock: clock),
+              ),
+            if (partial != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: AppCard(
+                  key: const Key('profile-reviews-partial'),
+                  color: AppTheme.accentWash,
+                  borderColor: AppTheme.accent,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.info_outline_rounded,
+                          size: AppTheme.s20, color: AppTheme.accentDeep),
+                      const SizedBox(width: AppTheme.s8),
+                      Expanded(
+                        child: Text(partial,
+                            style: AppTheme.caption.copyWith(
+                                color: AppTheme.accentDeep, height: 1.5)),
+                      ),
+                    ],
+                  ),
+                ),
               ),
           ],
         );

@@ -58,6 +58,74 @@ String? reviewsSectionUnbackedAr({required int headerCount}) =>
             'ولم تظهر تقييماته هنا. قد يكون الاتصال غير مستقر — أعد المحاولة.'
         : null;
 
+/// The sentence under a reviews list that is **shorter than the header claims**.
+///
+/// The third shape the two reads of one fact can disagree in, and the only one
+/// the section was not watching for. Measured 5 Oct 2026 on production, over
+/// every row of `GET /api/mobile/workers/search` carrying `total_reviews > 0`:
+///
+///   row      header claim   GET /workers/$id/reviews returns
+///   id 5             (30)   1 card
+///   id 3             (15)   1 card
+///   id 4             (12)   1 card
+///   id 1             (24)   0 cards   <- the arm that shipped 1 Oct
+///   id 2, 6, 7, 8        --  0 cards   <- the same arm
+///   the other 9 rows         equal or more
+///
+/// So 5 rows reached the empty-list arm added on 1 Oct, and **3 more rows did
+/// not**: their list is not empty, so the section drew one card, drew no
+/// indication that 29 of the 30 reviews the header is standing on are not on
+/// this page, and said nothing at all. A customer reads «(30)» at the top and
+/// one review below, and the only conclusion the page supports is that the other
+/// 29 are a lie — or that the app lost them. Neither is the app's story to
+/// leave unspoken, and unlike the empty case **here the customer can see a
+/// number and count the difference for himself**.
+///
+/// The empty arm's reason for existing does not transfer, and the difference is
+/// the whole design. There, the section was about to assert «لا تقييمات بعد» —
+/// a claim about a man's reputation that the page above it denies — and any
+/// hedge was better. Here the section draws real reviews and claims nothing
+/// about the rest, which is true but reads as a bug: a truncated list with no
+/// truncation is indistinguishable from a wrong one. So the honest answer is
+/// an **annotation**, not a replacement: the cards stay exactly as they were,
+/// and one line under them names the gap.
+///
+/// Which read is stale is still not knowable from here — the aggregate may lag
+/// the list, or the list may be scoped to what this viewer may read — so the
+/// sentence states the two numbers it actually holds and draws a conclusion
+/// from neither. It must not say the reviews are missing, and it must not say
+/// the header is wrong.
+///
+/// Null when the list is at least as long as the claim: that is the ordinary
+/// case, it is true, and nothing is owed to the reader. This is the empty arm's
+/// own contract — a null means *there is nothing to reconcile* — so a caller
+/// that wants to draw nothing has one answer for both shapes rather than two
+/// branches it could get differently.
+String? reviewsSectionPartialAr({
+  required int headerCount,
+  required int shownCount,
+}) {
+  if (headerCount <= 0) return null;
+  if (shownCount <= 0) return null;
+  if (shownCount >= headerCount) return null;
+  // Both counts are printed, so the reader can check the subtraction rather
+  // than trust it, and the noun forms come from `reviewCountAr` rather than
+  // being spelled again here — the agreement rule already exists and this is
+  // the sixth file that used to keep a private copy of it.
+  return 'يظهر ${_ratingCountAr(headerCount)} '
+      'أعلاه، ودُكر منها ${_ratingCountAr(shownCount)} '
+      'هنا. قد لا تظهر كل التقييمات — أعد المحاولة.';
+}
+
+/// «تقييم واحد» / «تقييمان» / «3 تقييمات» / «30 تقييماً».
+///
+/// Read from [reviewCountAr] rather than spelled here, so the noun this file
+/// writes is the same noun the stats line writes three files up and the two
+/// cannot drift. That helper already answers «تقييم» for the singular — a
+/// count of one is not counted — which is why this sentence reads «يظهر تقييم
+/// واحد» rather than «يظهر 1 تقييم».
+String _ratingCountAr(int n) => reviewCountAr(n) ?? '';
+
 /// The title for that section, naming the state rather than the count.
 const String reviewsSectionUnbackedTitle = 'تقييماته غير معروضة الآن';
 
