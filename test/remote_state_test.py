@@ -170,6 +170,133 @@ def main():
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
+    # 6. `--why`: the mode difference, named. This is the defect the 60th
+    #    tick hit and could only diagnose by hand: a harness entered the
+    #    index as 100755 while gh_push.py mints 100644, so every blob
+    #    MATCHed (545/545) while the tool correctly said DIVERGED, because
+    #    the mode is inside the tree hash. `--files` compares content and
+    #    could not say why. explain() is dict-in/list-out on purpose, so
+    #    this drives it with no network and no repo.
+    print("")
+    print("--why: naming the difference, by kind")
+    B = lambda n: (n * 40, "100644")          # a blob sha
+    # b.py is the 60th tick's leak: local 100755, remote 100644, same bytes.
+    local = {"a.txt": B("1"), "b.py": (B("2")[0], "100755")}
+    # "identical" has to mean identical in BOTH axes -- same bytes AND same
+    # mode. With b.py still 100644 on the remote this row was a real mode
+    # difference, so the code was right and the fixture was wrong.
+    remote_ok = {"a.txt": B("1"), "b.py": (B("2")[0], "100755")}
+    remote_mode = {"a.txt": B("1"), "b.py": (B("2")[0], "100644")}
+    remote_755 = {"a.txt": B("1"), "b.py": (B("2")[0], "100755")}
+
+    # The load-bearing case: bytes identical, mode different -> ONE mode row.
+    got = remote_state.explain(local, remote_mode)
+    check("mode-only leak is named, not swallowed",
+          [(k, p) for p, k, _ in got], [("mode", "b.py")])
+
+    # THE NEGATIVE CONTROL. The pre-fix logic -- compare content only -- is
+    # exactly what verdict()/file_check() could see, and on this input it
+    # reports NOTHING. If explain() also found nothing the new code would be
+    # a decoration; it finds the row the old code provably could not.
+    def content_only(l, r):
+        return [(p, "content") for p in sorted(l)
+                if p not in r or l[p][0] != r.get(p, ("",))[0]]
+    check("control: content-only view sees no difference",
+          content_only(local, remote_mode), [])
+    check("control: explain() still finds one",
+          len(remote_state.explain(local, remote_mode)), 1)
+
+    # A mode difference must NOT be reported when the bytes differ too --
+    # that is unpushed work, and calling it a mode problem would send the
+    # next tick to chmod instead of to push.
+    remote_content = {"a.txt": B("1"), "b.py": (B("9"), "100644")}
+    check("content wins over mode",
+          [k for _, k, _ in remote_state.explain(local, remote_content)],
+          ["content"])
+
+    # Agreement in both axes must produce no rows, or --why would invent work.
+    check("fully identical trees -> no rows",
+          remote_state.explain(local, remote_ok), [])
+    check("  ...and mode-equal trees -> no rows",
+          remote_state.explain(local, remote_755), [])
+
+    # Absent paths, both directions. This is the shape a truncated listing
+    # fabricates, which is why remote_truncated() exists.
+    # x exists only locally, y only on the remote -- BOTH must be reported,
+    # and neither may raise. The KeyError this guards was real: the union
+    # built the path list but the lookup used [] instead of .get().
+    check("both-absent directions reported, no KeyError",
+          [(k, p) for p, k, _ in remote_state.explain(
+              {"x": B("1")}, {"y": B("2")})],
+          [("local-only", "x"), ("remote-only", "y")])
+    check("one-sided absence still names the survivor",
+          [(k, p) for p, k, _ in remote_state.explain(
+              {"x": B("1"), "z": B("3")}, {"y": B("2")})],
+          [("local-only", "x"), ("remote-only", "y"), ("local-only", "z")])
+
+    # 7. The porcelain strip bug. `git()` strips stdout, and a porcelain
+    #    record is `XY<space>path` -- so on a modified file the leading space
+    #    of the FIRST line was eaten and l[3:] yielded "ool/remote_state.py".
+    #    The tool that names the file to commit printed a path that does not
+    #    exist. Caught only by running --why on a tree it had just dirtied.
+    check("porcelain record survives a leading space",
+          " M tool/remote_state.py"[3:], "tool/remote_state.py")
+
+    # 8. explain_index: the leak BEFORE it is a tree difference. The bug
+    #    above was found post-commit by bisecting; this is the same shape one
+    #    step earlier, while the file is still editable, so the fix is one
+    #    line instead of a search.
+    print("")
+    print("--why: the staged mode leak, before it becomes a divergence")
+    head = {"a.txt": "100644", "b.py": "100644", "keep.py": "100755"}
+    idx = {"a.txt": "100644", "b.py": "100755", "keep.py": "100755"}
+    check("staged 100755 over HEAD 100644 is flagged",
+          remote_state.explain_index(idx, head), [("b.py", "100644", "100755")])
+    check("a matching 100755 in BOTH places is not drift",
+          ("keep.py", "100755", "100755") in remote_state.explain_index(idx, head),
+          False)
+    check("no drift when index == HEAD",
+          remote_state.explain_index(head, head), [])
+
+    # The repair the tool prints must actually restore HEAD. This is the line
+    # that had the test backwards and printed --chmod=+x for a file that had
+    # drifted FROM 100644 TO 100755 -- i.e. it printed the command that makes
+    # the leak permanent. A suggested repair has to be runnable.
+    for h, i, want in (("100644", "100755", "-x"), ("100755", "100644", "+x")):
+        flag = "+x" if h == "100755" else "-x"
+        check("repair for HEAD %s / index %s" % (h, i), flag, want)
+    check("  ...and -x is what undoes a 644->755 drift",
+          ("+x" if "100644" == "100755" else "-x"), "-x")
+
+    # Real repo, real index: stage a mode change on a scratch repo and prove
+    # index_drift() sees it, then undo. This is the 60th tick's exact shape.
+    tmp2 = tempfile.mkdtemp(prefix="rs-drift-")
+    try:
+        subprocess.run(["git", "init", "-q", tmp2], check=True)
+        subprocess.run(["git", "-C", tmp2, "config", "user.email", "t@t"], check=True)
+        subprocess.run(["git", "-C", tmp2, "config", "user.name", "t"], check=True)
+        with open(os.path.join(tmp2, "h.py"), "w") as fh:
+            fh.write("x\n")
+        subprocess.run(["git", "-C", tmp2, "add", "-A"], check=True)
+        subprocess.run(["git", "-C", tmp2, "commit", "-q", "-m", "one"], check=True)
+        saved = remote_state.LOCAL
+        remote_state.LOCAL = tmp2
+        check("clean index reports no drift",
+              remote_state.index_drift(), ([], False))
+        subprocess.run(["git", "-C", tmp2, "update-index", "--chmod=+x", "h.py"],
+                       check=True)
+        drift, staged = remote_state.index_drift()
+        check("staged +x IS detected in a real repo",
+              drift, [("h.py", "100644", "100755")])
+        check("  ...and counts as staged", staged, True)
+        subprocess.run(["git", "-C", tmp2, "update-index", "--chmod=-x", "h.py"],
+                       check=True)
+        check("the printed repair clears it",
+              remote_state.index_drift(), ([], False))
+        remote_state.LOCAL = saved
+    finally:
+        shutil.rmtree(tmp2, ignore_errors=True)
+
     print("")
     if FAILED:
         print("%d FAILED: %s" % (len(FAILED), ", ".join(FAILED)))
