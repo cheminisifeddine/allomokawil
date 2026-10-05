@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/app_scope.dart';
 import '../../core/l10n/error_copy.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/empty_wilaya_copy.dart';
 import '../../data/repository.dart';
 import '../../data/stale_directory_copy.dart';
 import '../../data/taxonomy.dart';
@@ -23,6 +24,16 @@ class BrowseScreen extends StatefulWidget {
   final bool customerSide;
   final String? initialCategory;
 
+  /// The wilaya the directory opens filtered to, or null for every wilaya.
+  ///
+  /// [initialCategory] exists for exactly one reason — a test that cannot open
+  /// the directory *already filtered* can only drive the modal sheet, and the
+  /// sheet is a lazy list over 58 wilayas with a modal route on top. This state
+  /// was unrenderable without it: measured 5 Oct on production, 51 of the 58
+  /// wilayas are empty, so it is the **majority** outcome of this screen and
+  /// the one state a design review most needed to see.
+  final String? initialWilaya;
+
   /// The wall clock the band's age is measured against.
   ///
   /// Injectable for the same reason and with the same contract as
@@ -37,6 +48,7 @@ class BrowseScreen extends StatefulWidget {
       {super.key,
       this.customerSide = true,
       this.initialCategory,
+      this.initialWilaya,
       this.clock});
 
   @override
@@ -142,6 +154,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
     _scopeReady = true;
     _repo = Repository(AppScope.of(context).api);
     _category = widget.initialCategory;
+    _wilaya = widget.initialWilaya;
     _arm(_repo.searchWorkers(
         category: _category, wilaya: _wilaya, query: _query), _question);
   }
@@ -365,6 +378,24 @@ class _BrowseScreenState extends State<BrowseScreen> {
                     // (`worker_home_screen`), and the heading «لا نتائج
                     // مطابقة» was simply false — nothing was matched, because
                     // nothing was searched.
+                    // **Three** situations, and only two had a sentence. A
+                    // wilaya filter that is itself empty is neither of the two
+                    // this state was built for: measured 5 Oct on production,
+                    // **51 of the 58 wilayas in the sheet answer with zero
+                    // contractors**, because 88 of the 97 live rows carry no
+                    // wilaya at all. So this branch is the *ordinary* outcome of
+                    // tapping a real wilaya, and it used to answer it with
+                    // «لا نتائج مطابقة» + «جرّب تغيير التخصص أو الولاية» —
+                    // which blames his search and his trade chip for a wilaya
+                    // that has nobody in it. `empty_wilaya_copy.dart` names the
+                    // place instead, and owns this one case only.
+                    final emptyWilaya = emptyWilayaAr(
+                      wilayaName: _wilaya == null
+                          ? null
+                          : Taxonomy.wilayaNameOrNull(_wilaya),
+                      categorySet: _category != null,
+                      querySet: _query.isNotEmpty,
+                    );
                     return RefreshIndicator(
                       onRefresh: _refresh,
                       color: AppTheme.navy,
@@ -378,15 +409,18 @@ class _BrowseScreenState extends State<BrowseScreen> {
                             icon: hasFilter
                                 ? Icons.search_off_rounded
                                 : Icons.inbox_rounded,
-                            title: hasFilter
-                                ? 'لا نتائج مطابقة'
-                                : 'لا يوجد مقاول حالياً',
-                            message: !hasFilter
+                            title: emptyWilaya != null
+                                ? emptyWilayaTitle
+                                : hasFilter
+                                    ? 'لا نتائج مطابقة'
+                                    : 'لا يوجد مقاول حالياً',
+                            message: emptyWilaya ??
+                                (!hasFilter
                                 ? 'لم يسجّل أي مقاول في الدليل بعد.\n'
                                     'حدّث الصفحة، أو عد لاحقاً.'
                                 : _query.isEmpty
                                     ? 'جرّب تغيير التخصص أو الولاية'
-                                    : 'لا يوجد مقاول يطابق «$_query».\nجرّب كلمة أقصر أو امسح البحث',
+                                    : 'لا يوجد مقاول يطابق «$_query».\nجرّب كلمة أقصر أو امسح البحث'),
                             actionLabel: hasFilter
                                 ? 'مسح البحث والفلاتر'
                                 : 'تحديث',

@@ -222,6 +222,11 @@ ApiClient _fakeApi({
   /// a shot that only ever sees one available contractor cannot tell whether
   /// the *other* state is drawn at all.
   List<Map<String, Object?>>? searchRows,
+
+  /// Rows keyed by the `wilaya` query the server answered, instead of one flat
+  /// list for every filter. The live API honours this parameter — it is the
+  /// only reason an empty wilaya is reachable at all — so a shot needs it too.
+  Map<String, List<Map<String, Object?>>>? searchByWilaya,
 }) =>
     ApiClient(
       baseUrls: ['https://x.test'],
@@ -257,6 +262,15 @@ ApiClient _fakeApi({
           return _json([_project]);
         }
         if (p.contains('/workers/search') || p.contains('/workers/top')) {
+          // Measured 5 Oct on production: **51 of the 58 wilayas answer with
+          // zero rows**, because 88 of the 97 live rows carry no wilaya at all.
+          // A shot that always answered with a contractor could not show the
+          // state a customer reaches on 51 of 58 taps — so `searchByWilaya`
+          // lets a shot answer per filter, the way the live API does.
+          final w = req.url.queryParameters['wilaya'];
+          if (w != null && searchByWilaya != null) {
+            return _json(searchByWilaya[w] ?? <Object>[]);
+          }
           return _json(searchRows ?? [_worker]);
         }
         if (p.contains('/workers/')) return _json(_worker);
@@ -818,6 +832,50 @@ void main() {
         'images': <String>['https://cdn.test/kept.jpg'],
       })),
       s.api,
+      s.auth,
+    );
+  });
+
+  // The state a customer reaches on **51 of 58** taps in the wilaya sheet.
+  //
+  // Measured live on 5 Oct 2026: `GET /api/mobile/workers/search?wilaya=<id>`
+  // answers with zero rows for 51 of the 58 wilayas, because 88 of the 97 live
+  // rows carry no `user_wilaya`, no `wilaya_name` and no `commune` at all. The
+  // directory used to draw that with the *unfiltered* state's heading and
+  // «جرّب تغيير التخصص أو الولاية» — advice about a trade chip that was off,
+  // blaming a search that was never the problem. `initialWilaya` renders the
+  // state directly; the sheet is a lazy list under a modal route, and driving
+  // it from a shot harness pumps a fake clock by hand until it times out.
+  testWidgets('shots: an empty wilaya', (tester) async {
+    final s = await boot();
+    await _shoot(
+      tester,
+      '27_browse_empty_wilaya',
+      const BrowseScreen(initialWilaya: '09'),
+      // 09 البليدة holds one contractor on production; the control below is
+      // that wilaya on purpose — same screen, same filter, rows present.
+      _fakeApi(searchByWilaya: <String, List<Map<String, Object?>>>{
+        '16': [_worker],
+        '09': <Map<String, Object?>>[],
+      }),
+      s.auth,
+    );
+    // The control: the same screen and the same filter, on the one wilaya that
+    // has contractors in it. Without it, a shot showing the new copy would be
+    // consistent with a directory that simply stopped drawing anything.
+    await _shoot(
+      tester,
+      '28_browse_wilaya_with_rows',
+      const BrowseScreen(initialWilaya: '16'),
+      _fakeApi(searchByWilaya: <String, List<Map<String, Object?>>>{
+        '16': [
+          _worker,
+          // Not `const`: spreading `_worker` into a const map repeats its `id`
+          // and `full_name` keys, and a const literal may not.
+          {..._worker, 'id': 73, 'full_name': 'سعيد بوسعاعة'}
+        ],
+        '09': <Map<String, Object?>>[],
+      }),
       s.auth,
     );
   });
