@@ -21802,3 +21802,103 @@ new guard means check which of the two is wrong before touching the code.**
    the loop's own Python, which this file's first 34 ticks never did. Three of
    the last four defects were an axis or a reader being right about one thing
    and silently about another.
+
+---
+
+## Tick 5 Oct 2026 (63rd) — one label was covering two opposite states
+
+**Item:** lead 2 from the 62nd — "the working file vs HEAD axis: an *unstaged*
+edit prints `DIFFER` ... an unlabelled DIFFER is the shape the next reader
+will mistake for unpushed work." **Shipped.** `48df43c` -> remote `2e2f380`.
+
+No Dart changed. Phase 6 instruments again, and the build gate was CLEAR
+(1291 MB) so the full suite went out this tick — see the honest note below.
+
+**It was worse than unlabelled.** The lead called `DIFFER` unlabelled, which
+is true but describes the symptom. Reading the code: `file_check` read the
+**WORKING FILE's** sha (`git hash-object`) and the remote's and printed one
+label. The verdict printed directly above it compares **COMMITTED** trees,
+i.e. HEAD vs remote. So one row covered two states that are opposites and
+whose repairs differ:
+
+| HEAD | working file | verdict | old row | correct repair |
+| --- | --- | --- | --- | --- |
+| == remote | edited | IN SYNC | **DIFFER** | add, commit, push |
+| != remote | any | DIVERGED | DIFFER | push |
+
+The 62nd split the **mode** axis for precisely this reason (MODE-DIFFER vs
+MODE-STAGED) and said so in the commit. Content carried the identical defect
+one axis further out, and **no test drove it** — `DIFFER` was only ever
+exercised against a repo whose working tree happened to be clean, which is
+the only way the conflation stays invisible for four days.
+
+**And the row quoted the wrong object.** The sha printed on `DIFFER` was the
+working file's — a blob that exists in no commit, so it could never be
+matched against the remote or pushed to anything. The row named a difference
+and then quoted a sha from the wrong side of it. Now: `EDITED` (trees agree,
+disk does not), `CONTENT-DIFFER` (the real one, and the only label allowed
+to say "push"), `REMOTE-ONLY` (on the remote, absent from HEAD — a committed
+deletion). Each prints its own repair, which is the entire point of splitting
+them.
+
+`file_check` also now reads HEAD's blob and mode from **one** `ls-tree` of
+the committed tree — the object `verdict()` hashes — instead of mixing a
+worktree sha with a separately-fetched mode.
+
+### Evidence
+
+- `python3 tool/build_gate.py` — CLEAR (**1291 MB** available, no busy JVM).
+- `flutter analyze` -> **No issues found! (ran in 12.6s)** — no Dart touched.
+- `remote_state_test.py` -> **56/56** (was 44). `push_helper_test` pass.
+  `pngscan_test` 9/9. `build_gate_test` **21/21**.
+- **Proved on the real repo, not a fixture.** An unstaged edit to
+  `tool/remote_state.py` printed:
+  ```
+  EDITED       tool/remote_state.py
+               COMMITTED trees AGREE; this file on disk does not
+               HEAD   b503893729f840a7315240b9b10d5d02fe7a3005
+               disk   db921fa6dcc7cb9f2eec011b83e5cb96573dc618
+               uncommitted edit -- git add, commit, then push
+               this is NOT a divergence; the verdict above is right
+  ```
+  The old reader on the same state printed `DIFFER` under IN SYNC — that
+  was measured earlier in this same tick, before the change.
+- **Negative control, in the harness.** The old one-label view is
+  re-implemented and returns the *same* `DIFFER` for both states; the new
+  one separates them. A guard that cannot disagree with the thing it replaced
+  is a decoration.
+- **Push verified, not trusted.** `48df43c` -> remote `2e2f380`; both blobs
+  **MATCH**; `--why --json` after the push: `verdict: IN SYNC`, `why: []`,
+  `drift: []`, `truncated: false`, and the row back to `MATCH`. Web 200 /
+  API 200.
+
+**Two reds, both mine again — fifth tick running.** (a) I renamed the local
+variable in `file_check` and left two of the four `rows.append` call sites on
+the old name, so the first run died with `NameError: local` **after** the
+pure-function cases had passed; (b) I wrote a `verdict(*(lambda: ...)()...)`
+call in the test that was not merely unreadable but did not assert the
+property it claimed — it raised `TypeError` rather than testing anything.
+Both are the same failure the 59th-62nd ticks kept hitting: the harness
+disagrees first and the correct move is to check which of the two is wrong.
+The code was right in both cases.
+
+### Leads for the next tick
+
+1. **The schedule decision. NINTH unanswered tick, and still the only thing
+   blocked on the founder.** (a) 30m period for full-gate ticks, or (b) 10m
+   with analyzer + touched shards, one full suite a day. Note this tick ran
+   the full suite inside a 10-minute window only because it was started
+   early; on the current period it cannot be relied on.
+2. **A worked example, once the split exists:** the three content labels are
+   individually tested but there is still no case where a path moves
+   EDITED -> CONTENT-DIFFER -> MATCH across a commit+push in ONE test, which
+   is the sequence a tick actually performs. The mode axis has that shape
+   (`...and running it clears the row`); content does not.
+3. **The transferable lesson, fifth tick running.** Every defect in this
+   family is the same one: a reader that is right about one axis and silent
+   about the next. Worktree/index/HEAD/remote is a 4-object ladder and the
+   code has now been audited at index-vs-HEAD (62nd) and disk-vs-HEAD (this
+   tick). **The one rung never read anywhere is INDEX-vs-DISK** — a
+   *staged content* change prints MATCH when the trees agree, because
+   `file_check` reads `hash-object` on disk and never compares the index's
+   blob. Same shape as the mode leak the 60th lost four days to.
