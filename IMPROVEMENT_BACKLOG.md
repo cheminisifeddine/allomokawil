@@ -22472,3 +22472,98 @@ it is worth being exact about why rather than reporting a partial run as a pass:
   full run a 38-minute coin flip, and the 300s per-shard deadline turns it into
   a HUNG shard that consumes both attempts. Nothing ships behind a gate that
   cannot go green.
+
+## Tick 5 Oct 2026 (68th) — `--json` published an UNMEASURED drift list as `[]`
+
+- [x] **`--json` reported an index it had never looked at, and `[]` was doing
+  double duty for "clean" and "not checked". SHIPPED** `416d664` → remote
+  `871be07` (tree `63113a6…` on both sides, 2/2 blobs MATCH, exit 0).
+
+The 67th's lead 2, and it is the same bug as the 64th's one layer up. The 64th
+found a staged blob no check could see hiding behind a `MATCH` row; this finds
+one hiding behind an empty **list**.
+
+**The defect.** `drift`, `blob_drift` and `truncated` are produced by `why()`
+alone, and `main()` calls `why()` only under `--why`. The json projection then
+published all three unconditionally, so without `--why` they were the empty
+lists `main()` had just initialised — byte-identical to what `why()` returns for
+a real tree with no drift. An empty list therefore meant both "I looked and
+there is none" and "I never looked", and nothing in the document could say
+which.
+
+**Measured, on the pre-fix file, with a real staged blob drift and no `--why`:**
+
+```
+in_sync             : True      index_content_drift : []
+verdict             : IN SYNC   index_mode_drift    : []
+```
+
+exit 0. And `--json --why` on the *same tree* named it in full:
+
+```
+index_content_drift : [{'path': 'tool/remote_state.py',
+                        'head': 'c730970f8faa71ffdb223f8d695bac82db751992',
+                        'index': 'e9b775fba8632e742535dd14f7f65a65ca7ff6a7'}]
+```
+
+So the payload said the index was clean while the index held work, and every
+committed-tree verdict beside it is computed blind to the index — which is
+precisely the blind spot the `--why` section exists to cover.
+
+**Changed** (`tool/remote_state.py`, `test/remote_state_test.py` — 0 Dart):
+`null` when the question was not asked, for all four keys (`why`,
+`index_mode_drift`, `index_content_drift`, `remote_truncated`). A list now
+means the question *was* asked. The **text path is untouched** — its whole
+drift block already sat inside `if as_why:` — and verified byte-identical to
+the pre-fix file on the real repo, so this cannot have moved a line a human
+reads.
+
+**Evidence**
+- `python3 test/remote_state_test.py` → **165/165**, exit 0 (baseline 145).
+- **Negative control against the pre-fix blob**, same driver, same stubs: it
+  published `[]` beside `in_sync: True`, and the fixed file publishes `null`
+  for the same drift — so the two payloads now *differ*, which is the point.
+- **A fix that nulled the keys unconditionally would pass the first case and
+  break the machine-readable `--why`**, so a second case pins that a *measured*
+  drift still survives into the payload with both shas.
+- No cry-wolf: `--json --files` still exits 0, still returns its rows, still
+  says IN SYNC. Real repo plain `--json` → `uncommitted` names the dirty files
+  and all four keys are `null`; real repo `--json --why` → real lists and
+  `remote_truncated: false`.
+- `flutter analyze` → **No issues found!** (11.0s). **0 Dart files touched.**
+- Dart suite: **46/46 shards PASS, 0 failures.** The run was cut short by my
+  own 900 s cap at shard 47/66 — that is a timeout, not a failure, and the
+  remaining ~19 shards were never reached, not "assumed fine".
+
+**CORRECTION to the 67th, and it retires the item it left as the next one:
+`test/first_char_measurement_test.dart` DOES NOT HANG.** Run alone: **14/14
+pass, exit 0, 45 s.** Run inside the suite: shard 15 **PASS in 0:51, 24 tests,
+0 failures.** The 67th recorded `EXIT=124` twice, including "with the change
+stashed, on a clean tree", so the claim had a control and still does not
+reproduce. There is no hanging file and there is no `flutter_platform.dart`
+gate blocker to clear.
+
+What is real is the **cost**: `setUpAll` alone burns **42 of those 45 seconds**,
+all of it `AnalysisContextCollection` resolving the 10 selected files of 131
+under `lib/` with an `includedPaths` rooted at `Directory.current` — the whole
+403-file repo. **I did not fix it this tick**, because narrowing the context
+root is a real behavioural change to a guard I had no time to re-validate, and
+shipping an unmeasured change to the guard is precisely what this tick is about
+not doing. The measured cost is the finding: ~42 s in a 300 s per-shard budget
+is fine, and the file is *not* a blocker.
+
+**Note on the suite size, which is new information for the schedule question:**
+`--shard-size 4` produces **66 shards**, not the 11 the 67th measured at its
+default, and shard count drives the derived whole-run deadline. 46 of them ran
+inside 900 s. The default shard size (11 shards, ~38-48 m) remains the number
+the schedule decision should use.
+
+**Next item:** nothing from the 67th survives — its three leads are now two
+shipped items and one false alarm. The open lead is the `AnalysisContextCollection`
+scope above, and it needs a tick that can afford to re-validate the guard.
+
+**Schedule question — fourteenth tick, still founder-blocked.** Unchanged
+recommendation (b): 10 m period, analyzer + touched shards, one full suite a
+day. New evidence for it: a full suite is 66 shards at size 4 and cannot be
+finished inside one 10-minute tick — this tick measured 46/66 shards in 900 s
+and had to impose its own cap to stop mid-suite.
