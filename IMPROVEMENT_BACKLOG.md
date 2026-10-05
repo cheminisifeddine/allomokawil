@@ -23476,3 +23476,85 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       analyzer/touched shards, one full suite daily — 268 files / 34 shards does
       not fit a 10-min tick); and the **backend handoff** — seed ids 2, 4, 8
       carry `verified` with no certificate row.
+
+## Tick 5 Oct 2026 (77th) — a reviews list that was short said nothing at all
+
+- [x] **One real card under a header claiming thirty, and the section drew
+      not one word about the other twenty-nine.** The reviews section watches
+      for exactly one disagreement between its own read and the profile
+      header's — and that disagreement now has **three** shapes, of which the
+      app knew one.
+      *Measured, not inferred.* Fetched `/api/mobile/workers/$id/reviews` for
+      **every** row of `/api/mobile/workers/search` carrying `total_reviews >
+      0` — 17 of 97 — on 5 Oct, and counted the cards against the aggregate:
+
+        id 5  رشيد خليفي   header (30)   list **1** card
+        id 3  سعيد بوسعادة  header (15)   list **1** card
+        id 4  نبيل قاسمي   header (12)   list **1** card
+        id 1  عمر بن علي    header (24)   list 0 cards   <- the arm shipped 1 Oct
+        id 2, 6, 7, 8                    list 0 cards   <- the same arm
+        the remaining 9 rows              list >= claim  <- nothing owed
+
+      So **5 rows reached the empty-list arm** added on 1 Oct and **3 more did
+      not**. `reviews_section_contradiction_test.dart` closed the empty half
+      well — «تقييماته غير معروضة الآن» replaces «لا تقييمات بعد» rather than
+      sitting beside it — but its gate is `list.isEmpty`, and these three are
+      the same disagreement with a different number of cards.
+      *Why nothing caught it, and it is the interesting part.* The section is
+      not lying here: it draws a **true** review and stays silent. The page
+      contradicts itself **nowhere a test can point** — «★★★★★ 4.7 (30)» above
+      one real card is a true statement. What it does is leave the reader to
+      conclude the app dropped 29 of them, or that the «(30)» is invented.
+      Neither is knowable from inside the app, which is precisely why the
+      silence is the defect.
+      *Shipped:* `reviewsSectionPartialAr` — an **annotation under the list**,
+      never a replacement. The empty case *had* to replace its card, because it
+      was about to assert a reputation claim the header denies; here every card
+      that arrived is real and is drawn exactly as before, and all that is added
+      is the sentence the section was silent about. It names **both** numbers so
+      the reader does the subtraction himself rather than trust the app's
+      arithmetic about a man's reputation, and it claims nothing about which
+      read is stale — the aggregate may lag the list, or the list may be scoped
+      to what this viewer may read.
+      *The gate is deliberately not the empty gate.* Null when the list is `>=`
+      the claim (both reads can legitimately say that), and null on an **empty**
+      list, so the 1 Oct arm keeps sole ownership of that shape. Collapsing the
+      two would put an annotation under zero cards on a screen that is about to
+      say «لا تقييمات بعد» — strictly worse than the card it replaced.
+      *The sixth private copy of the agreement rule, avoided.* The first draft
+      of this tick spelled its own `تقييمات` / `تقييماً` helper, which is the
+      exact defect `arabic_agreement.dart` exists to stop. It reads
+      `reviewCountAr` instead — and a test I wrote asserting «تقييماً» failed,
+      which was **my** error rather than the code's: the count is the *subject*
+      of يَظهر, so the nominative «30 تقييم» is correct and «تقييماً» is the
+      accusative that belongs in an object slot. Fixed, not investigated away.
+      *Evidence:*
+      - `flutter analyze` -> **No issues found!** (11.5 s)
+      - new files **9/9** and **1/1**; the 9 files that touch this screen
+        **56/56** via `run_tests.py`
+      - **Red before green:** the function stubbed to `null` -> **4 fail**
+        (3 copy/gate + the widget case); restored -> **9/9**
+      - Shots `/tmp/shots/25_reviews_truncated.png` with its control
+        `26_reviews_whole_list.png` (same worker, same single review, only
+        `total_reviews` differs: 30 vs 1). No `.ERROR.txt`.
+      - By pixels: **one** 1062x208 amber card at `(57,1957)` — below the
+        review card, which ends at y1914, so the annotation sits *under* the
+        list and never replaces it — against **zero** `accentWash` boxes in the
+        control. Body text `accentDeep` on `accentWash` measures **4.52:1**
+        (AA); the amber border is decorative, matching `stale_directory_copy`.
+      *Commit:* local `1821900` -> remote `2b4c845`, all four blobs verified
+      **MATCH** against the remote tree.
+
+      **Next item:** no unchecked items remain (246 boxes). Source the next one
+      from live measurement. Still open for the founder: **may a tick reap a
+      `flutter_tester` >30 min old**; the **schedule** (10 min period +
+      analyzer/touched shards, one full suite daily — 268 files / 34 shards does
+      not fit a 10-min tick); and the **backend handoff** — seed ids 2, 4, 8
+      carry `verified` with no certificate row.
+
+      **Note for the next tick, measured here:** this tick's most useful find was
+      not a code defect but a **cross-endpoint** one, and it only appeared
+      because both reads were made about the same man. The aggregates on
+      `/workers/search` disagree with `/workers/$id/reviews` on **8 of 17** rated
+      rows in the live market. Any future audit of one surface should ask the
+      other one about the same rows.
