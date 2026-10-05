@@ -21902,3 +21902,42 @@ The code was right in both cases.
    *staged content* change prints MATCH when the trees agree, because
    `file_check` reads `hash-object` on disk and never compares the index's
    blob. Same shape as the mode leak the 60th lost four days to.
+
+### Correction to lead 3 above, measured in the same tick
+
+I wrote that lead from reading the code and it is **wrong**: a *staged
+content* change does NOT print MATCH. Measured on a real repo (`/tmp/rung`,
+`git init`, three commits, `remote_blobs` stubbed to HEAD's blob):
+
+```
+clean, HEAD == remote                  -> ['MATCH']
+edit on disk, git add                  -> ['EDITED']     (disk sha, so it shows)
+```
+
+The disk is the highest rung, so any staged change is already visible there
+and the row is never blind to it. My claim that INDEX-vs-DISK was unread was
+an inference from the shape of the code, and the measurement killed it — which
+is the fourth time on this file that the hypothesis needed a repo, not a
+reading.
+
+**The rung that IS unread is the inverse one: INDEX-vs-HEAD, when the disk
+agrees with HEAD.** Staged `v2`, then rewrite the file on disk back to HEAD's
+bytes:
+
+```
+HEAD   9d0c019e   index   ad7ac37b   disk   9d0c019e   (disk == HEAD)
+row:   ['EDITED']
+```
+
+The row is *true* — the disk does differ from the index's blob — but it points
+at disk, which is the one rung that does **not** get committed. The value the
+next commit will actually record is `ad7ac37b`, and **no row anywhere names
+it**. `index_drift()` covers the mode axis of the index and returns `[]` here
+because the modes agree.
+
+This is the exact shape of the 60th tick's 100755 leak, on the content axis:
+a blob that no committed-tree diff can see, discovered only *after* it is
+pushed. The repair is already known — `git restore --staged <path>` — and the
+label has an obvious name (INDEX-STAGED, pairing with the existing
+MODE-STAGED). That is the next tick's item, and it is a real defect, not a
+shaped one.
