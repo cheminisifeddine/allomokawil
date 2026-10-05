@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,6 +21,36 @@ class _MemoryStore implements CrashStore {
   Future<void> write(List<String> next) async {
     lines = List<String>.of(next);
   }
+}
+
+/// Storage that answers a read late, so the race between [CrashReporter]'s
+/// read and its serialised write is the one that actually happens.
+///
+/// The read resolves only after [turns] event-loop passes, which is enough for
+/// a capture to snapshot the log in between — the ordering a real device hits
+/// when the preferences channel is slow on a cold start.
+class _LateReadStore implements CrashStore {
+  _LateReadStore(this.inner, {this.failRead = false});
+
+  /// Event-loop passes the read waits out before answering.
+  static const int turns = 3;
+
+  final CrashStore inner;
+  final bool failRead;
+
+  List<String> get lines => (inner as _MemoryStore).lines;
+
+  @override
+  Future<List<String>> read() async {
+    for (var i = 0; i < turns; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    if (failRead) throw StateError('read failed');
+    return inner.read();
+  }
+
+  @override
+  Future<void> write(List<String> next) => inner.write(next);
 }
 
 /// Storage having a worse day than the app: every single call throws.
@@ -113,6 +145,100 @@ void main() {
       expect(reporter!.log.length, 1);
       expect(reporter!.log.latest?.message, contains('write will fail'));
       expect(reporter!.log.latest?.kind, 'async');
+    });
+
+    // ---------------------------------------------------------------------
+    // The read that is not in the chain.
+    //
+    // `_scheduleWrite` serialises every *write* onto `_writes`, and takes the
+    // snapshot of the log at the moment it is called — not when the write
+    // eventually runs. That snapshot is the whole mechanism, and it is what
+    // makes two crashes captured in the same tick land as two ordered writes
+    // instead of one list overwriting the other.
+    //
+    // `restore()` is the read on the same store, and it was the one member of
+    // this pair that never went through the chain. It calls `_store.read()`
+    // with no ordering against the write queue at all, so on a device where a
+    // startup crash beat the restore (the exact case the `earlier:` comment on
+    // `loadLines` describes, and the one `Boot.restoreDiagnostics` schedules
+    // after the first frame), the two can interleave:
+    //
+    //   * `restore` reads, then a `capture` snapshots a log that does not
+    //     contain the previous run yet, so the write lands **without** the
+    //     earlier lines and the previous run's history is gone from disk for
+    //     good;
+    //   * or the read resolves first and its `earlier:` insert is overwritten
+    //     by a write that was already in flight.
+    //
+    // Both are the same defect chat's `_forgetQuietly` had: a serialised write
+    // whose *partner* operation was never serialised with it. Fixed by putting
+    // the read on the same queue, which is what the next two tests pin.
+    // ---------------------------------------------------------------------
+
+    test('a restore and a capture in the same tick keep the earlier run',
+        () async {
+      // Seed storage with a previous run's record.
+      final previous = CrashReporter(store: _MemoryStore());
+      previous.log.loadLines(<String>[
+        jsonEncode(<String, Object?>{
+          'at': DateTime(2026, 9, 1, 12).toUtc().toIso8601String(),
+          'kind': 'flutter',
+          'message': 'من التشغيل السابق',
+        }),
+      ]);
+
+      // A store whose read is slower than the write, so the interleave is the
+      // one that actually happens rather than the one the scheduler avoided.
+      final store = _LateReadStore(_MemoryStore(previous.log.toLines()));
+      reporter = CrashReporter(store: store)..install();
+
+      // Both in flight before either completes — this is what boot does.
+      final restoring = reporter!.restore();
+      reporter!.capture(StateError('this run'), StackTrace.current);
+      await restoring;
+      await reporter!.flush();
+
+      // The line on disk must carry BOTH runs.
+      expect(store.lines.join('\n'), contains('من التشغيل السابق'),
+          reason: 'a write that snapshotted before the read landed erases the '
+              'previous run from the device, and it is the only copy');
+      expect(store.lines.join('\n'), contains('this run'));
+    });
+
+    test('a capture taken before restore finishes is not lost', () async {
+      final previous = CrashReporter(store: _MemoryStore());
+      previous.log.loadLines(<String>[
+        jsonEncode(<String, Object?>{
+          'at': DateTime(2026, 9, 1, 12).toUtc().toIso8601String(),
+          'kind': 'flutter',
+          'message': 'السابق',
+        }),
+      ]);
+      final store = _LateReadStore(_MemoryStore(previous.log.toLines()));
+      reporter = CrashReporter(store: store)..install();
+
+      final restoring = reporter!.restore();
+      reporter!.capture(StateError('early'), StackTrace.current,
+          kind: 'startup');
+      await restoring;
+      await reporter!.flush();
+
+      final log = CrashReporter(store: _MemoryStore(store.lines));
+      await log.restore();
+      expect(log.log.length, 2,
+          reason: 'both runs must survive the round trip');
+    });
+
+    test('a failed read does not strand the write queue', () async {
+      final store = _LateReadStore(_MemoryStore(), failRead: true);
+      reporter = CrashReporter(store: store)..install();
+
+      await reporter!.restore();
+      reporter!.capture(StateError('after the failed read'), StackTrace.current);
+      await reporter!.flush();
+
+      expect(store.lines.join('\n'), contains('after the failed read'),
+          reason: 'the capture after a failed read must still reach storage');
     });
 
     test('the real store round-trips through preferences', () async {

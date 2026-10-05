@@ -48,12 +48,52 @@ class PrefsCrashStore implements CrashStore {
 class CrashReporter {
   CrashReporter({CrashStore store = const PrefsCrashStore(), int limit = 20})
       : _store = store,
-        log = CrashLog(limit: limit);
+        log = CrashLog(limit: limit) {
+    // **The previous run's lines are read here, at construction, and every write
+    // waits for that read.** The invariant is one sentence: *a write must never
+    // reach storage before the read that would have told it what was already
+    // there.* See [_initialRead] and [_scheduleWrite].
+    _initialRead = _loadPrevious();
+  }
 
   final CrashStore _store;
 
   /// Everything caught this run, plus what the previous run left behind.
   final CrashLog log;
+
+  /// The one read of the previous run's log, started in the constructor.
+  ///
+  /// **Why it is not in [restore].** It used to be, and it used to be the only
+  /// operation in this class running outside the serialisation: [capture] and
+  /// [clear] both queued their write onto `_writes`, while `restore` called
+  /// `_store.read()` whenever boot got to it. Boot deliberately schedules that
+  /// *after the first frame* (see `Boot.restoreDiagnostics`) — because a
+  /// startup crash may already be in the log — so the read and a capture
+  /// genuinely overlap in production, and on a cold start with a slow
+  /// preferences channel the capture's write wins.
+  ///
+  /// The consequence was total loss of the previous run, not a duplicate. The
+  /// write carries the whole log as one string list, so a write that lands
+  /// before the read replaces storage with a list holding only this run's
+  /// records. The read then loads that list back and inserts it at the front,
+  /// and the earlier lines exist in memory, on screen, and nowhere else — the
+  /// one copy a crash log exists to keep.
+  ///
+  /// Starting the read in the constructor does not make the cold launch wait for
+  /// it: nothing awaits [_initialRead] except a write that is already going to
+  /// the same storage, and [restore] is still the off-path await boot makes
+  /// after the frame. It just stops the read being *scheduled* later than a
+  /// write.
+  late final Future<void> _initialRead;
+
+  /// Reads the previous run back into [log]. Never throws.
+  Future<void> _loadPrevious() async {
+    try {
+      log.loadLines(await _store.read(), earlier: true);
+    } catch (error) {
+      debugPrint('crash: previous log unreadable ($error)');
+    }
+  }
 
   FlutterExceptionHandler? _outerFlutterHandler;
   bool Function(Object, StackTrace)? _outerAsyncHandler;
@@ -71,12 +111,13 @@ class CrashReporter {
   /// it must never throw, and it must still land in the right place: `earlier:`
   /// puts the previous run's lines in front of anything this run already caught,
   /// which keeps the list newest-last even when a startup crash beats the read.
+  ///
+  /// The read itself is [_initialRead], begun in the constructor so that no
+  /// write can overtake it; this only waits for it, and for whatever writes were
+  /// already queued behind it.
   Future<void> restore() async {
-    try {
-      log.loadLines(await _store.read(), earlier: true);
-    } catch (error) {
-      debugPrint('crash: previous log unreadable ($error)');
-    }
+    await _initialRead;
+    await _writes;
   }
 
   /// Chains both uncaught-error hooks, keeping whatever was installed before.
@@ -143,9 +184,33 @@ class CrashReporter {
   /// and leave a half-written list; failures are swallowed on purpose, because
   /// storage refusing a diagnostic must not become a second crash.
   void _scheduleWrite() {
-    final lines = log.toLines();
-    _writes = _writes.then((_) => _store.write(lines)).catchError((Object error) {
-      debugPrint('crash: log not saved ($error)');
+    // Two things are different from the old version, and both are load-bearing.
+    //
+    // **The write waits for [_initialRead].** That is the whole fix: a write that
+    // lands before the read replaces storage with this run's records alone, and
+    // the previous run is gone. Queuing the read *behind* the writes instead
+    // does not work — it makes the overwrite happen first and then reads the
+    // overwritten value back, which is the same loss with an extra step.
+    //
+    // **The snapshot is taken here, inside the queue, not at the call site.**
+    // Taking `log.toLines()` before queuing froze the log as of the moment the
+    // write was requested, so any operation that could still change the log
+    // before the write ran — the restore landing, a `clear` — was silently
+    // excluded from what reached the device. The serialisation already
+    // guarantees one write at a time; reading the log in that ordered slot is
+    // what makes the value written the value the log holds when the write
+    // happens.
+    //
+    // The failure is caught per write rather than by a `catchError` on the
+    // chain, because a rejected `_writes` would reject every `flush` after it,
+    // including `clear`'s, and the next crash still has to be able to write.
+    _writes = _writes.then<void>((_) async {
+      await _initialRead;
+      try {
+        await _store.write(log.toLines());
+      } catch (error) {
+        debugPrint('crash: log not saved ($error)');
+      }
     });
   }
 
