@@ -23306,3 +23306,101 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
 (recommended: 10 min period, analyzer + touched shards, one full suite daily —
 12 shards does not fit a 10-min tick); and now a **backend handoff** — seed ids
 2, 4, 8 carry `verified` with no certificate row.
+
+- [x] **A contractor who paused his profile was invisible as paused on the one
+      surface a customer picks him from — the only reader of `is_available`
+      in the entire app was the worker's own home screen.**
+      local `042851a` -> remote `be0c70b`.
+
+      Found on 5 Oct 2026 by measuring the live browse payload, not by reading
+      the card and wondering what it was missing.
+
+      `is_available` is a column the worker sets on his own profile — the
+      switch on `profile_edit_screen.dart` writes it through
+      `updateMyProfile`. It is a man saying **"I am not taking work right
+      now."** Until this tick it was drawn in exactly one place,
+      `_availabilityPill` in `worker_home_screen.dart:1581`, which is **the
+      worker's own dashboard**: the man who paused sees a grey «غير متاح» on
+      his own home, and no customer ever does.
+
+      **Measured, live, 97 rows.** `GET /api/mobile/workers/search` returned 97
+      rows and **exactly one** with `is_available: 0` — **id 73**, a real
+      September signup (`created_at 2026-09-14`). The API **serves it in
+      browse**, so nothing upstream hides it, and `isAvailable` appeared in
+      **no file** under `lib/src/screens/browse/` or
+      `lib/src/screens/customer/`. So on the one genuinely paused row in this
+      market the customer-facing card drew the same verified avatar, the same
+      stars and the same tap target as a man taking work today. It could be
+      messaged, it could be quoted, and the reply would not come.
+
+      **Why this is the sixth gap in one family, and the worst of the six.**
+      `worker_stats_copy.dart` already owns the other five — the radius, the
+      reply speed, the years, the jobs, the star score — and every one of them
+      exists because the app printed something the server had not said. Those
+      five all printed a **zero**; this one printed **nothing at all**, on the
+      only row in the market where the fact matters. And every other state
+      that changes what a customer may *do* with a row is drawn: the verified
+      tick, the price, the radius, the reply speed. Availability was the only
+      one of the five invisible on the surface where the decision is made.
+
+      **The tag and not the filter — a deliberate limit, not an omission.**
+      The server does not filter, so the app must **draw rather than hide**.
+      Dropping paused contractors would be inventing a market the payload does
+      not describe: browse results are what the API returned, and a customer
+      searching for a man who is busy until March deserves to see him *and* to
+      know he is busy.
+
+      **Available prints nothing**, and that is the same rule the card already
+      applied to a star score of 0: 96 of 97 live rows are available, so a
+      green «متاح الآن» chip on every card would be a wall of ink that says
+      nothing. Only the unusual state earns a tag.
+
+      *Shipped:* `availabilityAr` in `worker_stats_copy.dart` owns the words
+      beside the five helpers that own the numbers on this card, so the sixth
+      answer cannot be spelled two ways. Both card variants draw it — the
+      browse row (`variant: row`) as a `_MiniTag`, and the top-rated strip
+      (`variant: vertical`) as a plain line, because that card is a fixed
+      168 dp column and a `Wrap` there would wrap a second time. The wrap gate
+      now reads `years || price || availability`, so a paused contractor with
+      **nothing else to print** still gets a tag row rather than an empty one
+      — the empty-Wrap defect this card already carries one scar from, pinned
+      by a test. `_MiniTag` grew the two tokens it needs (`tone`, `wash`) so
+      the "stop" state is not a hand-rolled second recipe; its defaults are
+      the original neutral pair byte for byte.
+
+      **Red before green, and the shape of the failure is the finding.** With
+      `lib/` stashed (and a stub for the missing helper, so the *widget*
+      assertions are what fail rather than a compile error): **3 failed / 9
+      passed.** The nine passing ones are the parser and the copy — i.e.
+      `WorkerProfile.isAvailable` read the flag correctly the whole time. **The
+      parser was never the defect; the card was blind.**
+
+      *Proven by pixels, with a control.* Two shots of the **real
+      `BrowseScreen`**, same two rows, differing only in `is_available`:
+      `21_browse_paused_contractor` and `22_browse_two_available`. Card 1 is
+      **byte-identical** across both (checked y860–1000, every pixel). The diff
+      is **one cluster, y1380–1598 of 2550, entirely inside card 2**, which
+      gains a pill of 268x27 px carrying both the pause icon and the Arabic
+      text. No `.ERROR.txt`, so no overflow — including on the 168 dp strip.
+
+      **Evidence**
+      - `flutter analyze` -> `No issues found! (ran in 13.5s)`
+      - `worker_availability_card_test` **12/12** (new file, 179-test batch
+        above includes it); the 19 files that touch this card **179/179**
+        green via `run_tests.py`; `design_shots` + `card_recipe` + the new
+        file **45/45**
+      - Shot `/tmp/shots/21_browse_paused_contractor.png` (1176x2550) and its
+        control `/tmp/shots/22_browse_two_available.png`
+      - `flutter analyze` clean; **no full-suite number this tick** — the
+        suite is 268 files / 34 shards and one run does not fit a 10-minute
+        tick (see the `run_tests.py` finding from the 74th)
+
+      *Commit:* local `042851a` -> remote `be0c70b`, all four blobs verified
+      **MATCH** against the remote tree.
+
+      **Next item:** no unchecked items remain (243 boxes). Source the next one
+      from live measurement. Still open for the founder: **may a tick reap a
+      `flutter_tester` >30 min old**; the **schedule** (recommended: 10 min
+      period, analyzer + touched shards, one full suite daily — 34 shards does
+      not fit a 10-min tick); and the **backend handoff** — seed ids 2, 4, 8
+      carry `verified` with no certificate row.
