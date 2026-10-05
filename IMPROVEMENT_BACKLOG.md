@@ -381,7 +381,7 @@ in this file that dies on arrival is how two ticks were lost.
 | --- | --- |
 | repo | `/home/hatch/allomokawil` |
 | Flutter SDK | `/home/hatch/tools/sdk/flutter/bin/flutter` (3.47.2 / Dart 3.13.2) |
-| push helper | `/home/hatch/workspace/repos/gh_push.py` |
+| push helper | `/home/hatch/workspace/repos/gh_push.py` (needs repo ROOT **absolute**, not `.`) |
 | design shots | `/tmp/shots/` (written by `test/design_shots_test.dart`) |
 
 1. `cd /home/hatch/allomokawil && git status --short` must be clean. If it is
@@ -463,8 +463,15 @@ in this file that dies on arrival is how two ticks were lost.
    it, say so plainly rather than asserting it looks right.
 6. Commit with a message that says **what changed and why**, then push with the
    helper. **`git push origin main` does not work on this box** — there are no
-   git credentials, so it fails with *"could not read Username for
-   'https://github.com'"* and **exits 0**, which reads like success.
+   git credentials. **CORRECTED 5 Oct 60th: it exits 128, not 0.** Measured
+   here, three ways: `git push origin main` -> `remote: No anonymous write
+   access.` / `fatal: Authentication failed` and `REAL_EXIT=128`; `--dry-run`
+   -> 128; and the *original* "exits 0" claim is reproducible only through a
+   **pipe** (`git push ... 2>&1 | tail -1` returns the exit status of
+   `tail`), which is how an agent-written evidence line loses the code. The
+   push is genuinely broken — the **argument and the pipe** are what were
+   wrong. Unbroken either way: never pipe a push, and never judge it by
+   exit code.
    **And a green push line from the helper is not proof either:** on 26 Sep
    `--allow-deletes` left the upload set empty, so the helper pushed *only* the
    deletions, printed `Pushed 0 changed, 4 deleted` and exited 0 while the
@@ -474,8 +481,18 @@ in this file that dies on arrival is how two ticks were lost.
    `origin/main` tracker:
    ```
    python3 /home/hatch/workspace/repos/gh_push.py \
-     cheminisifeddine allomokawil main . -m "<message>" -- <files...>
+     cheminisifeddine allomokawil main /home/hatch/allomokawil \
+     -m "<message>" -- <files...>
    ```
+   **The ROOT argument is the repo path, and it is the *argument* that
+   matters — not the directory you happen to be standing in.** `walk_local`
+   runs `git -C <ROOT> ls-files`, so ROOT is resolved against the caller's
+   cwd: `main .` works only from inside the checkout, and refuses from
+   anywhere else. Writing it as the absolute repo path makes the command
+   identical from every cwd, which is the point. Measured 5 Oct: the same
+   helper invocation with `ROOT=.` from `/home/hatch/workspace/repos`
+   refuses, and with `ROOT=/home/hatch/allomokawil` it succeeds **from that
+   directory and from `/tmp`**. Pinned by `test/push_helper_test.py`.
    **The blob check itself, written out**, because it is the one step in step 6
    that cannot be reproduced from this shell by hand: `dynamic_credentials` is
    not on `gh_push.py`'s import path unless *its* directory is added, and
@@ -8405,11 +8422,20 @@ running app for defects like these rather than inventing a feature.
       meant a failed re-read had to stop replacing a warm list with a
       *shimmer* on the pending branch, which the inbox never had to deal
       with. Recorded here so the next tick does not re-derive it.
-      *Trap recorded:* `gh_push.py` **must be invoked from the repo
-      directory**. Run from `/home/hatch/workspace/repos` it printed
-      `git ls-files returned nothing for .` and pointed at the *wrong*
-      repository; the caller's working directory, not its arguments, is
-      what the helper reads. It exits 0 either way.
+      *Trap recorded, then CORRECTED 5 Oct 60th — two of the three clauses
+      here were false and are now replaced by measurement.* What is true:
+      run from `/home/hatch/workspace/repos` with `ROOT=.` it refuses with
+      `git ls-files returned nothing for .`. **What was false:**
+      *"the caller's working directory, not its arguments, is what the
+      helper reads"* — it is the other way round. `walk_local(root)` runs
+      `git -C <root> ls-files`, so an **absolute ROOT works from any
+      directory**, including `/tmp`; it was `ROOT=.` that carried the cwd
+      dependency, and that is why the fix is to pass the path rather than to
+      `cd` first. And *"it exits 0 either way"* is **wrong: it exits 1**
+      (`raise SystemExit(msg)`), measured directly and via
+      `subprocess.returncode`. The green-exit-code story was believable
+      because the file already documents two real ones (bare `git push`, the
+      empty upload set) — but neither applies here.
 
 - [x] **A failed refresh on «مشاريعي» erased the only record a user has of
       his own jobs — and the fix I wrote for it broke a sibling in the same
