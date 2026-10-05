@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/l10n/error_copy.dart';
-import '../../core/text/arabic_search.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/repository.dart';
 import '../../data/stale_directory_copy.dart';
 import '../../data/taxonomy.dart';
+import '../../data/worker_phone_search.dart';
 import '../../models/worker.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/trade_filter_bar.dart';
@@ -231,26 +231,6 @@ class _BrowseScreenState extends State<BrowseScreen> {
     _reload();
   }
 
-  /// Does this contractor match the typed text? Applied on top of the server
-  /// filter so search still works against a backend that does not know `q`
-  /// yet, and so the match rules (hamza, ta marbuta, digits) are identical to
-  /// the ones the rest of the app uses.
-  ///
-  /// `wilaya` is stored as a numeric code, so the Arabic name is resolved
-  /// through the taxonomy — otherwise typing a wilaya name finds nobody.
-  bool _matchesQuery(WorkerProfile w) {
-    if (_query.isEmpty) return true;
-    return ArabicSearch.matches(_query, [
-      w.fullName,
-      w.bio,
-      w.commune,
-      // Null for a blank or unknown code, so the old «الجزائر» fallback could
-      // not make every contractor answer a search for Algiers.
-      Taxonomy.wilayaNameOrNull(w.wilaya),
-      w.specialties.map(Taxonomy.categoryName).join(' '),
-    ]);
-  }
-
   @override
   void dispose() {
     // The shell keeps the directory alive across tab switches and while a
@@ -361,7 +341,11 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       ),
                     );
                   }
-                  final workers = shown.where(_matchesQuery).toList();
+                  // The one narrowing, in one place: text on the five things a
+                  // contractor is known by, **or** the number he was handed in
+                  // the street. See `data/worker_phone_search.dart` for why the
+                  // phone arm exists and what it deliberately does not do.
+                  final workers = narrowWorkers(shown, _query);
                   if (workers.isEmpty) {
                     final hasFilter = _category != null ||
                         _wilaya != null ||

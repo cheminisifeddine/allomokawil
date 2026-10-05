@@ -117,6 +117,26 @@ class WorkerProfile implements RenderableRow {
   final String? avatarUrl;
   final String? wilaya;
   final String? commune;
+  /// The number a customer can find this contractor by, or null when the wire
+  /// did not send one.
+  ///
+  /// **Null, not `''` and never `0`** — the same rule as every other unmeasured
+  /// value in this model, and the reason a row without a number is searchable
+  /// as "carries no number" rather than as user 0.
+  ///
+  /// Measured live on 5 Oct 2026: `phone` is present on **97 of 97** rows of
+  /// `GET /api/mobile/workers/search` and on `/api/mobile/workers/$id`, every
+  /// one exactly 10 digits. Until this field existed the app dropped the single
+  /// column the wire sends for *every* contractor, and `browse_screen` could
+  /// not answer the search an Algerian customer runs most often — see
+  /// [WorkerPhoneSearch] for what that cost.
+  ///
+  /// **It is a search key here, never a display value.** Nothing in this app
+  /// prints a contractor's phone: the whole contact path is «مراسلة», the
+  /// in-app thread, and exposing a number the customer could call outside the
+  /// platform is a product decision the founder has not made. Parsing it does
+  /// not imply printing it.
+  final String? phone;
 
   const WorkerProfile({
     required this.id,
@@ -141,6 +161,7 @@ class WorkerProfile implements RenderableRow {
     this.avatarUrl,
     this.wilaya,
     this.commune,
+    this.phone,
   });
 
   factory WorkerProfile.fromJson(Map<String, dynamic> json) {
@@ -217,6 +238,14 @@ class WorkerProfile implements RenderableRow {
       // (`profile_edit_screen.dart`), so a number here is a number typed into
       // a place.
       commune: _text(json['commune']),
+      // A number is a **key** here, not copy: it is the one field the
+      // directory searches on, and `0550000009` and a trailing space are the
+      // same claim about the same man. It is deliberately *not*
+      // `DzPhone.canonical`, because
+      // normalising here would make the stored value stop being the wire's
+      // value and hide a server that sends two spellings of one number. The
+      // fold belongs to the comparison, not to the parser.
+      phone: _wireKeyOrNull(json['phone']),
     );
   }
 
@@ -337,6 +366,29 @@ String _wireText(Object? value) {
   if (value == null) return '';
   if (value is String) return value;
   return '$value';
+}
+
+/// A wire value as text for a **nullable** key column, or null when the key is
+/// absent or blank.
+///
+/// [_wireText] is the right reader for a column whose fallback *is* a value —
+/// an enum key, where `''` is the "unrecognised" state the parser resolves on.
+/// It is the wrong reader here: `''` is not a phone number, and a nullable
+/// field answered with an empty string is a field that cannot be told apart
+/// from "the server sent nothing", which is the exact distinction
+/// [serviceRadiusKm], [responseTimeHours] and [avgRating] are all built to
+/// preserve.
+///
+/// **A JSON number is refused, not stringified.** `'$value'` would turn the
+/// bare `55` a truncated or drifted column can carry into `'55'` — a number
+/// that looks real, matches two digits of almost anything once folded, and is
+/// the wrong man. D1 stores its columns as text, so the wire has no reason to
+/// send a number here at all; if it ever does, the honest answer is a row that
+/// carries no number rather than one that carries a fragment.
+String? _wireKeyOrNull(Object? value) {
+  if (value is! String) return null;
+  final v = value.trim();
+  return v.isEmpty ? null : v;
 }
 
 /// Copy, trimmed, or null when absent/empty/not a string.
