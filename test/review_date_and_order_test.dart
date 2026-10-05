@@ -277,7 +277,22 @@ void main() {
       await _pump(
           tester,
           await _boot([
-            _row(1, at: '2026-09-01 10:00:00'),
+            // **The old row was stamped 10:00:00 and that made this test
+            // zone-dependent.** The clock below is `21:00` UTC and
+            // `calendarDaysBetween` counts *local* midnights, so the 11-hour
+            // gap between the two instants is 10 local days apart in UTC and
+            // 11 in any zone east of about 11:00 UTC — the fixture was
+            // asserting the box's timezone, not the screen's order. On
+            // `TZ=Asia/Tokyo` this printed `قبل 11 يوم` where it expected
+            // `قبل 10 أيام` (measured 5 Oct), which is the screen being
+            // correct.
+            //
+            // Same time of day as the clock, so *every* offset shifts both
+            // instants equally and the span is 10 calendar days everywhere.
+            // The literal below is kept rather than derived from the
+            // function under test: deriving it would make the assertion
+            // circular, and `arabic_agreement_test.dart` owns the grammar.
+            _row(1, at: '2026-09-01 21:00:00'),
             _row(2, at: '2026-09-11 20:23:50'),
           ]),
           DateTime.utc(2026, 9, 11, 21, 0).toLocal());

@@ -326,13 +326,35 @@ void main() {
       expect(out, isNot(contains('يوماً')), reason: out);
     });
 
-    test('this box is UTC, which is why an in-process test cannot see it', () {
-      // Guards the premise of the three tests above. If a future machine runs
-      // in UTC+1 by default, the subprocess probes stop being the only way to
-      // see the bug and someone can delete them as redundant.
-      expect(DateTime.now().timeZoneOffset.inMinutes, 0,
-          reason: 'this test assumes a UTC box; the subprocess probes are what '
-              'cover the drift');
+    test('the probes can see a zone this process cannot', () async {
+      // Guards the premise of the three tests above: they exist because a
+      // `DateTime` built in-process is pinned to **this** machine's zone, so
+      // the only way to see `Africa/Algiers` behaviour is a second process
+      // with its own `TZ`. If that stopped being true, the probes would be
+      // redundant and someone would delete them.
+      //
+      // **It used to assert `timeZoneOffset == 0`, which was a claim about the
+      // machine rather than about the code.** Measured 5 Oct under
+      // `TZ=Asia/Tokyo`: `Expected: <0> Actual: <540>` — the suite went red
+      // for no reason other than the box being in Tokyo, and every real probe
+      // in the group was still green. A test that describes the host is a test
+      // that fails on a laptop in Dubai, so the premise is now asserted the
+      // way it is actually true: the probe's zone differs from ours, whatever
+      // ours is.
+      final inProcess = DateTime.now().timeZoneOffset.inMinutes;
+      final out = await _underZone('Africa/Algiers', r'''
+      print('OFFSET=${DateTime.now().timeZoneOffset.inMinutes}');
+''');
+      final match = RegExp(r'OFFSET=(-?\d+)').firstMatch(out);
+      expect(match, isNotNull, reason: out);
+      final probed = int.parse(match!.group(1)!);
+      expect(probed, isNot(inProcess),
+          reason: 'if this process already reads $probed minutes, an '
+              'in-process test could replace the subprocess probes; assert that '
+              'before deleting them');
+      // Algiers is UTC+1 year-round, and that is the value the drift cases
+      // above are written against.
+      expect(probed, 60, reason: out);
     });
   });
 
