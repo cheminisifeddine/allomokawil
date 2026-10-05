@@ -23404,3 +23404,75 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       period, analyzer + touched shards, one full suite daily — 34 shards does
       not fit a 10-min tick); and the **backend handoff** — seed ids 2, 4, 8
       carry `verified` with no certificate row.
+
+## Tick 5 Oct 2026 (76th) — a customer could not find a contractor by the number
+      he was handed in the street
+
+- [x] **The contractor directory could not search a phone number, on any input —
+      while the API sent one for every single contractor.** `GET
+      /api/mobile/workers/search` carries `phone` on **97 of 97** live rows
+      (measured 5 Oct on production, every one exactly 10 digits) and on
+      `/api/mobile/workers/$id`, and `WorkerProfile` had **no `phone` member at
+      all** — the one column the wire sends for every contractor was dropped on
+      the floor. `browse_screen`'s `_matchesQuery` read only fullName, bio,
+      commune, wilaya and trades, so typing `0550000009` answered «لا نتائج
+      مطابقة» and offered to clear the filters, **while the man holding that
+      number sat on the same screen one unfiltered scroll away.** The app was
+      not failing to find him; it was asserting that nobody carries it.
+      *Why it matters more than a missing field:* in Algeria a contractor is
+      found by the number a neighbour or the man himself hands you. This is the
+      search a customer runs most often, and every shape of it failed — the
+      typed number, `٠٥٥٠٠٠٠٠٠٠٩` (what a contact card on an Algerian keyboard
+      produces), `+213 …` / `00213 …` (pasted out of a contact list), and `0009`
+      (what anyone actually remembers).
+      *The app had already paid for this and thrown it away.* `ArabicSearch`
+      documents its Arabic-Indic digit fold as **"which arrive when someone
+      pastes a phone number out of their contacts"**, and `DzPhone.digits` is
+      the repo's single canonical digit extractor used by every phone field.
+      Both were unreachable here because the number was discarded one layer
+      earlier, at the parser.
+      *Shipped:* `lib/src/data/worker_phone_search.dart` — the text arm (the
+      same five fields, via `ArabicSearch`) **or** the numeric arm, and the
+      numeric arm is an addition that can never become a replacement, so a word
+      is never routed into a digit comparison. `phoneQueryDigits` answers null
+      unless every non-digit character in the query is a separator a phone
+      keyboard produces. Partial numbers match a **prefix or a suffix, never a
+      middle substring** — `0009` finds its owner, `5000` does not, and that is
+      also what keeps a short query from answering with half the directory.
+      Minimum three digits; below that it falls through to the text arm, so
+      nothing typed is ever silently dropped. Country-code forms reuse
+      `DzPhone.canonicalFromDigits` rather than a second strip that could
+      disagree with the registration form. `WorkerProfile.phone` parses through
+      a new nullable key reader, **not** `_wireText` — that reader answers `''`
+      for an absent key (correct for an enum, wrong for a nullable value) and
+      would stringify a bare JSON `55` into a fragment that matches almost
+      anything.
+      *What it deliberately does not do:* **print the number.** Nothing in this
+      app shows a contractor's phone — the contact path is «مراسلة», the in-app
+      thread — and parsing makes it searchable, which is a different decision
+      from publishing contact details.
+      *Red before green, and the shape of it:* with `lib/` stashed and only the
+      parser stubbed in, **3 widget cases failed** while the parser cases and
+      both the word-search and unfiltered cases **passed** — the parser was
+      never the defect, the matcher was blind. One test failure during the tick
+      was **mine, not the code's**: an Arabic-Indic literal I typed had 9
+      codepoints where the number has 10, and it was fixed rather than
+      investigated away.
+      *Evidence:*
+      - `flutter analyze` -> **No issues found!** (2.5 s)
+      - new file **20/20**; all 28 files that touch the changed model or screen
+        **258/258** via `run_tests.py`; shot harness + search family **87/87**
+      - Shots `/tmp/shots/23_browse_phone_number_match.png` with its control
+        `24_browse_phone_number_no_match.png` (same rows, same wire payload,
+        only the typed text differs). No `.ERROR.txt`. Ink: card zone
+        **11.69%** matching vs **3.05%** control, empty-state zone **0.00%**
+        matching vs **30.00%** control.
+      *Commit:* local `fd9a112` -> remote `e282891`, all 5 blobs verified
+      **MATCH** against the remote tree.
+
+      **Next item:** no unchecked items remain. Source the next one from live
+      measurement. Still open for the founder: **may a tick reap a
+      `flutter_tester` >30 min old**; the **schedule** (10 min period +
+      analyzer/touched shards, one full suite daily — 268 files / 34 shards does
+      not fit a 10-min tick); and the **backend handoff** — seed ids 2, 4, 8
+      carry `verified` with no certificate row.
