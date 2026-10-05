@@ -23112,3 +23112,126 @@ still open and still unanswered by the founder: **may a tick reap a
 `flutter_tester` older than 30 min**, and the **schedule** (recommended: 10 min
 period, analyzer + touched shards, one full suite daily — 12 shards does not fit
 a 10-min tick).
+
+## Tick 5 Oct 2026 (73rd) — the badge question, **answered by measurement**: the
+## two columns disagree only on 3 seed rows, and no reviewer has ever written
+## a flag on this market
+
+- [x] **The 72nd left this as the next item and called it a product call: "does
+      the badge require the *status* or the *two flags*?" Measured against all
+      96 live contractors. The answer is that neither reading is what is
+      happening, and the app's current reading is the correct one.**
+      Audit only, **zero `lib/` lines changed** — the build gate refused this
+      tick (below), so nothing was mutated on a verdict this thin.
+
+**What the previous tick recorded, restated as a testable claim.** 3 of 96
+contractors (ids 2, 4, 8) carry `verification_status: "verified"` with
+`is_certificate_verified: 0`. "The green tick a customer picks a tradesman by
+is showing on a half-verified dossier."
+
+**The census, live, 96 rows** (`GET /api/mobile/workers/search?q=a`, both
+hosts, column-for-column identical — **96/96 agree**, so this is the market's
+state and not one host's):
+
+| `verification_status` | `is_identity_verified` | `is_certificate_verified` | rows |
+| --- | --- | --- | --- |
+| pending | 0 | 0 | **89** |
+| verified | 1 | 1 | **4** (ids 1, 3, 5, 7) |
+| verified | 1 | **0** | **3** (ids 2, 4, 8) |
+
+So the flag set is **never** the interesting half: `is_identity_verified` is 1
+on **every** one of the 7 verified rows, and `is_certificate_verified` splits
+them 4/3. A rule of "verified AND both flags" would delete the badge from
+exactly 3 of 7 verified contractors — 43% of the market's verified surface, and
+all three of them are among the **highest-rated with the most work done**
+(18 reviews/32 jobs, 12/22, 5/10; 4.6, 4.5, 4.1 stars).
+
+**The decisive measurement, and it is what turns this from a bug report into
+an audit result.** `worker.dart` documents the split as a real server state:
+*"`verificationStatus` is all-or-nothing: documents are approved one row at a
+time and the profile only flips to 'verified' once every row is approved."*
+If that describes this market, at least one row must sit at `verified` with a
+refused certificate **and have been touched by a reviewer.** Measured:
+
+- **9 rows have ever been touched by a reviewer** (`updated_at > created_at`,
+  ids 14, 68, 71, 122, 123, 140, 142, 143, 145). All 9 have
+  `updated_at > created_at`, so `updated_at` **is** a live-write marker — the
+  measurement has a handle, not an assumption.
+- **All 9 are `pending`, and not one of them carries any flag set.**
+- **All 7 rows carrying any flag set (`ids 1,2,3,4,5,7,8`) have
+  `updated_at == created_at` — no reviewer has ever touched any of them.**
+
+**So the state `worker.dart` documents has never occurred on this market. Not
+once.** The three disagreeing rows are all in a **single seed import**: ids
+1–8, `created_at == updated_at == 2026-03-09 05:37:22`, phones
+`0550000005`–`0550000012`, a sequential run. They were written by an import
+script, not by a reviewer clicking approve on documents. The remaining **88
+rows are 100% `pending` with both flags 0** — every real contractor who has
+ever signed up, including the 9 a reviewer has actually examined, and **zero**
+of them has been approved.
+
+**Therefore the badge is not drawing a promise the server has not made, and the
+parse is right.** Two readings of the same row, and the measurements pick the
+app's:
+ * The doc's `verified`-means-all-rows story **cannot** explain these 3 rows,
+   because they were never approved by anyone.
+ * The seed import is **inconsistent data**, not an in-flight review — and the
+   app's job on inconsistent data is to draw what the row says. The status says
+   `verified`. `worker.dart` is right that the parse is defensible.
+
+**What I did NOT do, and why — the product call is now a backend handoff, not
+an app change.** Changing the badge to require both flags would have removed it
+from 3 of 7 verified contractors, all of them seed rows, on the strength of a
+**hand-written seed script's** internal inconsistency. That is trading a real
+market signal for a fixture's tidiness, and it is a change I am not authorised
+to make on evidence this thin. The correct repair is **seed-script side**: ids
+2, 4, 8 should carry `is_certificate_verified: 1` like their 4 verified
+siblings, or the import should not set `verification_status: 'verified'` on a
+row whose certificate it did not write. That is a D1/backend ticket, and it is
+recorded here as one.
+
+**The one thing that is a real app-level gap, and it is *not* the badge.**
+`_PartsStatusCard` (`verification_screen.dart:589`) computes its three honest
+states from `verificationPendingDocs > 0` — and **`/api/mobile/workers/*`
+browse and profile rows do not carry `verification_pending_docs` at all**
+(measured: the key is absent from all 96 browse rows). Only `/api/mobile/my/profile`
+sends it. So on any row the app did not fetch from `/my/profile`, the count
+reads 0 and `لم تُرسل` ("nothing was sent") is drawn for a part whose real
+state is unknown. That is the same class of lie as the rating `0` and the radius
+`0` — an **absent** measurement rendered as a **certain** one — and it is
+recorded as the next item rather than fixed here, because it cannot be gated in
+a tick whose build the box refused.
+
+**A note on the app's own law, because it is what made this decidable.**
+`worker.dart`'s `_flag` doc already states the rule the badge question was
+asking about: *"An unreadable flag is false because both false readings of the
+three here are the safe ones … rather than a verified badge or an available
+status nobody confirmed."* The app is built to fail **closed** on a flag it
+cannot read. Ids 2/4/8 are not that case — their flags are readable and
+genuinely 0 — which is why the conservative reading is also the wrong one here.
+
+**Evidence**
+- Build gate: **NO ROOM**, twice measured (787 MB, then 727 MB available of
+  7936 MB, no swap, floor 900 MB, suite measured at 1177 MB). Top holder is
+  `/home/hatch/workspace/services/waha-lite` (736 MB) and a 43-minute
+  puppeteer **chrome** tree (pid 45943, parented to a `node server.js`) that is
+  **not this loop's render** — `--reap` correctly refused it (a browser with a
+  live parent is not a leak). Neither was killed: the loop does not kill what it
+  did not start. **So this tick ships no `lib/` change and runs no gate**, and
+  says so rather than claiming an audit the suite could not have checked.
+- Live: 96 rows, both hosts column-for-column identical, census above.
+- No screenshot: nothing user-visible changed, so I will not invent one.
+
+*Commit:* the backlog note only. The measurement itself is reproducible from
+`curl /api/mobile/workers/search?q=a` — the queries and the census table are
+written out above so the next tick can re-derive them without trusting this
+paragraph.
+
+**Next item:** `verification_pending_docs` is absent from every route except
+`/api/mobile/my/profile`, so `_PartsStatusCard` draws «لم تُرسل» for a part
+whose state it never received. Needs a "not sent" vs "unknown" state, gated in
+a tick the box lets me build. Also still open, still unanswered by the founder:
+**may a tick reap a `flutter_tester` older than 30 min**; the **schedule**
+(recommended: 10 min period, analyzer + touched shards, one full suite daily —
+12 shards does not fit a 10-min tick); and now a **backend handoff** — seed ids
+2, 4, 8 carry `verified` with no certificate row.
