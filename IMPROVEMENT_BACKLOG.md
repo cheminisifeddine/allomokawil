@@ -22240,13 +22240,107 @@ so instead of lying.
    on box load. (b) 10m period, analyzer + touched shards, one full suite a
    day — **fits with margin**. (c) 45m full gate — fits both measurements.
    Recommendation stays **(b)**, honest alternative **(c)**.
-2. **The mode-axis gap from the 64th, lead 3 — still open.** `choose_content_row`
-   can say `MODE-DIFFER` from `l_mode != r_mode`, but nothing reads the
-   **index** mode when the content row fires, so a staged mode hide behind a
-   real content divergence goes unmentioned. Deliberate for now (rule 1) but it
-   is a choice, not an oversight — a next tick should either test that the
-   choice is right or close the gap.
+2. ~~**The mode-axis gap from the 64th, lead 3.**~~ **SHIPPED, tick 66th.**
+   The gap was real. See "Tick 5 Oct 2026 (66th)" below.
 3. **`main()`'s other three exit paths are still bare `return 1`s.** Having just
    made the `--why` path loud, check whether the same "silent wrong verdict"
    shape exists in the `--json` and `--files` branches, which also unpack
    results from helpers that can raise.
+
+
+## Tick 5 Oct 2026 (66th) — lead 3 of the 64th: a STAGED MODE was hiding behind every content row
+
+**Item:** lead 3 from the 64th — *"nothing reads the index mode when the content
+row fires, so a staged mode hide behind a real content divergence goes
+unmentioned."* **SHIPPED.** `a31c22d`.
+
+The 64th called it deliberate-but-unjustified. It was **not** a deliberate
+choice; it was a **collision**, and the collision was between two questions
+that had been collapsed onto one line since the 60th tick:
+
+```python
+staged = staged_row(i_sha, h_sha, staged_leak) if not content else None
+```
+
+Read it as a question about **LABELS** it is correct — one row carries one
+hop's label, `CONTENT-DIFFER` is the stronger truth, and a second label beside
+it is noise. Read as a question about **COVERAGE** it is a hole: a staged mode
+is a *different* difference, on a *different* rung (`index` vs `HEAD`), with a
+*different* repair (`update-index --chmod`), and whenever the content hop fired
+it was read **nowhere** — not in the label, not in the printed lines, not in
+`--json`'s rows. One `if` was answering both questions and it got one of them.
+
+**Why it mattered, measured.** `--files` is the command the protocol tells a
+tick to run *immediately before* it runs `git commit`. That is precisely the
+moment a staged mode stops being recoverable with one line: committing records
+it into the tree, and from that commit on the divergence is real, unpushed and
+attributable to nobody in particular. So the silence cost the most at the exact
+moment the reader could still act on it.
+
+**What changed** (`tool/remote_state.py`, `test/remote_state_test.py` — no Dart):
+
+* **`staged_mode_leak(head_mode, index_mode)`** — PURE. The `bool(i_mode and
+  l_mode and i_mode != l_mode)` expression lifted out of `file_check`'s body
+  into a name, so the definition of "a staged mode" is one function rather than
+  one line inside a loop. Same truth value as before, now testable off a repo.
+* **`hidden_staged_note(verdict, head_mode, index_mode)`** — PURE, and the
+  actual fix. It answers *"does this row owe a staged-mode note it is not
+  already printing?"* and `main()` consults it after **every** label branch, so
+  coverage no longer depends on which hop won. Returns `None` for
+  `INDEX-STAGED` and `MODE-STAGED` — both already print the mode, and
+  `git restore --staged` clears both axes in one command, so a second repair
+  line would be redundant advice about one edit.
+* **The label does not move.** No `CONTENT-DIFFER+MODE-STAGED`. One hop, one
+  name, one repair per line — the discipline the 62nd and 64th were spent
+  restoring. The row keeps `EDITED` / `CONTENT-DIFFER` / `MATCH` and gains an
+  `ALSO STAGED` paragraph under it.
+
+**Evidence**
+
+* `python3 test/remote_state_test.py` → **133/133** (was 106), zero fails.
+* `flutter analyze` → **No issues found!** (11.4s).
+* **Negative control against the actual pre-fix blob** — same temp repo, same
+  staged `+x`, same unstaged edit, same `main()` call, only the module swapped:
+
+  | file | index mode | EDITED row | ALSO STAGED | chmod repair printed |
+  | --- | --- | --- | --- | --- |
+  | `test/remote_state_pre_fix.py` | 100755 | yes | **no** | **no** |
+  | `tool/remote_state.py` | 100755 | yes | yes | yes |
+
+  The pre-fix row is exactly the failure: `EDITED`, verdict `IN SYNC`, and a
+  100755 sitting in the index that **nothing in the output mentions**. A control
+  on a re-implementation would have proved nothing here, so the old blob travels
+  in the repo (`test/remote_state_pre_fix.py`) and is driven directly.
+* **No cry-wolf control:** the first new case runs an edited file with modes
+  agreeing on both rungs and asserts the note does **not** print — so the
+  passing cases cannot be "the note always prints".
+* **The note disappears after the repair it prints.** `update-index --chmod=-x`
+  clears it, verified end to end, because a note that outlives its cause is how
+  this file's warnings start being ignored.
+* Real repo, untouched paths: `--why` and `--files` exit 0 / print their
+  verdicts as before; no existing label changed.
+
+**Self-inflicted red, 8th tick running.** My patch script asserted a target line
+occurs exactly once and aborted — correctly. The string it was inserting
+*documented* the very line it was about to replace, so the anchor matched twice:
+once in the live code, once inside the docstring I was adding. The script
+aborted on the count, I re-ordered the replacements so the live line is patched
+before the prose is inserted, and the diff is what I intended. A guard that
+fires is the cheapest red there is; a guard I had removed to make the patch
+apply would not be.
+
+**Leads for the next tick**
+
+1. **The schedule decision. TWELFTH unanswered tick, still the only thing
+   blocked on the founder.** (a) 30m full gate — measured wrong twice (20:46,
+   then 30:13, same 11 shards / 1990 tests): a coin flip on box load. (b) 10m
+   period, analyzer + touched shards, one full suite daily — **fits with
+   margin**. (c) 45m full gate — fits both with ~15m spare. Recommendation
+   stays **(b)**.
+2. **The 65th's lead 3, open:** `main()`'s other exit paths. `--why` now has a
+   fault handler, but `--json` builds its payload from the same named report
+   and `--files` from `file_check()` — both still inside the same `try`, so the
+   65th's handler covers them, but **the printing paths are outside any guard**.
+   A fault in the `elif verdict == ...` chain would still fall out of the bottom
+   of `main()` as exit 1, i.e. DIVERGED, with a half-printed report on stdout.
+   The 65th fixed the *build*; the *render* is unguarded.

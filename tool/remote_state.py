@@ -499,6 +499,61 @@ def staged_row(index_sha, head_sha, mode_staged):
     return None
 
 
+STAGED_LABELS = ("INDEX-STAGED", "MODE-STAGED")
+
+
+def staged_mode_leak(head_mode, index_mode):
+    """PURE: is a MODE change staged -- will the NEXT commit record a mode the
+    last commit did not?
+
+    Two rungs read against each other, never against the disk: `git ls-tree -r
+    HEAD` (what `verdict()` hashes) against `git ls-files -s` (what the next
+    commit records). Comparing either to the working file proves nothing, which
+    is the 60th tick's whole defect -- the file on disk can agree with HEAD
+    while the index holds a third mode, and nothing that looks at the file sees
+    it.
+
+    Empty in, empty out. An unknown mode is not evidence of a leak; claiming one
+    from a missing half would invent a divergence, which is the mistake this
+    file exists to stop making in the other direction.
+    """
+    return bool(head_mode and index_mode and head_mode != index_mode)
+
+
+def hidden_staged_note(verdict, head_mode, index_mode):
+    """PURE: the staged-mode note a row owes even when another hop named it.
+
+    **The 64th's lead 3, and the hole was real.** `file_check` asked
+    `staged_row()` only when no content label fired:
+
+        staged = staged_row(i_sha, h_sha, staged_leak) if not content else None
+
+    That is right for LABEL choice -- one row, one hop, and CONTENT-DIFFER is the
+    stronger truth, so it should not be displaced by a lesser one. It was wrong
+    for COVERAGE. A staged mode is a different difference, on a different rung,
+    with a different repair, and when the content hop fired it was read nowhere:
+    not in the label, not in the printed lines, not in the columns a reader would
+    have to subtract by hand. `--why` still named it via `index_drift()`, but
+    `--files` never did -- and `--files` is the command a tick runs immediately
+    before it runs `git commit`, which is precisely when the leak becomes a real
+    divergence nobody has pushed yet.
+
+    So the content row keeps its label AND carries the note. The alternative --
+    one compound label like `CONTENT-DIFFER+MODE-STAGED` -- is what the 62nd and
+    64th were spent undoing: no single repair runs on it, and a label a reader
+    cannot act on is how a row becomes noise.
+
+    Returns None when the label already carries the mode -- INDEX-STAGED and
+    MODE-STAGED both print it -- so a row never advises the same edit twice, and
+    `git restore --staged` is not repeated for a row that just printed it.
+    """
+    if verdict in STAGED_LABELS:
+        return None
+    if not staged_mode_leak(head_mode, index_mode):
+        return None
+    return (head_mode, index_mode)
+
+
 def file_check(paths):
     """Per-file check against the COMMITTED tree, with the staged leak named.
 
@@ -547,12 +602,17 @@ def file_check(paths):
         h_sha, l_mode = h if h else ("", head_mode(p))
         ent = index.get(p)
         i_sha, i_mode = ent if ent else ("", "")
-        staged_leak = bool(i_mode and l_mode and i_mode != l_mode)
+        staged_leak = staged_mode_leak(l_mode, i_mode)
         content = choose_content_row(work, h_sha, r_sha)
-        # Only meaningful while the committed trees agree. Once HEAD and the
-        # remote differ, CONTENT-DIFFER is the true and sufficient row and a
-        # staged label beside it would be noise about a divergence already
-        # visible in the verdict.
+        # LABEL: one hop per row. A staged label never displaces a content one.
+        # CONTENT-DIFFER is the stronger truth, and two labels on one row is how
+        # a row becomes noise.
+        #
+        # COVERAGE is a different question, and it used to be answered by that
+        # same line. The STAGED-MODE half is owed either way: it is a different
+        # difference on a different rung with its own repair, and no content
+        # label can express it. `hidden_staged_note` is what `main()` consults,
+        # so the decision lives here once and the printer only formats it.
         staged = staged_row(i_sha, h_sha, staged_leak) if not content else None
         if not work:
             rows.append((p, "UNTRACKED", "-", r_sha, "-", r_mode, i_mode, i_sha))
@@ -851,6 +911,24 @@ def main():
                       % ("+x" if row[4] == "100755" else "-x", p))
                 print("             undo it before committing, or the next")
                 print("             commit makes this a real divergence")
+
+            # The 64th's lead 3. Whichever label won above, a mode sitting in
+            # the INDEX and not in HEAD is a SECOND difference, and this is the
+            # last moment it can still be undone in one line. Before this it
+            # printed only when the content hop was silent, so a staged mode
+            # behind an EDITED or a CONTENT-DIFFER row reached nobody -- and
+            # `--files` is the command a tick runs immediately before
+            # `git commit`, which is exactly when the leak becomes a real
+            # divergence.
+            note = hidden_staged_note(verdict, row[4], row[6])
+            if note:
+                h_mode, i_mode = note
+                print("             ALSO STAGED -- a SECOND difference, and it")
+                print("             is NOT in the label above, so it is easy to")
+                print("             miss. Committing now records it as well:")
+                print("             index mode %s, HEAD mode %s" % (i_mode, h_mode))
+                print("             git update-index --chmod=%s %s"
+                      % ("+x" if h_mode == "100755" else "-x", p))
     return 0 if info["in_sync"] else 1
 
 

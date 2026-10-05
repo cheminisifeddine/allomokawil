@@ -26,6 +26,8 @@ case that must not be faked -- "an unreadable remote is not agreement" -- is
 tested by passing the sha that the code path would get if the read returned
 nothing at all, which is the exact input a failed read produces.
 """
+import contextlib
+import io
 import os
 import shutil
 import subprocess
@@ -798,6 +800,180 @@ def main():
 
     remote_state.why = saved_why
     remote_state.api = saved_api2
+
+    # 14. Lead 3 from the 64th: a STAGED MODE hidden behind a content row.
+    #     The line `staged = staged_row(...) if not content else None` is right
+    #     about LABELS and wrong about COVERAGE. One row carries one hop's
+    #     label, but a staged mode is a second difference on a second rung with
+    #     a second repair, and it used to print nowhere whenever the content
+    #     hop fired. `--files` is what a tick runs immediately before
+    #     `git commit`, so that is exactly where the silence cost something.
+    print("")
+    print("--files: a staged mode must not hide behind a content row")
+
+    # (a) The pure decision, truth-table first. An unknown half is NOT a leak:
+    #     inventing a divergence from a missing mode is the 62nd's mistake.
+    check("same mode on both rungs is not a leak",
+          remote_state.staged_mode_leak("100644", "100644"), False)
+    check("HEAD 100755 / index 100644 IS a leak",
+          remote_state.staged_mode_leak("100755", "100644"), True)
+    check("  ...in either direction",
+          remote_state.staged_mode_leak("100644", "100755"), True)
+    check("an unknown HEAD mode is not evidence of a leak",
+          remote_state.staged_mode_leak("", "100755"), False)
+    check("  ...nor an unknown index mode",
+          remote_state.staged_mode_leak("100644", ""), False)
+
+    # (b) Which labels owe the note, and which already carry it. INDEX-STAGED
+    #     prints `git restore --staged`, which clears BOTH axes at once, so a
+    #     second chmod line beside it would be redundant advice about one edit.
+    check("CONTENT-DIFFER + staged mode OWES the note",
+          remote_state.hidden_staged_note("CONTENT-DIFFER", "100644", "100755"),
+          ("100644", "100755"))
+    check("EDITED + staged mode OWES the note",
+          remote_state.hidden_staged_note("EDITED", "100755", "100644"),
+          ("100755", "100644"))
+    check("MATCH + staged mode OWES the note",
+          remote_state.hidden_staged_note("MATCH", "100644", "100755"),
+          ("100644", "100755"))
+    check("INDEX-STAGED already prints the mode -- no double advice",
+          remote_state.hidden_staged_note("INDEX-STAGED", "100644", "100755"),
+          None)
+    check("MODE-STAGED already prints the mode -- no double advice",
+          remote_state.hidden_staged_note("MODE-STAGED", "100644", "100755"),
+          None)
+    check("no leak on either rung -> no note, whatever the label",
+          remote_state.hidden_staged_note("CONTENT-DIFFER", "100644", "100644"),
+          None)
+
+    # (c) End to end through `main()` on a REAL repo, because the pure case
+    #     cannot prove the printer emits it and the label keeps its own name.
+    #     `classify()` is stubbed: the tree verdict is already covered above,
+    #     and the variable under test is what a CONTENT row prints when the
+    #     index disagrees with HEAD about the mode.
+    tmp6 = tempfile.mkdtemp(prefix="rs-hiddenmode-")
+    saved_local6 = remote_state.LOCAL
+    saved_blobs6 = remote_state.remote_blobs
+    saved_classify = remote_state.classify
+    saved_argv = sys.argv
+    try:
+        subprocess.run(["git", "init", "-q", tmp6], check=True)
+        subprocess.run(["git", "-C", tmp6, "config", "user.email", "t@t"], check=True)
+        subprocess.run(["git", "-C", tmp6, "config", "user.name", "t"], check=True)
+        f6 = os.path.join(tmp6, "h.py")
+        with open(f6, "w") as fh:
+            fh.write("v1\n")
+        subprocess.run(["git", "-C", tmp6, "add", "-A"], check=True)
+        subprocess.run(["git", "-C", tmp6, "commit", "-qm", "one"], check=True)
+        head6 = subprocess.run(["git", "-C", tmp6, "rev-parse", "HEAD:h.py"],
+                               capture_output=True, text=True).stdout.strip()
+        remote_state.LOCAL = tmp6
+        remote_state.remote_blobs = lambda: {"h.py": (head6, "100644")}
+        remote_state.classify = lambda: {
+            "in_sync": True, "local_head": "h", "local_tree": "t",
+            "remote_tip": "r", "remote_tree": "t", "verdict": "IN SYNC",
+            "ahead_behind": "ahead 1, behind 1", "uncommitted": []}
+
+        def run_files():
+            sys.argv = ["remote_state.py", "--files", "h.py"]
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                remote_state.main()
+            return buf.getvalue()
+
+        # Control: an edited file, modes agreeing everywhere. EDITED row, and
+        # NOT ONE mention of a staged mode -- so the cases below cannot be
+        # passing because the note always prints.
+        with open(f6, "w") as fh:
+            fh.write("v2\n")
+        base = run_files()
+        check("edited file -> EDITED", "EDITED" in base, True)
+        check("  ...and NO staged-mode note when nothing is staged",
+              "ALSO STAGED" in base, False)
+
+        # The hole, exactly as the lead described it: stage a mode change and
+        # keep the content edit unstaged. Trees agree (HEAD == remote), so the
+        # verdict above stays IN SYNC and the label stays EDITED -- and the
+        # staged mode used to be invisible in the whole output.
+        subprocess.run(["git", "-C", tmp6, "update-index", "--chmod=+x", "h.py"],
+                       check=True)
+        leaked = run_files()
+        check("staged mode behind an EDITED row keeps the EDITED label",
+              leaked.count("EDITED") >= 1, True)
+        check("  ...and the row is now ALSO STAGED", "ALSO STAGED" in leaked, True)
+        check("  ...naming BOTH modes",
+              "index mode 100755" in leaked and "HEAD mode 100644" in leaked, True)
+        check("  ...with a repair that restores HEAD's mode",
+              "git update-index --chmod=-x h.py" in leaked, True)
+        check("  ...so the trees are still IN SYNC on the same input",
+              leaked.splitlines()[1].startswith("local  tree"), True)
+
+        # The label itself must not move: one hop, one label. A compound
+        # `EDITED+MODE-STAGED` would break every reader that switches on the
+        # label, which is the 62nd and 64th rolled back in the other direction.
+        check("  ...and the LABEL did not become a compound name",
+              "EDITED+MODE-STAGED" in leaked, False)
+
+        # The same hole on the other content hop: a real committed divergence
+        # with a staged mode beside it. CONTENT-DIFFER is the stronger truth and
+        # keeps the row; the note still appears.
+        subprocess.run(["git", "-C", tmp6, "update-index", "--chmod=-x", "h.py"],
+                       check=True)
+        subprocess.run(["git", "-C", tmp6, "add", "h.py"], check=True)
+        subprocess.run(["git", "-C", tmp6, "commit", "-qm", "two"], check=True)
+        stale = subprocess.run(["git", "-C", tmp6, "rev-parse", "HEAD~1:h.py"],
+                               capture_output=True, text=True).stdout.strip()
+        remote_state.remote_blobs = lambda: {"h.py": (stale, "100644")}
+        subprocess.run(["git", "-C", tmp6, "update-index", "--chmod=+x", "h.py"],
+                       check=True)
+        both = run_files()
+        check("committed divergence keeps the CONTENT-DIFFER row",
+              "CONTENT-DIFFER" in both, True)
+        check("  ...and still carries the staged mode",
+              "ALSO STAGED" in both, True)
+
+        # INDEX-STAGED: mode AND blob staged together. `git restore --staged`
+        # clears both, so the note must NOT appear -- two repairs for one edit
+        # is the noise this item is not willing to add.
+        with open(f6, "w") as fh:
+            fh.write("v3\n")
+        subprocess.run(["git", "-C", tmp6, "update-index", "--chmod=-x", "h.py"],
+                       check=True)
+        subprocess.run(["git", "-C", tmp6, "add", "h.py"], check=True)
+        subprocess.run(["git", "-C", tmp6, "commit", "-qm", "three"], check=True)
+        head3 = subprocess.run(["git", "-C", tmp6, "rev-parse", "HEAD:h.py"],
+                               capture_output=True, text=True).stdout.strip()
+        remote_state.remote_blobs = lambda: {"h.py": (head3, "100644")}
+        with open(f6, "w") as fh:
+            fh.write("v4\n")
+        subprocess.run(["git", "-C", tmp6, "update-index", "--chmod=+x", "h.py"],
+                       check=True)
+        with open(f6, "w") as fh:
+            fh.write("v3\n")
+        dup = run_files()
+        check("blob AND mode staged -> INDEX-STAGED",
+              "INDEX-STAGED" in dup, True)
+        check("  ...with ONE repair, not two",
+              "ALSO STAGED" in dup, False)
+        check("  ...and the repair clears both axes at once",
+              "git restore --staged h.py" in dup, True)
+
+        # And the note must disappear the moment the leak is undone, or it would
+        # cry wolf on the next run and get ignored.
+        subprocess.run(["git", "-C", tmp6, "restore", "--staged", "h.py"],
+                       check=True)
+        subprocess.run(["git", "-C", tmp6, "update-index", "--chmod=-x", "h.py"],
+                       check=True)
+        clean = run_files()
+        check("after the printed repair the note is gone",
+              "ALSO STAGED" in clean, False)
+    finally:
+        sys.argv = saved_argv
+        remote_state.LOCAL = saved_local6
+        remote_state.remote_blobs = saved_blobs6
+        remote_state.classify = saved_classify
+        shutil.rmtree(tmp6, ignore_errors=True)
+
 
     print("")
     if FAILED:
