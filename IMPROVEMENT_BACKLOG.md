@@ -21146,3 +21146,122 @@ work fits either way because it never needed the whole suite.
    a 12-month property test (`calendarDaysBetween` == `y*372+m*31+d` must
    **never** be used; the real guard is that every month's length is honoured)
    would pin it cheaper than the comment does.
+
+---
+
+## Tick 5 Oct 2026 (58th) — `crash_reporter`: a startup write could erase the
+## previous run's log before anything had read it
+
+**Item:** lead 2 from the 57th. **Shipped.** Backlog stays at **zero unchecked**;
+no new item opened.
+
+**First, the honest correction to that lead.** It named three sites:
+
+| site named | verdict |
+| --- | --- |
+| `customer_home_screen.dart:331` | **already fixed** — the token guard is there |
+| `worker_home_screen.dart:142` | **already fixed** — the token guard is there |
+| `crash_reporter.dart:147` | **the live one**, and worse than described |
+
+Both screens carry `if (!mounted || token != _unreadToken) return;` in the
+error arm with a comment naming the defect. Those were repaired in earlier
+ticks; the lead was written from a stale reading of the files. **A lead that
+re-reads the same three sites every tick will keep producing this.** The right
+move is to spend the tick on the one that was real.
+
+And the real one was **not** the shape the lead predicted. It is not a
+swallowed *value* — the `catchError` is correct and deliberate. It is a
+**missing counterpart on the serialisation.**
+
+**The defect.** `_scheduleWrite` serialised every *write* onto `_writes`, and
+`restore()` called `_store.read()` with **no ordering against that queue at
+all** — the only operation in the class running outside it. Boot schedules the
+restore *after the first frame* (`Boot.restoreDiagnostics`) precisely because a
+startup crash may already be in the log, so the read and a `capture` genuinely
+overlap in production. On a cold start with a slow preferences channel the
+write wins, and because the write carries **the whole log as one string list**,
+it does not merge — it replaces:
+
+    stored line after the race: {"message":"Bad state: this run", ...}
+                                 <- the previous run is simply not there
+
+`loadLines(earlier: true)` then reads that back and inserts it at the front. The
+earlier lines existed in memory, on screen, and nowhere else. **Total loss of the
+previous run, not a duplicate** — and the one store where the loss is
+unrecoverable, because the next launch finds an already-overwritten file.
+
+**Fix, two parts** (`lib/src/core/diagnostics/crash_reporter.dart`, +83/-9)
+
+1. **The previous run is read once, in the constructor; every write awaits
+   that read.** The invariant in one sentence: *a write must never reach
+   storage before the read that would have told it what was already there.*
+2. **`_scheduleWrite` snapshots `log.toLines()` inside the queue**, not at the
+   call site — so a write carries what the log holds when the write *happens*
+   rather than when it was requested. Per-write `try`/`catch` replaces
+   `catchError` on the chain: a rejected `_writes` would reject every later
+   `flush`, including `clear`'s.
+
+Cold launch does **not** wait for the read — nothing awaits it except a write
+already going to the same storage, and `restore()` is still the off-path await
+boot makes after the frame.
+
+**The first attempt was wrong and a test caught it.** Queueing the read *behind*
+`_writes` compiles, passes the new tests, and still loses the data — it performs
+the overwrite first and then reads the overwritten value back. The same loss,
+one extra step. `boot_warmup_test.dart` went red
+(`Expected: contains 'previous run' / Actual: 'Bad state: this run'`) and that is
+the only reason the wrong shape did not ship. **Gating the read in front of the
+writes is not a stylistic preference; the other order is the same bug with a
+green test run attached to it.**
+
+### Tests (`test/crash_reporter_test.dart`, +126)
+
+A `_LateReadStore` answers reads three event-loop passes late, so the race is
+the one that actually happens rather than the one the scheduler happened to
+avoid. Three added, **all three red against the old reporter**:
+
+* a restore and a capture in one tick both survive on disk (the stored line
+  must carry *both* runs — it is the only copy);
+* a capture taken before restore finishes is not lost (round trip through a
+  fresh reporter);
+* a failed read does not strand the queue, so the next crash still writes.
+
+**Evidence, this tick's own runs**
+- `flutter analyze` -> `No issues found! (ran in 8.6s)`.
+- `crash_reporter_test.dart` -> **12 green**.
+- **Negative control:** original `lib/` against the new tests prints
+  `Expected: contains 'من التشغيل السابق' / Actual: '...message":"Bad state:
+  this run"...'` and `Expected: <2> / Actual: <1>`. It fails on the *stored
+  value*, not on a missing attribute.
+- 11-file crash/session/store subset -> **118 green, 0 red**.
+- `dart run tool/crash_log_check.dart` -> `ALL CHECKS PASS` on the plain VM
+  (the check that survives a tick where an orphaned `flutter_tester` makes a
+  test run unsafe).
+
+**Commits.** Local `62272f7`; remote `74a1c23` (`tool/remote_state.py` ->
+`IN SYNC`, trees match).
+
+**The full gate did not run.** `python3 tool/run_tests.py` is ~40 min against a
+10-minute tick and the tool call itself timed out at 420 s. The subset above is
+the touched surface (every file that names crash/session/store) plus the plain-VM
+check; **the other ~256 files are unverified this tick** and the count-vs-
+previous-count clause of step 4 is therefore unproven, not passed. That is the
+same schedule question as (a)/(b), now on its **fourth** unanswered tick.
+
+**Leads for the next tick**
+
+1. **The full suite, and the schedule decision with it.** (a) 30m period for
+   full-gate ticks, or (b) 10m with analyzer + touched shards, one full suite a
+   day. Unanswered four ticks; this is the only lead that is *blocked on the
+   founder* rather than on code.
+2. **Sweep the serialised-write shape, not the `catchError` spelling.** The
+   lesson of this tick is that the grep for a known code shape
+   (`grep -rn catchError lib/`) found a site whose bug was an *absent* line
+   next to it. `log.toLines()`-style snapshots taken outside the queue that
+   owns them is the generalisable shape; grepping for the snapshot call site is
+   cheaper than grepping for the swallowed value, and there are only a handful
+   of stores in `lib/`.
+3. **The `_jdn` packing trap in `calendar_day.dart`** is still defended by
+   comment only — a 12-month property test (the guard being *every month's
+   length is honoured*; `== y*372+m*31+d` must **never** be used) would pin it
+   cheaper than the comment does.
