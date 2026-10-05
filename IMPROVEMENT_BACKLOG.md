@@ -20992,6 +20992,10 @@ log that says "derived" while not deriving.
 - Plan arithmetic re-measured on this tree: **263 files -> 11 shards
   (10x24 + 23), derived budget 6820s.**
 
+**Commit** local `c71e1b1` -> pushed as remote **`88622d6`**; both changed blobs
+verified byte-identical from the remote tree (`tool/run_tests.py`
+`de9204b0`, `test/run_tests_budget_test.dart` `c55603f6`). Working tree clean.
+
 ### Still open — genuinely the founder's, not mine
 
 **The gate is ~40 min and this cron fires every 10.** Every full-gate tick is
