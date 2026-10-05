@@ -125,6 +125,12 @@ RETRIES = 1
 #: the warm-up is charged to the budget, never added on top of the cap.
 SHARD_WARMUP = 20.0
 
+#: Grace the watchdog gives a suite after SIGTERM before escalating to SIGKILL.
+#: Short on purpose: the suite it reaps is, by the time the watchdog fires,
+#: already dead or unwanted, and every second it holds on is a second this
+#: loop's next gate is BUSY. Mirrors the grace in `_kill_group`.
+WATCHDOG_GRACE = 5.0
+
 
 def default_deadline(n_shards, shard_deadline=SHARD_DEADLINE, retries=RETRIES):
     """Whole-run budget for `n_shards` batches, or None when unbounded.
@@ -271,6 +277,99 @@ def _kill_group(proc, grace=5.0):
         pass
 
 
+def _watchdog(pgid):
+    """Tear down `pgid` as soon as the runner stops holding the pipe open.
+
+    This is the arm for the one death `_kill_group` cannot cover. `_kill_group`
+    runs on the runner's own deadline and on a shard that fails — both of which
+    require the runner to be alive to call it. When the runner is killed from
+    *outside* (the agent harness kills a foreground command that overruns, or
+    the box OOM-kills it) every child it made is reparented to init and keeps
+    running, and the engine is the part that costs: `flutter_tester` at ~170 MB
+    on a 7.8 GB no-swap box. `build_gate.py` can then only answer BUSY forever,
+    so every later tick skips its gate. That happened for real on 5 Oct: pid
+    21434 sat at PPID 1 in process group 21236 after the 68th's suite was cut at
+    shard 47/66, and the 69th could not run a single build.
+
+    **`prctl(PR_SET_PDEATHSIG)` is the obvious fix and it does not work here.**
+    It signals the *direct child* only. The process that leaks is a
+    *grandchild* — `flutter_tester`, spawned by `flutter test` — so killing
+    `flutter test` would orphan the engine anyway, reproducing the bug in a new
+    shape. The signal has to reach the group, and the only thing that knows to
+    send it is a process that outlives the runner.
+
+    So the runner hands this one job to a second process and watches a pipe. The
+    runner holds the write end; the watchdog holds the read end. When the runner
+    dies for *any* reason — SIGTERM, SIGKILL, OOM — the kernel closes the write
+    end because the runner was the last holder, the watchdog's `read` returns
+    EOF, and it kills the group. No polling, no timer, no dependence on the
+    runner being alive to notice anything.
+
+    stdin is that pipe, so this doubles as the argv the gate inspects: it is
+    launched with a bare pid and carries no flutter path, because a watchdog
+    whose command line contained `bin/flutter` would read as a live tool to
+    `build_gate.py` and make the box look BUSY after the run was over.
+    """
+    try:
+        while os.read(0, 4096):
+            pass
+    except (OSError, ValueError):
+        pass
+    try:
+        pgid = int(pgid)
+    except (TypeError, ValueError):
+        return
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(pgid, sig)
+        except (ProcessLookupError, PermissionError, OSError):
+            return
+        # SIGTERM gets a short grace so a healthy engine can exit on its own;
+        # SIGKILL is the floor that guarantees the memory comes back.
+        end = time.monotonic() + WATCHDOG_GRACE
+        while time.monotonic() < end:
+            try:
+                os.killpg(pgid, 0)
+            except (ProcessLookupError, OSError):
+                return
+            time.sleep(0.05)
+
+
+def _spawn_watchdog(pgid):
+    """Start `_watchdog` on `pgid`. Returns (write_end, process).
+
+    The caller must keep `write_end` open for the whole run and close it when
+    the suite is done: closing it is how a *clean* run tells the watchdog to
+    clean up after itself. If the watchdog cannot be started the run still
+    proceeds — a missing safety net is not a reason to refuse to test.
+    """
+    try:
+        read_fd, write_fd = os.pipe()
+    except OSError:
+        return None, None
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, os.path.abspath(__file__),
+             "--watchdog-pgid", str(pgid)],
+            stdin=read_fd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            cwd=REPO,
+            # Its own session, so the watchdog is not in the runner's process
+            # group. A group-wide SIGTERM at the runner — which is how a shell
+            # kills an overrunning foreground job — would otherwise take the
+            # reaper down with the thing it exists to reap, and the suite would
+            # be orphaned exactly as before.
+            start_new_session=True,
+        )
+    except (OSError, ValueError):
+        os.close(read_fd)
+        os.close(write_fd)
+        return None, None
+    os.close(read_fd)
+    return write_fd, proc
+
+
 def run(argv, deadline, cwd=REPO, tail_limit=TAIL_LINES):
     """Run `argv` to completion or to the deadline. Returns (status, tail, secs)."""
     started = time.monotonic()
@@ -285,6 +384,13 @@ def run(argv, deadline, cwd=REPO, tail_limit=TAIL_LINES):
         start_new_session=True,
     )
 
+    # `start_new_session=True` above put the suite in its OWN process group,
+    # which is why a group-kill aimed at the runner cannot reach it — and why
+    # the group to reap is the child's, whose pgid equals its pid. The watchdog
+    # holds the group's fate to a pipe the runner keeps open, so this file can
+    # now be killed without taking its suite with it.
+    write_fd, watchdog = _spawn_watchdog(proc.pid)
+
     def pump():
         try:
             for line in proc.stdout:
@@ -295,16 +401,35 @@ def run(argv, deadline, cwd=REPO, tail_limit=TAIL_LINES):
     reader = threading.Thread(target=pump, daemon=True)
     reader.start()
 
+    def _finish(status):
+        """Release the watchdog and report, on every path out of `run`.
+
+        Closing the write end is the clean-run signal: the watchdog sees EOF,
+        kills the group (which by then is empty if the suite exited cleanly) and
+        exits, so no watchdog is ever left behind either. Leaking *those* would
+        hand the next tick a second orphan to trip over.
+        """
+        if write_fd is not None:
+            try:
+                os.close(write_fd)
+            except OSError:
+                pass
+        if watchdog is not None:
+            try:
+                watchdog.wait(timeout=WATCHDOG_GRACE + 1.0)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+        reader.join(timeout=5)
+        return status, list(tail), time.monotonic() - started
+
     try:
         proc.wait(timeout=deadline)
     except subprocess.TimeoutExpired:
         _kill_group(proc)
-        reader.join(timeout=5)
-        return HUNG, list(tail), time.monotonic() - started
+        return _finish(HUNG)
 
-    reader.join(timeout=5)
     code = proc.returncode or 0
-    return (PASS if code == 0 else FAIL), list(tail), time.monotonic() - started
+    return _finish(PASS if code == 0 else FAIL)
 
 
 def _gate_clear():
@@ -508,5 +633,21 @@ def main(argv=None):
     return PASS
 
 
+def _watchdog_main(argv):
+    """The reaper mode of this file: `_watchdog` on argv's pgid.
+
+    A separate entry point rather than a flag checked deep inside `main`, so
+    the watchdog can never be talked into running a suite, and so re-execing
+    this file with a pid is the only way to start one.
+    """
+    if len(argv) != 2 or argv[0] != "--watchdog-pgid":
+        print("usage: run_tests.py --watchdog-pgid PGID", file=sys.stderr)
+        return 2
+    _watchdog(argv[1])
+    return 0
+
+
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--watchdog-pgid":
+        sys.exit(_watchdog_main(sys.argv[1:]))
     sys.exit(main())
