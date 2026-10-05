@@ -559,7 +559,16 @@ in this file that dies on arrival is how two ticks were lost.
    ```
    python3 tool/remote_state.py                          # 0 = IN SYNC, 1 = DIVERGED, 2 = unreadable
    python3 tool/remote_state.py --files <paths...>       # per-file blob check
+   python3 tool/remote_state.py --why                    # WHICH paths differ, and why
    ```
+   **`--why` is the one to reach for when the verdict is DIVERGED** (added
+   5 Oct 61st). The verdict only says "same or not"; `--why` names the paths
+   and the reason — `mode` (same bytes, different executable bit), `content`,
+   `local-only`, `remote-only` — and prints the repair. It also catches a
+   **staged** mode leak before it becomes a divergence, which is the shape
+   that cost the 60th tick a bisect, and it warns when GitHub returns a
+   **truncated** listing so an absent path is never mistaken for a deletion.
+   Pinned by `test/remote_state_test.py` (31 cases).
    It compares **tree** hashes, not commit hashes, and it is read-only — it
    never fetches, pushes or writes a ref. It also reports uncommitted files,
    because the tree comparison is against the *committed* tree: an edited file
@@ -21591,3 +21600,106 @@ the text is a documentation tick of its own.
    31-day month. The negative control is what tells a guard from a decoration.
    The next store, the next date arithmetic: look for a comment defending a
    property, and write the thing that would disagree.
+
+---
+
+## Tick 5 Oct 2026 (61st) — the tool that said WHY you were wrong could not say why
+
+**Item:** `tool/remote_state.py --why` — the lead handed over by the 60th.
+**SHIPPED.** `96bf245` -> remote `6fee4ae`.
+
+`verdict()` answered "same or not" and stopped. That is safe — DIVERGED means
+go look — but it left the tick that hit DIVERGED to reconstruct the cause by
+hand, which is the expensive part and the part done wrong under time pressure.
+The 60th paid exactly that price: a 100755 leak, 545/545 blobs MATCHing, and a
+bisect to find one file.
+
+**No Dart changed.** This is the loop's own instruments (Phase 6), which is
+what the build gate's "take a non-build item" instruction points at.
+
+### Two more defects found while shipping it
+
+1. **A truncated listing would have had this tool push a deletion.**
+   GitHub's recursive trees API caps at 100k entries; a short listing makes
+   every absent path look like a deleted file. That is the most dangerous way
+   this tool can lie, because it is the only path that produces a *false*
+   DIVERGED verdict. `remote_truncated()` now surfaces GitHub's own `truncated`
+   flag and the output refuses to act on absent paths when it is set. Measured
+   `False` on this repo (628 entries, not truncated).
+2. **`git()` strips stdout, which is wrong for `status --porcelain`.** The
+   record is `XY<space>path`, so on a modified file the leading space of the
+   FIRST line was eaten and `l[3:]` printed **`ool/remote_state.py`**. The tool
+   that names the file to commit and push was printing a path that does not
+   exist — live since 1 Oct, and only visible while the tool is being used,
+   which is exactly what `--why` was, and why this tick dirtied the tree it
+   reads. `git_raw()` added.
+
+### The negative control, and a fixture bug it exposed in me
+
+The load-bearing control re-implements the OLD content-only view and runs it
+on the mode-only input:
+
+```
+control: content-only view sees no difference   PASS  []
+control: explain() still finds one               PASS  1 row ('b.py', 'mode')
+```
+
+A guard that finds nothing where the old code found nothing is a decoration;
+this finds the row the old code provably could not.
+
+**Then the tests I had just written were wrong three times, and the code was
+right all three.** Worth recording, because the harness looked like it was
+guarding something: (a) I set up `local` with b.py at `100644` when the whole
+point was a `100755` leak, so "mode-only leak is named" was asserting an
+inverted row; (b) I asserted `["remote-only"]` for an input where **both** an
+absent-local and an absent-remote path existed — both rows were correct; (c)
+the "identical trees" fixture still had b.py at a different mode, so a real
+difference was reported and the test called it a bug. Six reds in one run, all
+of them mine. The lesson is the one this file keeps re-learning: a red that
+appears the moment you write the guard is usually the guard's *harness*
+disagreeing with a correct implementation, and the honest move is to check
+which of the two is wrong before touching the code.
+
+**A fourth, caught by the tool itself.** The first version of the repair it
+prints was inverted: for HEAD `100644` drifted to index `100755` it suggested
+`--chmod=+x`, i.e. the command that makes the leak permanent. Found by
+reading the output of a leak I had staged on purpose. Fixed to restore HEAD's
+mode, and pinned by two cases in both directions.
+
+### Evidence
+
+- `python3 tool/build_gate.py` — refused at first (**640 MB** available, needs
+  >= 900 MB), so this started as a non-build item; it cleared to 1536 MB later
+  and the analyzer ran then.
+- `flutter analyze` -> **No issues found! (ran in 12.7s)** — no Dart touched.
+- `remote_state_test.py` -> **31/31** (was 22).
+- `push_helper_test` -> all pass. `pngscan_test` -> **9/9**.
+- `build_gate_test` -> **21/21**, twice. A first run showed **18/21**; that was
+  this box at 640 MB running four harnesses back to back, not a regression —
+  it passes clean twice and the gate now reads CLEAR. Recorded because a flaky
+  red in the evidence block is worse than no number.
+- **`--why` verified against the real remote on a leak I staged on purpose**:
+  it printed `mode tool/build_gate.py (HEAD 100644 -> index 100755)` with the
+  repair `git update-index --chmod=-x tool/build_gate.py`; running that command
+  cleared it. That is the feature proving itself on the defect it was written
+  for, not a unit test asserting a dict.
+- **Push verified, not trusted.** Local `96bf245` -> remote `6fee4ae`; trees
+  `04c2bc0` both sides; both blobs **MATCH**; `--why --json` after the push:
+  `why: []`, `index_mode_drift: []`, `remote_truncated: false`.
+
+**The full 263-file Dart suite did not run** (~40 min against a 10-minute
+tick). No Dart changed, so step 4's count clause is **unproven, not passed** —
+unchanged from the 59th and 60th.
+
+### Leads for the next tick
+
+1. **The schedule decision. SEVENTH unanswered tick, and still the only thing
+   on this list.** (a) 30m period for full-gate ticks, or (b) 10m with analyzer
+   + touched shards, one full suite a day. No amount of app work clears this.
+2. **`--files` still compares content only** in the sense that it reports a
+   MODE-DIFFER row but does not offer the repair that `--why` prints. One line,
+   now that both the reader and the repair exist.
+3. **The transferable lesson, third tick running.** Look for a comment
+   defending a property, and write the thing that would disagree — but apply
+   it to the *loop's own Python*, which this file's first 34 ticks never did.
+   Two of the last three defects lived in the harness, not the app.
