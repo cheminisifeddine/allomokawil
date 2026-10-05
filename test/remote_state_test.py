@@ -501,6 +501,184 @@ def main():
     finally:
         shutil.rmtree(tmp4, ignore_errors=True)
 
+    # 11. `--files` printed MATCH while the INDEX held a blob in no commit.
+    #
+    #     The ladder is four rungs and the code had read three:
+    #
+    #       HEAD    the committed tree -- what `verdict()` hashes
+    #       index   what the NEXT commit will record
+    #       disk    the working file -- what `git hash-object` returns
+    #
+    #     `mode_of` read the index's MODE half (MODE-STAGED, the 60th tick)
+    #     and `explain_index` read it for `--why`. Nothing read its BLOB half.
+    #     So: stage v2, then write HEAD's bytes back to the file. The disk
+    #     agrees with HEAD, the committed trees agree, and the row said MATCH
+    #     -- while the index held a third blob that the next `git commit`
+    #     would record over HEAD, silently reverting a file.
+    #
+    #     Same shape as the 60th's 100755 leak, on the content axis: a blob no
+    #     committed-tree diff can see, discoverable only after it is pushed.
+    print("")
+    print("--files: a staged BLOB must not hide behind MATCH")
+    check("staged blob, trees agree -> INDEX-STAGED",
+          remote_state.staged_row("idx1", "head1", False), "INDEX-STAGED")
+    check("staged mode, trees agree -> MODE-STAGED",
+          remote_state.staged_row("head1", "head1", True), "MODE-STAGED")
+    check("index and HEAD agree, no mode drift -> no staged row",
+          remote_state.staged_row("head1", "head1", False), None)
+    # Both staged at once: content wins, because the content leak is the one
+    # no other check in this file can see. Ordering it the other way would
+    # leave a staged blob reported under a mode-only label.
+    check("BOTH staged -> INDEX-STAGED, not MODE-STAGED",
+          remote_state.staged_row("idx1", "head1", True), "INDEX-STAGED")
+    # Nothing to compare against -- an untracked path, or a head with no blob.
+    check("no index entry -> no staged row",
+          remote_state.staged_row("", "head1", False), None)
+    check("no HEAD blob -> no staged row",
+          remote_state.staged_row("idx1", "", False), None)
+
+    # The negative control, and the four states the one label used to cover.
+    # The old code reached MATCH via `content is None and not staged_leak`,
+    # which is true for the staged-blob state because `choose_content_row`
+    # only ever looks at disk and HEAD. This is that expression, verbatim.
+    def old_reaches_match(index_sha, head_sha, disk_sha, staged_mode):
+        content = rs_choose(disk_sha, head_sha, head_sha)
+        return content is None and not staged_mode
+
+    def rs_choose(work, head, remote):
+        return remote_state.choose_content_row(work, head, remote)
+
+    check("control: old code said MATCH on a staged blob",
+          old_reaches_match("idx1", "head1", "head1", False), True)
+    check("  ...and MATCH, because it could not have said anything else",
+          remote_state.staged_row("idx1", "head1", False), "INDEX-STAGED")
+    check("  ...the two disagree, which is the defect",
+          old_reaches_match("idx1", "head1", "head1", False)
+          != (remote_state.staged_row("idx1", "head1", False) is None), True)
+
+    # The real thing: a real repo in the real three-rung state.
+    tmp5 = tempfile.mkdtemp(prefix="rs-indexblob-")
+    try:
+        subprocess.run(["git", "init", "-q", tmp5], check=True)
+        subprocess.run(["git", "-C", tmp5, "config", "user.email", "t@t"], check=True)
+        subprocess.run(["git", "-C", tmp5, "config", "user.name", "t"], check=True)
+        f = os.path.join(tmp5, "i.py")
+        with open(f, "w") as fh:
+            fh.write("v1\n")
+        subprocess.run(["git", "-C", tmp5, "add", "-A"], check=True)
+        subprocess.run(["git", "-C", tmp5, "commit", "-q", "-m", "one"], check=True)
+
+        saved = remote_state.LOCAL
+        remote_state.LOCAL = tmp5
+        head = subprocess.run(["git", "-C", tmp5, "rev-parse", "HEAD:i.py"],
+                               capture_output=True, text=True).stdout.strip()
+        remote_state.remote_blobs = lambda: {"i.py": (head, "100644")}
+
+        check("three rungs agree -> MATCH",
+              [r[1] for r in remote_state.file_check(["i.py"])], ["MATCH"])
+
+        # Stage v2, then put HEAD's bytes back on disk. Now:
+        #   HEAD == disk == remote, index holds v2, and the file LOOKS clean.
+        with open(f, "w") as fh:
+            fh.write("v2\n")
+        subprocess.run(["git", "-C", tmp5, "add", "i.py"], check=True)
+        with open(f, "w") as fh:
+            fh.write("v1\n")
+        idx = subprocess.run(["git", "-C", tmp5, "rev-parse", ":i.py"],
+                             capture_output=True, text=True).stdout.strip()
+        disk = subprocess.run(["git", "-C", tmp5, "hash-object", "i.py"],
+                              capture_output=True, text=True).stdout.strip()
+        check("the file on disk is back on HEAD, so it LOOKS clean",
+              disk, head)
+        check("  ...and the index is the odd one out", idx != head, True)
+
+        rows = remote_state.file_check(["i.py"])
+        check("staged blob -> INDEX-STAGED, never MATCH",
+              [r[1] for r in rows], ["INDEX-STAGED"])
+        # The row must name the blob the next commit records -- the one thing
+        # no diff in this file can see. Printing the disk's sha here would be
+        # the 63rd's bug again, one rung down.
+        check("  ...and the row CARRIES the index blob",
+              rows[0][7], idx)
+        check("  ...which is NOT the disk's sha", rows[0][7] != disk, True)
+        check("  ...nor HEAD's", rows[0][7] != head, True)
+        # MATCH is what a tick reads immediately before committing, so the
+        # label has to be the thing that stops it.
+        check("  ...and it is emphatically not MATCH",
+              [r[1] for r in rows if r[1] == "MATCH"], [])
+
+        # `--why` had the same hole. It compared committed trees, so it could
+        # not see this, and `index_drift()` returns [] because the MODES agree.
+        d, tr, mode_drift, staged, blob_drift = remote_state.why()
+        check("index_drift() is blind to it (modes agree)",
+              mode_drift, [])
+        check("  ...so nothing named it before this tick",
+              [x for x in d if x[0] == "i.py"], [])
+        check("staged_content_drift() names it",
+              blob_drift, [("i.py", head, idx)])
+
+        # The repair the row prints must actually clear the row. A suggested
+        # repair that does not work is worse than none.
+        subprocess.run(["git", "-C", tmp5, "restore", "--staged", "i.py"], check=True)
+        check("running the printed repair clears the row",
+              [r[1] for r in remote_state.file_check(["i.py"])], ["MATCH"])
+        check("  ...and clears --why too", remote_state.staged_content_drift(), [])
+
+        # 12. Lead 2 from the 63rd, now that the rung exists: ONE path across
+        #     the full sequence a tick actually performs. The three content
+        #     labels were individually tested and nothing had ever driven them
+        #     end to end, which is how the MATCH below survived.
+        print("")
+        print("--files: one path, the sequence a tick performs")
+        with open(f, "w") as fh:
+            fh.write("v2\n")
+        subprocess.run(["git", "-C", tmp5, "add", "i.py"], check=True)
+        subprocess.run(["git", "-C", tmp5, "commit", "-qm", "two"], check=True)
+        head2 = subprocess.run(["git", "-C", tmp5, "rev-parse", "HEAD:i.py"],
+                               capture_output=True, text=True).stdout.strip()
+        check("committed edit, remote still at v1 -> CONTENT-DIFFER",
+              [r[1] for r in remote_state.file_check(["i.py"])], ["CONTENT-DIFFER"])
+        remote_state.remote_blobs = lambda: {"i.py": (head2, "100644")}
+        check("remote caught up -> MATCH",
+              [r[1] for r in remote_state.file_check(["i.py"])], ["MATCH"])
+        with open(f, "w") as fh:
+            fh.write("edited-but-not-staged\n")
+        check("edit on disk -> EDITED",
+              [r[1] for r in remote_state.file_check(["i.py"])], ["EDITED"])
+        subprocess.run(["git", "-C", tmp5, "add", "i.py"], check=True)
+        with open(f, "w") as fh:
+            fh.write("v2\n")
+        check("stage the edit then rewrite disk to HEAD -> INDEX-STAGED",
+              [r[1] for r in remote_state.file_check(["i.py"])], ["INDEX-STAGED"])
+        subprocess.run(["git", "-C", tmp5, "restore", "--staged", "i.py"], check=True)
+        check("undo -> MATCH again",
+              [r[1] for r in remote_state.file_check(["i.py"])], ["MATCH"])
+
+        # Once the committed trees really do differ, the staged label is
+        # noise: CONTENT-DIFFER is the true row and the verdict already says
+        # DIVERGED, so a second warning beside it is noise about a divergence
+        # the reader can already see.
+        # Staging what is ALREADY on disk is not the invisible case, and
+        # INDEX-STAGED must not claim it: disk and index hold the same blob,
+        # so EDITED already says everything there is to say and its repair
+        # (add, commit, push) is the correct one. INDEX-STAGED is reserved
+        # for the rung nobody else can see. I wrote this case expecting
+        # INDEX-STAGED and the code was right to disagree.
+        with open(f, "w") as fh:
+            fh.write("v9\n")
+        subprocess.run(["git", "-C", tmp5, "add", "i.py"], check=True)
+        check("staged AND on disk -> EDITED, the visible rung keeps the row",
+              [r[1] for r in remote_state.file_check(["i.py"])], ["EDITED"])
+        subprocess.run(["git", "-C", tmp5, "commit", "-qm", "three"], check=True)
+        check("committed and remote stale -> CONTENT-DIFFER wins",
+              [r[1] for r in remote_state.file_check(["i.py"])], ["CONTENT-DIFFER"])
+        check("  ...with no staged row beside it",
+              [r[1] for r in remote_state.file_check(["i.py"])
+               if r[1] in ("INDEX-STAGED", "MODE-STAGED")], [])
+        remote_state.LOCAL = saved
+    finally:
+        shutil.rmtree(tmp5, ignore_errors=True)
+
     print("")
     if FAILED:
         print("%d FAILED: %s" % (len(FAILED), ", ".join(FAILED)))

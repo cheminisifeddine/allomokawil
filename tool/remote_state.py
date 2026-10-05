@@ -272,6 +272,63 @@ def mode_of(path, repo=None):
     return ""
 
 
+def index_blobs():
+    """Map path -> (blob sha, mode) for the INDEX -- what the NEXT commit records.
+
+    `git ls-files -s`, the same reader `mode_of()` uses, but for the whole tree
+    in one call. `mode_of` reads one path and hands back the mode; the content
+    half of the same index entry was never read by anything, which is the gap
+    the 64th tick closed.
+
+    The index is a rung between HEAD and the disk, and every reader in this
+    file has looked either above it or below it:
+
+        HEAD      the committed tree -- what `verdict()` hashes
+        index     what the NEXT commit will record
+        disk      the working file -- what `git hash-object` returns
+
+    The index was the one rung nobody read on the CONTENT axis. `mode_of`
+    covered its mode axis (MODE-STAGED, the 60th tick) and `explain_index`
+    covered it for `--why`, so a staged *blob* was invisible everywhere.
+    """
+    out = subprocess.run(["git", "-C", LOCAL, "ls-files", "-s"],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        return {}
+    rows = {}
+    for line in out.stdout.splitlines():
+        meta, _, path = line.partition("\t")
+        parts = meta.split()
+        # "<mode> <sha> <stage>\t<path>" -- stage must be 0; 1/2/3 are
+        # conflict entries and carry no blob you can commit as-is.
+        if len(parts) >= 3 and parts[2] == "0" and path:
+            rows[path] = (parts[1], parts[0])
+    return rows
+
+
+def staged_content_drift():
+    """Paths whose INDEX blob differs from the blob the last commit recorded.
+
+    The content-axis twin of `explain_index`. `--why` compared committed trees
+    and therefore could not see a staged blob, correctly -- it is not a tree
+    difference yet -- but it is exactly the thing that becomes one the moment
+    anyone runs `git commit`, and the whole cost of the 60th tick's mode leak
+    was finding it after the fact. Catching it while the file is still being
+    edited is the difference between a one-line fix and a bisect.
+
+    PURE: index blobs in, rows out. Kept separate from `index_drift()` rather
+    than folded into it so the two-tuple that six existing cases unpack stays
+    exactly as it is.
+    """
+    head = {p: s for p, (s, _m) in local_blobs().items()}
+    index = {p: s for p, (s, _m) in index_blobs().items()}
+    rows = []
+    for path in sorted(set(index) & set(head)):
+        if index[path] != head[path]:
+            rows.append((path, head[path], index[path]))
+    return rows
+
+
 def local_blobs():
     """Map path -> (blob sha, mode) for the committed local tree.
 
@@ -409,6 +466,37 @@ def choose_content_row(work_sha, head_sha, remote_sha):
     return None
 
 
+def staged_row(index_sha, head_sha, mode_staged):
+    """PURE: name a staged difference, or say there is not one.
+
+    Asked only when the committed trees already AGREE (HEAD == remote), so
+    every label here means the same thing: *not a divergence yet, and the next
+    commit will make it one*. That is what lets this pair sit under an IN SYNC
+    verdict without contradicting it -- the opposite failure from the 62nd's,
+    where a row read the index and printed MODE-DIFFER under a green verdict.
+
+    Content is checked before mode because a staged blob is the more invisible
+    of the two: no mode check, no blob check and no tree diff in this file can
+    see it, so a row that names only the mode while the blob is also staged is
+    the leak the 60th tick lost four days to, one axis over. When both are
+    staged the row is INDEX-STAGED and the printed repair covers both.
+
+    The three inputs, and what each is for:
+
+      index_sha  the blob the next commit records -- the one no diff can see
+      head_sha   the blob the last commit recorded -- the undo target
+      mode_staged  the 62nd's finding, kept as an input so this is the single
+                  place that decides the label
+    """
+    if not index_sha or not head_sha:
+        return None
+    if index_sha != head_sha:
+        return "INDEX-STAGED"
+    if mode_staged:
+        return "MODE-STAGED"
+    return None
+
+
 def file_check(paths):
     """Per-file check against the COMMITTED tree, with the staged leak named.
 
@@ -442,6 +530,10 @@ def file_check(paths):
     # reading the pair together instead of mixing a worktree sha with a
     # separately-fetched mode.
     head = local_blobs()
+    # The index, in one pass, for the blob as well as the mode. `mode_of`
+    # shelled out per path for the mode half only, and the blob half had no
+    # reader at all -- which is how a staged blob reached MATCH.
+    index = index_blobs()
     rows = []
     for p in paths:
         out = subprocess.run(["git", "hash-object", p], capture_output=True,
@@ -451,27 +543,35 @@ def file_check(paths):
         r_sha, r_mode = want if want else ("-", "-")
         h = head.get(p)
         h_sha, l_mode = h if h else ("", head_mode(p))
-        i_mode = mode_of(p)
+        ent = index.get(p)
+        i_sha, i_mode = ent if ent else ("", "")
         staged_leak = bool(i_mode and l_mode and i_mode != l_mode)
         content = choose_content_row(work, h_sha, r_sha)
+        # Only meaningful while the committed trees agree. Once HEAD and the
+        # remote differ, CONTENT-DIFFER is the true and sufficient row and a
+        # staged label beside it would be noise about a divergence already
+        # visible in the verdict.
+        staged = staged_row(i_sha, h_sha, staged_leak) if not content else None
         if not work:
-            rows.append((p, "UNTRACKED", "-", r_sha, "-", r_mode, i_mode))
+            rows.append((p, "UNTRACKED", "-", r_sha, "-", r_mode, i_mode, i_sha))
         elif want is None:
-            rows.append((p, "ABSENT-REMOTE", work, "-", l_mode, "-", i_mode))
+            rows.append((p, "ABSENT-REMOTE", work, "-", l_mode, "-", i_mode,
+                         i_sha))
         elif content:
-            rows.append((p, content, work, r_sha, l_mode, r_mode, i_mode))
-        elif staged_leak:
+            rows.append((p, content, work, r_sha, l_mode, r_mode, i_mode, i_sha))
+        elif staged:
             # Committed trees agree. The index does not, so the NEXT commit
             # diverges. Named here rather than silently folded into MATCH,
             # because MATCH is what a tick reads before it commits.
-            rows.append((p, "MODE-STAGED", work, r_sha, l_mode, r_mode, i_mode))
+            rows.append((p, staged, work, r_sha, l_mode, r_mode, i_mode, i_sha))
         elif l_mode and r_mode and l_mode != r_mode:
             # Same bytes, different mode, in the trees themselves. This is
             # the real thing: `git update-index --chmod=-x`, then commit,
             # then push.
-            rows.append((p, "MODE-DIFFER", work, r_sha, l_mode, r_mode, i_mode))
+            rows.append((p, "MODE-DIFFER", work, r_sha, l_mode, r_mode, i_mode,
+                         i_sha))
         else:
-            rows.append((p, "MATCH", work, r_sha, l_mode, r_mode, i_mode))
+            rows.append((p, "MATCH", work, r_sha, l_mode, r_mode, i_mode, i_sha))
     return rows
 
 
@@ -481,7 +581,8 @@ def why():
     remote = remote_blobs()
     truncated = remote_truncated()
     drift, staged = index_drift()
-    return explain(local, remote), truncated, drift, staged
+    return (explain(local, remote), truncated, drift, staged,
+            staged_content_drift())
 
 
 def main():
@@ -500,8 +601,9 @@ def main():
         truncated = False
         drift = []
         staged = False
+        blob_drift = []
         if as_why:
-            diffs, truncated, drift, staged = why()
+            diffs, truncated, drift, staged, blob_drift = why()
     except urllib.error.URLError as exc:
         print("UNREACHABLE: %s" % exc, file=sys.stderr)
         return 2
@@ -515,6 +617,9 @@ def main():
                                   for p, k, d in diffs],
                           "index_mode_drift": [{"path": p, "head": h,
                                                 "index": i} for p, h, i in drift],
+                          "index_content_drift": [{"path": p, "head": h,
+                                                   "index": i}
+                                                  for p, h, i in blob_drift],
                           "remote_truncated": truncated}, indent=2))
         return 0 if info["in_sync"] else 1
 
@@ -587,10 +692,28 @@ def main():
                 # permanent. A suggested repair must be runnable.
                 print("  git update-index --chmod=%s %s"
                       % ("+x" if h == "100755" else "-x", p))
-        elif staged:
+        else:
             print("")
-            print("Staged changes carry no mode drift: the next commit cannot")
-            print("introduce a difference the blob check cannot see.")
+            print("No staged MODE leak: the next commit cannot introduce a")
+            print("mode difference the blob check cannot see.")
+            if not blob_drift:
+                print("No staged BLOB drift either -- index and HEAD record the")
+                print("same content for every tracked path.")
+        if blob_drift:
+            print("")
+            print("STAGED BLOB DRIFT (staged only; NOT committed, NOT on the remote):")
+            for p, h, i in blob_drift:
+                print("  %-6s %s" % ("blob", p))
+                print("         HEAD  %s" % h)
+                print("         index %s  <- the blob the NEXT commit records" % i)
+            print("Every committed-tree check above is blind to this: no blob")
+            print("comparison and no mode comparison can see it, and it becomes")
+            print("a real divergence the moment anyone runs `git commit`.")
+            print("Undo it BEFORE committing:")
+            for p, h, i in blob_drift:
+                print("  git restore --staged %s" % p)
+            print("Or keep it -- if this content is the work you meant to make,")
+            print("just commit it. The row is only wrong when it is a surprise.")
 
     if rows:
         print("")
@@ -632,6 +755,21 @@ def main():
                 print("             git update-index --chmod=%s %s"
                       % ("+x" if row[5] == "100755" else "-x", p))
                 print("             then commit and push -- the trees differ")
+            elif verdict == "INDEX-STAGED":
+                # The 64th's row. `MATCH` here would be the worst possible
+                # answer: it is what a tick reads immediately before it runs
+                # `git commit`, and MATCH says "this is fine" about a blob
+                # that the commit is about to record over HEAD.
+                print("             COMMITTED trees AGREE; the INDEX does not")
+                print("             HEAD   %s" % (head_sha or "?"))
+                print("             index  %s  <- what the next commit records"
+                      % (row[7] if len(row) > 7 and row[7] else "?"))
+                print("             the file on DISK can agree with HEAD while the")
+                print("             index holds a third blob -- which is why this is")
+                print("             invisible to a reader that only looks at the file")
+                print("             git restore --staged %s   (if this was a surprise)" % p)
+                print("             or commit it, if this content is the work")
+                print("             this is NOT a divergence; the verdict above is right")
             elif verdict == "MODE-STAGED":
                 print("             trees AGREE (HEAD %s); index says %s"
                       % (row[4], row[6]))

@@ -21969,3 +21969,168 @@ tick, both measured rather than estimated:
    as the framing has implied: a 30m period would run the full gate with no
    scheduling gymnastics at all, on a box that is otherwise idle for 20
    minutes.
+
+---
+
+## Tick 5 Oct 2026 (64th) — INDEX-STAGED: a blob no check could see, hiding behind MATCH
+
+- [x] **`--files` printed `MATCH` while the INDEX held a blob in no commit.**
+      The unread rung. `tool/remote_state.py`, `test/remote_state_test.py`.
+      Commit `1ebb569`.
+
+### The four rungs, and the one nobody read
+
+The ladder has four objects:
+
+```
+HEAD    the committed tree -- what verdict() hashes
+index   what the NEXT commit will record
+disk    the working file -- what `git hash-object` returns
+```
+
+The code had read three. `mode_of` covered the index's **mode** half
+(`MODE-STAGED`, the 60th tick's leak) and `explain_index` covered it for
+`--why`. **Nothing read the index's blob half.** So `choose_content_row` --
+which takes `(work_sha, head_sha, remote_sha)` -- cannot even see it.
+
+### It was worse than the lead recorded
+
+The 63rd wrote that this state prints `EDITED`. **It prints `MATCH`.**
+Measured on a real repo first (`/tmp/rung2`), before changing anything:
+
+```
+HEAD   626799f0  index  cc406030  disk  626799f0   (disk == HEAD)
+row:   ('f.py', 'MATCH', ...)
+```
+
+`EDITED` needs `work != head`. The whole point of this state is that the file
+on disk was written **back** to HEAD's bytes -- so the comparison that
+produces `EDITED` is false and the row falls through to `MATCH`.
+
+That makes it the worst cell in the table. `MATCH` is what a tick reads in the
+second before it runs `git commit`, and the commit is about to record
+`cc406030` over HEAD, silently reverting a file. The label that is supposed to
+say "fine" is attached to the one state where committing is the harmful act.
+
+### The fix
+
+* `index_blobs()` -- `git ls-files -s` for the whole tree in one pass, the
+  same reader `mode_of` uses but for the blob as well as the mode. One call
+  per `file_check`, not one per path.
+* `staged_row(index_sha, head_sha, mode_staged)` -- **PURE**, the single place
+  that picks the label. Content before mode, because a staged blob is the one
+  no other check in this file can see; a mode-only label beside a staged blob
+  is the 60th's leak one axis over.
+* `staged_content_drift()` -- the content-axis twin of `explain_index`, kept
+  separate so the two-tuple six existing cases unpack is untouched.
+* Rows grew an 8th field: the index blob. `INDEX-STAGED` prints **that**, not
+  the disk's -- printing the disk's sha would be the 63rd's bug one rung down.
+* `--why` prints a `STAGED BLOB DRIFT` block; `--json` gains
+  `index_content_drift`.
+
+Two honesty rules, both load-bearing:
+
+1. **The staged label is suppressed once `choose_content_row` fires.**
+   When the committed trees really do differ, `CONTENT-DIFFER` is the true row
+   and the verdict already says DIVERGED. A second warning beside a divergence
+   the reader can already see is noise. This is the mirror of the 62nd's
+   defect, where a row read the index and printed MODE-DIFFER under a green
+   verdict -- there the row had to move DOWN to HEAD; here it stays up.
+2. **Staging what is already on disk keeps `EDITED`.** Disk and index hold the
+   same blob, `EDITED` already says everything there is, and its repair
+   (add, commit, push) is the correct one. `INDEX-STAGED` is reserved for the
+   rung nobody else can see. I wrote that case expecting `INDEX-STAGED` and
+   **the code was right to disagree** -- see the reds.
+
+### The repair runs
+
+The 62nd's lesson was that a suggested repair must be runnable, so this one
+was executed, not just printed:
+
+```
+$ git restore --staged f.py
+LABEL: ['MATCH']     staged_content_drift(): []
+```
+
+`--why` prints `git restore --staged <path>`, **and** says the honest thing
+alongside it -- *if this content is the work you meant to make, just commit
+it*. The row is only wrong when it is a surprise, and the tool cannot know
+which it is.
+
+### Lead 2 from the 63rd, closed in the same tick
+
+*One path across the sequence a tick actually performs*, which the 63rd
+correctly identified as untested and which is why MATCH survived:
+
+```
+commit edit, remote stale   -> CONTENT-DIFFER
+remote catches up           -> MATCH
+edit on disk                -> EDITED
+stage it, disk back to HEAD -> INDEX-STAGED
+git restore --staged        -> MATCH
+commit while remote stale  -> CONTENT-DIFFER wins, no staged row beside it
+```
+
+### Three reds, all mine, harness not code (6th tick running)
+
+The mode for six consecutive ticks, and it is worth naming why: **every one of
+these was an assertion I wrote from a picture of the code rather than from a
+repo.** The 63rd shipped a lead that a 20-line probe refuted the same tick.
+
+1. Asserted `len({head, idx, disk}) == 3`. It is **2** -- by construction:
+   this state's defining property is `disk == head`. My assertion contradicted
+   the very thing being tested.
+2. `git commit -qam` with nothing staged exits 1, so case 12 died on a
+   traceback before asserting anything. The commit needed a real edit first,
+   which is the point of a tick.
+3. Expected `INDEX-STAGED` for a file staged *and* still on disk. `EDITED` is
+   correct -- the blob is visible on the top rung, nothing is hidden, and
+   `INDEX-STAGED` would have claimed to name something it cannot.
+
+### Evidence
+
+* `flutter analyze` -> **No issues found!** (11.2s)
+* **FULL SUITE RAN — 1990 tests, 11/11 shards green, 30:13.** Second
+  consecutive clean full gate; see lead 1, because the elapsed time moved.
+* `python3 test/remote_state_test.py` -> **86/86**, was 56.
+* **Proved on a real repo before and after.** The same `/tmp/rung2` state read
+  `MATCH` before the change and `INDEX-STAGED` after; `row[7] == cc406030`,
+  the index blob, which is neither the disk's nor HEAD's.
+* **Negative control in the harness.** The old fall-through, re-implemented as
+  `content is None and not staged_leak`, returns `True` on this input -- it
+  *had* to, there was nothing else it could return. The two disagree, which is
+  the defect.
+* `index_drift()` returns `[]` on this state (the modes agree) and no path in
+  `--why` named it: **nothing anywhere named that blob before this tick.**
+
+### Leads for the next tick
+
+1. **The schedule decision. TENTH unanswered tick, and still the only thing
+   blocked on the founder.** (a) 30m period for full-gate ticks, or (b) 10m
+   with analyzer + touched shards, one full suite a day.
+   **The 30m option is now WRONG, on the second measurement.** The 63rd
+   recorded the gate at **20:46**; this tick ran it at **30:13** -- same
+   eleven shards, same 1990 tests, all green. So it is not 20 minutes, it is
+   20 to 30, and (a) as framed on the 63rd would have overrun. Corrected
+   shape of the choice, now that it is measured rather than estimated:
+
+   | option | fits? |
+   | --- | --- |
+   | (a) 30m full gate | **marginal.** 20:46 fitted, 30:13 did not. It is a coin flip on box load. |
+   | (b) 10m, analyzer + touched shards, full suite daily | fits with margin, and the full gate still runs every day. |
+   | (c) 45m full gate | fits both measurements with ~15m spare. |
+
+   (b) is the recommendation and (c) is the honest alternative. A tick that
+   overruns its period is the same failure as one that ships nothing: the next
+   tick starts on top of an unfinished one.
+2. **`why()` grew a third return value and every caller unpacks it.** It is
+   inside a `try` whose `except SystemExit` turns a bad unpack into a bare
+   "unreachable" -- a wrong tuple count is now indistinguishable from a dead
+   network. Cheap to harden: name the tuple or use a dict.
+3. **The ladder is now read at all four rungs -- on the content axis.** The
+   mode axis still has one gap: `choose_content_row` can say `MODE-DIFFER` from
+   `l_mode != r_mode`, but nothing reads the **index** mode when the content
+   row fires, so a staged mode hide behind a real content divergence goes
+   unmentioned. Deliberate for now (rule 1 above) but it is a choice, not an
+   oversight, and a next tick should either test that the choice is right or
+   close the gap.
