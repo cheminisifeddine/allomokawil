@@ -357,6 +357,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
             controller: _search,
             hint: 'ابحث في مشاريعك: العنوان، الحي، التخصص...',
             onChanged: (v) => setState(() => _query = v),
+            // The same inset the list below uses, passed rather than repeated
+            // — one number, so the search box and the cards cannot drift apart.
+            horizontalInset: AppTheme.s16,
           ),
           const SizedBox(height: 4),
           Expanded(
@@ -413,7 +416,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     }
                     return ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+                      padding: const EdgeInsets.fromLTRB(AppTheme.s16,
+                          AppTheme.s20, AppTheme.s16, AppTheme.s28),
                       children: [
                         EmptyView(
                           icon: Icons.wifi_off_rounded,
@@ -444,7 +448,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                   final stale = failed && _staleReason != null;
                   return ListView.separated(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
+                    padding: const EdgeInsets.fromLTRB(
+                        AppTheme.s16, AppTheme.s8, AppTheme.s16, AppTheme.s28),
                     // +1 for the band. `estimatedChildCount` is the estimate
                     // the scroll view is allowed to use, NOT the item count,
                     // so the band is asserted on in the tests as a descendant
@@ -487,7 +492,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       height: 56,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 18),
+        padding: const EdgeInsets.symmetric(horizontal: AppTheme.s16),
         itemCount: _tabs.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
@@ -509,7 +514,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   Widget _noMatchList() {
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+      padding: const EdgeInsets.fromLTRB(
+          AppTheme.s16, AppTheme.s12, AppTheme.s16, AppTheme.s28),
       children: [
         EmptyView(
           icon: Icons.search_off_rounded,
@@ -535,7 +541,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         isCustomer || widget.onDiscover == null ? null : widget.onDiscover;
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+      padding: const EdgeInsets.fromLTRB(
+          AppTheme.s16, AppTheme.s12, AppTheme.s16, AppTheme.s28),
       children: [
         EmptyView(
           icon: Icons.folder_off_outlined,
@@ -671,7 +678,8 @@ class _ProjectsSkeleton extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
+      padding: const EdgeInsets.fromLTRB(
+          AppTheme.s16, AppTheme.s8, AppTheme.s16, AppTheme.s28),
       itemCount: count,
       itemBuilder: (_, __) => Container(
         margin: const EdgeInsets.only(bottom: 12),

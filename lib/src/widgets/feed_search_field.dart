@@ -22,17 +22,29 @@ class FeedSearchField extends StatelessWidget {
   /// same string the box displays.
   final ValueChanged<String> onChanged;
 
+  /// The horizontal inset, which the caller owns.
+  ///
+  /// The field used to hardcode `18` and the feed under it hardcoded its own,
+  /// so the two could not be kept aligned by construction — they only matched
+  /// because two writers happened to type the same number. `worker_home` is
+  /// still on 18 and has not been swept; `projects_screen` has moved to
+  /// `AppTheme.s16`. Passing the number the list uses makes the shared left
+  /// edge a decision of the screen instead of a coincidence, and a screen that
+  /// moves its list without moving this steps in and out under the customer.
+  final double horizontalInset;
+
   const FeedSearchField({
     super.key,
     required this.controller,
     required this.hint,
     required this.onChanged,
+    this.horizontalInset = 18,
   });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 6, 18, 2),
+      padding: EdgeInsets.fromLTRB(horizontalInset, 6, horizontalInset, 2),
       // Rebuilds only this subtree when the text changes, so the clear button
       // appears/disappears without repainting the list behind it.
       child: ValueListenableBuilder<TextEditingValue>(
