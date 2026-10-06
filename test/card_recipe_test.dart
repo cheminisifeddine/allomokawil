@@ -78,7 +78,18 @@ import 'package:allomokawil/src/widgets/ui.dart';
 // numbers it could not express through R4 all live in
 // `test/account_column_test.dart` - see that file for why a count of 68 -> 60
 // understates what was wrong here.
-const int _offGridBudget = 60;
+// Lowered 60 -> 51 on 6 Oct: the tenth slice, and the first one whose defect
+// R4 could not see AT ALL - the trade strip that filters the browse list sat
+// 4 dp outside that list, on a `14` living in `trade_filter_bar.dart` while
+// the list read `18` in `browse_screen.dart`. A ratchet counts literals per
+// file; it cannot compare two numbers in two files, and both went green the
+// moment they became identifiers. So this slice's real work is
+// `test/browse_column_test.dart`, and the count is the least interesting part
+// again - but it fell to 51, not to the 53 the slice was planned for, because
+// the pill's own `symmetric(horizontal: 14, vertical: 12)` stayed: that is the
+// inside of a chip, a proportion rather than a column edge, and moving it
+// would resize all sixteen trade pills to satisfy a counter.
+const int _offGridBudget = 51;
 
 List<File> _sources() {
   final dir = Directory('lib');

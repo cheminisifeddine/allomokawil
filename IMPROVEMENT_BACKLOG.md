@@ -23774,7 +23774,10 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 60 on 6 Oct;
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 51 on 6 Oct;
+      **slices 1-10 shipped** (10th = `browse_screen` + `trade_filter_bar`,
+      local `5fd8eb7` -> remote `d3c9403`, 60 -> 51, `browse_screen` 7 -> 0);
+      **51 remain across 19 files.** 197 -> 60 on 6 Oct;
       60 remain across **20 files** (the "19 files" in earlier notes was wrong:
       three files of 1-2 arrived with the `ui.dart` slice and were never
       counted). Do not read the slice below as the sweep being finished.**
@@ -23873,6 +23876,99 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
          the strip's gutter **equals** the list's, which is the assertion R4
          cannot make: it counts literals, it cannot compare two numbers in two
          files.
+
+      **SHIPPED 6 Oct — the tenth slice, and the one the gate finally let
+      through.** `browse_screen.dart` went **7 -> 0** and `trade_filter_bar.dart`
+      **3 -> 1**, so R4 is **51, not the 53 this note predicted.** The two
+      missing are real and worth naming: the pill's own
+      `symmetric(horizontal: 14, vertical: 12)` at `trade_filter_bar.dart:271`
+      stayed, and it is the one site in the slice that is **proportion, not a
+      column edge** — it sizes the inside of a chip. Moving it would resize all
+      sixteen trade pills to satisfy a counter, which is the "chip padding"
+      category the `ui.dart` slice already wrote down as being wrongly counted.
+      The audit predicted 7 + 3 and should have predicted 7 + 2.
+
+      **The defect is confirmed by the committed golden, measured before the
+      edit and after it**, and both numbers were read off the image rather than
+      inferred from the code (`tool/png_read.py`; golden is 392x850 at DPR 1.0,
+      the `/tmp/shots` render is DPR 3 and was compared at 3x downscale):
+
+      | band | before | after |
+      |---|---|---|
+      | cards / search field | x18..x373 | x18..x373 |
+      | **the trade strip** | **x0..x377** | **x0..x373** |
+
+      In this RTL app the start edge is the **right** edge, so the strip was
+      **4 dp outside** the list it filters on the side the Arabic reads from.
+      One correction to the audit above, because it is the kind that would have
+      been copied: **ink at x=0 in that band is NOT the defect.** It is present
+      in the fixed render too, because a horizontal `SingleChildScrollView`
+      shows partial pills at the far end. The defect was the right-hand extent
+      (377 vs 373), not the left-hand bleed — "clipped at x=0" was a true
+      observation attached to the wrong edge.
+
+      **Guard: `test/browse_column_test.dart`, 4 tests**, and it asserts the
+      one thing R4 cannot: that the strip's gutter **equals** the list's. R4
+      counts literals in one file; this compares a number in
+      `trade_filter_bar.dart` against a number in `browse_screen.dart`. Both
+      files went green the moment their literals became identifiers — which is
+      exactly why the ratchet never saw the disagreement.
+
+      *Red before green, three times, and all three were my measurement, not
+      the fix.* The first draft compared the **strip's rect** (392.0 — a
+      horizontal scroll viewport is full-width by construction, so it answers
+      392 for the broken build and the fixed one alike) against the list's rows
+      (374.0). The second draft then compared an **absolute x** (374) against an
+      **inset** (18) — two different kinds of quantity, failing at `374 vs 18` on
+      a build that was already correct. The third failed on `ListView.padding`
+      being null, the trap `account_column_test.dart` documents. Every one of
+      these is the `place_seed_test` lesson again: **a guard that measures the
+      wrong quantity passes for the wrong reason.** The fix each time was to
+      measure the *inset*, never the rect.
+
+      *Proven non-vacuous:* reverting only `trade_filter_bar.dart` to
+      `fromLTRB(14, 4, 14, 4)` reds two of the four with
+      `Actual: <14.0> / Which: 14.0 is not in the range of 18.0 (±0.01)`.
+
+      *Gate:* `flutter analyze` -> **No issues found!** Full suite via
+      `tool/run_tests.py` -> **2149 tests, 12/12 shards green** (the previous
+      recorded run was 1998). **Shard 8 answered in 1:01**, so the 6 Oct
+      "deadline did not fire" hang did not recur. Mid-cycle the suite went red
+      on `app_source_scope_test` — and that red was **mine**: the new file was
+      untracked, which is the one thing that guard exists to catch ("a guard
+      written but not added is a rule nobody is enforcing"). `git add` turned it
+      green at **+16**. Worth writing down that the backlog lists this file as
+      *pre-existing red* on three separate slices; it was green every one of
+      those times, and the honest reading is that it flags **untracked test
+      files**, which is a per-tick mistake, not a standing defect.
+
+      *Golden re-baselined and measured, not waved through:* exactly **1 of 9**
+      changed (`10_browse.png`), the other 8 byte-stable — the strongest
+      statement available that the change is local to the browse screen.
+      **14 883 differing pixels of 333 200 = 4.467%**, bbox
+      `(0, 68, 377, 346)`, in 7 contiguous row-bands. The change is larger than
+      4 dp because the list's **top inset also moved** (`pagePad`'s 8 replaces
+      the old 10), so content below it shifted 2 dp up — which is the audit's
+      own prediction, now measured.
+
+      **`tool/tap_target_audit.py`: 8 STALE, and NOT caused by this slice.**
+      Moving a comment through `browse_screen.dart` staled the pinned anchor at
+      `:317` — but `browse_screen.dart` contains **no `InkWell(` at all**, at
+      HEAD or after the edit, so that entry was already rotted. Verified by
+      stashing the whole change and re-running the audit at clean HEAD:
+      **the same 8 STALE, same exit 1.** They are pre-existing and belong to
+      their own tick; the lesson from the `auth` slice applies again — the
+      audit tells you an anchor rotted, not necessarily that you rotted it.
+
+      **Commit:** local `5fd8eb7` -> remote **`d3c9403`**, `remote_state.py`
+      reports **IN SYNC: identical tree**.
+
+      **Next slice: `auth_screen.dart` (8), `ui.dart` (7), `profile_edit_screen.dart` (5).**
+      `auth_screen.dart` is a screen and takes the column question, but its
+      remaining 8 are already reasoned about in the `auth` slice above — the
+      vertical `18` is tap-floor arithmetic and stays. `ui.dart` is the shared
+      kit, so it wants the **"which caller's column breaks?"** question instead,
+      and `profile_edit_screen.dart` is the smallest of the three.
 
       **Honest limits.** No screenshot of the fixed screen exists — I could not
       render, so I am not claiming it looks right. Every pixel number above is
