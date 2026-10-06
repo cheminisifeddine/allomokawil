@@ -74,7 +74,11 @@ import 'package:allomokawil/src/widgets/ui.dart';
 // `test/worker_profile_column_test.dart` guards the column, and its load-bearing
 // assertion compares the loading frame against the loaded body **in the same
 // test**, because two hand-typed constants drift apart silently.
-const int _offGridBudget = 68;
+// The ninth slice took it to 60 (`profile_screen`, 8 sites) and the three
+// numbers it could not express through R4 all live in
+// `test/account_column_test.dart` - see that file for why a count of 68 -> 60
+// understates what was wrong here.
+const int _offGridBudget = 60;
 
 List<File> _sources() {
   final dir = Directory('lib');

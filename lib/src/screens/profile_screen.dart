@@ -57,7 +57,21 @@ class ProfileScreen extends StatelessWidget {
         title: Text('حسابي', style: AppTheme.bar),
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
+        // The page column, by its own name. `AppTheme.pagePad` is the token
+        // `project_detail_screen.dart` and `skeletons.dart` have been calling
+        // for weeks, and these two lines disagreed with it on the TOP edge
+        // only - left, right and bottom were already byte-identical, which is
+        // exactly why nothing ever flagged them.
+        //
+        // The pairing is the whole reason this is one edit and not one line.
+        // `ProfileScreen` and `_GuestAccountScreen` are **the same screen in
+        // two states** - the signed-out visitor's account tab and the signed-in
+        // contractor's - behind the *same* AppBar («حسابي», `AppTheme.bar`),
+        // and they were both sitting at 14 while every other tab in the shell
+        // sits at 8. Sweeping one and not the other makes the account tab's
+        // first card JUMP 6 dp the moment a man signs in. The man who has
+        // signed in has seen that jump. See `test/account_column_test.dart`.
+        padding: AppTheme.pagePad,
         children: [
           // ── Identity ───────────────────────────────────────────────────
           _ProfileHeader(name: u.fullName, role: u.type),
@@ -418,7 +432,12 @@ class _GuestAccountScreen extends StatelessWidget {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
+            // The other half of the pairing above, and the reason it is
+            // `pagePad` rather than a fourth hand-typed column: this is the
+            // same screen with `auth.user == null`, and the only edge that may
+            // differ is the bottom - the sign-in wall below is full-bleed, so
+            // there is nothing below it to pad away from.
+            padding: AppTheme.pagePad.copyWith(bottom: 0),
             child: AppCard(
               padding: AppTheme.cardPad,
               child: Row(
@@ -542,11 +561,17 @@ class _SettingsRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      // The row sits inside an `AppCard(padding: EdgeInsets.zero)` - ten of them
+      // on this screen - so this inset IS the card's inset, and it was 2 dp
+      // tighter than every other card in the app. R4 cannot see that: it reads
+      // three numbers here, all in one column, all agreeing with each other,
+      // which is precisely why the disagreement went unnoticed.
+      padding: const EdgeInsets.symmetric(
+          horizontal: _rowPad, vertical: AppTheme.s12),
       child: Row(
         children: [
-          IconBubble(icon: icon, tint: tint, wash: wash, size: 44),
-          const SizedBox(width: 12),
+          IconBubble(icon: icon, tint: tint, wash: wash, size: _bubble),
+          const SizedBox(width: _gap),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -576,6 +601,28 @@ class _SettingsRow extends StatelessWidget {
   }
 }
 
+/// The inset [_SettingsRow] gives its own content, and the two numbers the
+/// hairline between rows has to line up under.
+///
+/// **These three are one number.** [Divider.indent] is measured from the card's
+/// edge, and what it is actually lining up under is the *text* column - so it
+/// is `pad + bubble + gap`, not a preference. It used to be the transcribed
+/// literal `70`, which is `14 + 44 + 12`, written out and never mentioned again.
+/// That is the exact seam R4 could not see: move the row pad onto the ladder
+/// (which is this item) and `70` is 2 dp short of the text, and the one line on
+/// this card that a finger reads as structure starts pointing between the
+/// glyphs instead of at them.
+///
+/// `_bubble` and `_gap` are named for the same reason `gutter` is named: they
+/// are the two numbers on this row that another widget has to know.
+const double _rowPad = AppTheme.s16;
+const double _bubble = 44;
+const double _gap = 12;
+
+/// Where the hairline between two settings rows starts. Derived, so it cannot
+/// drift away from the row it is cutting.
+const double _rowDividerIndent = _rowPad + _bubble + _gap;
+
 /// Right-pointing chevron for a row that opens another screen.
 class _Chevron extends StatelessWidget {
   const _Chevron();
@@ -593,7 +640,8 @@ class _RowDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Divider(height: 1, indent: 70, color: AppTheme.lineSoft);
+    return const Divider(
+        height: 1, indent: _rowDividerIndent, color: AppTheme.lineSoft);
   }
 }
 
