@@ -30,7 +30,20 @@ import 'package:allomokawil/src/widgets/ui.dart';
 // agreed with the five that did not. R4 cannot tell agreement from
 // disagreement, so this slice's real work is the geometry guard, not the count:
 // `test/customer_home_column_test.dart`.
-const int _offGridBudget = 85;
+// Lowered 85 -> 81 on 6 Oct: `ui.dart` went 11 -> 9, and — for the first time
+// in this sweep — the file with the **most** literals is not a screen at all.
+// It is the shared widget kit, so the sweep's standing question ("is it one
+// column or several?") does not apply: a widget with 25 callers has no column
+// of its own. The question that *does* apply is which caller's column would
+// break if one inset moved, and the answer was that all 25 inherited a 2 dp
+// optical guess typed in `SectionTitle` since the design overhaul. The other
+// two sites are renames to `gutter` — zero pixels by construction.
+// What is left is mostly proportional: chip and pill padding, and the vertical
+// `10` on `SectionTitle` that is the arithmetic keeping a 56 dp tap target
+// inside its band (`tap_target_test.dart` measures that floor). Those are named
+// proportions, not column edges, and this ratchet is counting them.
+// `test/section_title_edge_test.dart` guards the horizontal.
+const int _offGridBudget = 81;
 
 List<File> _sources() {
   final dir = Directory('lib');

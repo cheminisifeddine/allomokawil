@@ -112,7 +112,26 @@ class SectionTitle extends StatelessWidget {
     return Padding(
       // The action is 56 dp tall now, so the band only grows 11 dp instead of
       // 25: 10 + 56 + 4 = 70 against 18 + 30.9 + 10 = 58.9 before.
-      padding: const EdgeInsets.fromLTRB(2, 10, 2, 4),
+      //
+      // **The horizontal `2` was an optical guess from the design overhaul and
+      // it never had a caller that asked for it.** It has 25 call sites across
+      // eight screens, and every one of them already owns the left edge: four
+      // wrap this widget in their own `Padding(horizontal: 16)` / `gutter`, and
+      // the other 21 sit inside a list that carries `pagePad` or `s16`. So the
+      // heading sat 2 dp inside the band that introduces it on **all 25**, and
+      // the three customer-home titles — the only ones measured, because
+      // `customer_home_column_test.dart` reads the *band* rather than the text —
+      // were the only three anybody had ever looked at.
+      //
+      // It is now `0`, and that is the whole slice: the heading joins the edge
+      // it introduces. **The vertical is untouched on purpose** — `10` is
+      // off-grid but it is not decoration, it is the arithmetic that keeps a
+      // 56 dp tap target inside a 70 dp band (`10 + 56 + 4`), settled and
+      // measured by the a11y tick. Re-griddding it in a slice about the
+      // horizontal would move every heading on eight screens to settle a
+      // question that is not this tick's, so the two remaining literals are
+      // left counted and recorded rather than swept.
+      padding: const EdgeInsets.fromLTRB(0, 10, 0, 4),
       child: Row(
         children: [
           if (icon != null) ...[
@@ -714,7 +733,18 @@ class StickyCta extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
+      // `18` here is `AppTheme.gutter` and always was — this is a **rename,
+      // zero pixels**, not a move. It is worth recording *why* it is not a
+      // column question like `SectionTitle`'s: a sticky bar owns the full
+      // screen width and has no caller edge to join, so its inset is the page
+      // gutter by definition rather than by inheritance. And all four callers
+      // already sit on 18 — `project_detail` via `AppTheme.pagePad`,
+      // `project_new` via `AppTheme.gutter`, `profile_edit` and
+      // `worker_profile` through `fromLTRB(18, …)` — which is why a 2 dp
+      // change here would have shown up as the button moving relative to the
+      // button above it. Naming it stops the fifth writer from retyping it.
+      padding: const EdgeInsets.fromLTRB(
+          AppTheme.gutter, AppTheme.s12, AppTheme.gutter, AppTheme.s12),
       decoration: const BoxDecoration(
         color: AppTheme.surface,
         border: Border(top: BorderSide(color: AppTheme.line)),

@@ -812,7 +812,16 @@ class _ExploreView extends StatelessWidget {
           // ── Categories ───────────────────────────────────────────────────
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              // `AppTheme.gutter`, and it was a literal `16` until now. That
+              // looked harmless and was not: `SectionTitle` padded itself 2 dp,
+              // so `16 + 2` landed the heading on 18 and this column agreed —
+              // **by arithmetic nobody wrote down**. The three wrappers here
+              // were the only places in the app where the shared widget's
+              // optical guess was doing real work, and they all disagreed with
+              // the 21 call sites that got no compensation and were 2 dp out
+              // against their own list. Now the wrapper owns the edge and the
+              // widget adds none.
+              padding: const EdgeInsets.symmetric(horizontal: AppTheme.gutter),
               child: SectionTitle(
                 'التخصصات',
                 icon: Icons.grid_view_rounded,
@@ -826,7 +835,7 @@ class _ExploreView extends StatelessWidget {
           // ── Top-rated contractors ────────────────────────────────────────
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: AppTheme.gutter),
               child: SectionTitle(
                 'أفضل المقاولين',
                 icon: Icons.workspace_premium_rounded,
@@ -952,7 +961,7 @@ class _ExploreView extends StatelessWidget {
           // ── The client's own recent projects ─────────────────────────────
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: AppTheme.gutter),
               child: SectionTitle(
                 'مشاريعي الأخيرة',
                 icon: Icons.folder_outlined,
