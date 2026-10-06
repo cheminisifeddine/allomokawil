@@ -23708,3 +23708,15 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       than a stale assertion: real content is being clipped on a shipping
       screen. Needs a shot to see which line is over, so it wants a render, not
       a guess.
+
+      **Commit:** local `5ae228e` -> remote **`7417683`**, all 7 blobs verified
+      **MATCH** and `remote_state.py` reports **IN SYNC: identical tree**.
+
+      **Gate note for the next tick:** this box answered **NO ROOM** for the
+      first ~4 minutes of this cycle (682 MB reclaimable against a 900 MB floor)
+      and recovered to 1.4–1.5 GB on its own while I sampled it — the holders
+      are my own Hermes runtime (PID 2390) and the hatch daemon (PID 67), and
+      ~6.5 GB is used by a process outside this PID namespace, so the pressure
+      oscillates and the gate flickers. **It is worth re-reading the gate a few
+      seconds after a NO ROOM before treating the tick as a non-build tick**;
+      this one nearly gave up builds it could have run.
