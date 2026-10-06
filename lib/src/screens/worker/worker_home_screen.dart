@@ -708,7 +708,7 @@ class _MarketplaceViewState extends State<MarketplaceView> {
       SliverToBoxAdapter(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
-              AppTheme.gutter, 0, AppTheme.gutter, AppTheme.s12),
+              AppTheme.s16, 0, AppTheme.s16, AppTheme.s12),
           child: _StaleMarketBand(
             key: const Key('stale-market'),
             line: line,
@@ -1047,12 +1047,18 @@ class _MarketplaceViewState extends State<MarketplaceView> {
                 controller: _search,
                 hint: 'ابحث في المشاريع: العنوان، الحي، التخصص...',
                 onChanged: _onSearchChanged,
+                // The same 16 the list, the skeleton and the filter strip
+                // below use. This is the second caller of a field that used to
+                // hardcode its own inset, so leaving it on the default would
+                // put the search box 2 dp right of everything under it.
+                horizontalInset: AppTheme.s16,
               ),
             ),
             if (_widening)
               const SliverToBoxAdapter(
                 child: Padding(
-                  padding: EdgeInsets.fromLTRB(18, 2, 18, 2),
+                  padding:
+                      EdgeInsets.symmetric(horizontal: AppTheme.s16, vertical: 4),
                   child:
                       LinearProgressIndicator(minHeight: 3, color: AppTheme.navy),
                 ),
@@ -1176,7 +1182,8 @@ class _MarketplaceViewState extends State<MarketplaceView> {
                   slivers: [
                     ..._staleMarketSlivers(stale ? _staleReason : null),
                     SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 4),
+                      padding: const EdgeInsets.fromLTRB(
+                          AppTheme.s16, 0, AppTheme.s16, AppTheme.s4),
                       sliver: SliverList.separated(
                         itemCount: projects.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 12),
@@ -1390,8 +1397,12 @@ class _HeaderSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              margin: const EdgeInsets.fromLTRB(18, 12, 18, 0),
-              padding: const EdgeInsets.all(18),
+              margin: const EdgeInsets.fromLTRB(
+                  AppTheme.s16, AppTheme.s12, AppTheme.s16, 0),
+              // Was `all(18)`: the card sat 18 dp from the edge and padded its
+              // own content 18 dp, so the inner text was 36 dp in. One inset
+              // now, from the same token the outer margin uses.
+              padding: AppTheme.cardPad,
               decoration: BoxDecoration(
                 color: AppTheme.navy,
                 borderRadius: BorderRadius.circular(AppTheme.rXl),
@@ -1592,7 +1603,7 @@ class _HeaderSection extends StatelessWidget {
       children: [
         // White ring so the navy avatar separates from the navy header.
         Container(
-          padding: const EdgeInsets.all(3),
+          padding: const EdgeInsets.all(AppTheme.ring),
           decoration: const BoxDecoration(
             color: AppTheme.surface,
             shape: BoxShape.circle,
@@ -1828,7 +1839,7 @@ class _FilterBar extends StatelessWidget {
         blendMode: BlendMode.dstIn,
         child: ListView(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 18),
+          padding: const EdgeInsets.symmetric(horizontal: AppTheme.s16),
           children: [
             _ChipShell(
               selected: category == null,
@@ -1892,7 +1903,7 @@ class _ChipShell extends StatelessWidget {
           // Full-height (56px) tap target, the pill keeps its natural size.
           child: AnimatedContainer(
             duration: AppMotion.fast,
-            padding: const EdgeInsets.all(3),
+            padding: const EdgeInsets.all(AppTheme.ring),
             decoration: BoxDecoration(
               color: selected ? AppTheme.accentWash : AppTheme.surface,
               borderRadius: BorderRadius.circular(AppTheme.rPill),
@@ -1916,12 +1927,12 @@ class _ProjectsSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 18),
+      padding: const EdgeInsets.symmetric(horizontal: AppTheme.s16),
       child: Column(
         children: [
           for (var i = 0; i < 4; i++)
             Padding(
-              padding: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.only(bottom: AppTheme.s12),
               child: AppCard(
                 padding: AppTheme.cardPad,
                 child: const Row(
@@ -2015,7 +2026,8 @@ class _GettingStarted extends StatelessWidget {
     final complete = done == total;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
+      padding: const EdgeInsets.fromLTRB(
+          AppTheme.s16, AppTheme.s12, AppTheme.s16, 0),
       child: AppCard(
         padding: AppTheme.cardPad,
         child: Column(
@@ -2124,7 +2136,7 @@ class _SetupRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
+      padding: const EdgeInsets.symmetric(vertical: AppTheme.s4),
       child: Row(
         children: [
           Icon(
@@ -2181,7 +2193,8 @@ class _ToolStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+      padding: const EdgeInsets.fromLTRB(
+          AppTheme.s16, AppTheme.s12, AppTheme.s16, 0),
       // One row, three equal heights: the tallest badge sets the row.
       child: IntrinsicHeight(
         child: Row(

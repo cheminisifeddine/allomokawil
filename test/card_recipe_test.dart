@@ -17,7 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:allomokawil/src/core/theme/app_theme.dart';
 import 'package:allomokawil/src/widgets/ui.dart';
 
-const int _offGridBudget = 185;
+const int _offGridBudget = 164;
 
 List<File> _sources() {
   final dir = Directory('lib');

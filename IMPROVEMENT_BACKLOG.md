@@ -23774,9 +23774,58 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 185 on 6 Oct;
-      185 remain. Do not read the slice below as the sweep being finished.**
-      *First slice shipped 6 Oct as `62d1772` -> remote `a08991a`.*
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 164 on 6 Oct;
+      164 remain. Do not read the slice below as the sweep being finished.**
+      *Slices shipped 6 Oct: `62d1772` -> remote `a08991a` (projects, 197 -> 185),
+      and the second one below (worker_home, 185 -> 164, 19 sites).*
+
+      **Second slice — `worker_home_screen.dart`, 19 sites -> zero. The screen
+      was not one list, it was SIX bands on one left edge.** The entry above says
+      `worker_home` must move "with the search field". Measured, it needed four
+      things moved together, and only one of them was the list:
+      `FeedSearchField` (kept its own 18), **the stale-market band**
+      (`AppTheme.gutter` = 18, same sliver group), the filter chip strip (18),
+      and the skeleton that stands in for the list (18). The section title was
+      already on 16 — so before this sweep the column had **two insets on the
+      same edge, 2 dp apart**, and the band nobody had looked at in years was
+      the one on the wrong one.
+
+      **The lesson is about what a "list inset" is.** On `projects_screen` it
+      was two numbers. Here it is a *column*: any band a reader sees stacked
+      above or below the rows is part of it. Sweeping the `SliverPadding` alone
+      would have moved the cards 2 dp and left the search box, the note and the
+      chips where they were — the exact defect the first slice's guard caught,
+      one band further up.
+
+      **`FeedSearchField.horizontalInset` is now `required`.** Both callers
+      passed `AppTheme.s16` once this screen moved, so the `= 18` default was
+      dead code that a third screen could still inherit — and inheriting it is
+      the whole failure mode the parameter was added to remove. A default here
+      re-creates the coincidence.
+
+      **`AppTheme.ring` = 3, newly named.** Two writers had each typed their
+      own `3` for the white ring around the avatar and the selected chip. At 4 dp
+      it would eat 1 dp of the icon it frames; at 2 dp it would not separate a
+      navy avatar from a navy header. A hairline with a job, the same kind of
+      exception `gutter` is — and `gutter` is *the reason this file still has
+      one*: it is 18, it is named, and it is off-grid.
+
+      **Red before green, on the final version of the test:** inset reverted to
+      `AppTheme.gutter` -> `Expected: <16.0> Actual: <18.0>` on all 3 cases.
+      I rewrote the title assertion after the first red and re-proved it; the
+      first version asserted on the *text*, which `SectionTitle` places 27 dp
+      inside its own band (a 19 dp icon + an 8 dp gap), so it was measuring an
+      icon offset and calling it alignment. It now measures the band.
+
+      **Two design-shot goldens moved, and that is the honest cost of a 2 dp
+      change.** `08_worker_home` and `16_guest_worker` regenerated. Pixel
+      diff **14.87%** — far more than 2 dp suggests, because the header card
+      went `all(18)` -> `cardPad`, which reflows everything under it. Verified as
+      intended, not a regression: navy card edge measured **18 -> 16 left and
+      373 -> 375 right**, last ink row unchanged at **842 of 849** (nothing
+      pushed off the bottom), and **no overflow stripe** in either image.
+      *The goldens were green at HEAD*, so this is the screen moving, not a
+      baseline that was already wrong.
 
       **What one screen's worth actually costs, measured — use this to size the
       rest.** `projects_screen.dart` alone held **12 of the 197 literals across
@@ -23818,12 +23867,17 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       runner started — and is green standalone after `git add`. The guard was
       right and the fix was to stage the file, not to weaken the guard.
 
-      **Remaining: 185 literals across 26 files.** Biggest first, so a later
+      **Remaining: 164 literals across 25 files.** Biggest first, so a later
       tick keeps the same shape of slice: `project_new_screen.dart` (24),
-      `worker_home_screen.dart` (19 — **do this one with the search field**,
-      it is the second `FeedSearchField` caller and its list is on 18 too),
       `skeletons.dart` (18), `chat_screen.dart` (16),
-      `customer_home_screen.dart` (14), then `projects_screen`-sized files.
+      `customer_home_screen.dart` (14), `ui.dart` (11),
+      `auth_screen.dart` (10), then `projects_screen`-sized files.
+      **On `project_new_screen` (24): check whether it is one column or several
+      before touching it** — that is the lesson of the slice above, and it is
+      free to check. `AppTheme.gutter` = 18 is off-grid and has 4 live uses
+      (`customer_home`, `subscription_screen` x3, and none on worker_home now);
+      sweeping a screen to `s16` while a neighbouring band still reads `gutter`
+      is the mistake this entry has now seen twice.
 
       *The remaining 185 are pre-existing and were not introduced here.*
       a count over `lib/` of `EdgeInsets.*` literals not divisible by 4, and it

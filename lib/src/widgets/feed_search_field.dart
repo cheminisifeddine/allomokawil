@@ -22,15 +22,18 @@ class FeedSearchField extends StatelessWidget {
   /// same string the box displays.
   final ValueChanged<String> onChanged;
 
-  /// The horizontal inset, which the caller owns.
+  /// The horizontal inset, which the caller owns — and **must** pass it.
   ///
   /// The field used to hardcode `18` and the feed under it hardcoded its own,
   /// so the two could not be kept aligned by construction — they only matched
-  /// because two writers happened to type the same number. `worker_home` is
-  /// still on 18 and has not been swept; `projects_screen` has moved to
-  /// `AppTheme.s16`. Passing the number the list uses makes the shared left
-  /// edge a decision of the screen instead of a coincidence, and a screen that
-  /// moves its list without moving this steps in and out under the customer.
+  /// because two writers happened to type the same number. Then
+  /// `worker_home` moved its list to `AppTheme.s16` and did not move this,
+  /// which put its search box 2 dp right of every band under it.
+  ///
+  /// So there is no default now. Both callers pass the number their own list
+  /// uses, and a third screen has to answer the question rather than inherit
+  /// an answer from whoever wrote this widget last. A default here would be
+  /// the exact coincidence this parameter exists to remove.
   final double horizontalInset;
 
   const FeedSearchField({
@@ -38,7 +41,7 @@ class FeedSearchField extends StatelessWidget {
     required this.controller,
     required this.hint,
     required this.onChanged,
-    this.horizontalInset = 18,
+    required this.horizontalInset,
   });
 
   @override

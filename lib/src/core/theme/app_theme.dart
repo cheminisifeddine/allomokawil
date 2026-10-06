@@ -99,6 +99,16 @@ class AppTheme {
   static const double gap = s16;
   static const double tapMin = 56;
 
+  /// The white ring drawn around an avatar or a selected chip, so the thing
+  /// inside it separates from the thing behind it.
+  ///
+  /// Not a gap and not on the 4 dp grid, and deliberately so: at 4 dp it eats
+  /// 1 dp of the icon it is supposed to frame, and at 2 dp it does not separate
+  /// a navy avatar from a navy header. It is a hairline with a job, the same
+  /// kind of exception [gutter] is, and like [gutter] it now has a name — two
+  /// writers had each typed their own `3`.
+  static const double ring = 3;
+
   /// The page gutter. Deliberately 18 — it is the one value that is not a
   /// component gap, so it lives alone and never gets reused as one.
   static const double gutter = 18;
