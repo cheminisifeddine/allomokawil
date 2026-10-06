@@ -53,13 +53,22 @@ Future<Map<String, dynamic>> _readRunner() async {
 import sys, json
 sys.path.insert(0, "tool")
 import run_tests
+_files = len(run_tests.discover_tests())
+# Index n is the budget for n shards, so the table must reach the tree's OWN
+# batch count or the test below reads one past its own data. It was written as
+# range(0, 13) and held for exactly as long as the tree produced 12 shards;
+# the 289th test file made it 13 and failed with `expected <13> actual <13>` —
+# an off-by-one in the harness, not a runner that stopped covering its plan.
+# Derived now, with headroom, so the next shard boundary does not red this.
+_batches = -(-_files // run_tests.SHARD_SIZE)
 print(json.dumps({
     "shard_deadline": run_tests.SHARD_DEADLINE,
     "retries": run_tests.RETRIES,
     "warmup": run_tests.SHARD_WARMUP,
     "shard_size": run_tests.SHARD_SIZE,
-    "real_files": len(run_tests.discover_tests()),
-    "budget": [run_tests.default_deadline(n) for n in range(0, 13)],
+    "real_files": _files,
+    "batches": _batches,
+    "budget": [run_tests.default_deadline(n) for n in range(0, _batches + 2)],
 }))
 '''
     ],

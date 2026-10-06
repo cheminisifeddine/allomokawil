@@ -904,21 +904,25 @@ class _StatusRow extends StatelessWidget {
         // One job can carry several trades; the badge row is a Wrap already, so
         // every trade it needs is visible without a second screen.
         for (final slug in project.allCategories) CategoryBadge(slug: slug),
-        _MetaChip(icon: Icons.place_outlined, text: place),
+        MetaChip(icon: Icons.place_outlined, text: place),
       ],
     );
   }
 }
 
-class _MetaChip extends StatelessWidget {
+/// The place chip on the project page. Public on purpose: it is the third
+/// writer of this pill, and a private widget cannot be rendered by the guard
+/// that holds the three of them to one inset (`test/pill_inset_test.dart`).
+/// Naming it means the next pill is a caller, not a copy.
+class MetaChip extends StatelessWidget {
   final IconData icon;
   final String text;
-  const _MetaChip({required this.icon, required this.text});
+  const MetaChip({super.key, required this.icon, required this.text});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: AppTheme.pillPad,
       decoration: BoxDecoration(
         color: AppTheme.lineSoft,
         borderRadius: BorderRadius.circular(AppTheme.rPill),
@@ -927,7 +931,7 @@ class _MetaChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 14, color: AppTheme.textSecondary),
-          const SizedBox(width: 6),
+          const SizedBox(width: AppTheme.pillGap),
           Text(text,
               style: AppTheme.caption
                   .copyWith(fontSize: AppTheme.fsCaption, color: AppTheme.textSecondary)),

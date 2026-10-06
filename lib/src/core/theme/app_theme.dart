@@ -99,6 +99,43 @@ class AppTheme {
   static const double gap = s16;
   static const double tapMin = 56;
 
+  // ── The small pill — one inset, one icon gap ────────────────────────────
+  /// The tiny metadata pill: a 14 dp icon, a one-word caption, fully rounded
+  /// ends. [CategoryBadge], [StatusPill] and the project page's place chip are
+  /// all this widget, and **they are drawn side by side** — the worker's
+  /// filter strip is a `StatusPill`, the wilaya pill, then a `CategoryBadge`
+  /// for every trade; the project page puts the status pill, every trade badge
+  /// and the place chip in one `Wrap`. A pill is judged against the pill it
+  /// sits next to, so their insets have to be one number.
+  ///
+  /// **The bug this token exists to prevent, measured:** all three wrote
+  /// `symmetric(horizontal: 10, vertical: 6)` — byte-identical — and then
+  /// disagreed on the gap between the icon and the word: the two siblings used
+  /// `6` and [StatusPill] used `5`. So on the worker's filter strip the first
+  /// pill («الكل») sat 1 dp tighter to its icon than «كل الولايات» beside it,
+  /// and the trade badge after it. Same padding, same radius, same font, one
+  /// pixel of slop between neighbours that are supposed to read as one row.
+  /// Nobody sees 1 dp as a *defect*; everybody sees it as *unfinished*.
+  ///
+  /// Neither number is on the 4 dp ladder and both are deliberate: 10 x 2 + a
+  /// 14 dp icon is the width a two-Arabic-word caption needs to sit inside a
+  /// card without wrapping, and the inset is held at 6 so pill height
+  /// (14 + 6x2 = 26) stays clear of [tapMin] — these are **labels, not
+  /// targets**. `chipTheme.padding` (14 x 12) is a different, larger control
+  /// and stays separate.
+  static const EdgeInsets pillPad =
+      EdgeInsets.symmetric(horizontal: 10, vertical: 6);
+
+  /// The gap between a pill's icon and its word. One number for every pill,
+  /// so a new pill cannot arrive with its own idea of the spacing.
+  ///
+  /// Off the 4 dp ladder on purpose, like [pillPad]: it is optical spacing
+  /// between a 14 dp glyph and [fsCaption] text at 1.4 line-height, not a
+  /// column edge. `R4` counts it and is wrong to — see
+  /// `test/pill_inset_test.dart`, which asserts the *equality* between the
+  /// writers instead.
+  static const double pillGap = 6;
+
   /// The white ring drawn around an avatar or a selected chip, so the thing
   /// inside it separates from the thing behind it.
   ///

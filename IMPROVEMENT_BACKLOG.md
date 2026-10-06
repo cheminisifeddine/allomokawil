@@ -25218,3 +25218,139 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       clean (**Exit 0**, 0 provable fail / 0 STALE) *and* the R4 sweep is
       finished, which is the first tick in the sequence where both can be
       true at once.
+
+- [x] **`ui.dart` R4 — SHIPPED 8 Oct, the fourteenth slice and the last file of
+      the sweep.** R4 **46 -> 40**, and `ui.dart` **no longer appears in R4's
+      list at all** — the first file in this sweep to come off the counter
+      entirely.
+
+      **The defect was a 1 dp disagreement between three pills that render
+      side by side, and R4 could not see it in principle.** `CategoryBadge`,
+      `StatusPill` and `project_detail`'s place chip all spelled
+      `symmetric(horizontal: 10, vertical: 6)` **byte for byte** — three
+      identical ratchet rows, all green — and then disagreed on the gap
+      between the icon and the word: two writers used `6`, `StatusPill` used
+      **`5`**. A counter that reads literals *per file* is blind to a
+      disagreement *between* files by construction, and `_literals()` skips
+      identifiers by design, so the fix would have turned all three rows green
+      without changing a pixel. This is the eleventh slice's lesson arriving
+      in its purest form.
+
+      **It is visible in production, not in a test fixture.** The worker's
+      filter strip is one horizontal `ListView` holding `StatusPill('الكل')`,
+      the wilaya `StatusPill`, then a `CategoryBadge` for every trade, 8 dp
+      apart (`worker_home_screen.dart:1843-1872`); the project page puts the
+      status pill, every trade badge and `MetaChip` in one `Wrap` at
+      `spacing: 8` (`project_detail_screen.dart:898-909`). So the status pill
+      sat **1 dp tighter to its own icon than the badge beside it**, with same
+      padding, same radius, same font. Nobody reads 1 dp as a defect; everybody
+      reads it as *unfinished*.
+
+      **Fix: `AppTheme.pillPad` and `AppTheme.pillGap`, one number each**, both
+      documented with the measurement. Neither is on the 4 dp ladder and both
+      stay that way — argued in the token, not merely tolerated: 10 x 2 + a
+      14 dp icon is the width a two-word Arabic caption needs inside a card,
+      and the vertical 6 is what holds pill height (14 + 6x2 = 26) clear of
+      `tapMin`, because **these are labels, not targets**. `chipTheme.padding`
+      (14 x 12) is a different, larger control and stays separate.
+
+      **`MetaChip` was made public to be testable.** A private widget cannot be
+      rendered by the guard that holds the three of them to one inset, so the
+      guard could only have compared two of the three and called it a sweep.
+      `flutter analyze` caught the rename immediately
+      (`use_key_in_widget_constructors`) and the `super.key` was added — the
+      analyzer earning its keep on the same commit.
+
+      **Red before green:** reverting **only** the `5` -> `6` gap reds the
+      guard with the number — `Expected: <6.0> / Actual: <5.0>`. Restored:
+      4 green.
+
+      **Golden re-baselined, diff measured, and the attribution PROVEN rather
+      than asserted.** Exactly **3 of 9** changed (`07_project_detail`,
+      `08_worker_home`, `16_guest_worker`), the other **6 byte-stable by
+      md5**. Against the pre-change goldens pulled out of git:
+
+      | golden | differing px | of | share | rows |
+      |---|---|---|---|---|
+      | `07_project_detail` | 1 262 | 333 200 | 0.379 % | y111..y140 |
+      | `08_worker_home` | 4 616 | 333 200 | 1.385 % | y88..y548 |
+      | `16_guest_worker` | 4 616 | 333 200 | 1.385 % | y88..y548 |
+
+      **Then the attribution: reverting only the `5` -> `6` and re-running the
+      golden suite makes all three pass.** So 100 % of the pixel delta is that
+      one number, and the three `pillPad` renames are **provably zero-pixel** —
+      they are the same value under a name. That is a stronger claim than
+      "the diff looks confined to the pills", and it is the reason the slice
+      could be committed at all.
+
+      *A measurement bug worth recording, because it nearly produced a false
+      clean bill.* The first diff script treated `png_read`'s return as a flat
+      RGBA byte buffer and compared list slices; it reported "8 differing
+      pixels, all on row y=0" for three screens, which is not a pill and would
+      have been waved through as sub-pixel noise. `png_read` returns
+      `(width, height, rows)` with **`rows` a list of per-row `bytearray`s at
+      3 bytes/pixel**. Re-read correctly the same three screens report 1 262 /
+      4 616 / 4 616 px. **A pixel count this small is more likely to be a
+      decoder bug than a real diff — check the reader before believing it.**
+
+      *The visible result, in RTL, is the pill growing 1 px on its **start**
+      (right) inner edge.* Measured on the `07_project_detail` band at y126,
+      the ink segments go `(138,289) (297,373)` -> `(137,288) (296,373)`: the
+      text moves 1 px outward from the start edge, and **every other column
+      in the band is identical**. That is the icon gap, nothing else.
+
+      **Guard: `test/pill_inset_test.dart`, 4 tests**, asserting the property
+      the ratchet structurally cannot: that the three pills share one inset and
+      put the same distance between icon and word, **measured off real layout**.
+      Two traps documented in the file, one paid for by writing it: compare the
+      **padding**, never the rect (rects differ by word length, so comparing
+      widths compares the Arabic), and a `StatusPill` with **no icon** returns
+      a null gap — a legitimate state that cannot be compared, so it is
+      excluded rather than measured against nothing.
+
+      **Gate:** `flutter analyze` -> **No issues found!** (4.3 s; 12.8 s on the
+      second run). Full suite via `tool/run_tests.py` -> **2183 tests, 13/13
+      shards green**, elapsed 17:04 (previous tick 2170, so **+13**: the 4 new
+      pill tests plus 9 net from the budget harness below). No hang, no retry.
+
+      **The first full run was RED, and both failures were worth more than the
+      slice.** 13 shards, 11 green, 2 not green — and neither was the product:
+
+        * **shard 1 — `app_source_scope_test`**, the exact per-tick mistake the
+          backlog already records on three separate slices: my new file was
+          **untracked**. "a guard written but not added is a rule nobody is
+          enforcing" is the guard's own words, and it caught me red-handed on my
+          own tick. `git add` -> green.
+        * **shard 9 — `run_tests_budget_test.dart`**: `Expected: a value less
+          than <13> / Actual: <13>`, reason *"the curve must reach this tree's
+          own batch count (13)"*. **Bisected to a real off-by-one in the
+          harness, not a runner that had stopped covering its plan.** The test
+          builds its table as `range(0, 13)` — indices 0..12 — and asserts
+          `batches < budget.length`. At 288 files the tree made **12** shards and
+          it was green; my file made it **289**, which is
+          `ceil(289 / 24) = 13`, so it indexed one past its own data. The table
+          is now derived from the tree (`range(0, _batches + 2)`) with headroom,
+          so the next shard boundary does not red it.
+
+      *The lesson is the one this slice is about, arriving from the other
+      direction.* A guard whose **fixture is hardcoded** fails for a reason that
+      has nothing to do with what it guards — the same shape as the three
+      red-before-green drafts in the tenth slice and the `pillIconGap` draft in
+      this one. **Verify that a failing guard is pointing at the defect before
+      you change product code to satisfy it.** The temptation on shard 9 was to
+      delete a test file to get back under a shard boundary, which would have
+      "fixed" the suite by removing the coverage that caught the pill bug.
+
+      **Commit:** local + remote hashes recorded by `remote_state.py` at the
+      end of this entry.
+
+      **Next:** the R4 sweep is **done** — 40 remain across 18 files, none of
+      them `ui.dart`. The largest is `profile_edit_screen.dart` (5), then
+      `chat_list_screen.dart` and `verification_screen.dart` (4 each). Those
+      are screens, so each wants the "which column is this number in?" question,
+      and **`chipTheme.padding` (14 x 12) is still spelled out in four places**
+      — `app_theme`, `trade_filter_bar`, `auth_screen`'s `AuthNotice` and a
+      banner in `project_detail`. That is the *larger* chip and the same
+      defect waiting to happen, so it is the natural next slice: one token,
+      four writers, and the same cross-file guard this slice just proved a
+      ratchet cannot do.

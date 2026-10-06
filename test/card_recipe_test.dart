@@ -110,9 +110,34 @@ import 'package:allomokawil/src/widgets/ui.dart';
 //   * `symmetric(horizontal: 14, vertical: 12)` on `AuthNotice`, byte-identical
 //     to `chipTheme.padding`, the trade pill, and one banner in
 //     `project_detail_screen` — that is four writers spelling one chip inset,
-//     and the honest fix is a named token, which is its own slice rather than a
-//     sweep that would have renamed four files at once.
-const int _offGridBudget = 46;
+//     and the honest fix is a named token. **That token is now the twelfth
+//     slice's output**, for the *small* pill: `AppTheme.pillPad` / `pillGap`.
+//
+// Lowered 46 -> 40 on 8 Oct: the twelfth slice, `ui.dart`, and **`ui.dart` no
+// longer appears in R4's list at all** — first file in the sweep to be fully
+// off the counter, including its `SectionTitle` band, which is deliberate and
+// argued below rather than swept.
+//
+// The count moved by six, not by the seven the sites implied, and the missing
+// one is the whole point of the slice. The defect R4 could not see was `5`:
+// `StatusPill`, `CategoryBadge` and the project page's `MetaChip` all spelled
+// `symmetric(horizontal: 10, vertical: 6)` byte for byte and then disagreed
+// on the gap between the icon and the word — two writers used `6`, this one
+// used `5`. So the three files' ratchet rows were **identical and both green**
+// while the pills drew 1 dp apart from each other, adjacent, on the worker's
+// filter strip and the project page. Counting literals per file is blind to a
+// disagreement *between* files by construction; a token makes it impossible and
+// `test/pill_inset_test.dart` holds it there. The sixth swept literal is the
+// `5` that became `pillGap`, and the three that answered to `pillPad` cost
+// nothing but the six: the seventh was `SectionTitle`'s vertical `10`, which
+// is tap arithmetic (`10 + 56 + 4`) and stays counted and recorded.
+//
+// What stayed, and why. `SectionTitle` keeps its band
+// `fromLTRB(0, 10, 0, 4)` unchanged: the horizontal is already `0` and the
+// vertical `10` is off-grid on purpose, because it is the arithmetic that
+// holds a 56 dp action inside a 70 dp band. Re-gridding it would move every
+// heading on eight screens to settle a question that is not this tick's.
+const int _offGridBudget = 40;
 
 List<File> _sources() {
   final dir = Directory('lib');

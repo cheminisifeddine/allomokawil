@@ -321,7 +321,7 @@ class CategoryBadge extends StatelessWidget {
     final tint = Taxonomy.categoryTint(slug);
     final wash = Taxonomy.categoryWash(slug);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: AppTheme.pillPad,
       decoration: BoxDecoration(
         color: wash,
         borderRadius: BorderRadius.circular(AppTheme.rPill),
@@ -330,7 +330,7 @@ class CategoryBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(Taxonomy.categoryIcon(slug), size: 14, color: tint),
-          const SizedBox(width: 6),
+          const SizedBox(width: AppTheme.pillGap),
           // Flexible + ellipsis: a bare Text takes its intrinsic width inside a
           // Row, which pushed long Arabic category names past the card edge.
           Flexible(
@@ -531,7 +531,7 @@ class StatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: AppTheme.pillPad,
       decoration: BoxDecoration(
         color: wash,
         borderRadius: BorderRadius.circular(AppTheme.rPill),
@@ -541,7 +541,11 @@ class StatusPill extends StatelessWidget {
         children: [
           if (icon != null) ...[
             Icon(icon, size: 14, color: color),
-            const SizedBox(width: 5),
+            // Was a literal `5` where both sibling pills use `6`. These three
+            // draw side by side on the worker's filter strip and the project
+            // page, so the status pill sat 1 dp tighter to its own icon than
+            // the trade badge beside it. `AppTheme.pillGap` is the one number.
+            const SizedBox(width: AppTheme.pillGap),
           ],
           Text(label,
               style: AppTheme.label.copyWith(fontSize: AppTheme.fsCaption, color: color)),
