@@ -84,6 +84,14 @@ ICON_BTN_ESCAPE = re.compile(r"\b(constraints:|padding:|style:)\s")
 DIM = r"(?:AppTheme\.tapMin|([\d.]+))"
 MIN_SIZE = re.compile(
     r"minimumSize:\s*(?:const\s+)?Size\(\s*" + DIM + r"\s*,\s*" + DIM + r"\s*\)")
+# `Size.fromHeight(h)` is the *other* spelling of the same guarantee, and R2 was
+# blind to it: the regex above needs a comma, so it matched nothing here. The
+# button rule compounds it -- a site whose `minimumSize:` is within four lines is
+# `continue`d out of the theme rule "judged by R2 instead", so a
+# `minimumSize: const Size.fromHeight(40)` was skipped by BOTH rules and
+# passed silently. 11 sites spell it this way at HEAD; all are `tapMin`.
+MIN_SIZE_H = re.compile(
+    r"minimumSize:\s*(?:const\s+)?Size\.fromHeight\(\s*" + DIM + r"\s*\)")
 SIZED_H = re.compile(r"\b(?:height|maxHeight):\s*" + DIM)
 CLAMP = re.compile(r"\.clamp\(\s*" + DIM + r"\s*,\s*" + DIM + r"\s*\)")
 
@@ -161,24 +169,52 @@ MEASURED = [
     ("lib/src/screens/auth/auth_screen.dart", 601, "Checkbox(", PASS_,
      "48 inside the 60 dp row above"),
     # SizedBox(height: 60) + horizontal ListView -> tight cross axis = 60.
-    ("lib/src/screens/browse/browse_screen.dart", 317, "InkWell(", PASS_,
-     "enclosing SizedBox(height: 60) = 60.0"),
-    ("lib/src/screens/chat/chat_screen.dart", 594, "InkWell(", PASS_,
+    # **`browse_screen.dart:317` is DELETED, not re-pinned — and that is the
+    # finding of this tick.** The strip it described was extracted into
+    # `trade_filter_bar.dart` by b26b69a, so the widget no longer exists in
+    # that file at all (grep: 0 `InkWell(`, 0 `GestureDetector(`). Its
+    # arithmetic moved with it — and moved onto a number nobody re-decided:
+    # the strip is `SizedBox(height: 60)` with `fromLTRB(gutter, s4, gutter,
+    # s4)`, so a pill is 60 - 4 - 4 = **52 dp tall**, 4 dp under the target.
+    # A stale anchor is supposed to fail the tool so a number cannot rot in
+    # silence; instead the rot *hid a live defect* for eleven ticks, behind a
+    # row that read as housekeeping.
+    # 52.0 measured off the committed golden `10_browse.png` (392x850, DPR 1.0,
+    # so 1 px = 1 dp): the strip's ink runs y138..y189 inclusive = 52 px, which
+    # is the pill and not the 60 dp SizedBox -- the 4 dp pad sits above and
+    # below it. Fixing it is a Dart change that needs `10_browse.png`
+    # re-baselined, so it is the next tick's item, not this one's.
+    ("lib/src/widgets/trade_filter_bar.dart", 266, "InkWell(", FAIL_,
+     "strip SizedBox(height: 60) - s4*2 = 52.0 < 56 (golden ink y138..y189 = 52 px)"),
+    # Re-pinned 7 Oct after eight STALE rows: every one of these constructs is
+    # still the widget the row was written for, and each arithmetic below is
+    # re-read against the source at its new line, not carried over. They are
+    # re-decided on the same numbers, which is the only honest reason to leave
+    # a verdict alone.
+    #
+    # The chat row was the icon bubble: `SizedBox(width: AppTheme.tapMin,
+    # height: AppTheme.tapMin)` around a 24 dp icon, so 56x56 exactly. R7
+    # proved this one on its own the day it was written; the row still earns
+    # its place because it is the audit's own record that the floor holds.
+    ("lib/src/screens/chat/chat_screen.dart", 1401, "InkWell(", PASS_,
      "SizedBox(width/height: tapMin 56) = 56.0"),
-    ("lib/src/screens/customer/customer_home_screen.dart", 537, "InkWell(", PASS_,
+    ("lib/src/screens/customer/customer_home_screen.dart", 1239, "InkWell(", PASS_,
      "BoxConstraints(minHeight: tapMin 56) = 56.0"),
-    ("lib/src/screens/customer/customer_home_screen.dart", 583, "InkWell(", PASS_,
+    ("lib/src/screens/customer/customer_home_screen.dart", 1286, "InkWell(", PASS_,
      "16x2 + 56 dp dot = 88.0"),
-    # fieldPad is vertical 18; body is 15.5 x height 1.65 = 25.6.
-    ("lib/src/screens/project/project_new_screen.dart", 541, "InkWell(", PASS_,
+    # fieldPad is still `symmetric(horizontal: s16, vertical: 18)` at
+    # app_theme.dart:215, and the field still paints `AppTheme.body` inside it.
+    ("lib/src/screens/project/project_new_screen.dart", 905, "InkWell(", PASS_,
      "18x2 + 15.5x1.65=25.6 = 61.6"),
-    ("lib/src/screens/worker/worker_home_screen.dart", 752, "InkWell(", PASS_,
+    ("lib/src/screens/worker/worker_home_screen.dart", 1899, "InkWell(", PASS_,
      "enclosing SizedBox(height: tapMin 56) = 56.0"),
-    ("lib/src/widgets/app_tab_bar.dart", 165, "GestureDetector(", PASS_,
+    ("lib/src/widgets/app_tab_bar.dart", 281, "GestureDetector(", PASS_,
      "Container(height: 60) bar = 60.0"),
-    # Every call site passes height 92 (auth tiles) or double.infinity (grid);
-    # the default is 104. The line moved when the section title above grew.
-    ("lib/src/widgets/ui.dart", 331, "InkWell(", PASS_,
+    # Re-read at the call sites, not from the old note: `auth_screen.dart` passes
+    # 92 and 92, `category_grid.dart` passes `double.infinity` twice. The default
+    # is 104 and still is. No call site passes anything else, so the row's claim
+    # ("92 or infinity") is the whole set, not a sample of it.
+    ("lib/src/widgets/ui.dart", 380, "InkWell(", PASS_,
      "call sites pass 92 (auth) or double.infinity (grid)"),
 ]
 
@@ -290,6 +326,12 @@ def audit(root):
                 fails.append((rel, src.count("\n", 0, m.start()) + 1,
                               "minimumSize", f"{w:g}x{h:g}"))
 
+        for m in MIN_SIZE_H.finditer(src):
+            h = dim(m)
+            if h < MIN:
+                fails.append((rel, src.count("\n", 0, m.start()) + 1,
+                              "minimumSize height", f"fromHeight {h:g} < {MIN:g}"))
+
         for m in CLAMP.finditer(src):
             lo = dim(m, 1)
             head = lines[src.count("\n", 0, m.start())].lower()  # 0-based: the clamp line
@@ -309,6 +351,16 @@ def audit(root):
                     continue
                 # an enclosing box must still be open when the button starts
                 if sum(l.count("(") - l.count(")") for l in lines[k - 1:line_no - 1]) <= 0:
+                    continue
+                # ...and it must be open ON ITS OWN LINE. A one-line spacer is
+                # balanced where it opens -- `const SizedBox(height: 16),` -- and
+                # encloses nothing, which is what this rule has always claimed
+                # to skip. The aggregate sum above cannot see that: it keeps
+                # reading the NEXT widget's `(` on the lines below and hands the
+                # spacer the credit. That is how a `FilledButton` whose own
+                # `minimumSize: const Size.fromHeight(AppTheme.tapMin)` puts it
+                # at 56 was reported as "button inside fixed box, height 16".
+                if lines[k - 1].count("(") <= lines[k - 1].count(")"):
                     continue
                 sizes = [dim(x) for x
                          in SIZED_H.finditer("".join(lines[k - 1:line_no]))]

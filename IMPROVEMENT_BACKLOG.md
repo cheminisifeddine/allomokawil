@@ -25029,3 +25029,118 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       oscillates and the gate flickers. **It is worth re-reading the gate a few
       seconds after a NO ROOM before treating the tick as a non-build tick**;
       this one nearly gave up builds it could have run.
+
+- [ ] **The tap-target audit's own "STALE" notice was hiding a live 52 dp
+      button — and two of its rules could not fail on a whole class of bug.**
+      (8 Oct, 12th slice's sibling. Not the R4 slice: `tool/build_gate.py`
+      answered **NO ROOM** for the first ~7 minutes of this tick (769-831 MB
+      against a 900 MB floor, `MemAvailable` sampled 15x over a minute ran
+      **701 -> 887 MB** and never cleared it), and a Dart change could not be
+      gated. The red the tool had been printing for eleven ticks is
+      Python-only work and runs in a second, so it was the honest item.)
+
+      **`tool/tap_target_audit.py` exits 1 at HEAD, for two reasons that are
+      both wrong, and neither was the reason it looked like.** Measured at
+      clean HEAD before any edit: **1 provable fail** (a `FilledButton` at
+      56 dp reported as "button inside fixed box, height 16 < 56"), **8
+      STALE** hand measurements, exit 1.
+
+      **Defect 1 — R2 is blind to `Size.fromHeight`, and the blind spot is
+      silent by construction.** R2 reads
+      `minimumSize: Size(w, h)`; the regex needs a comma, so
+      `minimumSize: const Size.fromHeight(40)` matches nothing. That would be
+      one missed site. The compounding is the part worth writing down: the
+      *button* rule does `if "minimumSize" in <the previous 4 lines>: continue`
+      — "judged by R2 instead" — so **both** rules skip the site. A button
+      sized to 40 by the one spelling R2 cannot read passes this audit
+      silently. **11 sites spell it this way at HEAD** (`app_theme.dart` x3,
+      `auth_gate.dart` x2, `worker_home_screen.dart` x2, `big_button.dart` x2,
+      `ui.dart` x2), all of them `tapMin`, so nothing is broken today — the
+      hole is the one shape nobody would have looked for, because the
+      instrument reports it as clean.
+      *Fix:* a second pattern for the `fromHeight` spelling, reported as
+      `minimumSize height`. **Proven non-vacuous** by injecting
+      `Size.fromHeight(40)` into `big_button.dart` in a scratch copy of the
+      tree: `FAIL lib/src/widgets/big_button.dart:70 minimumSize height
+      fromHeight 40 < 56`, exit 1. Removed with the scratch copy.
+
+      **Defect 2 — R3 credits a *closed* one-line spacer as the button's
+      enclosing box.** R3's docstring has always claimed to skip
+      "a one-line `SizedBox(height: 4),` spacer [that] is balanced and is not
+      counted". The code checks the *aggregate* paren balance from the box
+      line to the button line, and that sum stays positive because the
+      **`Align(` on the next line** opens another widget — so the spacer at
+      `worker_home_screen.dart:1575` is handed the credit of enclosing a
+      `FilledButton` that is 56 dp tall by its own
+      `minimumSize: const Size.fromHeight(AppTheme.tapMin)` on line 1584.
+      **A rule that skips what its docstring says it skips, and does not.**
+      *Fix:* also require the box to be open *on its own line*
+      (`lines[k-1].count("(") > lines[k-1].count(")")`), which is the property
+      the docstring was describing all along. With both rules fixed the
+      provable-fail count is **0**, and the tool's exit 1 is now down to the
+      one row that is a real defect.
+
+      **The finding this tick was actually worth: the 8 STALE rows were
+      not 8 pieces of housekeeping.** They were 8 rows in which
+      `resolve_measured()` re-reads the recorded line and prints STALE
+      instead of a verdict — so the tool had been **exiting 1 for eleven
+      ticks on an eight-line-because-everything-moved note**, and the tick
+      notes treated it as *"the audit tells you an anchor rotted, not
+      necessarily that you rotted it"* — correctly, and then moved on every
+      time. One of the eight was not housekeeping at all:
+
+      | stale row | what it described | what is there now |
+      |---|---|---|
+      | `browse_screen.dart:317` | `SizedBox(height: 60)` strip | **the widget is gone** — `grep -c 'InkWell(' browse_screen.dart` = **0**, the strip was extracted into `trade_filter_bar.dart` by `b26b69a` |
+      | `trade_filter_bar.dart` (unowned) | — | `SizedBox(height: 60)` + `fromLTRB(gutter, s4, gutter, s4)` |
+
+      So the row's arithmetic **moved with the widget and moved onto a number
+      nobody re-decided**: a pill is `60 - 4 - 4 = 52 dp` tall, **4 dp under
+      `AppTheme.tapMin`.** Measured off the committed golden, not inferred:
+      `10_browse.png` (392x850, DPR 1.0, so 1 px = 1 dp), the strip's ink
+      runs **y138..y189 inclusive = 52 px**. The 60 dp SizedBox is real; the
+      4 dp pad sits above and below the pill, and the pill is what a finger
+      lands on. **Every one of the sixteen trade pills on the screen a
+      customer uses to *find* a contractor is a 52 dp target**, and the only
+      instrument in the repo that could say so was printing a STALE line
+      about a file that no longer has the widget.
+
+      **What shipped this tick is the instrument, not the pill** — the pill
+      fix is a Dart change that re-baselines `10_browse.png`, which is the
+      next tick. That is the deliberate boundary: a 52 dp target is a real
+      defect but it is a *visible* one, and the fix needs the golden gate.
+
+      *Seven rows re-pinned, and each arithmetic **re-read against the
+      source at its new line** rather than carried over* — `chat:1401`
+      (56x56 icon bubble), `customer_home:1239` / `:1286`, `project_new:905`
+      (18x2 + 25.6 = 61.6, with `fieldPad` re-read at `app_theme.dart:215`),
+      `worker_home:1899` (the `_FilterBar`'s `SizedBox(height: tapMin)`),
+      `app_tab_bar:281`, `ui.dart:380` (`SelectableTile`, whose claim
+      "92 or infinity" was re-checked against all four call sites —
+      `auth_screen` passes 92 twice, `category_grid` infinity twice). The
+      eighth row is **not** re-pinned: it is replaced by the failing one
+      above, which is the same construct at its new home.
+
+      **Result: 8 STALE -> 0 STALE, and the tool's exit 1 now names a real
+      defect instead of housekeeping.** `MEASURED` 9 -> 10 pass, 1 **fail**.
+
+      **Gate:** `flutter analyze` -> **No issues found!** (12.0 s). Full suite
+      via `tool/run_tests.py` -> **2168 tests, 12/12 shards green**, elapsed
+      **16:48** (the previous tick recorded 2168 as well, so the count did
+      not drop). **Shard 8 answered in 1:04** — the 6 Oct "deadline did not
+      fire" hang did not recur. **No Dart was written this tick** — one
+      Python file — so nothing could have gone red, and the run confirms it.
+
+      **Next item:** the **52 dp trade pill**, `trade_filter_bar.dart:266` and
+      its `SizedBox(height: 60)`. It is the one row this instrument now
+      reports as a *provable* fail, it has pixels behind it, and fixing it
+      needs `10_browse.png` re-baselined — so it is a real Dart slice with a
+      golden, not a rename. Then the R4 `ui.dart` slice (7 sites) is still
+      untouched and still unblocked by anything but memory.
+
+      **Honest limits.** The 52 px figure is a read of the **committed
+      golden**, not a fresh render — this box refused the build for the first
+      part of the tick and I am not claiming a new screenshot exists. The
+      seven re-pinned rows are static arithmetic re-read from source; they
+      are *floors*, and `test/tap_target_test.dart` still owns the real hit
+      rects, which is why this tick did not claim them verified.
