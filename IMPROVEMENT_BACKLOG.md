@@ -23679,8 +23679,74 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       re-running the file: **identical failure with the stash applied.** None is
       mine and none was fixed here.
 
-- [ ] **`card_recipe_test.dart` R4 is red: the off-grid spacing ratchet reads
-      198 against a budget of 197.** *Pre-existing, measured 6 Oct.* The rule is
+- [x] **`card_recipe_test.dart` R4 was red: the off-grid spacing ratchet read
+      198 against a budget of 197.** *SHIPPED 6 Oct* — and the "pre-existing
+      debt" description this item carried was wrong. `87e234a` -> remote
+      `77227d2`.
+
+      **The item said "104 sites across 20 files ... a design pass over several
+      screens, not a one-line fix". None of that reproduces.** R4 replicated
+      exactly in Python gives **198 literals across 27 files** — the count was
+      honest, the shape was not — and bisecting it over history pins the whole
+      of the excess to **one commit**:
+
+          1821900~   197
+          1821900    198   <- "profile: a truncated reviews list said nothing"
+          HEAD       198
+
+      `1821900` (5 Oct) added exactly one off-grid literal, `EdgeInsets.only(
+      top: 2)` — the gap above the new «reviews are missing» annotation on the
+      contractor profile. The tick that added it ran its own two files and
+      shipped a red suite, which is why this surfaced two days later wearing
+      someone else's name.
+
+      *Shipped:* `top: 2` -> `AppTheme.s4`. **Not** a raised budget (the
+      backlog's own instruction, and raising it deletes the ratchet) and not a
+      27-file sweep. Count 198 -> 197, ratchet armed again. Precedent in this
+      file: the plan-account tick fixed the same ratchet with `AppTheme.s8`.
+
+      **R4 guards the COUNT; nothing guarded this GAP**, so a refactor moving it
+      back to 2 would not have gone red. New case in
+      `reviews_section_short_list_test.dart` pins the annotation's own top inset
+      at `AppTheme.s4`.
+
+      *Measured, not asserted — and the measurement is the finding.* Two runs of
+      `reviews_short_list_shot_test.dart` on **identical code** differ by **1442
+      raster rows** on this host (font antialiasing; the amber band holds at
+      y1956-2169 in both, so geometry did not move). **A pixel diff would have
+      "proved" a 2 dp change by measuring noise**, which is why the test reads
+      layout rects. Two earlier assertions were wrong for real reasons — the
+      gap between two *cards* is 14 (the review row's pre-existing `bottom: 10`
+      plus the inset), and the inset is the Padding rect **minus** the card
+      rect — so the widget tree was dumped and the numbers read off it.
+
+      *Red before green:* reverted to `top: 2` -> `Expected: <4.0> Actual:
+      <2.0>`; restored -> green.
+
+      *Gate:* `flutter analyze` -> **No issues found!**; `card_recipe_test.dart`
+      (red at HEAD, now green) + `reviews_section_short_list_test.dart` ->
+      **+23 all passed**. Shots 25/26 re-rendered, no `.ERROR.txt`. Local
+      `87e234a` -> remote `77227d2`, both blobs MATCH, `git diff HEAD
+      origin/main` empty.
+
+      **The whole-suite count was NOT verified**: `tool/run_tests.py` was still
+      running at +20 min on this 2-core box when the tick ended, so "pass count
+      must not drop" was checked only for the files this change touches. The
+      two other red files below are untouched by this commit.
+
+- [ ] **OPEN — the two remaining pre-existing red files.** *Recorded 6 Oct, still
+      red at the commit above.* `first_char_measurement_test` (4 unexcused
+      sites, `worker_phone_search.dart:132-133`) and `place_seed_test` (a real
+      `RenderFlex` overflow at `worker_card.dart:45`). Neither is in the tree
+      this tick touched, but **both were pre-existing and unrecorded as such in
+      the same way this item was** — the next tick should treat them the same
+      way: bisect the regressor before believing the description attached to
+      them. `place_seed_test` clips real UI on a shipping screen and wants a
+      render, not a guess.
+
+- [ ] **`card_recipe_test.dart` R4 — the sweep itself is still unfinished, and
+      this tick did not pretend otherwise.** *The remaining 197 are pre-existing
+      and were not introduced here.*
       a count over `lib/` of `EdgeInsets.*` literals not divisible by 4, and it
       is a ratchet: *"this number may only go down"*. It is **198 at HEAD with no
       local changes at all**, so a previous tick shipped a red full suite and
