@@ -23774,14 +23774,16 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 101 on 6 Oct;
-      101 remain across 21 files. Do not read the slice below as the sweep
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 85 on 6 Oct;
+      85 remain across 20 files. Do not read the slice below as the sweep
       being finished.**
       *Slices shipped 6 Oct: `62d1772` -> remote `a08991a` (projects, 197 -> 185),
       the second one below (worker_home, 185 -> 164, 19 sites), the third one
       below (`071d632` -> remote `e43080b`, project_new, 164 -> 140, 24 sites),
-      and the fourth one below (skeletons + chat + my_portfolio, **140 -> 101,
-      39 sites**).*
+      the fourth one below (skeletons + chat + my_portfolio, 140 -> 101, 39
+      sites), and the fifth one below (`49da0ad` -> remote `c059d31`,
+      **customer_home + category_grid + client_start_card, 101 -> 85, 16
+      sites**).*
 
       **Second slice — `worker_home_screen.dart`, 19 sites -> zero. The screen
       was not one list, it was SIX bands on one left edge.** The entry above says
@@ -24049,19 +24051,126 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       layout slice, and a tick that quietly widens the gate it is being measured
       by is not measuring itself.*
 
-      **Remaining: 101 literals across 21 files.** Biggest first, same shape of
-      slice: `customer_home_screen.dart` (14), `ui.dart` (11),
-      `auth_screen.dart` (10), `worker_profile_screen.dart` (9),
-      `profile_screen.dart` (8), `browse_screen.dart` (7). Same standing
-      instruction, now paid twice: **check whether it is one column or several
-      before touching it.** On `chat_screen` the answer was four bands and
-      three of them were untouched by the slice that moved the fourth.
-      **On `project_new_screen` (24): check whether it is one column or several
-      before touching it** — that is the lesson of the slice above, and it is
-      free to check. `AppTheme.gutter` = 18 is off-grid and has 4 live uses
-      (`customer_home`, `subscription_screen` x3, and none on worker_home now);
-      sweeping a screen to `s16` while a neighbouring band still reads `gutter`
-      is the mistake this entry has now seen twice.
+      **Fifth slice — `customer_home_screen.dart` + `category_grid.dart` +
+      `client_start_card.dart`, 16 sites -> 2. 101 -> 85. The column AGREED,
+      which is the finding, and it is the inverse of the last three slices.**
+
+      The standing instruction has been paid twice with the same answer
+      (chat: four bands, three untouched; project_new: four edge systems), so
+      the expectation going in was that this screen was a third instance. **It
+      is not.** Every band on the client home sits at **18**, and it always
+      did — there is nothing to repair. The defect is one layer down: the six
+      bands agreed **by coincidence**, each writer having typed their own
+      literal `18`, while the one band already using `AppTheme.gutter` (the
+      stale-market strip, from the project_new slice) agreed with the five that
+      did not.
+
+      **That is R4's blindness in the direction the last three slices never
+      exercised.** R4 counts literals, so it cannot distinguish agreement from
+      disagreement — and once a sweep replaces six spellings with one
+      identifier, *every one of them stops counting*. From that moment the
+      screen looks swept to the ratchet while six bands' worth of drift can
+      re-enter through a single band nobody re-reads, which is exactly how chat
+      and project_new got their two and three edges. So on this screen the
+      count was never the work; the guard was.
+
+      | what | was | now | why |
+      | --- | --- | --- | --- |
+      | 6 x page `18` | literal `18` | `AppTheme.gutter` | **rename, 0 px** — all six ARE the token |
+      | `_PostProjectBanner` top | `14` | `AppTheme.s12` | the only off-grid gap in the column |
+      | `ClientStartCard` top | `14` | `AppTheme.s12` | **the same band, typed twice** |
+      | skeleton row gap | `12` | `AppTheme.s12` | already on-grid, just unsaid |
+      | `_HomeHeader` bottom | `20` | `AppTheme.s20` | the header's own rhythm |
+
+      **`_PostProjectBanner` and `ClientStartCard` are ONE band in two files.**
+      `firstRun` swaps the publish banner for the three-step guide in the same
+      slot, and both carried `fromLTRB(18, 14, 18, 0)` — three numbers typed
+      twice. Sweeping the screen and leaving the card would have given a brand
+      new user a different column from a returning one, and R4 would have gone
+      green on it. **`CategoryGrid` and `ClientStartCard` have exactly one
+      caller each — this screen** — so their insets are this column's edges by
+      definition, not a shared widget's business. That is what made them fair
+      game in a "sweep the screen" slice, and it is worth stating because the
+      same reasoning does NOT generalise to a widget with a second screen.
+
+      **Two literals deliberately left, and the split is the honest part.**
+      The location pill's `vertical: 7` is a **chip proportion, not a column
+      edge**, and three sites in the app type it (`customer_home`,
+      `worker_profile`, `project_card`). Sweeping one of three would make two
+      screens disagree about the same pill for 1 dp — the same argument the chat
+      divider's `5` made two slices ago. It wants a named token and its own
+      slice. The `1` in `i == count - 1` is **row-index arithmetic that R4
+      counts as spacing**, because `_literals()` tokenises every number in the
+      call body — the ternary condition included. Recorded, not "fixed":
+      editing it to satisfy the counter would be faking a slice.
+
+      **Pixels, measured A/B on the real render. The rename claim is the one
+      that needed proving.** `04_customer_home` re-baselined, **5.06% / 16 865
+      px**. The banner band moved **260..347 -> 258..345**, exactly the 2 dp
+      its top padding lost, and **every band's left edge is byte-identical
+      before and after** — 18/373 on the banner, 202/373 on the category and
+      contractor strips, 29 and 548 unchanged — which is precisely what a
+      rename must produce and the thing that would not be true if six literals
+      had been "swept" to a different number. 412 of the 500 rows below the
+      banner match `BEFORE[y+2]` **exactly**; the remaining 80 are the
+      antialiased corner of a card at the fold, not geometry. Last ink row
+      unchanged at **842**, zero overflow-stripe pixels, no `.ERROR.txt`.
+
+      **Red before green on the final version — three bands sabotaged in turn.**
+      Banner -> `Expected: <18.0> Actual: <16.0>`; category `ListView` ->
+      `<18.0>` / `<14.0>`; first-run card -> `<18.0>` / `<20.0>`. The
+      **`ListView` case is the one that matters**, because three of this
+      screen's bands are lists: a list hands its padding to an internal
+      `SliverPadding` and `ListView.padding` is `null`, so the naive read
+      answers 0.0 and passes for any inset whatsoever. The trap is inherited
+      from `chat_column_edges_test.dart` and it is load-bearing here, not
+      decorative.
+
+      **And the test's first cut measured nothing at all — a `pumpWidget` trap
+      worth more than the geometry.** The second case asserts the guide appears
+      for an empty account, and it failed: **`pumpWidget` REUSES the `State`
+      when the widget type matches**, so the second pump on the same test left
+      the first pump's `_firstRun`, its futures and its `initState` in place
+      and the guide never re-decided. The fixture now keys the screen. This is
+      the third distinct way a geometry test in this repo has measured a
+      different widget than the one it named (`Padding` -> outer edge,
+      `ListView` -> null padding, and now state reuse) — *find the node that
+      actually holds the value, or the test reads a number that cannot fail.*
+
+      *Gate:* `flutter analyze` -> **No issues found!**; **2054 tests, 12/12
+      shards green, 0 failures** (37:33), was 1994 verified -> +60, none
+      dropped. `_offGridBudget` **101 -> 85, lowered**.
+
+      **The runner cap, re-measured — this closes the 6 Oct KNOWN BUG.** Run
+      with `--shard-deadline 600`, the two shards that HUNG last tick both
+      passed first attempt: **shard 3 in 5:09 (266 tests)** and shard 6 in
+      3:09 (31). So the tick-4 conclusion — "the deadline fires correctly but
+      the cap is below this suite's shard time" — is now **confirmed rather than
+      inferred**, and the entry's other reading ("the deadline did not fire") is
+      wrong. `shard 3` needs 5:09 against a 300 s cap with no headroom. The
+      default stays 300 because widening the gate's constants is a separate
+      decision from a layout slice, but **any tick needing a real total must
+      pass `--shard-deadline 600`**; at 300 a green suite is unreachable by
+      construction. 12/12 shards, none never started.
+
+      **Remaining: 85 literals across 20 files.** Biggest first, same shape of
+      slice: `ui.dart` (11), `auth_screen.dart` (10),
+      `worker_profile_screen.dart` (9), `profile_screen.dart` (8),
+      `browse_screen.dart` (7), `profile_edit_screen.dart` (5). Same standing
+      instruction, now paid **three** times with two different answers: check
+      whether it is one column or several before touching it. On chat it was
+      four bands and three were untouched; on project_new it was four edge
+      systems and two sheets disagreed; **on customer_home it was one column
+      that already agreed and the defect was six spellings of one number** —
+      which is the case that only the geometry guard catches, and the reason
+      `ui.dart` (a shared widget kit, so no single caller) needs a different
+      question than "which column does it sit on".
+      `AppTheme.gutter` = 18 is off-grid and now has **12 live uses** across
+      `customer_home`, `project_new`, `subscription_screen` x3,
+      `my_portfolio`, `skeletons` x4. Sweeping a screen to `s16` while a
+      neighbouring band still reads `gutter` is the mistake this entry has now
+      seen twice — and `ui.dart` is where a shared component would silently
+      apply one inset to screens that hold different ones.
 
       *The remaining 185 are pre-existing and were not introduced here.*
       a count over `lib/` of `EdgeInsets.*` literals not divisible by 4, and it
