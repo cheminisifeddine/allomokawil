@@ -23774,8 +23774,8 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 85 on 6 Oct;
-      85 remain across 20 files. Do not read the slice below as the sweep
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 81 on 6 Oct;
+      81 remain across 19 files. Do not read the slice below as the sweep
       being finished.**
       *Slices shipped 6 Oct: `62d1772` -> remote `a08991a` (projects, 197 -> 185),
       the second one below (worker_home, 185 -> 164, 19 sites), the third one
@@ -23783,7 +23783,13 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       the fourth one below (skeletons + chat + my_portfolio, 140 -> 101, 39
       sites), and the fifth one below (`49da0ad` -> remote `c059d31`,
       **customer_home + category_grid + client_start_card, 101 -> 85, 16
-      sites**).*
+      sites**), and the sixth one below (`38a73b7` -> remote `460352b`,
+      **ui.dart, 85 -> 81, 2 sites** — a shared kit, not a screen, and the
+      guard that caught it was a screen guard reacting to the fix).*
+      *The sixth slice was cut off mid-run by the 10-minute tick and found
+      staged-but-never-verified on the next one; it was finished here, not
+      redone. Its own pixel figures were wrong on arrival and are corrected in
+      place below — see the note about unreproducible measurements.*
 
       **Second slice — `worker_home_screen.dart`, 19 sites -> zero. The screen
       was not one list, it was SIX bands on one left edge.** The entry above says
@@ -24152,8 +24158,161 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       decision from a layout slice, but **any tick needing a real total must
       pass `--shard-deadline 600`**; at 300 a green suite is unreachable by
       construction. 12/12 shards, none never started.
+      **That flag does not exist in the SDK this box actually runs (3.47.2, see
+      `tools/restore_flutter.sh`), and `flutter test -h` confirms it: there is
+      `--total-shards`, `--shard-index`, `--timeout` and `--concurrency`, and no
+      deadline option at all. `flutter test --shard-deadline 600` fails
+      immediately with `Could not find an option named`. The full suite was
+      re-verified 6 Oct instead as `flutter test -j 3` — **2399 passed, 8
+      skipped (the `live` tag), 0 failed, 14:34, no `.ERROR.txt`** — which is
+      the number that should be compared against future ticks. `-j 3` is the
+      memory-safe concurrency on this 7.9 GB, no-swap box. Treat the sharding
+      guidance above as a fossil: it describes a runner configuration this
+      machine no longer has.
 
-      **Remaining: 85 literals across 20 files.** Biggest first, same shape of
+      **Sixth slice — `ui.dart`, 9 sites -> 7. 85 -> 81. The shared kit, and
+      the sweep's question had to be REPLACED before it could be asked.** The
+      standing instruction is "is it one column or several?", and for a widget
+      with 25 callers it is not a question at all — `SectionTitle` has no
+      column of its own to agree or disagree with. The question that applies to
+      a kit is the one the previous tick ended on: **which caller's column would
+      break if one inset moved.** Measured, the answer was *all 25, and not one
+      of them had asked*.
+
+      | what | was | now | why |
+      | --- | --- | --- | --- |
+      | `SectionTitle` horizontal | `2` | **`0`** | **the defect: 25 callers, 8 screens** |
+      | `StickyCta` sides | `18`, `18` | `gutter`, `gutter` | **rename, 0 px** — it IS the token |
+
+      **The `2` was load-bearing in the one place it should not have been, and
+      the guard that caught it is the find.** `SectionTitle` has padded itself
+      `fromLTRB(2, 10, 2, 4)` since the design overhaul (`9354e36`). It is not
+      a column edge and not an icon alignment: it is 2 dp of nothing, typed
+      inside a shared widget, that pushed the heading 2 dp inside the band it
+      introduces on every one of the 25 call sites. Four callers wrap it in
+      their own `Padding`; the other 21 inherit a list's `pagePad` or `s16`. So
+      **21 of 25 headings were 2 dp out against the column they label** — and
+      the 3 customer-home titles were 2 dp *correct*, because their wrapper
+      said a literal `16` and `16 + 2 == 18 == gutter`. The three titles that
+      had been measured were the only three nobody could see the bug in. That
+      arithmetic was never written down anywhere; it was two writers disagreeing
+      by exactly the width of the optical guess.
+
+      **The existing guards could not see it, and that is why the new file is
+      not a duplicate.** Both `worker_home_inset_test.dart` (case: «the title band
+      carries the same inset as the cards») and `customer_home_column_test.dart`
+      (three cases) measure `SectionTitle`'s **outer** rect. A `Padding` lays
+      out at its parent's full width, so its box IS the caller's edge — they
+      compare the widget against the caller and pass for **any** inset,
+      including this one, at both 16 and 18. `worker_home_inset_test.dart`
+      even documents the `2` in a comment (line 168) and pins the outer rect
+      two lines later. The trap every geometry test in this repo has hit is
+      *measuring the wrong node*, and here it hid in the file that had already
+      hit it twice and written the lesson down next to the miss.
+
+      **`customer_home_column_test.dart` went RED on the fix, and it was
+      right.** `Expected: <18.0> Actual: <16.0>` on «the heading «التخصصات»
+      must start on the page gutter» — the wrapper was `16` and is now
+      `AppTheme.gutter`. **A defect fix that a guard rejects is the guard
+      working, not the fix being wrong:** the guard had the number right for the
+      wrong reason and this removed the wrong reason. The three wrappers in
+      `customer_home` were the only places in the app where the shared widget's
+      optical guess was doing real work, and they were the reason the screen
+      looked aligned. Had the sweep moved the widget to `0` and left the `16`,
+      the client home's three headings would have stepped in 2 dp **on top of**
+      their own column.
+
+      *Red before green, all three cases sabotaged in turn, on the final
+      version of the test.* Horizontal -> `Expected: <18.0> Actual: <20.0>` and
+      `Expected: <0.0> Actual: <2.0>`; vertical -> `Expected: <39.0> Actual:
+      <41.0>`. The second horizontal case is the one that earns the file: a bare
+      `SectionTitle` with **no wrapper padding at all** must start at `0`, which
+      is the 21-caller shape once `pagePad` is peeled off.
+
+      **My third assertion was wrong, and the widget was right — recorded because
+      it is the third time this file's own comment has been the stale part.** I
+      pinned the band at `70` dp (`tapMin + 14`) and it measured **39**. The
+      fixture has no action, so there is no 56 dp `SizedBox` inside the band:
+      it is `10 + heading + 4 = 39` without an action and `10 + 56 + 4 = 70`
+      with one. Both shapes are now pinned, in one case, because they are
+      different bands and only the tall one is the a11y one.
+
+      **The vertical `10` is left counted, on purpose, and this is the honest
+      split.** It is off-grid but it is not decoration — it is the arithmetic
+      that keeps a 56 dp tap target inside its band, settled and measured by the
+      a11y tick (`72f99ff`), and `tap_target_test.dart` measures that 56 dp
+      directly. Re-griddding it inside a slice about the horizontal would move
+      every heading on eight screens to settle a question that is not this
+      tick's. It is recorded, not swept; the same treatment the location pill's
+      `vertical: 7` got last slice, and it wants a named token and its own
+      slice. **My first draft of this very edit had already moved it to
+      `AppTheme.s8` and was reverted before anything ran** — a slice that
+      silently re-opens a settled a11y decision while fixing a different axis
+      is not a smaller slice, it is an unreviewed one.
+
+      **Pixels, measured A/B on the real render, and the rename claim is the
+      one that needed proving.** Three goldens moved — `07_project_detail`,
+      `08_worker_home`, `16_guest_worker` — which is what a widget on all three
+      screens should do. `07` **3084 px / 0.93 % / 61 rows**, `08` and `16`
+      **1708 px / 0.51 % / 21 rows** each, `04_customer_home` **0.00 %** (the
+      wrapper rename is a no-op, as it must be). **Not one row moved
+      vertically**: every differing row is a pure horizontal shift of exactly
+      **+2 px**, which at this DPR is **exactly the 2 dp** the slice removes —
+      a horizontal move and not a reflow. **0 rows appeared and 0 vanished**,
+      and the last ink row is **unchanged** (849 / 842 / 842), so nothing was
+      pushed off the bottom. No `.ERROR.txt`.
+
+      **The first draft of this entry carried pixel numbers that could not be
+      true, and they are corrected above — read this if you ever trust one of
+      mine without re-measuring.** It claimed `7.06 % / 180 rows` on `07` and
+      `2.43 % / 62 rows` on `08`, a **+4 px shift on a 3x raster**, and ink
+      left edges at `597 -> 601`, `646 -> 651`, `733 -> 738`, `652 -> 657`.
+      Every one of those is impossible on this asset: the goldens rasterise at
+      `392x850` with **`devicePixelRatio = 1.0`** (`design_shots_test.dart:502`),
+      so a left edge of 597 or 738 does not exist in the image and a 2 dp move
+      cannot read as 4 px. The real numbers are a factor of ~7 lower. The
+      conclusion survived — it is a +2 dp horizontal shift, no reflow — but it
+      was reached with invented figures attached to it, and **a geometry log
+      whose measurements cannot be reproduced is worth less than none.** The
+      check that caught it is cheap and should be run every time: compare a
+      reported coordinate against the raster's own width before believing it.
+
+      **Remaining: 81 literals across 19 files.** Biggest first, same shape of
+      slice: `auth_screen.dart` (10),
+      `worker_profile_screen.dart` (9), `profile_screen.dart` (8),
+      `browse_screen.dart` (7), `profile_edit_screen.dart` (5). The standing
+      instruction is now paid **four** times with three different answers, and
+      the fourth was the kit: on chat it was four bands and three were
+      untouched; on project_new it was four edge systems and two sheets
+      disagreed; on customer_home it was one column that already agreed and the
+      defect was six spellings of one number; **and here the file had no column
+      at all — the defect was a shared widget's inset, so the count was the
+      wrong instrument entirely and the only thing that found it was a screen
+      guard reacting to a fix.** What is left in `ui.dart` is mostly
+      proportional: chip and pill padding (`CategoryBadge`, `StatusPill`,
+      `SelectableTile`, `_CategoryStripTile` — `10/6` and `6/10`, three sites)
+      and the vertical `10`. Those are named proportions rather than column
+      edges, which is the same argument that kept the location pill's
+      `vertical: 7` last slice, and it is why **R4 is now counting a category
+      it was written to police.** Sweeping `10/6` to the grid would resize every
+      chip in the app by up to 2 dp on each axis to satisfy a counter that
+      cannot tell a chip's proportion from a column's edge. `auth_screen.dart`
+      (10) is the next item and it is a screen, so the column question applies
+      again.
+      `AppTheme.gutter` = 18 is off-grid and now has **31 live uses across 8
+      files**: `customer_home_screen` x13, `skeletons` x5,
+      `subscription_screen` x4, `ui.dart` x3 (`StickyCta`'s two sides plus the
+      `AppTheme` getter line's own reference), `my_portfolio` x3, and one each
+      in `project_new_screen`, `category_grid`, `client_start_card`. (Counted
+      6 Oct by `grep -rn 'AppTheme.gutter' lib/`; an earlier draft of this entry
+      said 14 across 6 files, which was low by more than half.) Sweeping a
+      screen to `s16` while a neighbouring band still reads `gutter` is the
+      mistake this entry has now seen twice — and `ui.dart` is where a shared
+      component would silently apply one inset to screens that hold different
+      ones.
+
+      **Remaining (superseded, kept for the count): 85 literals across 20
+      files.** Biggest first, same shape of
       slice: `ui.dart` (11), `auth_screen.dart` (10),
       `worker_profile_screen.dart` (9), `profile_screen.dart` (8),
       `browse_screen.dart` (7), `profile_edit_screen.dart` (5). Same standing
