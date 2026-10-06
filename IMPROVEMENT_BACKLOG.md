@@ -23774,9 +23774,58 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — the sweep itself is still unfinished, and
-      this tick did not pretend otherwise.** *The remaining 197 are pre-existing
-      and were not introduced here.*
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 185 on 6 Oct;
+      185 remain. Do not read the slice below as the sweep being finished.**
+      *First slice shipped 6 Oct as `62d1772` -> remote `a08991a`.*
+
+      **What one screen's worth actually costs, measured — use this to size the
+      rest.** `projects_screen.dart` alone held **12 of the 197 literals across
+      6 sites** and now holds **zero**. So the sweep is roughly **16 screens at
+      this size**, not one more pass, and each is a design decision.
+
+      **The inset was wrong, not merely ungridded.** The cards inside the list
+      carry `AppTheme.cardPad` = 16 dp, so a list inset of 18 hung every card
+      **2 dp outside the content it was framing**. Sweeping to `AppTheme.s16`
+      aligns them; the vertical literals went to tokens at the same time
+      (`18 -> s20`, `8 -> s8`, `12 -> s12`, `28 -> s28`). `_offGridBudget`
+      **197 -> 185, lowered, not raised** — the ratchet survives.
+
+      **Sweeping the list alone introduced a defect, and the guard caught it.**
+      `FeedSearchField` hardcoded its own `18`, so the search box sat 2 dp right
+      of the cards under it — a misalignment nobody would have noticed and
+      everybody would have felt. `horizontalInset` is now a **parameter the
+      caller owns** (`feed_search_field.dart`), so the shared left edge is one
+      number by construction instead of two writers typing the same literal.
+      `worker_home` is still on 18 and was **not** swept, so it keeps the
+      default and is untouched — this is the pattern for every remaining file.
+
+      **R4 guards a COUNT; nothing guarded the GAP.** A refactor typing `18`
+      back in would have gone green. New `test/projects_list_inset_test.dart`
+      reads **RenderBoxes** and pins the geometry: card inset is `s16`, both
+      sides, and the first card is **flush with the search field above it**.
+      *Red before green:* inset reverted to 18 -> `Expected: <16.0> Actual:
+      <18.0>`.
+
+      **Measured two ways, and the second is the lesson.** The design shot moved
+      **27.00 -> 25.00 dp on both edges**, no `.ERROR.txt` (no overflow) — but
+      pixels are corroboration, not the assertion, because two runs of the
+      shots on identical code differ by **~1442 raster rows** here. The test
+      reads rects.
+
+      *Gate:* `flutter analyze` -> **No issues found!**; suite **1994 tests
+      (was 1991), 12/12 shards green in 16:26**. Shard 1 failed attempt 1 on
+      `app_source_scope_test` **only** — the new file was untracked when the
+      runner started — and is green standalone after `git add`. The guard was
+      right and the fix was to stage the file, not to weaken the guard.
+
+      **Remaining: 185 literals across 26 files.** Biggest first, so a later
+      tick keeps the same shape of slice: `project_new_screen.dart` (24),
+      `worker_home_screen.dart` (19 — **do this one with the search field**,
+      it is the second `FeedSearchField` caller and its list is on 18 too),
+      `skeletons.dart` (18), `chat_screen.dart` (16),
+      `customer_home_screen.dart` (14), then `projects_screen`-sized files.
+
+      *The remaining 185 are pre-existing and were not introduced here.*
       a count over `lib/` of `EdgeInsets.*` literals not divisible by 4, and it
       is a ratchet: *"this number may only go down"*. It is **198 at HEAD with no
       local changes at all**, so a previous tick shipped a red full suite and
