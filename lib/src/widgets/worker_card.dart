@@ -14,8 +14,11 @@ import 'rating_stars.dart';
 
 /// Contractor card — used in the top-rated strip and in browse results.
 ///
-/// `variant: vertical` is the compact 168px column used in horizontal strips;
-/// `variant: row` is the full-width list row used in browse.
+/// `variant: vertical` is the compact column used in horizontal strips, and it
+/// only fits if the caller gives it [AppTheme.stripH]: the tallest card this
+/// file draws is a paused contractor's, 165 dp of content, and it is clipped
+/// rather than shrunk if the box is short. `variant: row` is the full-width
+/// list row used in browse, which is unbounded vertically and cannot clip.
 enum WorkerCardVariant { vertical, row }
 
 class WorkerCard extends StatelessWidget {
@@ -41,7 +44,7 @@ class WorkerCard extends StatelessWidget {
   Widget _vertical() {
     return _Pressable(
       onTap: onTap,
-      width: 172,
+      width: AppTheme.stripCardW,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

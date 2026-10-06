@@ -103,6 +103,32 @@ class AppTheme {
   /// component gap, so it lives alone and never gets reused as one.
   static const double gutter = 18;
 
+  /// The width and height of one card in the client's horizontal contractor
+  /// strip, and the reason the strip is as tall as it is.
+  ///
+  /// A layout bound, not a component gap, and it exists because of a
+  /// measurement rather than a preference. The vertical card draws up to six
+  /// stacked lines — avatar row, name, specialty, rating row, years, and
+  /// «غير متاح الآن» when the man is paused — and the tallest real card
+  /// measures **165 dp** of content with the real Cairo font loaded, not the
+  /// test fallback.
+  ///
+  /// At the old strip height of 190 the column was handed 190 - 34 = 156 dp,
+  /// so that card overflowed by 9 dp and Flutter painted the yellow-and-black
+  /// stripe over it. The one genuinely paused contractor in this market —
+  /// id 73 — had his "not taking work" line clipped off the bottom of the
+  /// card on the very screen a customer picks him from, which is the opposite
+  /// of what that label was added to say.
+  ///
+  /// At 208 the column gets 174 dp: 9 dp of slack against real content, so a
+  /// card that fits by 1 dp is not what ships.
+  static const double stripCardW = 172;
+  static const double stripH = 208;
+
+  /// `cardPad` is 16 dp on each edge and [cardLine] a 1 dp border, so the
+  /// inner height the strip actually offers the card.
+  static const double stripInnerH = stripH - 34;
+
   static const EdgeInsets pagePad =
       EdgeInsets.fromLTRB(gutter, s8, gutter, s28);
 

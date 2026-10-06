@@ -20,6 +20,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:allomokawil/src/core/theme/app_theme.dart';
 import 'package:allomokawil/src/data/worker_stats_copy.dart';
 import 'package:allomokawil/src/models/enums.dart';
 import 'package:allomokawil/src/models/worker.dart';
@@ -45,12 +46,28 @@ WorkerProfile _row({required int id, required Object? available}) =>
       'verification_status': 'verified',
     });
 
+/// Pumps [w] in the box the surface really gives it.
+///
+/// **The height constraint is the point, and it was missing for one release.**
+/// The vertical card is only ever laid out inside a fixed-height strip, so a
+/// `SingleChildScrollView` here (what this helper used to be) hands the column
+/// an unbounded height: the card can never overflow and the guard below passes
+/// on a card that clips 9 dp of its own content on the shipping screen. The
+/// vertical arm therefore gets [AppTheme.stripH] — the number the strip
+/// actually uses — and the row arm stays unbounded, because browse really does
+/// let it size itself.
 Future<void> _pump(WidgetTester t, WorkerProfile w, WorkerCardVariant v) =>
     t.pumpWidget(MaterialApp(
-      home: Scaffold(body: SingleChildScrollView(child: WorkerCard(
-        worker: w,
-        variant: v,
-      ))),
+      home: Scaffold(
+        body: Center(
+          child: v == WorkerCardVariant.vertical
+              ? SizedBox(
+                  height: AppTheme.stripH,
+                  child: WorkerCard(worker: w, variant: v),
+                )
+              : SingleChildScrollView(child: WorkerCard(worker: w, variant: v)),
+        ),
+      ),
     ));
 
 void main() {
@@ -128,11 +145,13 @@ void main() {
       expect(find.text('غير متاح الآن'), findsNothing);
     });
 
-    testWidgets('the fixed 168 dp column does not overflow with the line added',
+    testWidgets('the strip column does not overflow with the line added',
         (t) async {
-      // The strip card is a fixed-width column. A plain text line cannot make
-      // it taller than the years line above it; this pins that, so a future
-      // Wrap here throws in CI rather than on a 360 dp phone.
+      // The strip card is a fixed-height column. This is the guard that was
+      // supposed to catch it and did not, for two reasons that have both been
+      // fixed: the test pumped the card unbounded (see `_pump`), and it was
+      // named after a "168 dp" column that never existed — the strip was 190.
+      // `_pump` now hands it [AppTheme.stripH], the height the strip uses.
       await _pump(t, _row(id: 73, available: 0), WorkerCardVariant.vertical);
       expect(t.takeException(), isNull);
     });

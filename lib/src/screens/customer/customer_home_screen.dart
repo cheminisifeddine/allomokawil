@@ -928,7 +928,7 @@ class _ExploreView extends StatelessWidget {
                         ),
                       ),
                     SizedBox(
-                      height: 190,
+                      height: AppTheme.stripH,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         padding: const EdgeInsets.symmetric(horizontal: 18),
@@ -1444,7 +1444,7 @@ class _WorkerStripSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 190,
+      height: AppTheme.stripH,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         physics: const NeverScrollableScrollPhysics(),
@@ -1452,7 +1452,7 @@ class _WorkerStripSkeleton extends StatelessWidget {
         itemCount: 3,
         separatorBuilder: (_, __) => const SizedBox(width: 12),
         itemBuilder: (_, __) => Container(
-          width: 172,
+          width: AppTheme.stripCardW,
           padding: AppTheme.cardPadRail,
           decoration: AppTheme.cardDecoration,
           child: Column(
