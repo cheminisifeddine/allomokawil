@@ -267,5 +267,47 @@ void main() {
           reason: 'regression guard: the arm shipped 1 Oct must survive');
       expect(find.byKey(const Key('profile-reviews-partial')), findsNothing);
     });
+
+    testWidgets('the annotation sits on the 4pt grid above the last card',
+        (tester) async {
+      // `top: 2` shipped with this annotation on 5 Oct and was the only
+      // off-grid literal it added: it took the 8pt ratchet in
+      // `card_recipe_test.dart` from 197 to 198, and the tick that added it ran
+      // only its own two files, so the red suite went out unnoticed. The
+      // ratchet already guards the *number*; nothing guards the *gap*, and a
+      // refactor that moved this card back to 2 would not turn it red.
+      //
+      // Measured from the rendered rects rather than from the screenshot: two
+      // runs of this harness on this host differ by ~1400 raster rows of font
+      // antialiasing at identical geometry, so a pixel diff cannot see a 2 dp
+      // change. The layout engine's own numbers can.
+      await _pump(
+          tester, await _boot(worker: _truncatedWorker, reviews: [_oneReview()]));
+
+      // The annotation's OWN top inset: the Padding box it sits in minus the
+      // card it wraps. Measuring the gap between two cards instead would also
+      // catch the review row's own `bottom: 10`, which is a pre-existing
+      // literal and not what this test is about — that one belongs to the 8pt
+      // sweep, not to a guard that would fail on every screen at once.
+      // AppCard paints its own padding on a `Container`, not a `Padding`
+      // widget, so the nearest ancestor `Padding` is the wrapper this gap
+      // lives in. Verified against the rendered tree, not assumed: it is
+      // `EdgeInsets(0, 4, 0, 0)` and its rect starts exactly 4 dp above the
+      // card's.
+      final pad = tester.getRect(find
+          .ancestor(
+              of: find.byKey(const Key('profile-reviews-partial')).first,
+              matching: find.byType(Padding))
+          .first);
+      final card = tester.getRect(
+          find.byKey(const Key('profile-reviews-partial')).first);
+
+      final inset = card.top - pad.top;
+      expect(inset, AppTheme.s4,
+          reason: 'the annotation clears the last review by exactly one grid '
+              'step — `2` shipped here on 5 Oct and took the 8pt ratchet to 198');
+      expect(inset % 4, 0,
+          reason: 'whatever the value, it belongs to the 4pt scale');
+    });
   });
 }

@@ -894,7 +894,12 @@ class _ReviewsSection extends StatelessWidget {
               ),
             if (partial != null)
               Padding(
-                padding: const EdgeInsets.only(top: 2),
+                // On the 4pt grid like every other space on this screen: `2`
+                // was the only off-grid literal this file's 5 Oct annotation
+                // added, and it took the 8pt ratchet in `card_recipe_test.dart`
+                // from 197 to 198 — a red suite shipped on the same tick that
+                // ran only its own two files. See the ratchet, not this comment.
+                padding: const EdgeInsets.only(top: AppTheme.s4),
                 child: AppCard(
                   key: const Key('profile-reviews-partial'),
                   color: AppTheme.accentWash,
