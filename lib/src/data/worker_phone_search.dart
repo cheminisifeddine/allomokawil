@@ -128,9 +128,40 @@ String? phoneQueryDigits(String query) {
   return digits;
 }
 
-bool _isDigit(String ch) =>
-    (ch.codeUnitAt(0) >= 0x30 && ch.codeUnitAt(0) <= 0x39) ||
-    (ch.codeUnitAt(0) >= 0x0660 && ch.codeUnitAt(0) <= 0x0669);
+/// True when [ch] is a character [DzPhone.digits] folds to an ASCII digit.
+///
+/// **Asked of the fold, not of a hand-written range.** This used to compare
+/// `ch.codeUnitAt(0)` against `0x30..0x39` and `0x0660..0x0669` — two literal
+/// ranges copied from a fold that lives in another file, and therefore a
+/// statement about digits that could fall behind the real one. It did:
+///
+/// ```text
+/// ArabicSearch.normalize U+06F0 -> '0'      // Extended-Arabic / Persian
+/// _isDigit(U+06F0)           -> false      // not in either range
+/// ```
+///
+/// [DzPhone.digits] folds U+06F0..U+06F9 as well as U+0660..U+0669 — the
+/// table has carried the Persian row for a long time — so a query pasted out
+/// of a Persian-locale contact card passed the digit-count floor two lines
+/// above, because *that* call folds it, and was then vetoed by this loop.
+/// The answer was null, the numeric arm was skipped, and the text arm searched
+/// name/bio/commune/trades, none of which can contain a digit: the customer was
+/// told nobody matched a number the directory carries on 97 of 97 live rows.
+///
+/// Asking the fold is also what removed this file from the
+/// `first_char_measurement` sweep's red list honestly. Four `codeUnitAt(0)`
+/// sites on a user-typed string are the shape that sweep exists to catch, and
+/// the previous tick's plan was to excuse them as "not user-facing text". They
+/// were user-facing text and the sweep was right; the sites are gone because
+/// the rule they encoded was wrong, not because it was allow-listed.
+bool _isDigit(String ch) {
+  final folded = DzPhone.digits(ch);
+  if (folded.isEmpty) return false;
+  for (final r in folded.runes) {
+    if (r < 0x30 || r > 0x39) return false;
+  }
+  return true;
+}
 
 const String _separators = ' \t+-()._/ ';
 

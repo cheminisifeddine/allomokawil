@@ -43,6 +43,7 @@ import 'package:allomokawil/src/core/network/api_client.dart';
 import 'package:allomokawil/src/core/security/auth_state.dart';
 import 'package:allomokawil/src/core/theme/app_theme.dart';
 import 'package:allomokawil/src/models/worker.dart';
+import 'package:allomokawil/src/core/text/dz_phone.dart';
 import 'package:allomokawil/src/data/worker_phone_search.dart';
 import 'package:allomokawil/src/screens/browse/browse_screen.dart';
 import 'package:allomokawil/src/widgets/ui.dart';
@@ -312,6 +313,45 @@ void _pureRules() {
       ]) {
         expect(phoneQueryDigits(q), isNotNull,
             reason: '«$q» is a number a customer can hold, not a word');
+      }
+    });
+
+    // Added 6 Oct with the `_isDigit` repair. `_isDigit` hand-rolled its own
+    // digit ranges (`0x30..0x39` and `0x0660..0x0669`) and therefore did not
+    // know about U+06F0..U+06F9, the Extended-Arabic / Persian digits that
+    // `ArabicSearch.normalize` **does** fold — and that fold runs two lines
+    // earlier, in the very `DzPhone.canonicalFromDigits(trimmed)` call whose
+    // length this loop then vetoes. So the query passed the digit-count floor
+    // and was rejected by the next loop: `phoneQueryDigits` answered null, the
+    // numeric arm was skipped, and the text arm searched name/bio/commune/
+    // trades — none of which can contain a digit. A customer who pasted his
+    // number out of a Persian-locale contact card was told nobody matched.
+    test('Extended-Arabic digits are digits, because the fold says so', () {
+      // U+06F0 U+06F5 U+06F0 U+06F1 U+06F2 U+06F3 U+06F4 U+06F5 U+06F6 is
+      // «۰۵۰۱۲۳۴۵۶», which the fold reads as 050123456 — nine digits, so it
+      // clears the floor, and it is the number the next line looks for. Before
+      // the repair this answered `null`.
+      expect(phoneQueryDigits('\u06f0\u06f5\u06f0\u06f1\u06f2\u06f3'
+              '\u06f4\u06f5\u06f6'), '050123456');
+      expect(workerPhoneMatches(
+              '\u06f0\u06f5\u06f0\u06f1\u06f2\u06f3\u06f4\u06f5\u06f6',
+              '050123456'),
+          isTrue);
+    });
+
+    // The ratchet, so the next script cannot reopen this hole: whatever the
+    // fold in `ArabicSearch` calls a digit has to be a character this loop
+    // lets through, so no hand-written range can fall behind the fold again.
+    test('the digit test cannot disagree with the fold that runs above it', () {
+      for (var cu = 0; cu < 0x0800; cu++) {
+        final ch = String.fromCharCode(cu);
+        final folded = DzPhone.digits(ch);
+        if (folded.isEmpty) continue;
+        if (!folded.runes.every((r) => r >= 0x30 && r <= 0x39)) continue;
+        expect(phoneQueryDigits('${ch}055000000'), isNotNull,
+            reason: 'U+${cu.toRadixString(16).toUpperCase().padLeft(4, '0')}'
+                ' «$ch» folds to the digit «$folded», so it cannot be the '
+                'character that turns a number into a word');
       }
     });
 
