@@ -23802,6 +23802,86 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       next file, and the same two questions apply to it: one column or
       several, and is anything derived being transcribed somewhere else?
 
+      **AUDITED, NOT SHIPPED — `browse_screen.dart`, all 7 sites, 6 Oct. The
+      box refused the gate for the whole tick, so this is the reading and the
+      measured evidence, and the edit is written down for the tick that can
+      validate it. `tool/build_gate.py` answered **NO ROOM**, exit 1, and it
+      was not a flicker: sampling `MemAvailable` every 12 s for two minutes ran
+      **947 -> 909 -> 908 -> 840 -> 834 -> 809 -> 762 -> 755 -> 724 -> 713 MB**,
+      a monotonic decline across ten samples. The oldest note in this file
+      says the gate "nearly gave up builds it could have run", but this time
+      waiting was the wrong move and the loop protocol's own advice — re-read
+      the gate after a NO ROOM — is what saved the tick from stalling on it.
+      Nothing is building (`pgrep -c java` = 0, no leaked tester, no leaked
+      browser); the holders are pid 67 (the hatch supervisor, 486 MB) and pid
+      2562 (`hermes`, i.e. **this tick**, 549 MB), and ~6.5 GB is held by a
+      process outside this PID namespace. `drop_caches` is refused on a
+      read-only `/proc` even as root, so the shortfall cannot be reclaimed by
+      hand.
+
+      **The finding: this screen has FOUR gutters and R4 can only see one of
+      them.** The standing question was "one column or several?" and the
+      honest answer is **four**, and they disagree:
+
+      | what | inset | measured on `10_browse.png` |
+      |---|---|---|
+      | search field (`browse_screen.dart:513`) | `18` | x18..x373 |
+      | contractor cards (`:471`) | `18` | x18..x373 |
+      | the two **empty** states (`:355`, `:426`) | **`s16`** | not in the list state |
+      | `LoadingList` skeleton (`:346`) | **`all(18)`** | not in the list state |
+      | the trade strip (`trade_filter_bar.dart:162`) | **`14`** | x0..x377 |
+
+      The last one is the defect, and it is invisible to this whole ratchet.
+      `TradeFilterBar` is the only element on the screen painted at a
+      **different** gutter from every other element around it: the strip's own
+      `EdgeInsets.fromLTRB(14, 4, 14, 4)` puts its first pill **4 dp left of
+      the search box above it and 4 dp left of the cards below it**, and it is
+      **clipped at x=0** — the golden shows non-white pixels *starting* at
+      x=0 and the pill bleeding to x=373, not x=377. The strip is the filter
+      control for the list it sits on, and it does not share the list's left
+      edge. So the one screen a client uses to *find* a contractor has the
+      list's cards, the search box and the filter strip on three different
+      left edges, and only two of them are the same number.
+
+      **And the number R4 would have moved is not even wrong — it is right for
+      a different column.** Sweeping `browse_screen.dart`'s 7 literals to
+      `pagePad` would put the cards and the search field on
+      `fromLTRB(gutter=18, s8, gutter, s28)` — top **8** instead of **10** —
+      while the strip stays at 14 and the two empty states stay at 16. The
+      seventh slice's lesson applies a fortiori: moving the 6 the guard can see
+      without moving the strip would have left the screen *worse*, and moving
+      the strip's 14 to 18 is a **4 dp move of a control users tap**, not a
+      rename. That is a separate decision, and it is a **visual change that
+      needs `10_browse.png` re-baselined** — which is a gate I cannot run.
+      So this slice cannot be a mechanical sweep and should not have been
+      started as one.
+
+      **What the edit is, for the tick that can run the gate** — one commit,
+      both files, together, because splitting them is the "band moved,
+      neighbours left behind" shape:
+      1. `browse_screen.dart:471` and `:513` -> `AppTheme.pagePad`, and
+         `:355`/`:426` -> `pagePad` too. The empty states are `s16` today and
+         `EmptyView` is a `Center`, so the 16 is invisible while empty — but
+         the instant the directory has rows those two branches are gone and the
+         cards take over at 18. A state that changes its gutter when data
+         arrives is the same seam `profile_screen` had.
+      2. `trade_filter_bar.dart:162` -> `fromLTRB(AppTheme.gutter, AppTheme.s4,
+         AppTheme.gutter, AppTheme.s4)`. **This is the one with pixels behind
+         it**, and it is why the golden must be re-baselined in the same tick.
+      3. `card_recipe_test.dart` ratchet **60 -> 53** (7 in
+         `browse_screen` + 3 in `trade_filter_bar`), and a guard that asserts
+         the strip's gutter **equals** the list's, which is the assertion R4
+         cannot make: it counts literals, it cannot compare two numbers in two
+         files.
+
+      **Honest limits.** No screenshot of the fixed screen exists — I could not
+      render, so I am not claiming it looks right. Every pixel number above is
+      read out of the **committed golden** `test/goldens/10_browse.png`
+      (392x850, DPR 1.0, so 1 px = 1 dp) with `tool/png_read.py`, which is a
+      read of shipped evidence rather than a render. `analyze` and the test
+      count are **unchanged and unverified this tick** — no Dart was written,
+      so nothing can be red.
+
       **Seventh slice — the auth form took the house field inset.
       81 -> 77 across two files, and the count is the least interesting part
       of it.** `auth_screen.dart` held the most literals of any screen left
