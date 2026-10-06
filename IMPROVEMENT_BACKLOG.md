@@ -23775,8 +23775,8 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       it goes red, `git status --short` is the first thing to read.
 
 - [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 46 on 7 Oct;
-      **slices 1-11 shipped** (11th = `auth_screen`, local `COMMITPENDING` -> remote
-      `COMMITPENDING`, 51 -> 46, `auth_screen` 8 -> 3);
+      **slices 1-11 shipped** (11th = `auth_screen`, local `bb86e62` -> remote
+      `d96554c`, 51 -> 46, `auth_screen` 8 -> 3);
       **46 remain across 18 files.** 197 -> 60 on 6 Oct;
       60 remain across **20 files** (the "19 files" in earlier notes was wrong:
       three files of 1-2 arrived with the `ui.dart` slice and were never
@@ -24032,6 +24032,14 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       `6` the entries settle is untouched, so the `48 + 6x2 = 60` arithmetic is
       the same sum. **The 8 STALE are unchanged and still unowned** — same as
       the tenth slice measured at clean HEAD.
+
+      **Gate:** `flutter analyze` -> **No issues found!** (9.1 s). Full suite
+      via `tool/run_tests.py` -> **2168 tests, 12/12 shards green**, elapsed
+      17:16 (previous recorded run 2149). Shard 8 answered in **1:00** — the
+      6 Oct "deadline did not fire" hang did not recur.
+
+      **Commit:** local `bb86e62` -> remote **`d96554c`**, `remote_state.py`
+      reports **IN SYNC: identical tree** (`94a164f` both sides).
 
       **One process failure worth writing down, because the protocol warns about
       it and I did it anyway.** Mid-gate I ran the non-vacuity sabotage (revert
