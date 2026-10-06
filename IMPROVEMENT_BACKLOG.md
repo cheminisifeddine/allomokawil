@@ -23911,11 +23911,88 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       still holds **8 of its 10**: the page gutter `18`s, which are
       `AppTheme.gutter` in waiting, and the vertical `18`s that are the tap
       floor. **Next slice: `worker_profile_screen.dart`, 9 sites** — the last
-      screen with more than 5.
+      screen with more than 5. **That slice shipped on the next tick** —
+      see the eighth slice below; the next file is `profile_screen.dart`, 8.
       *The sixth slice was cut off mid-run by the 10-minute tick and found
       staged-but-never-verified on the next one; it was finished here, not
       redone. Its own pixel figures were wrong on arrival and are corrected in
       place below — see the note about unreproducible measurements.*
+
+      **Eighth slice — `worker_profile_screen.dart`, 9 sites -> zero, and the
+      column was ONE COLUMN IN TWO STATES.** The file held the most literals
+      of any screen left, and two of the nine were `fromLTRB(18, 8, 18, 28)` —
+      **byte-identical to `AppTheme.pagePad`**, which `project_detail_screen`
+      and `skeletons.dart` have been calling by name all along. So this was not
+      a screen drifting off the grid; it was a token with two extra spellings.
+
+      **The pairing is the finding, and a half-sweep would have shipped a real
+      defect.** One of the two `pagePad` spellings is `_body`, the other is
+      `_ProfileSkeleton` — the frame the reader watches while this page loads,
+      and the thing that is *removed* the instant the answer lands. Sweeping one
+      and not the other would have shifted every card on the screen 2 dp at the
+      exact moment the network answered: the "one band moved, its neighbours
+      left behind" shape three earlier slices had to undo, and the first one
+      where the neighbour is a **different widget that replaces the first**.
+      The same pairing exists one section down and was handled the same way:
+      `_ReviewsSkeleton` (`:1102`) previews the gap between review cards before
+      they exist, and `_ReviewsSection` (`:914`) draws the real ones.
+
+      *Sweep, and the one number that was checked rather than swept.* Four of
+      the nine were **renames, zero pixels**: `18` -> `AppTheme.gutter` on the
+      cover, `3` -> `AppTheme.ring` (a token that exists for exactly this white
+      ring and that `worker_home` already calls twice), and the two `pagePad`.
+      The fifth, the gap between review cards, was `10` -> `AppTheme.s12`:
+      card-to-card is `s12` everywhere else in the app (`customer_home:1039`,
+      `worker_home:1935`). **Checked before moving, per the standing rule:**
+      this row is an `AppCard` with no gesture detector anywhere above it, so no
+      `AppTheme.tapMin` floor is riding on it — that check is what separates a
+      real `18` from a real `10`, and it is why three slices have not shipped a
+      broken tap target. The rating pill's `vertical: 7` -> `s8` got the same
+      check (no `GestureDetector`, no `InkWell` in `_CoverHeader`) before being
+      moved.
+
+      **The guard is geometry, and its strongest test is one it cannot fail.**
+      `test/worker_profile_column_test.dart` (new, 5 tests) asserts the skeleton
+      against the **loaded body measured in the same test**, not against a
+      second hand-typed constant — two constants drift apart silently, and that
+      drift is the whole failure. Non-vacuity was proven the honest way: moving
+      **one** `pagePad` to 20 while leaving its twin at 18 goes red twice —
+      `Expected: <18.0> Actual: <20.0>` and `Expected: <20.0> Actual: <18.0>`
+      with the reason "the page must not shift when the answer lands". Reverting
+      a `pagePad` to its old **literal** stays green, which is the point: the
+      sweep moved no pixels, and a pixel test would have been the wrong tool.
+
+      **Two measurement traps paid for in this file, both worth the entry.**
+      *The rects on this screen are not a pure function of the padding.* The
+      rendered gap read **12.77** for the skeleton and **12.38** for the real
+      cards — the same declared `12` scaled by **two different factors**,
+      1.0640 and 1.0320, on two subtrees of one list, while
+      `RenderBox.size` said exactly 96.00 and 12.00. Nothing in `lib/` scales
+      anything (`motion.dart`'s press `Transform` is nowhere near this tree), so
+      the first draft, which asserted rendered rects, would have been asserting
+      **this host's device configuration**. It now asserts the **declared**
+      `Padding` insets, which is what the sweep actually changed.
+      *And the reviews section is below the fold*, so at rest nothing in it is
+      even in the tree — the first draft failed with "the reviews skeleton must
+      be on screen", a louder failure than the wrong number would have been.
+      A `ListView` builds lazily; scroll before measuring, as
+      `reviews_short_list_shot_test` does.
+
+      *Gate:* `flutter analyze` -> **No issues found!**; the new guard +
+      `card_recipe_test` + both reviews tests -> **+29 all passed**;
+      `tool/run_tests.py` -> **12/12 shards green, 2074 tests**. R4 count
+      **77 -> 68**, files **22 -> 21**. `tap_target_audit.py`: no anchor in
+      this file, and the 8 pre-existing STALE rows are untouched files, so
+      nothing was re-pinned this time.
+
+      *Pixels, measured on the real rendered shot* (`/tmp/shots/09_worker_profile.png`,
+      1176x2550 at DPR 3 = 392x850 logical, re-rendered with this change in):
+      every card band starts at **x = 54 physical px = 18.0 dp**, which is
+      `AppTheme.gutter` and `pagePad`'s own left — checked at y=300, 600, 1800,
+      2100 and 2400. The cover header is full-bleed and correctly does not
+      participate. **No `.ERROR.txt` anywhere** — no overflow on any screen.
+      `09_worker_profile` is a shot, not a committed golden (`test/goldens/`
+      holds 9 and none of them is this screen), so nothing was re-baselined.
 
       **Second slice — `worker_home_screen.dart`, 19 sites -> zero. The screen
       was not one list, it was SIX bands on one left edge.** The entry above says

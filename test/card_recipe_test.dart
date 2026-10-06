@@ -60,7 +60,21 @@ import 'package:allomokawil/src/widgets/ui.dart';
 // `tool/tap_target_audit.py` measure that floor for this row. That is the
 // urgency-pill lesson from the `project_new` slice, and it is why a ratchet that
 // counts tap-floor arithmetic is not wrong, only blunt.
-const int _offGridBudget = 77;
+// Lowered 77 -> 68 on 6 Oct: `worker_profile_screen.dart` went 9 -> 0, and four
+// of its nine were not a drifted screen at all - two were `fromLTRB(18, 8, 18,
+// 28)`, byte-identical to `AppTheme.pagePad`, a token two other files already
+// call by name. So this file is the **first slice whose sites were mostly
+// renames** and the count barely moved the design at all: a pixel test would
+// have been the wrong instrument for most of it.
+// The one number in the slice that was really a gap, `bottom: 10` between
+// review cards, moved to `s12` with its skeleton twin, and the `7` in the
+// rating pill to `s8`. Both were checked for a gesture detector first - the
+// rule the `auth` slice wrote down, since that is what separates a real gap
+// from the tap-floor arithmetic this ratchet also counts.
+// `test/worker_profile_column_test.dart` guards the column, and its load-bearing
+// assertion compares the loading frame against the loaded body **in the same
+// test**, because two hand-typed constants drift apart silently.
+const int _offGridBudget = 68;
 
 List<File> _sources() {
   final dir = Directory('lib');

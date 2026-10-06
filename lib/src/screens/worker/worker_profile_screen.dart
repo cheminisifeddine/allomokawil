@@ -278,7 +278,19 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
   Widget _body(WorkerProfile w) {
     final slug = w.specialties.isNotEmpty ? w.specialties.first : null;
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
+      // The page column, by its own name. `AppTheme.pagePad` is
+      // `fromLTRB(gutter, s8, gutter, s28)` - these two lines were that
+      // token, spelled out, and `page_detail` and `skeletons.dart` have
+      // been calling it by name all along.
+      //
+      // BOTH moved in one commit and that is the whole point: the lower
+      // one is `_ProfileSkeleton`, the frame the reader watches while
+      // this page loads, and the page content it stands in for replaces it
+      // when the answer lands. A sweep of one would have shifted every
+      // card of this screen 2 dp the moment the network answered - the
+      // 'one band moved, its neighbours left behind' shape the earlier
+      // slices had to undo. See `test/worker_profile_column_test.dart`.
+      padding: AppTheme.pagePad,
       children: [
         _CoverHeader(worker: w),
         if (w.bio != null && w.bio!.trim().isNotEmpty) ...[
@@ -379,7 +391,7 @@ class _CoverHeader extends StatelessWidget {
                 color: AppTheme.navyDeep.withValues(alpha: 0.55)),
           ),
           Padding(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(AppTheme.gutter),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -388,7 +400,7 @@ class _CoverHeader extends StatelessWidget {
                   children: [
                     // White ring separates the navy avatar from the cover.
                     Container(
-                      padding: const EdgeInsets.all(3),
+                      padding: const EdgeInsets.all(AppTheme.ring),
                       decoration: const BoxDecoration(
                         color: AppTheme.surface,
                         shape: BoxShape.circle,
@@ -426,8 +438,17 @@ class _CoverHeader extends StatelessWidget {
                 // has rated gets the same pill with the fact on it, never
                 // «0.0» — see [WorkerProfile.avgRating].
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  // Checked before moving, because that is the rule the last
+                  // three slices learned: a 7 that is really a tap target is
+                  // arithmetic, and a 7 that is not is a typed number. This
+                  // pill has no `GestureDetector` and no `InkWell` anywhere
+                  // above it in `_CoverHeader` - it is a label, so no
+                  // `AppTheme.tapMin` = 56 floor is riding on the extra dp
+                  // and `tap_target_test.dart` has nothing to say about it.
+                  // 7 -> 8; `horizontal: 12` was already on the grid and is
+                  // only being named.
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: AppTheme.s12, vertical: AppTheme.s8),
                   decoration: BoxDecoration(
                     color: AppTheme.surface,
                     borderRadius: BorderRadius.circular(AppTheme.rPill),
@@ -889,7 +910,17 @@ class _ReviewsSection extends StatelessWidget {
           children: [
             for (final r in list)
               Padding(
-                padding: const EdgeInsets.only(bottom: 10),
+                // Card-to-card, so `s12` - the same gap the project list
+                // (`customer_home:1039`) and the contractor strip
+                // (`worker_home:1935`) already use. This row is NOT a tap
+                // target, which is the check that has to pass before a 10
+                // may move: it is an `AppCard` with no gesture detector,
+                // so no `AppTheme.tapMin` floor is riding on it.
+                //
+                // `:1068` is `_ReviewsSkeleton` - the same gap, in the
+                // frame shown while this section loads - and it moved with
+                // this one for the reason `pagePad` moved as a pair above.
+                padding: const EdgeInsets.only(bottom: AppTheme.s12),
                 child: _ReviewCard(review: r, clock: clock),
               ),
             if (partial != null)
@@ -1009,7 +1040,19 @@ class _ProfileSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
+      // The page column, by its own name. `AppTheme.pagePad` is
+      // `fromLTRB(gutter, s8, gutter, s28)` - these two lines were that
+      // token, spelled out, and `page_detail` and `skeletons.dart` have
+      // been calling it by name all along.
+      //
+      // BOTH moved in one commit and that is the whole point: the lower
+      // one is `_ProfileSkeleton`, the frame the reader watches while
+      // this page loads, and the page content it stands in for replaces it
+      // when the answer lands. A sweep of one would have shifted every
+      // card of this screen 2 dp the moment the network answered - the
+      // 'one band moved, its neighbours left behind' shape the earlier
+      // slices had to undo. See `test/worker_profile_column_test.dart`.
+      padding: AppTheme.pagePad,
       children: [
         const SkeletonBox(height: 176, radius: AppTheme.rXl, color: SkeletonTone.base),
         const SizedBox(height: 22),
@@ -1065,7 +1108,7 @@ class _ReviewsSkeleton extends StatelessWidget {
       children: [
         for (var i = 0; i < 2; i++)
           const Padding(
-            padding: EdgeInsets.only(bottom: 10),
+            padding: EdgeInsets.only(bottom: AppTheme.s12),
             child: SkeletonBox(height: 96, radius: AppTheme.rLg, color: SkeletonTone.base),
           ),
       ],
