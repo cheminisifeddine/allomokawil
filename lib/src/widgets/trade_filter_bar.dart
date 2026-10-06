@@ -159,7 +159,15 @@ class _TradeFilterBarState extends State<TradeFilterBar> {
         key: const Key('trade-filter-scroll'),
         controller: _scroll,
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+        // [AppTheme.gutter], not the 14 this used to read: the strip is the
+        // control that filters the list sitting directly under it, and it was
+        // 4 dp wider than that list on its start edge — 4 dp outside the
+        // search box above it too. The golden `10_browse.png` showed the pill
+        // bleeding off the canvas at x=0 while the cards started at x=18.
+        // `test/browse_column_test.dart` now asserts the two are equal, which
+        // is a comparison a count of literals structurally cannot make.
+        padding: const EdgeInsets.fromLTRB(
+            AppTheme.gutter, AppTheme.s4, AppTheme.gutter, AppTheme.s4),
         // **Cross-axis stretch, and it is not a style choice.** This `Row`
         // replaced a horizontal `ListView`, and a `ListView` hands its children
         // a *tight* cross-axis constraint while a `Row` hands them a loose one

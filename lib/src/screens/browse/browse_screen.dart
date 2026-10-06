@@ -352,8 +352,12 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       backgroundColor: AppTheme.surface,
                       child: ListView(
                         physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.fromLTRB(
-                            AppTheme.s16, AppTheme.s16, AppTheme.s16, AppTheme.s28),
+                        // Same padding as the loaded list below it. These two
+                        // branches were on `s16` while the rows that replace them
+                        // sit on [AppTheme.pagePad] — so the screen's gutter
+                        // changed the moment the directory had data in it, and
+                        // the eye saw the whole column shift by 2 dp on load.
+                        padding: AppTheme.pagePad,
                         children: [
                           EmptyView(
                             icon: Icons.wifi_off_rounded,
@@ -423,8 +427,12 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       backgroundColor: AppTheme.surface,
                       child: ListView(
                         physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.fromLTRB(
-                            AppTheme.s16, AppTheme.s16, AppTheme.s16, AppTheme.s28),
+                        // Same padding as the loaded list below it. These two
+                        // branches were on `s16` while the rows that replace them
+                        // sit on [AppTheme.pagePad] — so the screen's gutter
+                        // changed the moment the directory had data in it, and
+                        // the eye saw the whole column shift by 2 dp on load.
+                        padding: AppTheme.pagePad,
                         children: [
                           EmptyView(
                             icon: hasFilter
@@ -468,7 +476,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                     color: AppTheme.navy,
                     backgroundColor: AppTheme.surface,
                     child: ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
+                      padding: AppTheme.pagePad,
                       // Without this a list that fits the viewport refuses
                       // the pull, so a feed of four contractors would be the
                       // one feed in the app that could not be refreshed.
@@ -510,7 +518,8 @@ class _BrowseScreenState extends State<BrowseScreen> {
   // ── Search field ────────────────────────────────────────────────────────
   Widget _searchField(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 10, 18, 2),
+      padding: const EdgeInsets.fromLTRB(
+          AppTheme.gutter, AppTheme.s8, AppTheme.gutter, AppTheme.s4),
       child: ValueListenableBuilder<TextEditingValue>(
         valueListenable: _search,
         builder: (context, value, _) {
