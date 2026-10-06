@@ -17,7 +17,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:allomokawil/src/core/theme/app_theme.dart';
 import 'package:allomokawil/src/widgets/ui.dart';
 
-const int _offGridBudget = 164;
+// Lowered 164 -> 140 on 6 Oct: `project_new_screen.dart` went 24 -> 0.
+// The file was not one list inset but four edge systems, and the two modal
+// picker sheets disagreed with themselves (a search field at 18 over a list at
+// 12, and a count line at 6). Counting literals is a text ratchet; the
+// geometry guard that would have caught the disagreement is
+// `test/project_new_edges_test.dart`.
+const int _offGridBudget = 140;
 
 List<File> _sources() {
   final dir = Directory('lib');

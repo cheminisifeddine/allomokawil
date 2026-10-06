@@ -575,13 +575,14 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
         bottom: false,
         child: SingleChildScrollView(
           controller: _scroll,
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+          padding: const EdgeInsets.fromLTRB(
+              AppTheme.gutter, AppTheme.s12, AppTheme.gutter, AppTheme.s24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // ── Intro banner ───────────────────────────────────────────
               Container(
-                padding: const EdgeInsets.all(14),
+                padding: const EdgeInsets.all(AppTheme.s12),
                 decoration: BoxDecoration(
                   color: AppTheme.infoWash,
                   borderRadius: BorderRadius.circular(AppTheme.rMd),
@@ -855,7 +856,7 @@ class _StepLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(2, 22, 2, 10),
+      padding: const EdgeInsets.fromLTRB(0, AppTheme.s24, 0, AppTheme.s8),
       child: Row(
         children: [
           Container(
@@ -956,7 +957,7 @@ class _WilayaSheetState extends State<_WilayaSheet> {
       builder: (context, controller) => Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
+            padding: const EdgeInsets.fromLTRB(AppTheme.s12, 4, AppTheme.s12, 8),
             child: TextField(
               autofocus: false,
               onChanged: (v) => setState(() => _q = v.trim()),
@@ -1118,7 +1119,7 @@ class _CommuneSheetState extends State<_CommuneSheet> {
       builder: (context, controller) => Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(18, 6, 18, 2),
+            padding: const EdgeInsets.fromLTRB(AppTheme.s12, 8, AppTheme.s12, 0),
             child: Row(
               children: [
                 const Icon(Icons.location_city_rounded,
@@ -1148,7 +1149,7 @@ class _CommuneSheetState extends State<_CommuneSheet> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(18, 8, 18, 10),
+            padding: const EdgeInsets.fromLTRB(AppTheme.s12, 8, AppTheme.s12, 8),
             child: TextField(
               autofocus: false,
               onChanged: (v) => setState(() => _q = v),
@@ -1195,7 +1196,8 @@ class _CommuneSheetState extends State<_CommuneSheet> {
                             // whose commune was merged or renamed must not be
                             // stuck — whatever they typed is accepted.
                             Padding(
-                              padding: const EdgeInsets.fromLTRB(18, 0, 18, 20),
+                              padding: const EdgeInsets.fromLTRB(
+                                  AppTheme.s12, 0, AppTheme.s12, AppTheme.s20),
                               child: SizedBox(
                                 width: double.infinity,
                                 child: OutlinedButton.icon(
@@ -1238,7 +1240,8 @@ class _CommuneSheetState extends State<_CommuneSheet> {
                               return const SizedBox.shrink();
                             }
                             return Padding(
-                              padding: const EdgeInsets.fromLTRB(6, 0, 6, 8),
+                              padding: const EdgeInsets.fromLTRB(
+                                  AppTheme.s16, 0, AppTheme.s16, AppTheme.s8),
                               child: Text(
                                 countLine,
                                 style: AppTheme.caption
@@ -1409,11 +1412,19 @@ class _UrgencyPill extends StatelessWidget {
         child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppTheme.rPill),
-        child: AnimatedContainer(
+        // The 56 dp floor is `AppTheme.tapMin`, so it is *stated* rather than
+        // reached by arithmetic: the padding below is 16 (on the grid, which
+        // the old 19 was not) and this constraint is what keeps the pill
+        // tappable. Before, v19 x2 + the 18.9 dp row = 56.9 — a number that
+        // happened to clear the floor and drifted the moment a font metric
+        // moved. A pill that sets how urgent a project is has to be tappable
+        // by the same hand that types the title.
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: AppTheme.tapMin),
+          child: AnimatedContainer(
           duration: AppMotion.fast,
-          // v19 x2 + the 18.9 dp row = 56.9 dp: a pill that sets how urgent a
-          // project is has to be tappable by the same hand that types the title.
-          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 19),
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppTheme.s16, vertical: AppTheme.s16),
           decoration: BoxDecoration(
             color: selected ? wash : AppTheme.surface,
             borderRadius: BorderRadius.circular(AppTheme.rPill),
@@ -1436,6 +1447,7 @@ class _UrgencyPill extends StatelessWidget {
                 ),
               ),
             ],
+          ),
           ),
         ),
       )),
@@ -1506,7 +1518,7 @@ class _ImageAttach extends StatelessWidget {
                 ),
               for (var i = 0; i < images.length; i++)
                 Padding(
-                  padding: const EdgeInsets.only(left: 9),
+                  padding: const EdgeInsets.only(left: AppTheme.s8),
                   child: Stack(
                     children: [
                       ClipRRect(

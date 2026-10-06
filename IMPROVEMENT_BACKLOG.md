@@ -23867,9 +23867,95 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       runner started — and is green standalone after `git add`. The guard was
       right and the fix was to stage the file, not to weaken the guard.
 
-      **Remaining: 164 literals across 25 files.** Biggest first, so a later
-      tick keeps the same shape of slice: `project_new_screen.dart` (24),
-      `skeletons.dart` (18), `chat_screen.dart` (16),
+      **Third slice — `project_new_screen.dart`, 24 sites -> zero. 164 -> 140.**
+      **The lesson was checked first and it paid: the file is NOT one column,
+      it is FOUR edge systems**, and the two modal picker sheets disagreed with
+      themselves. What actually moved, and why each one:
+
+      | edge | was | now | why |
+      | --- | --- | --- | --- |
+      | page gutter | `18` twice | `AppTheme.gutter` | named, not swept — see below |
+      | step heading band | `fromLTRB(2, 22, 2, 10)` | `fromLTRB(0, s24, 0, s8)` | **the real defect** |
+      | wilaya sheet search | `18` | `s12` | was 6 dp out from the list under it |
+      | commune sheet header + search | `18` | `s12` | same, twice in one sheet |
+      | commune count line | `6` | `fromLTRB(s16, 0, s16, s8)` | was 6 dp LEFT of the names it counts |
+      | urgency pill | `15, 19` | `s16` + `minHeight: tapMin` | see the tap-target paragraph |
+      | banner / thumbnails | `14`, `9` | `s12`, `s8` | on-grid |
+
+      **The headline defect: every step heading was inset 2 dp past its own
+      field.** `_StepLabel` padded `fromLTRB(2, …)` while the field under it sat
+      at 0 — so on all seven headings the amber accent bar sat 2 dp right of
+      the input it labels, and a customer filling the form saw the column step
+      in at every section. `22+10 == 24+8`, so the band keeps its exact 32 dp
+      height and nothing below it moves.
+
+      **The sheets disagreed with themselves, which is why "check whether it
+      is one column or several" is now a standing instruction.** Wilaya: search
+      box at **18** over a list at **12** — the box framing rows that start 6 dp
+      inside it. Commune: header row at 18, search at 18, list at 12, and the
+      **count line at 6 — the line counting the list sat outside the list**.
+      Two files' worth of drift, in one screen, and R4 would have gone green on
+      every one of them, because in every case the fix was to replace a literal
+      with an identifier and `_literals()` skips identifiers.
+
+      **I did NOT move the page gutter to `s16`, deliberately.** 18 is
+      `AppTheme.gutter`, a named house exception, and the sweep is about
+      *component gaps*; pulling a page margin onto the grid would give this form
+      2 dp more air than every list in the app. It is now the *token*, so it
+      stops counting, and `gutter` is one edge the next screen can read rather
+      than retype. The new test asserts `AppTheme.gutter` **explicitly** — my
+      first version asserted `% 4 == 0` here and failed on 18, which is
+      asserting the grid against a value the codebase documents as off-grid.
+      *A ratchet that cannot express "this one is deliberate" makes the next
+      tick sweep the exception it was told to keep.*
+
+      **A sweep found a regression the box was about to hide, and the gate
+      caught it.** The urgency pill's vertical `19` was not off-grid
+      decoration: `19x2 + 18.9 = 56.9` was how it cleared
+      **`AppTheme.tapMin` = 56**, the house tap floor, and `tap_target_test`
+      *measures* it (shard 10 FAILED, twice: "the urgency pill is 56 dp"). I
+      had swept it to 16 on the reasoning that "50.9 > 48 is fine" — **wrong
+      floor, and it was the test's floor, not Material's.** Fixed the way
+      `customer_home` already does it: padding `s16`, and
+      `BoxConstraints(minHeight: AppTheme.tapMin)` on the pill. The 56 dp is now
+      *stated* instead of *reached by arithmetic*, so a font-metric change
+      cannot silently drop it again — which is the whole difference between 19
+      and a constraint. **This is the second time in three slices that the
+      number that looked like style was load-bearing.**
+
+      **`tool/tap_target_audit.py` entry was already STALE at HEAD** (11 STALE
+      measured entries, pre-existing, exit 1 before this tick touched anything).
+      The one for this file is now **MEASURED and PASS** — anchor 1412, and the
+      arithmetic reads the constraint. The other 10 are still stale and are a
+      separate tick.
+
+      **Red before green, twice, on the final test.** Wilaya search reverted to
+      `18` -> `Expected: <12.0> Actual: <18.0>`. And the first *draft* of the
+      geometry test was wrong twice, both times by measuring the wrong node,
+      which is why it is worth writing down: asserting on the heading **text**
+      read **146.5** (the text sits 27 dp inside its band — measuring an icon
+      offset and calling it alignment, the exact mistake the worker-home slice
+      recorded), and a bare `contains('بلدية')` predicate matched the search
+      hint «ابحث عن بلدية…» at **59 dp** instead of the count line. Both fixed by
+      scoping to the `Padding` that owns the edge and the `ListView` that owns
+      the row.
+
+      **Pixels, measured A/B on the real rendered shot** (`/tmp/shots/`,
+      before and after, same host, same run): the intro band **256.4 dp ->
+      252.0 dp**, i.e. **-4.4 dp** for a 2 dp-per-side padding reduction, with
+      **no `.ERROR.txt`** anywhere. *And the honest limit:* the step-heading
+      bar is **below the fold** — `_shoot` captures the viewport and does not
+      scroll — so the headline defect is **not** visible in any screenshot. The
+      RenderBox assertions are the only evidence for it, and the pixels only
+      corroborate the reflow. Recorded here so a later tick does not go
+      looking for a picture of something the shot harness cannot photograph.
+
+      **New `test/project_new_edges_test.dart`, 3 cases.** Heading band flush
+      with its field (and on `gutter`); wilaya search flush with its own list
+      and on the grid; commune count line flush with the names it counts.
+
+      **Remaining: 140 literals across 24 files.** Biggest first, same shape of
+      slice: `skeletons.dart` (18), `chat_screen.dart` (16),
       `customer_home_screen.dart` (14), `ui.dart` (11),
       `auth_screen.dart` (10), then `projects_screen`-sized files.
       **On `project_new_screen` (24): check whether it is one column or several

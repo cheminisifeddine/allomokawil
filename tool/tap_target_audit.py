@@ -142,8 +142,8 @@ MEASURED = [
     # a `SizedBox(height: AppTheme.tapMin)`, which R7 now reads as 56 and proves
     # on its own. The pill below sits in a `Wrap`, so nothing stretches it and
     # only its own padding can settle it.
-    ("lib/src/screens/project/project_new_screen.dart", 858, "InkWell(", PASS_,
-     "19x2 + max(17, 13.5x1.4=18.9) = 56.9"),
+    ("lib/src/screens/project/project_new_screen.dart", 1412, "InkWell(", PASS_,
+     "BoxConstraints(minHeight: tapMin 56) wins over 16x2 + max(17, 13.5x1.4=18.9) = 50.9"),
     # Checkbox is 48 dp padded (kMinInteractiveDimension) and the row adds v6.
     ("lib/src/screens/auth/auth_screen.dart", 582, "InkWell(", PASS_,
      "48 (Checkbox, padded) + 6x2 = 60.0"),
