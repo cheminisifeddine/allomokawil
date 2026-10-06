@@ -58,7 +58,8 @@ class ClientStartCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
+      padding: const EdgeInsets.fromLTRB(
+          AppTheme.gutter, AppTheme.s12, AppTheme.gutter, 0),
       child: AppCard(
         key: const Key('client-start-card'),
         padding: AppTheme.cardPad,

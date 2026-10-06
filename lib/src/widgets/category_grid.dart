@@ -24,7 +24,8 @@ class CategoryGrid extends StatelessWidget {
       height: 112,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppTheme.gutter, vertical: AppTheme.s4),
         itemCount: Taxonomy.categories.length,
         separatorBuilder: (_, __) => const SizedBox(width: 10),
         itemBuilder: (context, i) {

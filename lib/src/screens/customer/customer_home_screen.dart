@@ -931,7 +931,8 @@ class _ExploreView extends StatelessWidget {
                       height: AppTheme.stripH,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 18),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: AppTheme.gutter),
                         itemCount: shown.length,
                         separatorBuilder: (_, __) =>
                             const SizedBox(width: 12),
@@ -963,7 +964,8 @@ class _ExploreView extends StatelessWidget {
           if (recentProjects == null)
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: AppTheme.gutter),
                 child: _SignInForProjects(onPost: onPost),
               ),
             )
@@ -1002,7 +1004,8 @@ class _ExploreView extends StatelessWidget {
                 if (shown.isEmpty) {
                   return SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: AppTheme.gutter),
                       child: firstRun
                           ? const _FirstRunProjectsHint()
                           : _NoProjectsCard(onPost: onPost),
@@ -1017,7 +1020,8 @@ class _ExploreView extends StatelessWidget {
                 final recent = newestProjectFirst(shown).take(3).toList();
                 return SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: AppTheme.gutter),
                     child: Column(
                       children: [
                         if (stale)
@@ -1125,7 +1129,8 @@ class _HomeHeader extends StatelessWidget {
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+          padding: const EdgeInsets.fromLTRB(
+              AppTheme.gutter, AppTheme.gutter, AppTheme.gutter, AppTheme.s20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1263,7 +1268,8 @@ class _PostProjectBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
+      padding:
+          const EdgeInsets.fromLTRB(AppTheme.gutter, AppTheme.s12, AppTheme.gutter, 0),
       child: Material(
         key: const Key('client-post-cta'),
         color: AppTheme.accent,
@@ -1448,7 +1454,7 @@ class _WorkerStripSkeleton extends StatelessWidget {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         physics: const NeverScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 18),
+        padding: const EdgeInsets.symmetric(horizontal: AppTheme.gutter),
         itemCount: 3,
         separatorBuilder: (_, __) => const SizedBox(width: 12),
         itemBuilder: (_, __) => Container(
@@ -1496,12 +1502,13 @@ class _ProjectStripSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 18),
+      padding: const EdgeInsets.symmetric(horizontal: AppTheme.gutter),
       child: Column(
         children: [
           for (var i = 0; i < count; i++)
             Container(
-              margin: EdgeInsets.only(bottom: i == count - 1 ? 0 : 12),
+              margin: EdgeInsets.only(
+                  bottom: i == count - 1 ? 0 : AppTheme.s12),
               padding: AppTheme.cardPad,
               decoration: AppTheme.cardDecoration,
               child: Row(

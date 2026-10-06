@@ -23,7 +23,14 @@ import 'package:allomokawil/src/widgets/ui.dart';
 // 12, and a count line at 6). Counting literals is a text ratchet; the
 // geometry guard that would have caught the disagreement is
 // `test/project_new_edges_test.dart`.
-const int _offGridBudget = 101;
+// Lowered 101 -> 85 on 6 Oct: `customer_home_screen.dart` went 14 -> 2, and
+// the two that remain are not column edges. Unlike the last three slices, this
+// screen's column **agreed** at HEAD — but by coincidence: six writers had
+// each typed their own `18` while the one band already using `AppTheme.gutter`
+// agreed with the five that did not. R4 cannot tell agreement from
+// disagreement, so this slice's real work is the geometry guard, not the count:
+// `test/customer_home_column_test.dart`.
+const int _offGridBudget = 85;
 
 List<File> _sources() {
   final dir = Directory('lib');
