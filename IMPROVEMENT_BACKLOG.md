@@ -25030,7 +25030,7 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       seconds after a NO ROOM before treating the tick as a non-build tick**;
       this one nearly gave up builds it could have run.
 
-- [ ] **The tap-target audit's own "STALE" notice was hiding a live 52 dp
+- [x] **The tap-target audit's own "STALE" notice was hiding a live 52 dp
       button — and two of its rules could not fail on a whole class of bug.**
       (8 Oct, 12th slice's sibling. Not the R4 slice: `tool/build_gate.py`
       answered **NO ROOM** for the first ~7 minutes of this tick (769-831 MB
@@ -25038,6 +25038,16 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       **701 -> 887 MB** and never cleared it), and a Dart change could not be
       gated. The red the tool had been printing for eleven ticks is
       Python-only work and runs in a second, so it was the honest item.)
+
+      **TICKED 9 Oct — this item was complete and simply never closed.** Both
+      rules the note describes as "fixed" are in `tool/tap_target_audit.py` at
+      HEAD: the second `Size.fromHeight` spelling is the pattern at line 94 and
+      the own-line open check the docstring always described is line 375. The
+      52 dp pill this item deferred is the **13th slice** (`25148`). Re-ran the
+      instrument this tick: **Exit 0**, **0 provable fail, 0 STALE**, 11 measured
+      pass. Nothing was left undone here — the header was the only thing still
+      open, which is the cost of a queue whose items get shipped and never
+      closed.
 
       **`tool/tap_target_audit.py` exits 1 at HEAD, for two reasons that are
       both wrong, and neither was the reason it looked like.** Measured at
@@ -25347,10 +25357,57 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       **Next:** the R4 sweep is **done** — 40 remain across 18 files, none of
       them `ui.dart`. The largest is `profile_edit_screen.dart` (5), then
       `chat_list_screen.dart` and `verification_screen.dart` (4 each). Those
-      are screens, so each wants the "which column is this number in?" question,
-      and **`chipTheme.padding` (14 x 12) is still spelled out in four places**
-      — `app_theme`, `trade_filter_bar`, `auth_screen`'s `AuthNotice` and a
-      banner in `project_detail`. That is the *larger* chip and the same
-      defect waiting to happen, so it is the natural next slice: one token,
-      four writers, and the same cross-file guard this slice just proved a
-      ratchet cannot do.
+      are screens, so each wants the "which column is this number in?" question.
+
+      **READ 9 Oct — the `chipTheme.padding` slice the last paragraph proposed
+      is built on a dead field, and must not be started as written.**
+      `ChipThemeData` is declared once at `app_theme.dart:609` and consumed
+      **zero** times: a grep for `ChoiceChip|FilterChip|ActionChip|InputChip|Chip(`
+      over `lib/` and `test/` returns **nothing**, there is no `RawChip`/`AnyChip`
+      subclass, and no chip package in `pubspec.yaml`. The comment at
+      `app_theme.dart:124` and `test/card_recipe_test.dart:111` both treat
+      `14 x 12` as one inset written four times; it is not. The four writers are
+      **four different components**, and that number is the only thing they
+      share:
+
+      | writer | radius | border | purpose |
+      |---|---|---|---|
+      | `ChipThemeData` (`:616`) | — | no | **renders nothing at all** |
+      | `AuthNotice` (`auth_screen:661`) | `rMd` | yes | red error banner |
+      | quote band (`project_detail:1293`) | `rSm` | no | pale amount panel |
+      | `_FilterPill` (`trade_filter_bar:286`) | `rPill` | yes | tappable filter chip |
+
+      A `chipPad` token unifying them would have been four renames and **zero
+      pixels** — the "provably zero-pixel" outcome this file has twice praised,
+      here reached by a *rename dressed as a fix*. So the slice as proposed is
+      not a cross-file defect; it is one dead theme field plus three unrelated
+      components. **The dead field is the real item** (delete it, or document
+      why it is kept), and it needs no golden and no new token.
+
+      **The defect that IS real, found in the same read, and bigger: two pills
+      on `VerificationScreen` that draw 1 dp apart from each other.**
+      `_PartsStatusCard._part()` hand-rolls a status pill at
+      `verification_screen.dart:675` — `symmetric(horizontal: 10, vertical: 5)`,
+      icon `13`, gap `5` — while the very same scroll view renders
+      `StatusPill` (`:838`, `:845`; `pillPad` = `symmetric(10, 6)`, icon `14`,
+      gap `pillGap` = `6`) inside `_DocCard`. **Both are direct children of the
+      same `ListView` at `verification_screen.dart:271`** (`_PartsStatusCard`
+      at `:280`/`:289`, `_DocCard` at `:325`/`:334`/`:343`/`:363`), so a worker
+      scrolls between them and watches the pill change insets — same radius
+      (`rPill`), same `fsBadge` caption, same success/info colour pair.
+
+      **R4 cannot see this and neither can `test/pill_inset_test.dart`**, which
+      compares `CategoryBadge`/`StatusPill`/`MetaChip` — three pills that *are*
+      one component — and never the hand-rolled copy. This is the fourteenth
+      slice's lesson again: counting literals per file is blind to a
+      disagreement between files **and** to a component that was spelled out
+      instead of reused. `_part` is a `StatusPill` that was never written as
+      one; the fix is to make it one, and the guard must measure it.
+
+      *Not shipped this tick:* `tool/build_gate.py` answered **NO ROOM** on
+      every read (484 -> 1087 -> 720 -> 651 -> 595 MB against a 900 MB floor;
+      `MemAvailable` sampled ~20x over 3 minutes never held a full run's worth,
+      and a suite was measured bottoming out at 1177 MB). Nothing was building
+      (`pgrep -c java` = 0, no `flutter_tester`), so this is the box at its
+      floor, not a leaked process. One Dart pixel cannot be gated here, and this
+      file's own rule is that a red build is never shipped.
