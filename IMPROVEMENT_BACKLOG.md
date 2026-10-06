@@ -25341,8 +25341,8 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       delete a test file to get back under a shard boundary, which would have
       "fixed" the suite by removing the coverage that caught the pill bug.
 
-      **Commit:** local + remote hashes recorded by `remote_state.py` at the
-      end of this entry.
+      **Commit:** local `2d04b66` -> remote **`9a57a84`**, `remote_state.py`
+      reports **IN SYNC: identical tree** (`1d44a66` both sides).
 
       **Next:** the R4 sweep is **done** — 40 remain across 18 files, none of
       them `ui.dart`. The largest is `profile_edit_screen.dart` (5), then
