@@ -23746,11 +23746,16 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       must not drop" was checked only for the files this change touches. The
       two other red files below are untouched by this commit.
 
-- [ ] **OPEN — ONE pre-existing red file remains.** *Recorded 6 Oct; rewritten
-      6 Oct after `place_seed_test` was fixed and bisected (see the item below).*
-      **`first_char_measurement_test`** is the survivor: 4 unexcused sites at
+- [x] **OPEN — ZERO pre-existing red files remain.** *Recorded 6 Oct; rewritten
+      6 Oct after `place_seed_test` was fixed and bisected (see the item below);
+      **closed 6 Oct** — the survivor was a live defect, not an excuse.*
+      **`first_char_measurement_test`** was the survivor: 4 unexcused sites at
       `worker_phone_search.dart:132-133` (`codeUnitAt(0)` on each rune inside
-      `_isDigit`).
+      `_isDigit`). **SHIPPED 6 Oct** as `ff90076` -> remote `462d8c7`, and the
+      instruction the previous tick left on it was **wrong**. See the item
+      below. `app_source_scope_test` is green too (it was hygiene, not a
+      defect, as its own entry said), so the suite has **no red file filed
+      against it at all** for the first time since the pair was filed.
 
       **`place_seed_test` is DONE — do not pick it up again.** It was the other
       half of this pair. Both had been filed as pre-existing reds without anyone
@@ -23783,14 +23788,83 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       by raising the budget** — that deletes the ratchet. The honest repair is
       to sweep the literals to the grid and lower the number with each change.
 
-- [ ] **`first_char_measurement_test.dart` is red on 4 unexcused sites in
-      `worker_phone_search.dart:132-133`.** *Pre-existing, measured 6 Oct.*
+- [x] **`first_char_measurement_test.dart` is red on 4 unexcused sites in
+      `worker_phone_search.dart:132-133`.** *Pre-existing, measured 6 Oct.
+      **SHIPPED 6 Oct** — and not the way this entry said to fix it.*
       `_isDigit` calls `ch.codeUnitAt(0)` on each rune of a pasted string. The
       sweep allows an excuse per site with a reason and this file has none. It
       is the 76th tick's file (`fd9a112`), so the tick that added the phone arm
-      ran only its own tests and left this red. The sites are genuinely not
-      user-facing **text** — they measure digits — so the repair is an excuse
-      entry with the reason, which the sweep then checks for staleness.
+      ran only its own tests and left this red.
+
+      **The entry said the sites "are genuinely not user-facing text — they
+      measure digits", so the repair is an excuse entry with the reason."**
+      They **are** user-facing text, and the sweep was right and this entry was
+      wrong. The digit test walked the string a customer had just pasted into
+      the search box. What the previous tick should have done — and what the
+      "measure the sweep first" instruction pointed at — is ask *why* four
+      `codeUnitAt` calls on a pasted string are there. The answer is a **live
+      defect the sweep had been right about for three ticks**:
+
+      ```text
+      DzPhone.digits(U+06F0) -> '0'     // ArabicSearch.normalize, Extended-Arabic
+      _isDigit(U+06F0)       -> false   // 0x30..0x39 and 0x0660..0x0669 only
+      ```
+
+      `phoneQueryDigits` folds the query through `DzPhone.canonicalFromDigits`
+      and then re-asks "is this a digit?" with two **literal ranges copied out
+      of a fold that lives in another file**. The copy had fallen behind:
+      `ArabicSearch._digits` has carried the Persian row U+06F0..U+06F9 for
+      years, so a query in those digits **passed** the digit-count floor two
+      lines earlier and was then vetoed by the loop meant to agree with it.
+      `phoneQueryDigits` returned null, the numeric arm was skipped, and the
+      text arm searched name/bio/commune/trades — **none of which can contain
+      a digit** — so a customer pasting his number out of a Persian-locale
+      contact card was told «لا نتائج مطابقة» against a directory carrying a
+      phone on **97 of 97** live rows.
+
+      *Fixed:* `_isDigit` now asks `DzPhone.digits(ch)` whether the character
+      folds to an ASCII digit, so it **cannot disagree with the fold by
+      construction** instead of by review. The four sites are gone — not
+      allow-listed.
+
+      **Red before green, and the ratchet names the character by code point:**
+
+      ```
+      Expected: not null
+        Actual: <null>
+      U+06F0 «۰» folds to the digit «0», so it cannot be the character that
+      turns a number into a word
+      ```
+
+      Two cases added: one names the defect, the other is a ratchet over
+      **U+0000..U+07FF** that asks the fold about every character and fails
+      for any it calls a digit and the loop rejects — so a future script cannot
+      reopen this without a test going red.
+
+      *One correction worth recording, because the first green run was a
+      **failing** one.* My own expectation was wrong, not the fix: the runes
+      `U+06F0 U+06F5 U+06F0 U+06F1…` are «۰۵۰۱۲۳۴۵۶» = **`050123456`**, not
+      `0550000009`. The fix answered `050123456` — correct — and the assertion
+      I had written asked for a number I had mis-transcribed from my own
+      fixture. The null-to-number transition is the real evidence and it held.
+
+      **Gate.** `flutter analyze` -> **No issues found!** `browse_phone_search_test`
+      + `first_char_measurement_test` -> **+37 all passed** (both red files,
+      now green). 8 phone/search/recipe files -> **+114 all passed**, off-grid
+      ratchet unchanged. `app_source_scope_test` -> **+16**.
+
+      **The lesson, and it is the second time this file has taught it:** a
+      description of a defect is not a measurement of it. Both halves of this
+      entry were written from a reading of the code and both were wrong — the
+      "not user-facing text" claim and the excuse-entry repair. The
+      `place_seed_test` bisect one item above found the same shape: a guard
+      that shipped green because it asserted a property of its harness. Here it
+      was a **description that would have licensed widening a correct guard**.
+      When a guard and a backlog entry disagree about what the code does,
+      **the guard has been reading the code longer.**
+
+      **Commit:** local `ff90076` -> remote **`462d8c7`**, `remote_state.py`
+      reports **IN SYNC: identical tree** (local and remote tree hashes equal).
 
 - [x] **`place_seed_test.dart` failed with a real `RenderFlex` overflow at
       `worker_card.dart:45`** — `Column` at `BoxConstraints(w=138, h=156)`, the
