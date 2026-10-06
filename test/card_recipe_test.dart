@@ -43,7 +43,24 @@ import 'package:allomokawil/src/widgets/ui.dart';
 // inside its band (`tap_target_test.dart` measures that floor). Those are named
 // proportions, not column edges, and this ratchet is counting them.
 // `test/section_title_edge_test.dart` guards the horizontal.
-const int _offGridBudget = 81;
+// Lowered 81 -> 77 on 6 Oct: the auth form took the house field inset, and the
+// phone field moved WITH it — the column was one system, not two, and sweeping
+// `authInput` alone would have *created* the 2 dp disagreement the slice was
+// removing. `authInput` and `DzPhoneField` had both spelled
+// `symmetric(horizontal: 14, vertical: 18)` while `AppTheme.fieldPad` is
+// `horizontal: s16`, so the first screen of the install was 2 dp narrower than
+// every field the user is shown afterwards. The three fields agreed with each
+// other, which is why R4 could not see it: the fix was "literal -> identifier"
+// and `_literals()` skips identifiers by design. `test/auth_field_inset_test.dart`
+// reads the padding now.
+//
+// The vertical `18` was left alone on purpose and is **still counted**, so this
+// file now holds 8 of auth's 10. 18x2 + a ~15.5 dp body line is what carries
+// those fields past `AppTheme.tapMin` = 56, and `tap_target_test.dart` +
+// `tool/tap_target_audit.py` measure that floor for this row. That is the
+// urgency-pill lesson from the `project_new` slice, and it is why a ratchet that
+// counts tap-floor arithmetic is not wrong, only blunt.
+const int _offGridBudget = 77;
 
 List<File> _sources() {
   final dir = Directory('lib');

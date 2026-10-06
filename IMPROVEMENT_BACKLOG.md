@@ -23774,9 +23774,10 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 81 on 6 Oct;
-      81 remain across 19 files. Do not read the slice below as the sweep
-      being finished.**
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 77 on 6 Oct;
+      77 remain across **22 files** (the "19 files" in earlier notes was wrong:
+      three files of 1-2 arrived with the `ui.dart` slice and were never
+      counted). Do not read the slice below as the sweep being finished.**
       *Slices shipped 6 Oct: `62d1772` -> remote `a08991a` (projects, 197 -> 185),
       the second one below (worker_home, 185 -> 164, 19 sites), the third one
       below (`071d632` -> remote `e43080b`, project_new, 164 -> 140, 24 sites),
@@ -23785,7 +23786,132 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       **customer_home + category_grid + client_start_card, 101 -> 85, 16
       sites**), and the sixth one below (`38a73b7` -> remote `460352b`,
       **ui.dart, 85 -> 81, 2 sites** — a shared kit, not a screen, and the
-      guard that caught it was a screen guard reacting to the fix).*
+      guard that caught it was a screen guard reacting to the fix), and the
+      seventh one below (`ba3a8e9`, **auth_screen + phone_field, 81 -> 77,
+      4 sites** — a column, not a screen, and the sweep half-measure would have
+      made it worse).*
+
+      **Seventh slice — the auth form took the house field inset.
+      81 -> 77 across two files, and the count is the least interesting part
+      of it.** `auth_screen.dart` held the most literals of any screen left
+      (10), and the standing question — "is it one column or several?" —
+      answered **neither**: the number that mattered was not in the screen at
+      all but in the **token it disagreed with**. `authInput()` spelled
+      `symmetric(horizontal: 14, vertical: 18)`, `AppTheme.fieldPad` is
+      `symmetric(horizontal: s16, vertical: 18)`, and the `DzPhoneField`
+      sitting between the two `authInput` fields spelled the **same 14**. So
+      the three inputs of the sign-up form agreed with each other and the whole
+      form was **2 dp narrower than every field the user is shown after they log
+      in** — measured against a different number than the rest of the product,
+      on the first screen of the install. The agreement is why nothing caught
+      it: three writers typed the same wrong number, so the column *looked*
+      right, and R4 goes green on all three the moment a literal becomes an
+      identifier because `_literals()` skips identifiers **by design**.
+
+      **Sweeping `authInput` alone would have CREATED the defect.** This is the
+      first slice where the obvious half-measure was worse than doing nothing:
+      the phone field sits *inside* the same column, so moving only the two
+      `authInput` fields to the house token would have left the number field 2
+      dp outside them — the exact "one band moved, its neighbours left behind"
+      shape three earlier slices had to undo. Both moved, in one commit, in two
+      files. **The lesson generalises the standing instruction: on a screen, ask
+      which column a number is in; on a token, ask which token it disagrees
+      with. This one was invisible from the screen entirely.**
+
+      **The vertical `18` is load-bearing and was deliberately NOT swept.**
+      18x2 + a ~15.5 dp body line at 1.65 line-height is what carries these
+      fields past `AppTheme.tapMin` = 56, and **two independent things already
+      measure that floor for this exact row**: `tap_target_test.dart` and two
+      entries in `tool/tap_target_audit.py`. "18 is not a multiple of 4, take it
+      to 16" is the urgency-pill mistake from the `project_new` slice, repeated
+      in the same backlog. It is now written down at both call sites, so the
+      next tick reads why the number stayed instead of re-deciding it. That is
+      **three times in seven slices** that the literal which looked like style
+      was carrying a constraint — which makes "check `tap_target_*` before
+      sweeping an 18" a standing instruction rather than a story about one pill.
+
+      **Red before green, twice, and the first red was the wrong test.** The
+      guard failed at `Expected 16 / Actual 14` — the defect, correctly. But it
+      *also* failed on "expected 2 fields, got 3", because the phone field is
+      **also** a `TextField` and lives in the same `Column`: neither
+      `find.byType(TextField)` nor `descendant(of: Column)` excludes it, and a
+      third scope (subtracting the `DzPhoneField` subtree) is the only one that
+      says what the test means. A second trap was paid in the same file: the
+      first draft compared **glyph** positions, which read a 1 dp
+      "misalignment" that was actually the `fieldLine` border on the phone
+      field's decorated `Container` — and before that, measuring glyphs at all
+      would have measured `authInput`'s `prefixIcon`, the "icon offset wearing
+      a heading's clothes" error from `section_title_edge_test.dart`, arriving
+      three files later. **The boxes line up; the glyphs never had to.**
+
+      *Gate:* `flutter analyze` -> **No issues found!**; `flutter test
+      test/auth_field_inset_test.dart` -> **+3 green**; `tool/run_tests.py` ->
+      **1998 tests, 12/12 shards green**. Guard proven non-vacuous: reverting
+      `authInput` to `horizontal: 14` fails it with `Expected
+      EdgeInsets(16.0, 18.0, 16.0, 18.0) / Actual EdgeInsets(14.0, 18.0, 14.0,
+      18.0)`.
+
+      **A side effect worth recording: my comment moved two tap-audit anchors
+      and the tool caught it.** Writing the "why the 18 stayed" note above
+      `authInput` pushed the `_RememberRow` constructs down ten lines, and
+      `tool/tap_target_audit.py` reported both of them **STALE — measurement
+      rotted** on the next run, exactly as designed. The arithmetic was
+      unchanged (the slice moved the horizontal and left the vertical `18`
+      alone), so the two anchors were re-pinned to 592/599 and both now read
+      **MEASURED pass** rather than a hand-typed assertion — measured passes
+      went 1 -> 3 and **total STALE fell 11 -> 8**. The lesson is not "comments
+      are dangerous": it is that a ten-line comment can invalidate a *pinned
+      line number*, and this tool is the reason the loop finds out at commit
+      time instead of the next slice. Nine of the eleven pre-existing STALE
+      entries are untouched files and remain a separate tick.
+
+      *Pixels, measured A/B on the real rendered shots* (`/tmp/shots/`, before
+      and after, same host, same run): the three auth shots differ by
+      **1.92%** of subpixels each and **no `.ERROR.txt`** anywhere (no overflow).
+      Scanned band by band, the field **boxes are pixel-identical** — every
+      band's edge stays at x=54 physical px — which is the point: nothing about
+      the field moved except the glyphs inside it. And the glyphs moved by
+      **exactly the 2 dp asked for**: the first text pixel in the password field
+      went **614 -> 608 physical px**, i.e. **6 px at DPR 3 = 2 dp**, on both
+      `01_signin` and `02_signup_client`. The left-hand bands (phone field,
+      checkbox row) are unchanged at x=160/978, which is the RTL reading: the
+      inset that moved is the one the Arabic text starts at.
+
+      **A committed golden moved with it, and the earlier draft of this note
+      was wrong about that.** The draft claimed the `/tmp/shots` rasters are not
+      committed and therefore nothing had to be re-baselined. In fact
+      `test/goldens/` holds **9 tracked PNGs**, one per key screen, and
+      `01_signin` **failed** on the first full-suite run for exactly this
+      change — `Failing tests: design_shots_test.dart: golden: 01_signin`. So
+      the slice was re-baselined with `--update-goldens` and the new baseline
+      was measured, not waved through:
+        * **exactly one** of the 9 goldens changed; the other 8 are byte-stable,
+          which is the strongest possible statement that the change is local to
+          the auth form.
+        * old vs new diff bbox **(202, 306, 337, 324)** — a single
+          **18 px tall** band. **1 061 differing pixels of 333 200 = 0.318 %.**
+        * glyph pixel counts per scanline are **identical old vs new**
+          (32/32, 13/13, 16/16, 16/16) while the first dark pixel moved
+          **207 -> 205**. Same glyphs, moved 2 dp, nothing re-laid out — a
+          reflow or a clipped field would have changed the counts, not just the
+          origin.
+        * field-box geometry is unchanged: both images yield **178**
+          surfaceAlt runs over the same rows.
+      Rendered crops kept for inspection:
+      `/tmp/signin_form.png` (form band, 3x) and `/tmp/signin_full.png`
+      (old over new).
+
+      **Where the remaining 77 are, measured rather than remembered — and the
+      backlog's own figure was wrong.** The parent entry says "19 files"; the
+      R4 scanner reads **22 files at HEAD** (`auth_screen.dart` 8 after this
+      slice, `worker_profile_screen.dart` 9, `profile_screen.dart` 8,
+      `browse_screen.dart` 7, `ui.dart` 7, `profile_edit_screen.dart` 5, then
+      nine smaller files of 1-4). The discrepancy is three files of 1-2 that
+      arrived with the `ui.dart` slice and were never counted. `auth_screen`
+      still holds **8 of its 10**: the page gutter `18`s, which are
+      `AppTheme.gutter` in waiting, and the vertical `18`s that are the tap
+      floor. **Next slice: `worker_profile_screen.dart`, 9 sites** — the last
+      screen with more than 5.
       *The sixth slice was cut off mid-run by the 10-minute tick and found
       staged-but-never-verified on the next one; it was finished here, not
       redone. Its own pixel figures were wrong on arrival and are corrected in

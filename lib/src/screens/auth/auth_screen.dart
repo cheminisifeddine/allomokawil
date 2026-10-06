@@ -510,7 +510,19 @@ InputDecoration authInput(
     fillColor: AppTheme.surfaceAlt,
     prefixIcon: Icon(icon, size: 21, color: AppTheme.textSecondary),
     suffixIcon: suffix,
-    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 18),
+    // The house field inset, by token and not by number: this used to spell
+    // `horizontal: 14`, which made the whole auth form 2 dp narrower than every
+    // field the user is shown after they sign in — `AppTheme.fieldPad` is
+    // `horizontal: s16`. The two `authInput` fields and the `DzPhoneField`
+    // between them all agreed at 14, so the column looked correct and R4 went
+    // green on every one of them (a literal replaced by an identifier stops
+    // counting by design). `test/auth_field_inset_test.dart` now reads the
+    // padding instead of the count.
+    // The vertical `18` is deliberately NOT swept: 18x2 + a ~15.5 dp body line
+    // is what carries these fields past `AppTheme.tapMin` = 56, and
+    // `tap_target_test.dart` / `tool/tap_target_audit.py` both measure that
+    // floor for this row.
+    contentPadding: AppTheme.fieldPad,
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(AppTheme.rMd),
       borderSide: const BorderSide(color: AppTheme.line),

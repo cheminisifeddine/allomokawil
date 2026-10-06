@@ -145,9 +145,15 @@ MEASURED = [
     ("lib/src/screens/project/project_new_screen.dart", 1412, "InkWell(", PASS_,
      "BoxConstraints(minHeight: tapMin 56) wins over 16x2 + max(17, 13.5x1.4=18.9) = 50.9"),
     # Checkbox is 48 dp padded (kMinInteractiveDimension) and the row adds v6.
-    ("lib/src/screens/auth/auth_screen.dart", 582, "InkWell(", PASS_,
+    # Anchors moved 582 -> 592 and 589 -> 599 on 6 Oct: the R4 auth slice put
+    # the reason for the 18 dp vertical field padding above `authInput`, which
+    # pushed both constructs down ten lines. The arithmetic is UNCHANGED — the
+    # slice moved the field's *horizontal* inset (14 -> AppTheme.fieldPad) and
+    # deliberately left the vertical `18` alone because it is what clears
+    # AppTheme.tapMin here — so these two rows are re-pinned, not re-decided.
+    ("lib/src/screens/auth/auth_screen.dart", 592, "InkWell(", PASS_,
      "48 (Checkbox, padded) + 6x2 = 60.0"),
-    ("lib/src/screens/auth/auth_screen.dart", 589, "Checkbox(", PASS_,
+    ("lib/src/screens/auth/auth_screen.dart", 599, "Checkbox(", PASS_,
      "48 inside the 60 dp row above"),
     # SizedBox(height: 60) + horizontal ListView -> tight cross axis = 60.
     ("lib/src/screens/browse/browse_screen.dart", 317, "InkWell(", PASS_,

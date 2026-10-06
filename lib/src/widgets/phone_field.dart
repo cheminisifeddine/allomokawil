@@ -152,8 +152,14 @@ class _DzPhoneFieldState extends State<DzPhoneField> {
               hintTextDirection: TextDirection.ltr,
               hintStyle: AppTheme.body.copyWith(
                   color: AppTheme.textMuted, letterSpacing: 1.1),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 18),
+              // The same house token the auth fields use. This field sits
+              // BETWEEN two `authInput` fields on one screen, so its inset is
+              // part of their column: leaving it at `14` while `authInput` moved
+              // to `fieldPad` would have *created* the 2 dp disagreement this
+              // slice exists to remove. The vertical `18` stays for the same
+              // tap-floor reason as the auth fields — see the slice note in
+              // `IMPROVEMENT_BACKLOG.md` and `test/auth_field_inset_test.dart`.
+              contentPadding: AppTheme.fieldPad,
               suffixIconConstraints:
                   const BoxConstraints(minWidth: 40, minHeight: 40),
               suffixIcon: valid
