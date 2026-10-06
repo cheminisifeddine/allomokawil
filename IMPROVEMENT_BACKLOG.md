@@ -23774,8 +23774,8 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 140 on 6 Oct;
-      140 remain across 24 files. Do not read the slice below as the sweep
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 101 on 6 Oct;
+      101 remain across 21 files. Do not read the slice below as the sweep
       being finished.**
       *Slices shipped 6 Oct: `62d1772` -> remote `a08991a` (projects, 197 -> 185),
       the second one below (worker_home, 185 -> 164, 19 sites), the third one
