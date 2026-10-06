@@ -89,7 +89,30 @@ import 'package:allomokawil/src/widgets/ui.dart';
 // the pill's own `symmetric(horizontal: 14, vertical: 12)` stayed: that is the
 // inside of a chip, a proportion rather than a column edge, and moving it
 // would resize all sixteen trade pills to satisfy a counter.
-const int _offGridBudget = 51;
+// Lowered 51 -> 46 on 7 Oct: the eleventh slice, `auth_screen`, and the count
+// fell by five rather than the eight its sites suggested. Three of the five
+// were the kind this ratchet is worst at — `fromLTRB(18, 4, 18, 24)` and
+// `fromLTRB(10, 8, 18, 4)` typed a correct `18` that `AppTheme.gutter` already
+// names, so the sweep renamed numbers that were never wrong. The real defect
+// was in the *second* number of the top bar: its end edge was 10 where the form
+// under it was 18, an 8 dp disagreement between two rows R4 cannot compare
+// because it counts literals per file and both became identifiers in the same
+// commit. `test/auth_page_column_test.dart` is what holds that seam; the count
+// is again the least interesting part.
+//
+// What stayed, and why. `auth_screen` keeps 3 of its 8:
+//   * the mode switch's interior, now `AppTheme.s4` swept together with its own
+//     5 dp segment gap so the two cannot disagree — the switch is a component,
+//     and its 5 was a proportion inside it, not a column edge;
+//   * `symmetric(horizontal: 2, vertical: 6)` on the remember row, which is the
+//     tap-floor arithmetic `tool/tap_target_audit.py` settles by hand at
+//     48 + 6x2 = 60;
+//   * `symmetric(horizontal: 14, vertical: 12)` on `AuthNotice`, byte-identical
+//     to `chipTheme.padding`, the trade pill, and one banner in
+//     `project_detail_screen` — that is four writers spelling one chip inset,
+//     and the honest fix is a named token, which is its own slice rather than a
+//     sweep that would have renamed four files at once.
+const int _offGridBudget = 46;
 
 List<File> _sources() {
   final dir = Directory('lib');

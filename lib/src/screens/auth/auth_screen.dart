@@ -185,7 +185,8 @@ class _AuthScreenState extends State<AuthScreen> {
             _TopBar(onBack: () => Navigator.of(context).maybePop()),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(18, 4, 18, 24),
+                padding: const EdgeInsets.fromLTRB(
+                    AppTheme.gutter, AppTheme.s4, AppTheme.gutter, AppTheme.s24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -338,7 +339,8 @@ class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 8, 18, 4),
+      padding: const EdgeInsets.fromLTRB(
+          AppTheme.gutter, AppTheme.s8, AppTheme.gutter, AppTheme.s4),
       child: Row(
         children: [
           IconButton(
@@ -380,7 +382,7 @@ class _ModeSwitch extends StatelessWidget {
   Widget build(BuildContext context) {
     final signUp = mode == AuthMode.signUp;
     return Container(
-      padding: const EdgeInsets.all(5),
+      padding: const EdgeInsets.all(AppTheme.s4),
       decoration: BoxDecoration(
         color: AppTheme.surfaceAlt,
         borderRadius: BorderRadius.circular(AppTheme.rXl),
@@ -397,7 +399,7 @@ class _ModeSwitch extends StatelessWidget {
               onTap: () => onChanged(AuthMode.signUp),
             ),
           ),
-          const SizedBox(width: 5),
+          const SizedBox(width: AppTheme.s4),
           Expanded(
             child: _Segment(
               key: const Key('auth-tab-signin'),

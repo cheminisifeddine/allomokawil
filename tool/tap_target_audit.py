@@ -151,9 +151,14 @@ MEASURED = [
     # slice moved the field's *horizontal* inset (14 -> AppTheme.fieldPad) and
     # deliberately left the vertical `18` alone because it is what clears
     # AppTheme.tapMin here — so these two rows are re-pinned, not re-decided.
-    ("lib/src/screens/auth/auth_screen.dart", 592, "InkWell(", PASS_,
+    # Anchors moved again 592 -> 594 and 599 -> 601 on 7 Oct: the eleventh slice
+    # re-pinned the auth screen's own page insets and wrapped two of them, which
+    # shifted these two constructs down two lines. Re-pinned again, NOT
+    # re-decided — the vertical `6` on the remember row is untouched by that
+    # slice, so the 48 + 6x2 = 60 arithmetic below is still the same sum.
+    ("lib/src/screens/auth/auth_screen.dart", 594, "InkWell(", PASS_,
      "48 (Checkbox, padded) + 6x2 = 60.0"),
-    ("lib/src/screens/auth/auth_screen.dart", 599, "Checkbox(", PASS_,
+    ("lib/src/screens/auth/auth_screen.dart", 601, "Checkbox(", PASS_,
      "48 inside the 60 dp row above"),
     # SizedBox(height: 60) + horizontal ListView -> tight cross axis = 60.
     ("lib/src/screens/browse/browse_screen.dart", 317, "InkWell(", PASS_,

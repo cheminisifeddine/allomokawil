@@ -23774,10 +23774,10 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 51 on 6 Oct;
-      **slices 1-10 shipped** (10th = `browse_screen` + `trade_filter_bar`,
-      local `5fd8eb7` -> remote `d3c9403`, 60 -> 51, `browse_screen` 7 -> 0);
-      **51 remain across 19 files.** 197 -> 60 on 6 Oct;
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 46 on 7 Oct;
+      **slices 1-11 shipped** (11th = `auth_screen`, local `COMMITPENDING` -> remote
+      `COMMITPENDING`, 51 -> 46, `auth_screen` 8 -> 3);
+      **46 remain across 18 files.** 197 -> 60 on 6 Oct;
       60 remain across **20 files** (the "19 files" in earlier notes was wrong:
       three files of 1-2 arrived with the `ui.dart` slice and were never
       counted). Do not read the slice below as the sweep being finished.**
@@ -23963,7 +23963,86 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       **Commit:** local `5fd8eb7` -> remote **`d3c9403`**, `remote_state.py`
       reports **IN SYNC: identical tree**.
 
-      **Next slice: `auth_screen.dart` (8), `ui.dart` (7), `profile_edit_screen.dart` (5).**
+      **SHIPPED 7 Oct — the eleventh slice, `auth_screen.dart`, 51 -> 46, and the
+      one that proves the ratchet is the wrong instrument.** The file's 8 sites
+      were already written down in the seventh slice as "reasoned about", and
+      they were: the vertical `18` is tap-floor arithmetic and stays. Sweeping
+      them would have taken the count to 43 and moved nothing a user can see.
+
+      The defect was **8 dp of horizontal misalignment between two rows of the
+      same screen**, and R4 could not see it in principle. `_TopBar` painted at
+      `EdgeInsets.fromLTRB(10, 8, 18, 4)` — **18 on the start edge and 10 on
+      the end edge** — while the form body directly under it was
+      `fromLTRB(18, 4, 18, 24)`, 18 on both. So the back arrow and the brand mark
+      sat inside the column the whole screen is built on. R4 went green on this
+      file the moment those two 18s became `AppTheme.gutter` and stayed green
+      while the row was still 8 dp out, **because `gutter` and `s8` are both
+      identifiers and `_literals()` skips identifiers by design.** A counter
+      that polices the spelling of a number is blind to the one case a user can
+      see: two spellings of the same idea disagreeing. That is the argument for
+      guards over ratchets, and it cost a whole slice to learn twice.
+
+      *What moved, one commit, one column.* Both page insets in
+      `auth_screen.dart` -> `AppTheme.gutter` / `AppTheme.s4` / `AppTheme.s24`,
+      and the mode switch's interior `5` + its own segment gap `5` ->
+      `AppTheme.s4` **together**, so the interior and the gap cannot disagree
+      (two segments flush against each other read as one control).
+
+      **8 -> 3, and the three that stayed are each argued, not tolerated.**
+      `auth_screen` keeps the remember-row's `symmetric(horizontal: 2,
+      vertical: 6)`, which is the `48 + 6x2 = 60` tap arithmetic
+      `tool/tap_target_audit.py` settles by hand; the `AuthNotice` chip's
+      `symmetric(horizontal: 14, vertical: 12)`, which is **byte-identical to
+      `chipTheme.padding`, the trade pill, and a banner in
+      `project_detail_screen`** — four writers spelling one chip inset, and the
+      honest fix is a named token, which is its own slice rather than a sweep
+      that would have renamed four files at once; and the switch interior, which
+      is a component proportion, not a column edge.
+
+      **Guard: `test/auth_page_column_test.dart`, 4 tests, and it asserts the
+      thing the counter cannot — that the header row and the form under it
+      resolve to the same inset, read off the layout.** Measured, not asserted
+      from source: `body 18.0..374.0, header start=374.0 end=18.0` on both auth
+      modes. Two traps are documented in the file, both paid for:
+
+        * **RTL.** Every inset here is measured from the **start** edge, which
+          in this app is the **right** one. Asserting `left` puts the
+          arithmetic 356 dp out on a 392 dp canvas and fails for a reason that
+          has nothing to do with the seam. `test/browse_column_test.dart`
+          records the same trap.
+        * **the rect is not the inset.** A `Padding` lays out at its parent's
+          full width and hands the inset to its child, so
+          `getRect(find.byType(Padding))` answers 0..392 for the header *and*
+          the body and passes on the broken build. The test therefore compares
+          the **brand `Image` box** and the **back `IconButton` box** — the two
+          elements a reader actually sees. The `Image` *box* is measured, not
+          its ink, because `mark.png` carries transparent margin inside its
+          44 dp box and a pixel scan would call a correct layout wrong.
+          A third trap: the switch `Container`'s rect carries a 1 dp `Border`,
+          so measuring it and calling the difference the padding read **5 on a
+          build where the padding was 4** — read off the widget instead.
+
+      *Golden re-baselined and measured:* exactly **1 of 9** changed
+      (`01_signin.png`), the other 8 **byte-stable** by blob hash. **18 178
+      differing pixels of 333 200 = 5.456%**, bbox `(46, 15, 391, 659)`.
+
+      **`tool/tap_target_audit.py`: anchors 592 -> 594 and 599 -> 601
+      RE-PINNED, not re-decided.** The slice wrapped two `EdgeInsets` onto two
+      lines each, which shifted both constructs down two lines; the vertical
+      `6` the entries settle is untouched, so the `48 + 6x2 = 60` arithmetic is
+      the same sum. **The 8 STALE are unchanged and still unowned** — same as
+      the tenth slice measured at clean HEAD.
+
+      **One process failure worth writing down, because the protocol warns about
+      it and I did it anyway.** Mid-gate I ran the non-vacuity sabotage (revert
+      the end inset to `s4`) **while the full suite was executing** — the exact
+      two-writers-one-tree hazard the protocol opens with, committed against
+      myself on a box with 7.8 GB and no swap. It cost shard 1's first attempt,
+      which failed and passed on retry. The lesson is already written at step 1
+      of the protocol and I read it this tick. **Prove non-vacuity only when the
+      box is idle.**
+
+      **Next slice: **`ui.dart` (7)**, then `profile_edit_screen.dart` (5).**
       `auth_screen.dart` is a screen and takes the column question, but its
       remaining 8 are already reasoned about in the `auth` slice above — the
       vertical `18` is tap-floor arithmetic and stays. `ui.dart` is the shared
