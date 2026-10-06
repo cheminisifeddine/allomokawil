@@ -23774,7 +23774,7 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 77 on 6 Oct;
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 68 on 6 Oct;
       77 remain across **22 files** (the "19 files" in earlier notes was wrong:
       three files of 1-2 arrived with the `ui.dart` slice and were never
       counted). Do not read the slice below as the sweep being finished.**
@@ -23789,7 +23789,10 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       guard that caught it was a screen guard reacting to the fix), and the
       seventh one below (`ba3a8e9`, **auth_screen + phone_field, 81 -> 77,
       4 sites** — a column, not a screen, and the sweep half-measure would have
-      made it worse).*
+      made it worse), and the eighth one below (`4fb6ba8` -> remote `cfb691f`,
+      **worker_profile_screen, 77 -> 68, 9 sites** — the first slice that was
+      mostly renames, and the first where the neighbour a half-sweep leaves
+      behind is a widget that *replaces* the one that moved).*
 
       **Seventh slice — the auth form took the house field inset.
       81 -> 77 across two files, and the count is the least interesting part
