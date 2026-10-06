@@ -419,6 +419,18 @@ in this file that dies on arrival is how two ticks were lost.
    exactly two things — a **bound** and a **name** for the file in flight when
    the deadline fires. Exit codes: 0 pass, 1 fail, **2 hung**.
 
+   **KNOWN BUG, measured 6 Oct — the deadline did not fire.** A second run
+   entered shard 8 at its 300 s deadline and was still running **~10 minutes
+   later**, against the exact failure mode the runner exists to prevent (the
+   30 Sep stall, every thread in `epoll_wait` at 0 % CPU). Shards 1-7 had
+   completed in 1:18-2:14 each, so this was not a slow shard. Killed by the
+   tick. Two consequences: **do not treat a quiet `run_tests.py` as a passing
+   one**, and if shard 8 is the one that hangs again it is worth a look at the
+   files it owns (`test/quote_duration_copy_test.dart` ..
+   `test/rows_partial_test.dart`) rather than at the runner's clock. A tick
+   that needs a number it cannot get is better off naming that than reporting
+   a count from the shards that did answer.
+
    **`--concurrency` is the one flag worth knowing.** `flutter test` forwards it
    to the `test` package, whose default is
    `max(1, Platform.numberOfProcessors ~/ 2)` (`test_core/lib/src/runner/
@@ -23734,15 +23746,28 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       must not drop" was checked only for the files this change touches. The
       two other red files below are untouched by this commit.
 
-- [ ] **OPEN — the two remaining pre-existing red files.** *Recorded 6 Oct, still
-      red at the commit above.* `first_char_measurement_test` (4 unexcused
-      sites, `worker_phone_search.dart:132-133`) and `place_seed_test` (a real
-      `RenderFlex` overflow at `worker_card.dart:45`). Neither is in the tree
-      this tick touched, but **both were pre-existing and unrecorded as such in
-      the same way this item was** — the next tick should treat them the same
-      way: bisect the regressor before believing the description attached to
-      them. `place_seed_test` clips real UI on a shipping screen and wants a
-      render, not a guess.
+- [ ] **OPEN — ONE pre-existing red file remains.** *Recorded 6 Oct; rewritten
+      6 Oct after `place_seed_test` was fixed and bisected (see the item below).*
+      **`first_char_measurement_test`** is the survivor: 4 unexcused sites at
+      `worker_phone_search.dart:132-133` (`codeUnitAt(0)` on each rune inside
+      `_isDigit`).
+
+      **`place_seed_test` is DONE — do not pick it up again.** It was the other
+      half of this pair. Both had been filed as pre-existing reds without anyone
+      bisecting them, and bisecting was worth it: `place_seed_test` turned out
+      to be a real shipping-screen clip caused by `042851a` three ticks earlier,
+      hidden behind a guard test that **could not fail** because it pumped the
+      card unbounded. That is the lesson for the survivor — its description says
+      "the repair is an excuse entry with the reason", and that may be right,
+      but measure the sweep first and check whether the *sites* are genuinely
+      unexcused before adding a line to an allow-list.
+
+      **Also still red, and not a test at all:** `app_source_scope_test`
+      (shard 1) fails if any `.dart` file under `test/` is **untracked by git**
+      — `"these Dart files sit under test/ but are not tracked … a guard
+      written but not added is a rule nobody is enforcing"`. This tick hit it
+      with a scratch shot file mid-run. It is working hygiene, not a defect: if
+      it goes red, `git status --short` is the first thing to read.
 
 - [ ] **`card_recipe_test.dart` R4 — the sweep itself is still unfinished, and
       this tick did not pretend otherwise.** *The remaining 197 are pre-existing
@@ -23767,13 +23792,63 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       user-facing **text** — they measure digits — so the repair is an excuse
       entry with the reason, which the sweep then checks for staleness.
 
-- [ ] **`place_seed_test.dart` fails with a real `RenderFlex` overflow at
+- [x] **`place_seed_test.dart` failed with a real `RenderFlex` overflow at
       `worker_card.dart:45`** — `Column` at `BoxConstraints(w=138, h=156)`, the
       *vertical* card variant, overflowing in the client's home strip.
-      *Pre-existing, measured 6 Oct*, and it is a genuine layout defect rather
-      than a stale assertion: real content is being clipped on a shipping
-      screen. Needs a shot to see which line is over, so it wants a render, not
-      a guess.
+      **SHIPPED 6 Oct.** The bisect the previous tick asked for: the regressor
+      is **`042851a`**, not the strip height. That commit added
+      «غير متاح الآن» to this card so a paused contractor would stop looking
+      like a man taking work, and its own comment says *"the strip is a fixed
+      168 dp column"* — **168 was never true and the strip is 190.** The tick
+      shipped a guard for this very overflow and the guard passed:
+
+      ```
+      testWidgets('the fixed 168 dp column does not overflow with the line added')
+      ```
+
+      It could not fail. The test pumped the card inside a
+      `SingleChildScrollView`, which hands a column an **unbounded** height — a
+      card that clips itself can never overflow in one — so
+      `expect(t.takeException(), isNull)` was asserting a property of the
+      harness, not of the card. `_pump` now lays the vertical card out in
+      `AppTheme.stripH`; it reddens at 190 **twice**, because at 190 the
+      `findsOneWidget` label test fails as well — the line was not merely
+      overflowing, it was being clipped into invisibility.
+
+      *Measured with the real Cairo font loaded, not the test fallback:*
+      available card **144 dp**, paused card **165 dp**, box offered **156 dp**
+      (= strip 190 − 34: 16 dp `cardPad` + 1 dp border), overflow **9 dp**.
+
+      **Fixed:** `AppTheme.stripH` **208** (174 dp inner, 9 dp slack over real
+      content), plus `stripCardW` / `stripInnerH`. The 190 was written twice —
+      strip and loading skeleton — and the card's own 172 twice as well; all
+      four are one owner now. The enum's "compact 168px column" doc was wrong
+      on every number in it. `worker_card_strip_fit_test.dart` is the guard
+      that can fail: real font, layout rects, and slack **>= 8 dp** rather than
+      merely `> 0`.
+
+      **Red before green, on the real screen:** `place_seed_test` at
+      `stripH = 190` -> `A RenderFlex overflowed by 9.0 pixels on the bottom.`
+      / at 208 -> `+9 All tests passed!`. Analyzer **No issues found!**; the
+      five card/card-recipe files -> **+47 all passed**; `design_shots_test`
+      **+22**, `04_customer_home.png` re-rendered, 0 stripe pixels. Off-grid
+      ratchet unchanged at **197**.
+
+      **Commit:** local `d510b77` -> remote **`14a7f40`**.
+
+      **Two things the next tick should not repeat.** (1) A pixel assertion
+      for the overflow stripe is **vacuous in `flutter test`** — the stripe does
+      not paint in a test raster, so "0 yellow pixels" is true on the broken
+      build too. I wrote that shot test, measured **0 differing pixels between
+      the 190 and 208 builds**, and deleted it rather than commit a decorative
+      guard. The rects are the instrument; a raster only shows the stripe once
+      the card is on a real screen. (2) `tool/run_tests.py` **hung on shard 8
+      past its own 300 s deadline** for ~10 min (the 30 Sep stall mode, still
+      open) and was killed by this tick. The two red shards are the same two
+      as last tick and are **both pre-existing**: shard 1
+      `app_source_scope_test` and shard 3 `first_char_measurement_test`
+      (`worker_phone_search.dart:132-133`, the 4 unexcused `_isDigit` sites
+      above). Neither touches this change.
 
       **Commit:** local `5ae228e` -> remote **`7417683`**, all 7 blobs verified
       **MATCH** and `remote_state.py` reports **IN SYNC: identical tree**.
