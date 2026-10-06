@@ -27,6 +27,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:allomokawil/src/core/theme/app_theme.dart';
 import 'package:allomokawil/src/data/taxonomy.dart';
 import 'package:allomokawil/src/widgets/trade_filter_bar.dart';
 
@@ -216,6 +217,64 @@ void main() {
       expect(find.text('كل الولايات'), findsOneWidget);
       final chip = find.byKey(const Key('trade-wallpaper'));
       expect(_stripRect(tester).overlaps(tester.getRect(chip)), isTrue);
+    });
+  });
+
+  group('TradeFilterBar — a chip is a finger, not a badge', () {
+    // **A pill 4 dp under the tap floor was on all sixteen trades, and the
+    // instrument that found it was reporting a STALE anchor instead.**
+    // `tool/tap_target_audit.py` carried a hand measurement pinned to
+    // `browse_screen.dart:317` — a line that has not held this widget since
+    // `b26b69a` extracted the strip into its own file. The row's arithmetic
+    // moved with the widget and landed on a number nobody re-decided:
+    // `SizedBox(height: 60)` with `fromLTRB(gutter, s4, gutter, s4)`, so the
+    // painted pill is `60 - 4 - 4 = 52` dp. The committed golden agrees:
+    // `10_browse.png` (392x850, DPR 1.0) has the strip's ink on y138..y189,
+    // 52 px inclusive.
+    //
+    // The gap was not visible as a bug, which is why it survived: 52 dp still
+    // *looks* like a pill, it is just 4 dp too small to hit reliably for the
+    // least precise part of a thumb — and this is the strip on the screen a
+    // customer uses to find a contractor.
+    //
+    // This group measures the real hit rect rather than restating the
+    // arithmetic, so the next person who changes the strip's height or its
+    // padding gets a red test rather than a docstring nobody reads.
+    testWidgets('every chip is at least the tap floor tall', (tester) async {
+      await tester.pumpWidget(_app(category: 'painting', wilaya: '16'));
+      await tester.pumpAndSettle();
+
+      final inks = find.descendant(
+        of: find.byKey(const Key('trade-filter-scroll')),
+        matching: find.byType(InkWell),
+      );
+      // All three kinds: the wilaya pill, «مسح الفلاتر», and the sixteen trades.
+      expect(inks, findsNWidgets(18));
+
+      double shortest = double.infinity;
+      for (var i = 0; i < 18; i++) {
+        final h = tester.getRect(inks.at(i)).height;
+        if (h < shortest) shortest = h;
+        expect(
+          h,
+          greaterThanOrEqualTo(AppTheme.tapMin),
+          reason: 'chip $i is ${h.toStringAsFixed(1)} dp tall, '
+              'under the ${AppTheme.tapMin} dp floor',
+        );
+      }
+      // One number the report can quote: the strip's own arithmetic
+      // (height - padding * 2) is not enough, because the padding is the
+      // thing under dispute.
+      expect(shortest, greaterThanOrEqualTo(AppTheme.tapMin));
+    });
+
+    testWidgets('the strip still fits on a 360 dp handset', (tester) async {
+      // The fix must not become a fix that pushes the list off a small
+      // screen: the strip is a fixed-height row above the results, so its
+      // height is a budget, not a preference.
+      await tester.pumpWidget(_app(category: null));
+      await tester.pumpAndSettle();
+      expect(_stripRect(tester).height, lessThanOrEqualTo(72));
     });
   });
 

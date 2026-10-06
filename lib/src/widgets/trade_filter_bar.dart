@@ -154,7 +154,22 @@ class _TradeFilterBarState extends State<TradeFilterBar> {
   Widget build(BuildContext context) {
     final hasFilter = widget.wilaya != null || widget.category != null;
     return SizedBox(
-      height: 60,
+      // **64, not 60, and the arithmetic is the reason it cannot be 60.**
+      // This row carries [AppTheme.s4] of air above and below the pill, so the
+      // height the strip declares is `pill + 8` — and the pill is what a finger
+      // lands on. At 60 the painted pill was `60 - 4 - 4 = 52` dp, four under
+      // the [AppTheme.tapMin] floor, on **all eighteen** chips: the wilaya
+      // pill, «مسح الفلاتر», and the sixteen trades. It read as a pill, so it
+      // never looked wrong; it was simply too short to hit reliably with the
+      // least precise part of a thumb, on the strip a customer uses to find a
+      // contractor.
+      //
+      // 64 puts the pill at exactly `tapMin` and keeps the 4 dp of air the
+      // strip was drawn with, so the fix is the smallest one that satisfies the
+      // floor instead of a visual redesign. The 4 dp the list below moves down
+      // is the honest cost of a target a thumb can hit, and the golden
+      // `10_browse.png` is re-baselined for exactly that 4 dp.
+      height: AppTheme.tapMin + AppTheme.s4 * 2,
       child: SingleChildScrollView(
         key: const Key('trade-filter-scroll'),
         controller: _scroll,

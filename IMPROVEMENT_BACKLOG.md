@@ -25144,3 +25144,77 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       seven re-pinned rows are static arithmetic re-read from source; they
       are *floors*, and `test/tap_target_test.dart` still owns the real hit
       rects, which is why this tick did not claim them verified.
+
+- [x] **Every chip in the trade strip — the sixteen trades a customer filters
+      a contractor directory with, plus the wilaya pill and «مسح الفلاتر» —
+      was a 52 dp tap target.** (8 Oct, 13th slice. The item the 12th slice
+      named as its successor: the audit's one provable fail.)
+
+      The defect was already measured and documented by the previous tick and
+      left in place on purpose, because its fix is a Dart change that
+      re-baselines `10_browse.png`. That is this tick.
+
+      **What was wrong.** `TradeFilterBar` built its row inside
+      `SizedBox(height: 60)` with `EdgeInsets.fromLTRB(gutter, s4, gutter,
+      s4)`, so the height the strip declared was `pill + 8` and the painted
+      pill was **`60 - 4 - 4 = 52` dp** — four under `AppTheme.tapMin` — on
+      **all eighteen** chips, not only the sixteen trades. It read as a pill,
+      so nothing looked broken: 52 dp is simply too short to hit reliably
+      with the least precise part of a thumb, on the one screen whose whole
+      job is letting a customer find a contractor.
+
+      *Shipped:* the strip's height is now
+      **`AppTheme.tapMin + AppTheme.s4 * 2`** = 64 — written as the
+      arithmetic rather than the literal `64`, so the pill is at the floor by
+      construction and the two 4 dp pads are still there. It is the smallest
+      change that satisfies the floor: the pill's own look, its padding, its
+      wash/navy fills and the strip's 4 dp of air are untouched, and the
+      honest cost is that the list below sits 4 dp lower.
+
+      **Red before green, with the number in the failure.** With only the Dart
+      fix stashed, the new test fails the framework's own arithmetic:
+
+          chip 0 is 52.0 dp tall, under the 56 dp floor
+
+      Reverted, the suite is `+10 -1`. Restored, `+10`. The new test measures
+      the **real hit rect** of all eighteen `InkWell`s against
+      `AppTheme.tapMin`, so it fails on the widget rather than on a stale
+      line number — the reason this class of rot went unseen for a month.
+
+      **Golden re-baselined, and the diff proves it is only the 4 dp.** Read
+      before it was replaced, not after:
+      `10_browse.png` (392x850, DPR 1.0, so 1 px = 1 dp) had the pill's
+      non-background pixels on **y138..y189 = 52 px**; the new render has them
+      on **y138..y193 = 56 px** — same top edge, 4 px taller, growing
+      *downward* as extra pad below must. And from **y202 down, every row of
+      the new golden is byte-identical to the old one displaced by exactly
+      4 px: 253,232 identical pixels, 0 differing** across y202..849. So no
+      card, label or colour in the directory moved on its own, and exactly
+      one of the nine committed goldens changed (`md5sum -c` over the set).
+
+      **The instrument now exits 0 for the first time in twelve ticks.**
+      `tool/tap_target_audit.py`'s row was the last provable fail; it is
+      re-pinned at `trade_filter_bar.dart:281` as a PASS reading
+      `tapMin + s4*2 = 64 - s4*2 = 56.0`, and carries the before/after ink
+      measurements so the number cannot rot silently a second time. The row
+      is the *floor*; `test/trade_filter_bar_test.dart` is the proof.
+
+      **Gate:** `flutter analyze` -> **No issues found!** (13.8 s). Full suite
+      via `tool/run_tests.py` -> **2170 tests, 12/12 shards green**, elapsed
+      **19:13** (the previous tick recorded 2168, so the count went **up** by
+      exactly the 2 new tests). Shard 12 answered in 1:07 and shard 11 in
+      1:15; no hang, no retry needed.
+
+      **Honest limits.** No web bundle and no device shot: `flutter build web`
+      needs Gradle and this box has no JDK (a host fact, not a new one), so
+      the visual claim rests on the re-baselined golden, which is a real
+      render of the real widget tree at DPR 1.0 rather than a browser
+      screenshot at 3.0. The 56 dp is measured in two independent ways — the
+      golden's pixels and the widget test's `getRect` — which is a stronger
+      claim than either alone.
+
+      **Next item:** **R4 `ui.dart`** (7 sites) — the last slice of the sweep,
+      blocked only by memory. With this one, `tool/tap_target_audit.py` is
+      clean (**Exit 0**, 0 provable fail / 0 STALE) *and* the R4 sweep is
+      finished, which is the first tick in the sequence where both can be
+      true at once.

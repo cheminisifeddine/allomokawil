@@ -168,24 +168,36 @@ MEASURED = [
      "48 (Checkbox, padded) + 6x2 = 60.0"),
     ("lib/src/screens/auth/auth_screen.dart", 601, "Checkbox(", PASS_,
      "48 inside the 60 dp row above"),
-    # SizedBox(height: 60) + horizontal ListView -> tight cross axis = 60.
-    # **`browse_screen.dart:317` is DELETED, not re-pinned — and that is the
-    # finding of this tick.** The strip it described was extracted into
-    # `trade_filter_bar.dart` by b26b69a, so the widget no longer exists in
-    # that file at all (grep: 0 `InkWell(`, 0 `GestureDetector(`). Its
-    # arithmetic moved with it — and moved onto a number nobody re-decided:
-    # the strip is `SizedBox(height: 60)` with `fromLTRB(gutter, s4, gutter,
-    # s4)`, so a pill is 60 - 4 - 4 = **52 dp tall**, 4 dp under the target.
-    # A stale anchor is supposed to fail the tool so a number cannot rot in
-    # silence; instead the rot *hid a live defect* for eleven ticks, behind a
-    # row that read as housekeeping.
-    # 52.0 measured off the committed golden `10_browse.png` (392x850, DPR 1.0,
-    # so 1 px = 1 dp): the strip's ink runs y138..y189 inclusive = 52 px, which
-    # is the pill and not the 60 dp SizedBox -- the 4 dp pad sits above and
-    # below it. Fixing it is a Dart change that needs `10_browse.png`
-    # re-baselined, so it is the next tick's item, not this one's.
-    ("lib/src/widgets/trade_filter_bar.dart", 266, "InkWell(", FAIL_,
-     "strip SizedBox(height: 60) - s4*2 = 52.0 < 56 (golden ink y138..y189 = 52 px)"),
+    # **This row was a FAIL and is now a PASS, for a change measured, not
+    # argued.** It is the row that made `tool/tap_target_audit.py` exit 1 with
+    # a *real* defect rather than with housekeeping: the strip's anchor had
+    # rotted from `browse_screen.dart:317` to here, and its arithmetic had
+    # moved onto a number nobody re-decided -- `SizedBox(height: 60)` with
+    # `fromLTRB(gutter, s4, gutter, s4)`, so the painted pill was
+    # `60 - 4 - 4 = 52` dp, 4 under [AppTheme.tapMin], on all eighteen chips.
+    #
+    # The strip now reads `height: AppTheme.tapMin + AppTheme.s4 * 2` = 64, so
+    # the pill is exactly 56. Both halves of that claim are measured, not
+    # inferred:
+    #
+    #   * Before: the committed golden `10_browse.png` (392x850, DPR 1.0, so
+    #     1 px = 1 dp) had the pill's non-background pixels on
+    #     **y138..y189 inclusive = 52 px**.
+    #   * After: the re-baselined golden has them on **y138..y193 = 56 px**.
+    #     Same top edge, +4 px of height -- the strip grew downward, which is
+    #     what an extra 4 dp of pad below the pill must do.
+    #   * And nothing else moved *except* by that shift: every row from y202
+    #     down in the new golden is **byte-identical to the old one displaced
+    #     by exactly 4 px** -- 253,232 identical pixels and **0** differing
+    #     across y202..849. So the re-baseline is the 4 dp and nothing more;
+    #     no card, label or colour in the directory moved on its own.
+    #
+    # `test/trade_filter_bar_test.dart` now measures the real hit rect of all
+    # eighteen chips against `AppTheme.tapMin`, so this row is the *floor* and
+    # that test is the proof: the row cannot rot silently again, because the
+    # test fails on the widget, not on a stale line number.
+    ("lib/src/widgets/trade_filter_bar.dart", 281, "InkWell(", PASS_,
+     "strip height tapMin + s4*2 = 64 - s4*2 = 56.0 (golden ink y138..y193 = 56 px)"),
     # Re-pinned 7 Oct after eight STALE rows: every one of these constructs is
     # still the widget the row was written for, and each arithmetic below is
     # re-read against the source at its new line, not carried over. They are
