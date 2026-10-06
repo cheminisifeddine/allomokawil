@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/app_scope.dart';
 import '../../core/l10n/error_copy.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/empty_phone_search_copy.dart';
 import '../../data/empty_wilaya_copy.dart';
 import '../../data/repository.dart';
 import '../../data/stale_directory_copy.dart';
@@ -34,6 +35,15 @@ class BrowseScreen extends StatefulWidget {
   /// the one state a design review most needed to see.
   final String? initialWilaya;
 
+  /// The search word the directory opens holding, or null for an empty box.
+  ///
+  /// Same reason and same contract as [initialWilaya]: a test that cannot type
+  /// into the box can only reach the search-empty state by driving the field,
+  /// and the number empty state — a pasted phone number nobody holds, 5 Oct —
+  /// is unreachable any other way. It is also a state a design review needs to
+  /// see, because it is the one the directory used to get wrong.
+  final String? initialQuery;
+
   /// The wall clock the band's age is measured against.
   ///
   /// Injectable for the same reason and with the same contract as
@@ -49,6 +59,7 @@ class BrowseScreen extends StatefulWidget {
       this.customerSide = true,
       this.initialCategory,
       this.initialWilaya,
+      this.initialQuery,
       this.clock});
 
   @override
@@ -155,6 +166,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
     _repo = Repository(AppScope.of(context).api);
     _category = widget.initialCategory;
     _wilaya = widget.initialWilaya;
+    _query = widget.initialQuery ?? '';
     _arm(_repo.searchWorkers(
         category: _category, wilaya: _wilaya, query: _query), _question);
   }
@@ -396,6 +408,15 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       categorySet: _category != null,
                       querySet: _query.isNotEmpty,
                     );
+                    // A number is not a word. The box has accepted one since
+                    // `worker_phone_search.dart` shipped, and the sentence the
+                    // screen draws below was written for words: it told a man
+                    // who pasted a number to «جرّب كلمة أقصر» — try a shorter
+                    // word — about a number, and echoed the number back where
+                    // a name is expected. See `empty_phone_search_copy.dart`.
+                    final emptyPhone = _query.isEmpty
+                        ? null
+                        : emptyPhoneSearchAr(_query);
                     return RefreshIndicator(
                       onRefresh: _refresh,
                       color: AppTheme.navy,
@@ -414,7 +435,8 @@ class _BrowseScreenState extends State<BrowseScreen> {
                                 : hasFilter
                                     ? 'لا نتائج مطابقة'
                                     : 'لا يوجد مقاول حالياً',
-                            message: emptyWilaya ??
+                            message: emptyPhone ??
+                                emptyWilaya ??
                                 (!hasFilter
                                 ? 'لم يسجّل أي مقاول في الدليل بعد.\n'
                                     'حدّث الصفحة، أو عد لاحقاً.'

@@ -23623,3 +23623,88 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
 
       **Next item:** no unchecked items remain (247 boxes). Source the next one
       from live measurement.
+
+## Tick 6 Oct 2026 (79th) — the search box accepted a phone number and the empty
+## state told the customer to shorten a *word*
+
+- [x] **A customer who pasted a number was told «جرّب كلمة أقصر» — try a shorter
+      word — and his own number was quoted back at him where a name belongs.**
+      *Shipped.* Found 6 Oct 2026 by reading the empty state against the matcher
+      that decides it, which is the only place the two are visible at once.
+      `GET /api/mobile/workers/search` **ignores `q` entirely** — re-measured this
+      tick, `q=خالد` and `q=zzzzznotarealname` both answer all **97** live rows —
+      so `narrowWorkers` is the only thing that ever filters, and it has had two
+      arms since the 76th tick shipped phone search: the five text fields, then
+      `workerPhoneMatches`. The sentence below it was written for the text arm
+      and never learned a second one existed, so the ordinary outcome of pasting
+      a number read:
+      ```
+      لا نتائج مطابقة
+      لا يوجد مقاول يطابق «0770123456».
+      جرّب كلمة أقصر أو امسح البحث
+      [ مسح البحث والفلاتر ]
+      ```
+      Every word of the last line is advice about something that is not in what
+      he is holding. **There is no word to shorten**, and the number he has is the
+      only handle he will ever have on that man — so the one useful move left is
+      named nowhere, while the line above re-prints the number he may have
+      pasted by mistake.
+      *Shipped:* `lib/src/data/empty_phone_search_copy.dart` owns this one case
+      and null otherwise, branching on **`phoneQueryDigits`** — the very
+      predicate the matcher branches on, so the sentence cannot claim "a number
+      search" for a word, nor "no word matched" for a number. Plus
+      `BrowseScreen.initialQuery`, the third seam of its kind here
+      (`initialCategory`, `initialWilaya`), for the measured reason that driving
+      the field from the shot harness needs a focusable field it does not drive.
+      It does **not** claim the number belongs to nobody, and it does not echo it.
+      *Evidence:* `flutter analyze` → **No issues found!** (13.1 s); **21/21** on
+      the two new files. **Red before green:** the copy stubbed to `null` →
+      **9 failing**; restored → green. Shots `31_browse_empty_phone_search.png`
+      + control `32_browse_phone_search_hit.png` (same screen, a number that IS
+      in the fixture, so the phone arm is shown still matching). No
+      `.ERROR.txt`. Measured off the raster: body ink **8.07:1** on white, one
+      **888x168** amber button at `(144,1407)`, and the button band is **absent**
+      from the hit control.
+
+      **A test shipped by the 76th tick pinned the defective sentence**, and that
+      is the honest reason this tick had to touch a file it did not otherwise
+      own: `browse_phone_search_test.dart` asserted
+      `«لا يوجد مقاول يطابق»` for a number nobody holds. It was asserting the
+      bug. Updated to the corrected contract with the old sentence as the thing
+      that must **not** come back, and the word case pinned in the same file so
+      the two states cannot be merged again.
+
+      **Three suite failures are pre-existing and are now recorded, not
+      inherited silently.** Each was verified by stashing this tick's work and
+      re-running the file: **identical failure with the stash applied.** None is
+      mine and none was fixed here.
+
+- [ ] **`card_recipe_test.dart` R4 is red: the off-grid spacing ratchet reads
+      198 against a budget of 197.** *Pre-existing, measured 6 Oct.* The rule is
+      a count over `lib/` of `EdgeInsets.*` literals not divisible by 4, and it
+      is a ratchet: *"this number may only go down"*. It is **198 at HEAD with no
+      local changes at all**, so a previous tick shipped a red full suite and
+      only ran its own scoped files. `_offGridBudget` was introduced at 197 by
+      `972200e` and has never been lowered. The offenders are **104 sites across
+      20 files** and the common literals are `18` (97 sites), `14` (29), `10`
+      (20) — this is the unfinished 8pt sweep, not one slip, and retiring it is
+      a design pass over several screens, not a one-line fix. **Do not "fix" it
+      by raising the budget** — that deletes the ratchet. The honest repair is
+      to sweep the literals to the grid and lower the number with each change.
+
+- [ ] **`first_char_measurement_test.dart` is red on 4 unexcused sites in
+      `worker_phone_search.dart:132-133`.** *Pre-existing, measured 6 Oct.*
+      `_isDigit` calls `ch.codeUnitAt(0)` on each rune of a pasted string. The
+      sweep allows an excuse per site with a reason and this file has none. It
+      is the 76th tick's file (`fd9a112`), so the tick that added the phone arm
+      ran only its own tests and left this red. The sites are genuinely not
+      user-facing **text** — they measure digits — so the repair is an excuse
+      entry with the reason, which the sweep then checks for staleness.
+
+- [ ] **`place_seed_test.dart` fails with a real `RenderFlex` overflow at
+      `worker_card.dart:45`** — `Column` at `BoxConstraints(w=138, h=156)`, the
+      *vertical* card variant, overflowing in the client's home strip.
+      *Pre-existing, measured 6 Oct*, and it is a genuine layout defect rather
+      than a stale assertion: real content is being clipped on a shipping
+      screen. Needs a shot to see which line is over, so it wants a render, not
+      a guess.

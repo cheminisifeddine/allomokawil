@@ -45,6 +45,7 @@ import 'package:allomokawil/src/core/theme/app_theme.dart';
 import 'package:allomokawil/src/models/worker.dart';
 import 'package:allomokawil/src/data/worker_phone_search.dart';
 import 'package:allomokawil/src/screens/browse/browse_screen.dart';
+import 'package:allomokawil/src/widgets/ui.dart';
 
 http.Response _json(Object body) => http.Response(jsonEncode(body), 200,
     headers: {'content-type': 'application/json'});
@@ -208,8 +209,22 @@ void main() {
       await tester.testTextInput.receiveAction(TextInputAction.search);
       await _settle(tester);
 
+      // The heading stays: nothing matched, and that is still true.
       expect(find.text('لا نتائج مطابقة'), findsOneWidget);
-      expect(find.textContaining('لا يوجد مقاول يطابق'), findsOneWidget);
+      // The body is NOT the word sentence any more. He typed a number, and
+      // «لا يوجد مقاول يطابق «0770999999» / جرّب كلمة أقصر» told a man holding
+      // a number from the street to shorten a *word* — there is no word in it.
+      // `empty_phone_search_copy.dart` owns this state; see the note there.
+      expect(find.textContaining('لم يُعثر على رقم مطابق'), findsOneWidget);
+      expect(find.textContaining('لا يوجد مقاول يطابق'), findsNothing,
+          reason: 'this sentence quotes a word-search result at a phone lookup, '
+              'and re-prints the number the customer pasted');
+      expect(
+        find.descendant(
+            of: find.byType(EmptyView), matching: find.textContaining('كلمة')),
+        findsNothing,
+        reason: 'there is no word in a phone number to shorten');
+      // The safe action is unchanged by that fix.
       expect(find.text('مسح البحث والفلاتر'), findsOneWidget);
     });
 

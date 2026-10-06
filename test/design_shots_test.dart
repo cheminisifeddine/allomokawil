@@ -880,6 +880,40 @@ void main() {
     );
   });
 
+  // The state a customer reaches after pasting a number nobody holds.
+  //
+  // Measured 5 Oct on production: the server ignores `q` entirely (`q=خالد` and
+  // `q=zzzzznotarealname` both answer all **97** rows), so `narrowWorkers` is
+  // the only thing that filters — and it has a phone arm. This state used to be
+  // drawn with the *word* sentence: «لا يوجد مقاول يطابق «0770999999» / جرّب كلمة
+  // أقصر», telling a man holding a number from the street to shorten a word.
+  // `initialQuery` renders the state directly; typing into the box needs a
+  // focusable field the shot harness does not drive.
+  testWidgets('shots: a phone number nobody holds', (tester) async {
+    final s = await boot();
+    await _shoot(
+      tester,
+      '31_browse_empty_phone_search',
+      // Nobody in the fixture directory carries this one — `_worker` is
+      // `077442495`, so the pasted number finds no owner.
+      const BrowseScreen(initialQuery: '0770999999'),
+      // The server answers `q` with everything, exactly as production does; the
+      // narrowing that empties this list is the app's own.
+      _fakeApi(searchRows: <Map<String, Object?>>[_worker]),
+      s.auth,
+    );
+    // The control: the same screen, a number that IS in the directory. Without
+    // it, a shot showing the new copy would also be consistent with the phone
+    // arm having stopped matching altogether.
+    await _shoot(
+      tester,
+      '32_browse_phone_search_hit',
+      const BrowseScreen(initialQuery: '077442495'),
+      _fakeApi(searchRows: <Map<String, Object?>>[_worker]),
+      s.auth,
+    );
+  });
+
   testWidgets('shots: notifications', (tester) async {
     final s = await boot();
     await _shoot(
