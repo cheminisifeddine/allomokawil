@@ -23774,8 +23774,8 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 68 on 6 Oct;
-      77 remain across **22 files** (the "19 files" in earlier notes was wrong:
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 60 on 6 Oct;
+      60 remain across **20 files** (the "19 files" in earlier notes was wrong:
       three files of 1-2 arrived with the `ui.dart` slice and were never
       counted). Do not read the slice below as the sweep being finished.**
       *Slices shipped 6 Oct: `62d1772` -> remote `a08991a` (projects, 197 -> 185),
@@ -23792,7 +23792,15 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       made it worse), and the eighth one below (`4fb6ba8` -> remote `cfb691f`,
       **worker_profile_screen, 77 -> 68, 9 sites** — the first slice that was
       mostly renames, and the first where the neighbour a half-sweep leaves
-      behind is a widget that *replaces* the one that moved).*
+      behind is a widget that *replaces* the one that moved), and the ninth
+      one below (`d5b6876` -> remote `7cc75e8`, **profile_screen, 68 -> 60,
+      8 sites** — the first slice where **R4's count understates the
+      defect**, because the wrong number was a transcribed sum sitting in a
+      `Divider` and not a literal at all).*
+
+      **R4 now reads 60, across 20 files.** `browse_screen.dart` (7) is the
+      next file, and the same two questions apply to it: one column or
+      several, and is anything derived being transcribed somewhere else?
 
       **Seventh slice — the auth form took the house field inset.
       81 -> 77 across two files, and the count is the least interesting part
@@ -23996,6 +24004,68 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       participate. **No `.ERROR.txt` anywhere** — no overflow on any screen.
       `09_worker_profile` is a shot, not a committed golden (`test/goldens/`
       holds 9 and none of them is this screen), so nothing was re-baselined.
+
+      **Ninth slice — `profile_screen.dart`, 8 sites -> zero, and the account
+      tab is ONE SCREEN IN TWO STATES.** `ProfileScreen` and
+      `_GuestAccountScreen` are the **same screen** — the signed-in
+      contractor's account tab and the visitor's — behind the *same* AppBar
+      («حسابي», `AppTheme.bar`). Both wrote the column by hand at
+      `fromLTRB(18, 14, 18, 28)`: left, right and bottom were already
+      byte-identical to `AppTheme.pagePad`, and only the **top** disagreed,
+      at 14 against `s8`. That is why nothing ever flagged it — three of
+      four numbers agreed, and every other tab in the shell sits at 8.
+      Sweeping one state and not the other would make the account tab's
+      first card **jump 6 dp the instant a man signs in**, and the man who
+      signed in is the only one who saw both frames. The guest's copy takes
+      `pagePad.copyWith(bottom: 0)` because the sign-in wall below it is
+      full-bleed: there is nothing below it to pad away from.
+
+      **The count is the least interesting part, and here R4 is actively
+      misleading.** 68 -> 60, and all three numbers that were actually
+      wrong are ones R4 cannot see:
+        * `_SettingsRow`'s inset sits **inside `AppCard(padding:
+          EdgeInsets.zero)`** — ten of them on this screen — so that inset
+          **IS** the card inset, and it was `14` against the recipe's
+          `cardPad` = 16. The account rows were **2 dp tighter than every
+          other card in the app**. Three numbers in one column, all
+          agreeing with each other, which is exactly why the disagreement
+          with the rest of the app went unnoticed.
+        * `_RowDivider`'s `indent: 70` was `14 + 44 + 12` — the row pad,
+          the icon bubble and the gap — **transcribed and never mentioned
+          again**. Move the row pad onto the ladder without moving this and
+          the hairline between two account rows starts pointing *between*
+          the glyphs instead of at them. Nothing measures a `Divider`; it is
+          a divider, not an inset. It is now `_rowPad + _bubble + _gap`,
+          derived, so it cannot drift from the row it cuts.
+      The first is a rename R4 would have credited as a fix; the second R4
+      never saw at all.
+
+      *Gate:* `flutter analyze` -> **No issues found!**; `tool/run_tests.py`
+      -> **12/12 shards green, 2107 tests** (previous 2075), elapsed
+      19:18. R4 **68 -> 60**, files **21 -> 20**. The guard is proven
+      **non-vacuous twice, in both directions**: reopening the 6 dp seam on
+      the guest screen only fails at **guest 76.0 vs signed-in 68.0**, and
+      restoring the transcribed literal `70` fails at **72.0 vs 70.0** —
+      the exact 2 dp the old sum was short by.
+
+      *Pixels, measured on the real rendered shots* — new
+      `test/account_column_shot_test.dart` renders **both states at the
+      same window** (392x844 logical at DPR 3, 1176x2532), which is the
+      claim the guard makes in numbers:
+        * first card's top edge: **y=223 px in BOTH states** — identical to
+          the pixel, so the sign-in seam is gone from the render, not just
+          from the declared inset;
+        * card hairline: **y=263 px in BOTH states**, x **54 -> 1121 px**
+          = the **18.0 dp** gutter at the RTL start edge;
+        * settings-row divider: rendered indent from the card's start edge =
+          **72.0 dp**, which is `_rowPad + _bubble + _gap` and **not** the
+          old `70`.
+      **No `.ERROR.txt` anywhere** — no overflow on either state.
+      No browser render was possible again (no Chrome on this box, and
+      `build_web.sh` is still gone with the rebuild), so this is the test
+      rasteriser, stated as such rather than dressed up as a live bundle.
+
+      **Next slice: `browse_screen.dart`, 7 sites.**
 
       **Second slice — `worker_home_screen.dart`, 19 sites -> zero. The screen
       was not one list, it was SIX bands on one left edge.** The entry above says
