@@ -23,7 +23,7 @@ import 'package:allomokawil/src/widgets/ui.dart';
 // 12, and a count line at 6). Counting literals is a text ratchet; the
 // geometry guard that would have caught the disagreement is
 // `test/project_new_edges_test.dart`.
-const int _offGridBudget = 140;
+const int _offGridBudget = 101;
 
 List<File> _sources() {
   final dir = Directory('lib');

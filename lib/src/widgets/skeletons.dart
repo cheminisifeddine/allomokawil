@@ -178,7 +178,8 @@ class SkeletonCardList extends StatelessWidget {
       child: ListView.builder(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+        padding: const EdgeInsets.fromLTRB(
+            AppTheme.gutter, AppTheme.s12, AppTheme.gutter, AppTheme.s28),
         itemCount: count,
         itemBuilder: (_, __) => Container(
           margin: const EdgeInsets.only(bottom: 12),
@@ -226,7 +227,8 @@ class SkeletonGrid extends StatelessWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 620),
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
+            padding: const EdgeInsets.fromLTRB(
+                AppTheme.gutter, AppTheme.s12, AppTheme.gutter, AppTheme.s28),
             children: [
               const Row(
                 children: [
@@ -316,7 +318,15 @@ class SkeletonFormPage extends StatelessWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 620),
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
+            // `AppTheme.gutter` for the same reason as the rest of the kit:
+            // one widget stands in for three real pages (verification,
+            // profile edit, subscription) and all three read the house
+            // gutter horizontally, so the horizontal inset is the one value
+            // this skeleton can actually match. The vertical cannot be —
+            // those pages open at 12, 4 and 16 — so it stays on the rail at
+            // 12 instead of the 14 it happened to be typed as.
+            padding: const EdgeInsets.fromLTRB(
+                AppTheme.gutter, AppTheme.s12, AppTheme.gutter, AppTheme.s28),
             children: [
               const SkeletonBar(width: 118, height: 14),
               const SizedBox(height: 12),
@@ -355,7 +365,8 @@ class SkeletonChatThread extends StatelessWidget {
     const widths = <double>[176, 240, 124, 208, 150, 96];
     return Shimmer(
       child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+        padding: const EdgeInsets.fromLTRB(
+            AppTheme.s16, AppTheme.s16, AppTheme.s16, AppTheme.s16),
         itemCount: widths.length,
         itemBuilder: (_, i) {
           final mine = i.isOdd;
@@ -365,7 +376,8 @@ class SkeletonChatThread extends StatelessWidget {
             child: Container(
               width: widths[i],
               margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppTheme.s16, vertical: AppTheme.s12),
               decoration: BoxDecoration(
                 color: mine ? AppTheme.accentWash : AppTheme.surface,
                 borderRadius: BorderRadius.circular(AppTheme.rMd),
@@ -393,7 +405,8 @@ class SkeletonRowList extends StatelessWidget {
     const widths = <double>[150, 188, 132, 170, 206, 142, 178, 122];
     return Shimmer(
       child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(18, 6, 18, 20),
+        padding: const EdgeInsets.fromLTRB(
+            AppTheme.s12, 0, AppTheme.s12, AppTheme.s24),
         itemCount: count,
         itemBuilder: (_, i) => SizedBox(
           height: 72,
@@ -441,7 +454,8 @@ class AppBootSkeleton extends StatelessWidget {
         color: AppTheme.bg,
         child: SafeArea(
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 20, 18, 28),
+            padding: const EdgeInsets.fromLTRB(
+                AppTheme.gutter, AppTheme.s20, AppTheme.gutter, AppTheme.s28),
             children: const [
               Row(
                 children: [

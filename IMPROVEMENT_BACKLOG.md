@@ -23778,9 +23778,10 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       140 remain across 24 files. Do not read the slice below as the sweep
       being finished.**
       *Slices shipped 6 Oct: `62d1772` -> remote `a08991a` (projects, 197 -> 185),
-      the second one below (worker_home, 185 -> 164, 19 sites), and the third
-      one below (`071d632` -> remote `e43080b`, project_new, 164 -> 140,
-      24 sites).*
+      the second one below (worker_home, 185 -> 164, 19 sites), the third one
+      below (`071d632` -> remote `e43080b`, project_new, 164 -> 140, 24 sites),
+      and the fourth one below (skeletons + chat + my_portfolio, **140 -> 101,
+      39 sites**).*
 
       **Second slice — `worker_home_screen.dart`, 19 sites -> zero. The screen
       was not one list, it was SIX bands on one left edge.** The entry above says
@@ -23957,10 +23958,104 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with its field (and on `gutter`); wilaya search flush with its own list
       and on the grid; commune count line flush with the names it counts.
 
-      **Remaining: 140 literals across 24 files.** Biggest first, same shape of
-      slice: `skeletons.dart` (18), `chat_screen.dart` (16),
-      `customer_home_screen.dart` (14), `ui.dart` (11),
-      `auth_screen.dart` (10), then `projects_screen`-sized files.
+      **Fourth slice — `skeletons.dart` + `chat_screen.dart` +
+      `my_portfolio_screen.dart`, 39 sites -> zero. 140 -> 101. The column was
+      the CHAT SCREEN'S four bands, and the half-finished slice is the evidence
+      that R4 cannot see it.**
+
+      This slice inherited **dirty files from the previous tick** (07:22, three
+      files, uncommitted) and the loop protocol's rule — finish what the last
+      tick started rather than open a new item — turned out to be exactly
+      right, because the leftovers were **half-finished and incoherent**.
+      `chat_screen.dart`'s thread had been moved `14 -> 16` while the three
+      bands around it in the same `Column` stayed at `14`, `14` and `12`. So the
+      screen that warns a user his messages are unsent rendered its warning
+      **2 dp outside the bubbles it was warning about**, and the send button sat
+      **4 dp inside** them. R4 would have gone **green**: by then every one of
+      those numbers was an identifier, and `_literals()` skips identifiers.
+
+      | band | was | now | why |
+      | --- | --- | --- | --- |
+      | thread `ListView` | `14` | `s16` | the column |
+      | `_offlineStrip` | `14` | `s16` | same `Column`, 2 dp out |
+      | `_pendingBanner` | `14` left, **`8` right** | `s16` both | **two insets in one band** |
+      | `_composer` | `12`, vert `10` | `s16`, vert `s12` | 4 dp inside the bubbles |
+      | chat field `contentPadding` | `16, 14` | `s16, s12` | `fieldPad`'s shape, shorter vertical |
+      | `_DateDivider` band / pill | `14` / `14, 5` | `s16` / `s16, 5` | centred, so `5` is the caption's proportion |
+      | `my_portfolio` image sheet | `18, 14, 18, 18` | `gutter, s12, gutter, gutter` | **rename, 0 px** — `18` is the house token |
+      | `SkeletonFormPage` | `18, 14, 18, 28` | `gutter, s12, gutter, s28` | one widget for three pages; only the horizontal can match |
+
+      **Two of those were renames, not moves, and that is the honest split.**
+      `my_portfolio`'s sheet and `SkeletonFormPage` both carried a literal `18`
+      that is *exactly* `AppTheme.gutter`, the house page inset. Swapping in
+      the token moves **zero pixels** and stops two more spellings of a number
+      the app already has a word for. Recording it here because a slice that
+      reports "39 sites swept" is claiming a bigger change than it made.
+
+      **A new guard, written for the class of bug R4 is blind to.**
+      `test/chat_column_edges_test.dart`, 2 cases, reads RenderBoxes and pins
+      the chat column's four bands to one left edge. It is the sibling of
+      `project_new_edges_test.dart` and it exists for the same reason: that
+      file's header already records that the count line sat 6 dp outside the
+      list it counted, with R4 green. *Red before green, all four bands
+      sabotaged in turn and each caught:* composer -> `Expected: <16.0> Actual:
+      <12.0>`, banner -> `<16.0>` / `<8.0>`, strip -> `<16.0>` / `<14.0>`, thread
+      -> `<12.0>` / `<16.0>`.
+
+      **The test's first two versions measured the wrong node, and that is
+      recorded because the mistake is a trap, not a typo.** A `Padding` is laid
+      out at the full width of its parent, so its `RenderBox.left` is the
+      **outer** edge and its inset is interior — the composer's padding on a
+      392 dp phone measures `left = 0.0`, which compares the screen's edge
+      against itself and passes for any inset at all. Worse, a `ListView`
+      hands its `padding` to an internal `SliverPadding`, so `ListView.padding`
+      is **null** and the naive read answers 0.0 too. Both greens were caught
+      only because the sabotage still failed to fail. The edge under test is
+      `rect.left + padding.left`, and for the list it is the `SliverPadding`.
+
+      **The offline strip needs its own case, because it is mutually exclusive
+      with the other three.** It only draws while `_error` is set, and it draws
+      *instead of* the page the first case measures. One case asserting all
+      four would have been a case asserting three.
+
+      **Golden `12_chat.png` moved, and the pixels were checked before the
+      re-baseline.** `2.84%`, 9477 px, in five bands. Measured: composer ink
+      **12 -> 16**, navy bubble **214 -> 210** (i.e. 14 -> 16 from the right
+      edge), divider row shifted by the 2 dp the taller composer band costs,
+      last ink row **839 -> 837**, and **overflow-stripe pixel count identical
+      at 544** — no striped overflow box appeared. That is the intended
+      2 dp/side, verified rather than asserted.
+
+      **`app_source_scope_test.dart` caught the untracked new file and was
+      right to.** Shard 1 FAILED with `Actual: ['test/chat_column_edges_test.dart']`
+      — "these Dart files sit under `test/` but are not tracked by git, so
+      this census — and every `git ls-files` sweep in the repo — cannot see
+      them". The fix was to `git add`, **not** to weaken the guard.
+
+      **The suite verdict for this slice, and the runner bug it re-confirmed.**
+      `run_tests.py` reported `shard 3/12: HUNG in 5:00` (twice) and
+      `shard 6/12: HUNG in 2:06`, then correctly refused to print a total:
+      *"This is NOT a suite result. The tree is unverified."* Both were then run
+      **standalone, at this commit**: shard 3's 24 files -> **257 tests, all
+      passed** in 4:29; shard 6's 24 files -> **207 tests, all passed** in
+      2:50. So the two hangs are the **deadline**, not a failure — shard 3 is
+      a 4:29 shard against a 300 s cap that also has to absorb the runner's own
+      warm-up. The 6 Oct KNOWN BUG entry ("the deadline did not fire") is now
+      better described as **the deadline fires correctly but the cap is below
+      this suite's shard time**. Shards 1, 2, 4, 5 were green in the same run
+      (226 / 154 / 13 / 204 tests). 6 shards never started.
+      *The obvious next move is a larger `--shard-deadline`; it is not done
+      here because changing the gate's constants is a separate decision from a
+      layout slice, and a tick that quietly widens the gate it is being measured
+      by is not measuring itself.*
+
+      **Remaining: 101 literals across 21 files.** Biggest first, same shape of
+      slice: `customer_home_screen.dart` (14), `ui.dart` (11),
+      `auth_screen.dart` (10), `worker_profile_screen.dart` (9),
+      `profile_screen.dart` (8), `browse_screen.dart` (7). Same standing
+      instruction, now paid twice: **check whether it is one column or several
+      before touching it.** On `chat_screen` the answer was four bands and
+      three of them were untouched by the slice that moved the fourth.
       **On `project_new_screen` (24): check whether it is one column or several
       before touching it** — that is the lesson of the slice above, and it is
       free to check. `AppTheme.gutter` = 18 is off-grid and has 4 live uses

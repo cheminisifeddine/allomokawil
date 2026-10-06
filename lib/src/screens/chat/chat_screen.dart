@@ -1107,7 +1107,8 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     return ListView.builder(
       controller: _scroll,
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      padding: const EdgeInsets.fromLTRB(
+          AppTheme.s16, AppTheme.s16, AppTheme.s16, AppTheme.s16),
       itemCount: _messages.length,
       itemBuilder: (context, i) {
         final m = _messages[i];
@@ -1158,7 +1159,12 @@ class _ChatScreenState extends State<ChatScreen> {
         color: AppTheme.surfaceAlt,
         border: Border(bottom: BorderSide(color: AppTheme.line)),
       ),
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+      // `s16`, not a literal: this band is full width and sits **in the
+      // same Column as the thread below it**, so its left edge is one of the
+      // four that make the chat column. It read 14 against the thread's 16 —
+      // the strip's own text 2 dp outside the bubbles it is warning about.
+      padding: const EdgeInsets.fromLTRB(
+          AppTheme.s16, AppTheme.s8, AppTheme.s16, AppTheme.s8),
       child: Row(
         children: [
           const Icon(Icons.wifi_off_rounded,
@@ -1181,7 +1187,13 @@ class _ChatScreenState extends State<ChatScreen> {
         color: AppTheme.accentWash,
         border: Border(bottom: BorderSide(color: AppTheme.line)),
       ),
-      padding: const EdgeInsets.fromLTRB(14, 4, 8, 4),
+      // One inset, both edges, for the same reason as [_offlineStrip] — and
+      // this one had **two different numbers inside a single band**: 14 on
+      // the left, 8 on the right, so the icon and the button were held to
+      // two different rules by one padding. In RTL the row starts at the
+      // right, so the 8 was the one the user actually saw first.
+      padding: const EdgeInsets.fromLTRB(
+          AppTheme.s16, AppTheme.s4, AppTheme.s16, AppTheme.s4),
       child: Row(
         children: [
           const Icon(Icons.cloud_off_rounded,
@@ -1192,7 +1204,11 @@ class _ChatScreenState extends State<ChatScreen> {
           if (_unresolved.length > 1) ...<Widget>[
             Container(
               constraints: const BoxConstraints(minWidth: 24),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              // `s8` on the rail, and the vertical 3 stays: it is what makes
+              // the pill 3 dp above and below a 12 dp caption, so it is the
+              // pill's own proportion rather than a rung on the inset ladder.
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppTheme.s8, vertical: 3),
               decoration: BoxDecoration(
                 color: AppTheme.accent,
                 borderRadius: BorderRadius.circular(AppTheme.rPill),
@@ -1244,7 +1260,14 @@ class _ChatScreenState extends State<ChatScreen> {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          // The composer is the bottom of that same column: its circle
+          // actions are 56 dp ([AppTheme.tapMin]) and sat 12 dp in, so the
+          // left circle was 4 dp outside the bubbles above it and the send
+          // button was inside the thread's 16 by a different accident of
+          // the arithmetic. Vertical 10 -> 12 keeps the band the same
+          // height class as the 56 dp targets it holds.
+          padding: const EdgeInsets.fromLTRB(
+              AppTheme.s16, AppTheme.s12, AppTheme.s16, AppTheme.s12),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -1268,8 +1291,15 @@ class _ChatScreenState extends State<ChatScreen> {
                     hintText: 'اكتب رسالة...',
                     hintStyle:
                         AppTheme.bodySoft.copyWith(color: AppTheme.textMuted),
+                    // The chat field is `AppTheme.fieldPad`'s shape with a
+                    // shorter vertical: it grows to 4 lines inside a composer
+                    // whose height is the 56 dp circle actions, so 18 here
+                    // would make the field taller than the row holding it.
+                    // Horizontal is still the recipe's `s16` — the field is
+                    // the same control, and its type has to start where every
+                    // other field in the app starts.
                     contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 14),
+                        horizontal: AppTheme.s16, vertical: AppTheme.s12),
                   ),
                 ),
               ),
@@ -1397,10 +1427,18 @@ class _DateDivider extends StatelessWidget {
       // is how the first version of the ageing test measured the wrong widget
       // and passed against a screen with no timer.
       key: const Key('chat-day-divider'),
-      padding: const EdgeInsets.symmetric(vertical: 14),
+      // 16/8 on the divider's own band, and the pill's `vertical: 5` is the
+      // caption's own proportion (5 dp above and below a 12 dp line), like
+      // the count pill's 3. Neither is an inset on the chat column's left
+      // edge — both are centred by the `Center` below.
+      padding: const EdgeInsets.symmetric(vertical: AppTheme.s16),
       child: Center(
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+          // `s16` horizontally, `vertical: 5` kept for the reason above:
+          // the pill is centred in the thread and its own horizontal inset
+          // is the gap between the capsule's edge and its text.
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppTheme.s16, vertical: 5),
           decoration: BoxDecoration(
             color: AppTheme.lineSoft,
             borderRadius: BorderRadius.circular(AppTheme.rPill),
@@ -1566,7 +1604,8 @@ class _Bubble extends StatelessWidget {
             onTap: onImageTap,
           )
         : Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppTheme.s16, vertical: AppTheme.s12),
             decoration: BoxDecoration(
               color: mine ? AppTheme.navy : AppTheme.surface,
               borderRadius: radius,

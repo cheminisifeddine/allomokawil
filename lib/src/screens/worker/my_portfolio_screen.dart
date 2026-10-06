@@ -370,7 +370,13 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
       ),
       builder: (ctx) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+          // `AppTheme.gutter`, which is 18 and named — this sheet is the
+          // app's own modal inset and the other two that carry a shape
+          // (`_PaymentSheet`, `_BidSheet`) already read the token. Naming it
+          // here moves no pixel; it stops this sheet being a fourth spelling
+          // of a number the house already has a word for.
+          padding: const EdgeInsets.fromLTRB(
+              AppTheme.gutter, AppTheme.s12, AppTheme.gutter, AppTheme.gutter),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -606,7 +612,8 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 620),
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
+                  padding: const EdgeInsets.fromLTRB(
+                      AppTheme.gutter, AppTheme.s12, AppTheme.gutter, AppTheme.s28),
                   children: [
                     // The band **replaces** the danger card when the grid is
                     // still on screen, and this is the half that is easy to
