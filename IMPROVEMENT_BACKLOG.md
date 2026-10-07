@@ -23774,8 +23774,8 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 23 on 7 Oct;
-      **23 remain across 14 files** after slice 23 (`empty_state.dart`, the
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 16 on 7 Oct;
+      **16 remain across 13 files** after slice 28 (`empty_state.dart`, the
       loading skeleton, which was the last of the 15 files and left the
       `EdgeInsets.all` call R5 could never reach). Local `c955380` ->
       remote `2d7b19d`; backlog tick `6f0559c`. All 4 blobs MATCH by SHA.
@@ -23900,6 +23900,93 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       phone guards pass (`dz_phone_test`, `dz_phone_keystrokes_test`,
       `phone_field_test`, `phone_posted_value_test` were green in shards 3 and 6
       of that partial run).
+      **slice 28 shipped** (28th = **the sentence explaining the phone field was
+      off the field's own column**). Slice 27 moved the in-field tick onto
+      `AppTheme.fieldPad` and **stopped fourteen lines short of the third part of
+      the same `Column`**. `DzPhoneField` is a label band, a bordered box, and
+      the Arabic error a user reads when the number cannot be one; the error row
+      was still on three hand-typed numbers with **no token behind them and no
+      comment defending them**, which by the rule this sweep has used since
+      slice 24 makes it an accident rather than a decision.
+      **The vertical, measured off the built tree.** The label band sits
+      **`8.0` dp above the box**; the error row sat **`7.0` dp below it**. Same
+      column, three parts, and the box had **two different gaps on either side
+      of it** with nothing anywhere saying they had to match. The one that is off
+      the ladder is the one between the field and the sentence explaining what
+      is wrong with it. It is `1` dp, which is precisely the size that is
+      invisible as a defect and visible as *unfinished*.
+      **The horizontal was the worse half, and R4 had priced the whole row at
+      one line.** On top of the vertical the row handed itself
+      `right: 4, left: 4`, so the band was inset **4 dp inside the box it
+      belongs to**: the digits sit **`21.8` dp** inside that box's right border
+      and the sentence started at **`26.2` dp**. The one comparison the user
+      makes on this screen is the number they typed against the sentence saying
+      it is wrong, and the two Arabic sentences did not start against the same
+      edge. It is inside the `Column` already, so it inherits the Column's width
+      and had nothing to pull in.
+      **Red before green, the engine's own numbers** — with `lib/` reverted, **2
+      of the 3 new cases fail**: `GAP above = 8.0   below = 7.0` and
+      `Expected: <8.0>  Actual: <7.0>`; `BAND = EdgeInsets(4.0, 7.0, 4.0, 0.0)`
+      and `Expected: <0.0>  Actual: <4.0>`. Green: **`GAP above = 8.0   below =
+      8.0`**, `BAND = EdgeInsets(0.0, 8.0, 0.0, 0.0)`, `SENTENCE inset = 22.0`.
+      **R4 17 -> 16 literals**, budget 17 -> 16. Verified in **both** directions
+      rather than trusted: the file at budget 16 prints `now 17` with `lib/`
+      reverted and `now 16` on HEAD, so the drop is exactly the one literal this
+      commit removed. `phone_field.dart` no longer appears in the site's list.
+      **Still structurally blind**, seventh repeat and for the same reason as
+      slice 26: `_literals()` skips identifiers, so moving the vertical to
+      `AppTheme.s8` moves the counter while saying nothing about whether the two
+      gaps now agree. Hence `test/phone_error_band_test.dart`, which asserts the
+      **relationship** — above equals below, and both resolve from `AppTheme.s8` —
+      and spells **no value of its own**, because on this ratchet a comment
+      quoting a retired literal is a live count (slice 23). The new comment in
+      `phone_field.dart` describes the old shape without spelling it, verified by
+      grep before the commit.
+      **Pixels, genuine before/after at DPR 3 with the real Cairo face**
+      (throwaway harness, deleted; `lib/` stashed and the retired literal
+      **confirmed back in the file** before re-shooting, as slice 25's
+      same-image trap records): the danger ink's RTL start edge moves
+      **367.67 -> 371.67 dp, exactly +4.00 dp off the border**, the far edge
+      moves with it **`49.33 -> 53.33 dp, +4.00**, and the top of the band moves
+      **`102.67 -> 103.67 dp, +1.00** — the one dp, and the only vertical change.
+      **`0.952%`** of the frame differs, confined to a **`968 x 115` px** box. The
+      **field box above it is byte-identical**, which is the confirmation that
+      only the error row moved and nothing else in the column shifted with it.
+      No web bundle or headless-Chrome needed: the change is three numbers on a
+      `Padding` inside a widget, and the rasteriser that ships it is the same
+      engine the goldens use.
+      **No census registration, and it is not an oversight:** the census covers
+      guards that read app *source text*; this one mounts the widget and measures
+      the built tree, so there is no source for it to sweep — the same category
+      as the presence guards slice 21 deliberately left out.
+      **Gate.** `flutter analyze` -> **No issues found!** · new guard **3
+      passed** · **`108 passed` / 0 failed** over the nine files this diff
+      touches (new guard, `phone_field`, `phone_valid_tick`, `dz_phone`,
+      `dz_phone_keystrokes`, `phone_posted_value`,
+      `auth_phone_error_duplication`, `auth_field_inset`, `auth_card_column`,
+      `card_recipe`) · `app_source_scope` **17 passed** ·
+      `design_shots_test` **22 passed**, **no golden touched**.
+      Full `tool/run_tests.py`: **13 shards, 12 green, 1 not green in 18:22**.
+      Shard 12 is `type_scale_test.dart` (`AppTheme.pipNumeral` outside the theme
+      at `chat_list_screen.dart:589`, `:625`, `chat_screen.dart:1232`), **proved
+      pre-existing** — re-run with `lib/` at the parent commit it fails with the
+      identical three lines, and none of those three files is in this diff.
+      Recorded, not hidden. Shard 8 — the shard the 6 Oct note says hung and
+      ignored its deadline — **passed in 1:18**, so that KNOWN BUG did not
+      reproduce for a third time.
+      Local `b01fb81` -> remote `e8be33c`, all 3 blobs MATCH by SHA, and the
+      remote file is confirmed to contain the token and **not** the retired
+      literal.
+      **Next up, from the same enumeration:** `detect_location.dart:97` (the GPS
+      note's `top: 6`, the closest remaining sibling to this row),
+      `client_start_card.dart:145` (`vertical: 5`), `chat_screen.dart:1454`
+      (defended in the source: the date pill's own proportion),
+      `feed_search_field.dart:50` (defended: the horizontal inset is the
+      caller's), `category_grid.dart:77`, `ui.dart:134` and `:399` (both defended
+      in the source), `auth_screen.dart:626` (defended: the tap-floor row),
+      `profile_edit_screen.dart:516`, `quote_worker_trust.dart:82` (`1.5` around
+      a verification badge), `customer_home_screen.dart:1530`, and the decided
+      exemption `trade_filter_bar.dart:286`.
       ~~**20 remain** after slice 25. Local `f5840a5` -> remote `f8104a3`, all 3
       blobs MATCH by SHA.~~
       **slice 25 shipped** (25th = the **project card's budget band was not the
