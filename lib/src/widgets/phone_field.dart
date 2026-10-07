@@ -185,7 +185,21 @@ class _DzPhoneFieldState extends State<DzPhoneField> {
         ),
         if (error != null)
           Padding(
-            padding: const EdgeInsets.only(top: 7, right: 4, left: 4),
+            // The sentence that explains the field is the third part of the same
+            // Column, so it is on the same vertical gap as the label above it --
+            // which it was not: the label sits [AppTheme.s8] above the box and
+            // this row sat a value one dp under it, so the box had two gaps on
+            // either side of it and no rule that they matched.
+            //
+            // And the row used to inset itself horizontally as well, which moved
+            // the Arabic sentence 4 dp inside the edge the digits above it start
+            // against. That is the one comparison the user makes here: the number
+            // they typed, and the sentence saying it is wrong, side by side in one
+            // card. It is inside the Column already, so it inherits the Column's
+            // width and has nothing to pull in.
+            //
+            // Measured at test/phone_error_band_test.dart.
+            padding: const EdgeInsets.only(top: AppTheme.s8),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
