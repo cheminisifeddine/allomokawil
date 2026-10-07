@@ -27298,3 +27298,91 @@ guard's own regex and would have shipped a `RangeError`.
 (`1.5`), `customer_home_screen.dart:1530` (`1`), and the decided
 `trade_filter_bar.dart:286` exemption. `ui.dart:419` is the last `10` and is
 the sibling of the one this slice just retired.
+
+## Slice 34 — the profile caption's gap was **12 dp written twice**
+
+### What was wrong
+
+`_Hint` in `lib/src/screens/worker/profile_edit_screen.dart` wrapped its caption
+in `Padding(EdgeInsets.only(top: 2, bottom: 2))` while the column beside it
+already put a `SizedBox(height: 10)` under the very same widget. Measured on the
+real form at 392 logical, **both** call sites read identically:
+
+```
+SectionTitle bottom 200.0 -> hint top 202.0    gap above =  2.0
+hint 40.0 tall         -> grid top 254.0      gap below = 12.0
+```
+
+So the gap below the caption was 12 dp with **two writers** — `bottom: 2` here
+and the spacer — and this is the **third** time this file has had two writers for
+one quantity, after the `30` + `SizedBox(height: 22)` clearance an earlier slice
+retired (`profile_edit_clearance_test.dart`).
+
+The `top: 2` fought the rule directly above it. `SectionTitle` pads `s4` beneath
+itself *because* a heading is glued to the content it introduces, so a child pad
+put **6 dp of air between a heading and its own caption**. The 40 dp box is
+already the leading — `fsCaption` 12.5 at `height: 1.6` = 20 dp per line, two
+lines — so the pad was double-counting space the glyphs carry themselves.
+
+### Why R4 could not price either half
+
+R4 reads off-grid literals **inside `EdgeInsets` constructors**, and `2` is one,
+so it did count it. But a count is not a comparison: it had **no second copy to
+compare against**, because `SizedBox(height: 10)` is not an `EdgeInsets`. It saw
+one writer for a quantity two writers owned — the same blindness as `22` and
+`30` in this file. `10` is off-grid too and was never counted at all, for the
+same reason.
+
+### Shipped
+
+`Padding(top: 2, bottom: 2)` deleted; the surviving writer is `AppTheme.s12`.
+`s12` is **what the measured gap already was** (12.0), not a new design
+decision, and `verification_screen.dart:366` draws the identical
+heading-caption-row stack with a `SizedBox(height: 12)` — so the two screens
+now agree without either being hand-fitted. R4 **11 -> 10**.
+
+### Guard — `test/profile_hint_rhythm_test.dart` (3 cases)
+
+The one assertion the arithmetic cannot make: **gap below is `s12` and the
+caption wraps no `Padding` at all.** `2 + 10` and `12` draw the same picture, so
+a gap check alone passes either way; only a second-writer check can tell them
+apart. Gap **above** is pinned to exactly **0**, not "small" — a
+`lessThanOrEqualTo(4)` tolerance would have passed on the shipped 2.0.
+
+The second call site gets its own case because **the list is lazy**: measured
+`0 built` on the first frame and `1` after the scroll. That measurement is
+asserted as a *precondition*, so if the column ever stops being lazy the test
+says so instead of silently testing a widget that is already there.
+
+### Red before green
+
+With the original padding restored, all three cases fail and the framework quotes
+the bug back:
+
+```
+Expected: 0.0 (±0.01)     Actual: <2.0>     <- the air under the heading
+Expected: 12.0 (±0.01)    Actual: <14.0>    <- pad + spacer, both writers back
+```
+
+### Gate
+
+`flutter analyze` -> **No issues found!** (9.8 s) · new guard **3 passed** ·
+`profile_hint_rhythm` + both existing `profile_edit` guards + `card_recipe` +
+`app_source_scope` **39 passed** · R4 green · **all 9 goldens green, none
+re-baselined** (this screen draws no golden) · full suite **13 shards, 12 green
+(18:09)**; the one red is the three pre-existing `pipNumeral` lines in the chat
+files, **verified identical at stashed HEAD** so it is not this diff.
+
+Two traps paid for on the way, both real: the price caption does **not exist** on
+the first frame (a single-frame guard would have been reading a widget that was
+never built), and `flutter analyze` was clean on a `return` block my own bad
+patch had left malformed — the gate caught nothing there, the compile did.
+
+### Next
+
+`quote_worker_trust.dart:82` (`1.5`), `customer_home_screen.dart:1530` (`1`),
+`ui.dart:419` (the last `10`, sibling of the one slice 32 retired), and the
+decided `trade_filter_bar.dart:286` exemption. The three `SizedBox(height: 6)`
+in `profile_edit_screen.dart` (label -> field, lines 360/375/414) are a **fourth
+pattern** in the same file and were left alone: they are a label-to-control gap,
+not a heading rhythm, so they want their own slice.
