@@ -23977,9 +23977,103 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       Local `b01fb81` -> remote `e8be33c`, all 3 blobs MATCH by SHA, and the
       remote file is confirmed to contain the token and **not** the retired
       literal.
-      **Next up, from the same enumeration:** `detect_location.dart:97` (the GPS
-      note's `top: 6`, the closest remaining sibling to this row),
-      `client_start_card.dart:145` (`vertical: 5`), `chat_screen.dart:1454`
+      **slice 29 shipped** (29th = **the GPS note that says where the wilaya
+      came from was off the app's own gap ladder**).
+      `detect_location.dart:97` painted `DetectedPlaceNote` --
+      `Padding(EdgeInsets.only(top: <one step under AppTheme.s8>))`, no token
+      and no paragraph defending it.
+      **The sibling is what made this a defect rather than a taste call.**
+      `project_new_screen.dart` explains a value to the user the same way
+      **twice**: the budget row under the two money fields draws the identical
+      `icon / gap / caption` line (16 dp glyph, 6 dp gap, `AppTheme.caption`),
+      and this note under «حدّد موقعي تلقائياً» draws the same row a full step
+      higher. One screen, one reader, two explanations, two heights -- and the
+      note is the one that carries the sentence **«حُدِّد من موقع هاتفك»**, which
+      is the whole reason the widget exists: a wilaya the app *guessed* must
+      never look like a wilaya the user *chose*.
+      **Red before green, engine's own numbers:** `Expected: <8.0>  Actual:
+      <6.0>`, band `EdgeInsets(0.0, 6.0, 0.0, 0.0)`. Green: `8.0 == 8.0`,
+      band `EdgeInsets(0.0, 8.0, 0.0, 0.0)`, band top measured off the built
+      tree in both directions.
+      **Pixels, genuine before/after at DPR 3 with the real Cairo face**
+      (throwaway raster harness deleted; `lib/` stashed and the retired literal
+      **confirmed back in the file** before the BEFORE shot, per slice 25's
+      same-image trap): the note's `accentDeep` ink starts at **y 266 -> 272 px
+      = 88.67 -> 90.67 dp, exactly +2.00 dp**, and the diff is confined to
+      **716 x 55 px (x 135..373 dp, y 88..106 dp)** = **0.79%** of the frame.
+      The button band above it, y 60..255, is **byte-identical** -- only the
+      note moved.
+      **R4 16 -> 15 and budget 16 -> 15, verified both directions** (budget 14
+      prints `now 15` and fails; budget 15 is green). Eighth repeat of the same
+      lesson: the literal that left was the *only* thing wrong in the diff, and
+      R4 had been pricing this note at exactly the same weight as its four
+      defended siblings, because a ratchet over literals cannot tell an
+      unexplained value from an explained one. New
+      `test/detected_note_column_test.dart` (3 cases) asserts the gap against
+      `AppTheme.s8` and the flush edges off the built tree and **spells no
+      retired value**, since R4 counts comments too.
+      **The guard's first run was wrong twice and the file says so.** It read
+      the `Padding` and reported a gap of **0.0** -- a `Padding`'s rect starts
+      where the control ends, so that number can never be the gap -- and then,
+      after the fix, read the 15 dp *icon* and reported the row's trailing 15 dp
+      as if it were the column, which is the mistake
+      `project_new_edges_test.dart` records for its own first cut. The final
+      helper names which box it reads and why.
+      **Gate.** `flutter analyze` -> **No issues found!** · new guard **3
+      passed** · **78 passed / 0 failed** across the seven files this diff
+      touches (new guard, `card_recipe`, `project_new_edges`,
+      `place_one_shot`, `home_location_pill`, `design_shots` -- 22 goldens
+      green, **no golden re-baselined** -- and `app_source_scope`).
+      **Suite: 13 shards, 12 green, 1 not green in 19:02.** The red shard is
+      `type_scale_test.dart` (`AppTheme.pipNumeral` outside the theme at
+      `chat_list_screen.dart:589`, `:625`, `chat_screen.dart:1232`) --
+      **proved pre-existing**, and this time proved properly: `git checkout
+      <parent> -- lib/` and a re-run gives the **identical three lines**, then
+      `lib/` restored. (The first attempt at that proof was worthless and was
+      thrown away: `git stash push -- lib/` printed "No stash entries found"
+      because the change was already committed, so it re-ran HEAD and would
+      have "confirmed" the red against the code that caused it. **Stash is not a
+      way to reach the parent -- `git checkout <sha> -- lib/` is.**)
+      Whole-suite total is therefore **unknown**, not passing.
+      **The gate was BLOCKED at first, and the blocker is worth writing down
+      because it is not the loop's fault.** The first `tool/run_tests.py`
+      refused with `BUSY -- not starting a second suite on this box`:
+      `build_gate.py` found a **leaked `flutter_tester` at PPID 1** from an
+      earlier tick (28679, 5 min old, 143 MB, owning tool gone). The repo's own
+      `python3 tool/build_gate.py --reap` cleared it -- which is the documented
+      cure for exactly this signature, and is *not* a build this loop started.
+      After the reap the gate printed **CLEAR** and the suite ran.
+      **The push hit a real GitHub outage and then recovered -- recorded
+      because the next tick will otherwise meet it again and blame itself.**
+      `gh_push.py` failed at step 5 with `Blob upload failed ... 500` for
+      `lib/src/widgets/detect_location.dart`, and the blob check confirmed the
+      remote was still at slice 28's tip `c9131e5` with **all 3 blobs
+      DIFFER**. Ten minutes later the same command succeeded unchanged.
+      **Measured, not guessed, and the shape of the failure is the useful
+      part:**
+        * `POST /repos/cheminisifeddine/allomokawil/git/blobs` -> **500** for
+          this repo, retried 5+ times over ~10 minutes, with and without an
+          explicit `Accept`/`User-Agent`, base64 and utf-8, plain and with a
+          `path` hint;
+        * the **same token, same endpoint, same payload** -> **201** on
+          `colisify` and `nadjah`;
+        * `POST /git/trees` -> **201** and `PATCH /git/refs/heads/main` -> **200**
+          on `allomokawil`, so it is **not** auth, not rate limit (**4994 of
+          5000 core remaining**), and not the git-data plumbing generally --
+          it is *content-creating* writes on this one repository;
+        * `POST /issues` on `allomokawil` -> **500** too, so it is not specific
+          to the blobs endpoint.
+      **So it was GitHub's content-write path for this one repository, not the
+      loop, not the token and not the helper** -- and it cleared on its own.
+      Local `5249159` -> remote `5dd4b6d`, **all 3 blobs MATCH by SHA**, with
+      the remote file confirmed to hold `AppTheme.s8` and not the retired
+      literal. The lesson for the next tick that hits a 500 on step 5: **verify
+      the endpoint against a sibling repo before rewriting anything.** The
+      signal that it is upstream is that `POST /git/trees` and
+      `PATCH /git/refs` succeed on the same repo with the same token, and that
+      the *same blob payload* returns 201 elsewhere.
+      **Next up, from the same enumeration:** `client_start_card.dart:145`
+      (`vertical: 5`), `chat_screen.dart:1454`
       (defended in the source: the date pill's own proportion),
       `feed_search_field.dart:50` (defended: the horizontal inset is the
       caller's), `category_grid.dart:77`, `ui.dart:134` and `:399` (both defended
