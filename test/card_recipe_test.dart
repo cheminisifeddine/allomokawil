@@ -137,7 +137,28 @@ import 'package:allomokawil/src/widgets/ui.dart';
 // vertical `10` is off-grid on purpose, because it is the arithmetic that
 // holds a 56 dp action inside a 70 dp band. Re-gridding it would move every
 // heading on eight screens to settle a question that is not this tick's.
-const int _offGridBudget = 40;
+// Lowered 40 -> 35 on 8 Oct: the thirteenth slice, `profile_edit_screen`, and
+// the first slice where **the counter moved less than the defect** by exactly
+// the amount it was built to miss. Three literals retired — `30` and the two
+// `18`s — for a visible correction of **24 dp**.
+//
+// The page column read `EdgeInsets.fromLTRB(18, 4, 18, 30)` and then ended
+// its children with `SizedBox(height: 22)`. The clearance under the last
+// control was `30 + 22 = 52 dp` against **28** on the three sibling screens
+// that pin the identical save bar, so the contractor's last input sat a hand's
+// width further from the button than the same button on the screen he came
+// from. The horizontal `18` was measured identical to that bar's own inset and
+// became `AppTheme.gutter` by rename.
+//
+// **R4 could not have caught the `22`.** It reads literals inside `EdgeInsets`
+// constructors, and a `SizedBox` is not an `EdgeInsets`: the counter was
+// measuring one of two writers for a quantity neither of them owned. It also
+// went green the instant `30` became `s28`, because `_literals()` skips
+// identifiers by design — the same blind spot the `auth_screen` slice paid a
+// whole tick for. `test/profile_edit_clearance_test.dart` asserts the laid-out
+// clearance against the token instead, which is the thing the counter
+// structurally cannot express.
+const int _offGridBudget = 35;
 
 List<File> _sources() {
   final dir = Directory('lib');

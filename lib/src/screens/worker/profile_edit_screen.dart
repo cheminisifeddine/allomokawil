@@ -261,7 +261,44 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                   ),
                 )
           : ListView(
-              padding: const EdgeInsets.fromLTRB(18, 4, 18, 30),
+              // The page column, and the bottom of it is **arithmetic**, which
+              // is why this slice had to measure the tree before editing it.
+              //
+              // The gap the reader sees between the last control of this form
+              // and the pinned save bar was **52 dp**, and it was written down
+              // twice: the list's own `30` plus a trailing `SizedBox(height:
+              // 22)` at the end of the children. R4 counted the `30` (off-grid)
+              // and never saw the `22`, because it is not an `EdgeInsets` — so
+              // the counter was measuring one of two writers for a quantity
+              // neither of them owned.
+              //
+              // Measured on the real screen at maximum scroll, with the theme
+              // applied (a bare `MaterialApp` answers the wrong numbers, and
+              // did on the first draft of the probe):
+              //
+              //   card bottom 514.27 .. sticky top 566.27  ->  52.0
+              //
+              // and the three sibling screens that pin the same bar sit on
+              // **28** (`project_detail`, `worker_profile`, both
+              // `AppTheme.pagePad`) and **36** (`project_new`). So the
+              // contractor's last input sat 24 dp further from the button than
+              // the identical button on the screen he came from.
+              //
+              // It is one number now, on the house token: `pagePad`'s bottom
+              // is `s28`, and the trailing spacer is gone rather than
+              // re-gridded, because a spacer and a padding that mean the same
+              // thing are two writers for one column and the next sweep would
+              // have had to reconcile them again. The horizontal `18` is
+              // `AppTheme.gutter` by rename only — measured identical to the
+              // pinned bar's own inset (`card x = 18.0 .. 374.7`, `button
+              // x = 18.0 .. 374.7`), so those pixels do not move.
+              //
+              // Guard: `test/profile_edit_clearance_test.dart`, which asserts
+              // the clearance *equals the token* off the laid-out tree. R4
+              // counts literals; it cannot add a `SizedBox` to an
+              // `EdgeInsets`, and it cannot compare two screens.
+              padding: const EdgeInsets.fromLTRB(
+                  AppTheme.gutter, AppTheme.s4, AppTheme.gutter, AppTheme.s28),
               children: [
                 // The error is rendered **once**, in the pinned footer. It used
                 // to be drawn here as well -- the same string, in a red card at
@@ -399,7 +436,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 22),
+                // No trailing spacer: the clearance to the pinned bar is the
+                // list's bottom inset and nothing else. See the note on the
+                // padding above — this `22` used to be the other half of a
+                // 52 dp gap written in two places.
               ],
             ),
       // Pinned, not at the end of the list: the form is longer than the
