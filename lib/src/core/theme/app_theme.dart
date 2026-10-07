@@ -121,8 +121,9 @@ class AppTheme {
   /// 14 dp icon is the width a two-Arabic-word caption needs to sit inside a
   /// card without wrapping, and the inset is held at 6 so pill height
   /// (14 + 6x2 = 26) stays clear of [tapMin] — these are **labels, not
-  /// targets**. `chipTheme.padding` (14 x 12) is a different, larger control
-  /// and stays separate.
+  /// targets**. The `14 x 12` insets elsewhere in the app are three unrelated
+  /// components, not one chip inset -- see the note where `chipTheme` used to
+  /// be declared, and `test/card_recipe_test.dart` R4.
   static const EdgeInsets pillPad =
       EdgeInsets.symmetric(horizontal: 10, vertical: 6);
 
@@ -649,21 +650,28 @@ class AppTheme {
         suffixIconColor: textSecondary,
       ),
 
-      // ── Chips — explicit colours, never inherited ──────────────────────
-      chipTheme: ChipThemeData(
-        backgroundColor: surface,
-        selectedColor: navy,
-        disabledColor: lineSoft,
-        side: const BorderSide(color: line),
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(rPill)),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        labelStyle: label.copyWith(fontSize: fsSmall, color: textPrimary),
-        secondaryLabelStyle: label.copyWith(fontSize: fsSmall, color: onNavy),
-        showCheckmark: false,
-        elevation: 0,
-        pressElevation: 0,
-      ),
+      // ── Chips ──────────────────────────────────────────────────────────
+      // **There is no `chipTheme`, and that is deliberate.** This app builds
+      // its own chips (`TradeFilterBar`'s `_FilterPill`, `CategoryGrid`'s
+      // `SelectableTile`, `ui.dart`'s `CategoryBadge`/`StatusPill`) and the
+      // kit's hard rule at the top of `ui.dart` forbids Material chips: they
+      // inherit colour and rendered white-on-white before.
+      //
+      // A `ChipThemeData` used to sit here anyway, declaring an inset
+      // `symmetric(horizontal: 14, vertical: 12)` that three *unrelated*
+      // components also spelled by hand. Measured 7 Oct: it was consumed
+      // **zero** times — no `Chip`/`RawChip`/`ChoiceChip`/`FilterChip`/
+      // `ActionChip`/`InputChip` anywhere in `lib/` or `test/`, no subclass,
+      // no chip package in `pubspec.yaml`. So the one field that made those
+      // three look like "one inset written four times" was the one field that
+      // rendered nothing, and a token built on it would have been three
+      // renames and zero pixels.
+      //
+      // Deleting it also removes a trap: a live `chipTheme` invites exactly
+      // the Material `Chip` the kit's own rule bans, and the next person to
+      // add one would inherit an inset measured against nothing. If a chip is
+      // ever needed here it arrives with its component and its own token
+      // (`pillPad` for the small pill, which is 10x6, not 14x12).
 
       // ── Cards ──────────────────────────────────────────────────────────
       cardTheme: CardThemeData(

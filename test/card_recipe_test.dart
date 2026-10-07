@@ -107,11 +107,16 @@ import 'package:allomokawil/src/widgets/ui.dart';
 //   * `symmetric(horizontal: 2, vertical: 6)` on the remember row, which is the
 //     tap-floor arithmetic `tool/tap_target_audit.py` settles by hand at
 //     48 + 6x2 = 60;
-//   * `symmetric(horizontal: 14, vertical: 12)` on `AuthNotice`, byte-identical
-//     to `chipTheme.padding`, the trade pill, and one banner in
-//     `project_detail_screen` — that is four writers spelling one chip inset,
-//     and the honest fix is a named token. **That token is now the twelfth
-//     slice's output**, for the *small* pill: `AppTheme.pillPad` / `pillGap`.
+//   * `symmetric(horizontal: 14, vertical: 12)` on `AuthNotice`, which was
+//     called byte-identical to `chipTheme.padding`, the trade pill and one
+//     banner in `project_detail_screen` — "four writers spelling one chip
+//     inset". **That reading was wrong and the sixteenth slice corrected it:
+//     `chipTheme` renders nothing at all** (no Material chip exists anywhere
+//     in the app), so the number was shared by three *unrelated* components —
+//     a red error banner (`rMd` + border), a pale amount panel (`rSm`, no
+//     border) and a tappable filter pill (`rPill` + border). A token over all
+//     three would have been three renames and zero pixels. `chipTheme` is now
+//     deleted and the three keep their own insets, on purpose.
 //
 // Lowered 46 -> 40 on 8 Oct: the twelfth slice, `ui.dart`, and **`ui.dart` no
 // longer appears in R4's list at all** — first file in the sweep to be fully
@@ -486,6 +491,67 @@ void main() {
           reason: 'this number may only go down — it is the ratchet for the '
               'rest of the 8pt sweep (now $offGrid):\n'
               '${sites.take(12).join('\n')}');
+    });
+
+    // Added by the sixteenth slice. The `chipTheme` this file's own header
+    // called "one of the four writers of 14 x 12" was consumed zero times, and
+    // deleting it is only half the job: a deleted theme field is invisible, so
+    // the next person to reach for a Material chip finds nothing to stop them
+    // and the kit's own rule (top of `ui.dart`: chips inherit colour and
+    // rendered white-on-white) has no machine check behind it. This is the
+    // check that outlives the deletion.
+    test('no Material chip has crept back in', () {
+      // `Chip(` matches the bare widget too, so it is the whole family.
+      final banned = RegExp(
+          r'\b(?:RawChip|Chip|CustomChip|ChoiceChip|FilterChip|ActionChip|'
+          r'InputChip)\s*\(');
+      final offenders = <String>[];
+      for (final f in sources) {
+        final s = f.readAsStringSync();
+        // Comments are how this app *documents* the ban — the kit header and
+        // `trade_filter_bar` both say "deliberately NOT a ChoiceChip". Only
+        // code counts, so blank out comments and keep every line break, which
+        // is what makes `line` below still point at the real source line. A
+        // strip that *removed* the newlines would report a plausible line for
+        // the wrong piece of code, which is worse than no line at all.
+        final lines = s.split('\n');
+        final code = <String>[];
+        var inBlock = false;
+        for (final line in lines) {
+          if (inBlock) {
+            final end = line.indexOf('*/');
+            if (end < 0) {
+              code.add('');
+              continue;
+            }
+            inBlock = false;
+            code.add(' ' * end + line.substring(end + 2));
+            continue;
+          }
+          final open = line.indexOf('/*');
+          final slash = line.indexOf('//');
+          if (open >= 0 && (slash < 0 || open < slash)) {
+            inBlock = !line.substring(open + 2).contains('*/');
+            code.add(slash >= 0 && slash < open
+                ? line.substring(0, slash)
+                : line.substring(0, open));
+            continue;
+          }
+          code.add(slash < 0 ? line : line.substring(0, slash));
+        }
+        final stripped = code.join('\n');
+        for (final m in banned.allMatches(stripped)) {
+          offenders.add('${f.path}:'
+              '${stripped.substring(0, m.start).split('\n').length} '
+              '${m.group(0)}');
+        }
+      }
+      expect(offenders, isEmpty,
+          reason: 'this app builds its own chips and the theme says so. A '
+              'Material chip inherits colour and rendered white-on-white '
+              'before — use ui.dart\'s CategoryBadge/StatusPill or '
+              'TradeFilterBar\'s _FilterPill:\n'
+              '${offenders.join('\n')}');
     });
   });
 }
