@@ -1259,9 +1259,15 @@ class _QuoteCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
+          // The same callout the four stale-list banners draw, so the same
+          // inset. It is a label, not a target: no onTap, no InkWell, no
+          // GestureDetector inside this box, which is the only thing that
+          // earns a pill its wider pad -- see
+          // `test/wash_callout_pad_test.dart`, which asserts that absence
+          // rather than trusting it.
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding: AppTheme.cardPadRail,
             decoration: BoxDecoration(
               color: AppTheme.accentWash,
               borderRadius: BorderRadius.circular(AppTheme.rSm),

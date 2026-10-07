@@ -205,6 +205,14 @@ const _appRuleGuards = <String, String>{
   'test/layering_test.dart': 'the import layering rule',
   'test/type_scale_test.dart': 'the type-scale rule',
   'test/card_recipe_test.dart': 'the card recipe rule',
+  // R4 is the counter half of the card recipe rule and it is blind to a
+  // component agreeing on the WRONG number: this guard carries the other
+  // half -- no wash-filled box may spell its own inset. Added 7 Oct with
+  // the callout it caught, and named here for the same reason `motion_test`
+  // was: a rule enforced in every build and described in no by-name list
+  // is invisible to the census, not exempt from it.
+  'test/wash_callout_pad_test.dart':
+      'the callout inset rule: a wash-filled box takes AppTheme.cardPadRail',
   // `motion_test.dart` was absent from this map on 3 Oct (24th) even though it
   // enforces one of the app's own rules -- no screen may type its own duration
   // -- and even though the blind-spot case below already named it. It was in the
@@ -301,6 +309,11 @@ const _ruleEvidence = <String, List<String>>{
   'test/layering_test.dart': ["['data', 'screens', 'widgets']"],
   'test/type_scale_test.dart': [r'fontSize:\s*'],
   'test/card_recipe_test.dart': [r'BorderRadius\.circular'],
+  // `EdgeInsets.symmetric` alone would also match the trade pill and the
+  // tile, both of which are allowed to carry their own inset, so the token
+  // is the pair the rule is actually about: the wash fill it must sit
+  // beside.
+  'test/wash_callout_pad_test.dart': ['AppTheme.accentWash'],
   'test/motion_test.dart': [r'\w*[Dd]uration\s*:\s*(?:const\s+)?Duration\('],
   'test/contrast_tokens_test.dart': [r'wash: Color\(0xFF'],
   'test/failure_reported_test.dart': [r'\bcatch\b'],

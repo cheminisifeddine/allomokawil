@@ -686,7 +686,15 @@ class AuthNotice extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      // One callout inset, and it is [AppTheme.cardPadRail] because that is
+      // what the four stale-list banners already use. This box was carrying its
+      // own pair: the vertical happened to agree with them and the horizontal
+      // did not, which is the worst shape to hand a reviewer -- the edge the
+      // eye checks was the one number nobody was counting. The glyph gap below
+      // is the same story one gap later: every banner puts [AppTheme.s8]
+      // between the icon and the sentence, so the Arabic word starts where the
+      // eye expects in all five of them.
+      padding: AppTheme.cardPadRail,
       decoration: BoxDecoration(
         color: AppTheme.dangerWash,
         borderRadius: BorderRadius.circular(AppTheme.rMd),
@@ -697,7 +705,7 @@ class AuthNotice extends StatelessWidget {
         children: [
           const Icon(Icons.error_outline_rounded,
               size: 20, color: AppTheme.danger),
-          const SizedBox(width: 10),
+          const SizedBox(width: AppTheme.s8),
           Expanded(
             child: Text(
               message,
