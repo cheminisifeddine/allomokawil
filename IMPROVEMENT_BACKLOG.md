@@ -25404,10 +25404,60 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       instead of reused. `_part` is a `StatusPill` that was never written as
       one; the fix is to make it one, and the guard must measure it.
 
-      *Not shipped this tick:* `tool/build_gate.py` answered **NO ROOM** on
-      every read (484 -> 1087 -> 720 -> 651 -> 595 MB against a 900 MB floor;
-      `MemAvailable` sampled ~20x over 3 minutes never held a full run's worth,
-      and a suite was measured bottoming out at 1177 MB). Nothing was building
-      (`pgrep -c java` = 0, no `flutter_tester`), so this is the box at its
-      floor, not a leaked process. One Dart pixel cannot be gated here, and this
-      file's own rule is that a red build is never shipped.
+      *Why it was not shipped on 7 Oct, and what changed on 9 Oct.*
+      `tool/build_gate.py` answered **NO ROOM** on every read that day (484 ->
+      1087 -> 720 -> 651 -> 595 MB against a 900 MB floor; `MemAvailable`
+      sampled ~20x over 3 minutes never held a full run's worth, and a suite was
+      measured bottoming out at 1177 MB). Nothing was building (`pgrep -c java`
+      = 0, no `flutter_tester`), so that was the box at its floor, not a leaked
+      process. **9 Oct: SHIPPED** — the gate read 1478 MB and the Dart path was
+      open again.
+
+      *Shipped:* `_part` now draws a real `StatusPill`. The **border** is the
+      only thing that copy had which `StatusPill` did not, and it earns its
+      place — `surfaceAlt` on a white card is **1.06:1**, so without the outline
+      «لم تُرسل» is a grey ghost with no edge — so it became a **`null`-by-
+      default `border` parameter** on the shared pill rather than a reason to
+      keep two pills. Every existing caller paints exactly the same pixels as
+      before. The copy's `fsBadge` (11) also went: every pill it sits beside
+      reads `fsCaption` (12.5), and two verdicts at two sizes in one scroll
+      view is the same "unfinished" signal as the 1 dp.
+
+      *The guard is screen-level, because the defect IS the adjacency.*
+      `test/verification_parts_pill_test.dart` (3 cases) boots the real
+      `VerificationScreen` against a fake API and measures both containers'
+      padding **in the same tree**. It walks the padded `Container`s above the
+      text and takes the **innermost** one — deliberately, so the file works on
+      both sides of the change and a finder failure reads as a real number
+      rather than `Bad state: No element`. Two fixture traps are recorded in
+      its header and cost this cycle real time: `verification_pending_docs`
+      must be **0** (a queue hides the doc pills this file measures), and
+      `SharedPreferences.setMockInitialValues` is **mandatory** (without it the
+      case dies as `did not complete` at the deadline with a SIGTERM — which
+      looks like an OOM and is neither).
+
+      *Red before green, the framework quoting the bug back.* With only the
+      screen reverted (`ui.dart` kept, so it still compiles):
+
+          Expected: EdgeInsets:<EdgeInsets(10.0, 6.0, 10.0, 6.0)>
+            Actual: EdgeInsets:<EdgeInsets(10.0, 5.0, 10.0, 5.0)>
+
+      — the 1 dp defect verbatim — plus 2 type-level reds
+      (`Actual: <0>` pills in the parts card).
+
+      *Proven by pixels* (`design_shots` -> `18_verification_partial.png`,
+      `pngscan` 1176x2550, 3.0x DPR): the parts pill is **75 px tall before ->
+      90 px after**, and 90 px is exactly the height of all three `_DocCard`
+      pills in the same shot. Before, the two sets disagreed; now one number.
+
+      *Gate.* `flutter analyze` -> **No issues found!** The 8 files that touch
+      `StatusPill`/verification -> **59 passed / 0 failed**; `design_shots`
+      -> 22 passed. **The full `run_tests.py` gate did NOT complete inside the
+      tick**: 13 shards at ~3 min each is ~40 min, and shard 3 **HUNG and
+      retried** (the known 6 Oct runner bug) before my 900 s cap fired. Only
+      shards 1-2 answered (195 + 174). So the honest statement is: *the files
+      this change touches are green; the whole-suite count is unknown this
+      cycle*, not "the suite passed."
+
+      *Commit:* local `8d11b2a` -> remote `ee96ab`; `remote_state.py`:
+      **IN SYNC: identical tree** (`dd99f7e`).
