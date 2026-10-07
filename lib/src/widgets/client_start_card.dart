@@ -142,7 +142,12 @@ class _StepRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final titleColor = first ? AppTheme.navy : AppTheme.textSecondary;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
+      // The house step, and the one the contractor's twin checklist draws this
+      // same line with (`_GettingStarted`). These two cards are the same shape
+      // on purpose -- the class doc above says this one is the client's half of
+      // the other's -- so the space between their steps is one number, not two
+      // numbers that happen to be near each other.
+      padding: const EdgeInsets.symmetric(vertical: AppTheme.s4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

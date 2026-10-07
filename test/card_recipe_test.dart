@@ -191,7 +191,7 @@ import 'package:allomokawil/src/widgets/ui.dart';
 // And once more, the count is the *least* of it: 16 -> 15 is one number in a
 // text sweep, and what it stands for is a measurement that failed first, in
 // the engine's own numbers, at `Expected: <8.0>  Actual: <6.0>`.
-const int _offGridBudget = 15;
+const int _offGridBudget = 14;
 
 List<File> _sources() {
   final dir = Directory('lib');
