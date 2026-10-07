@@ -176,7 +176,22 @@ import 'package:allomokawil/src/widgets/ui.dart';
 // third time the same lesson: the count goes down, and what it means is
 // carried by `test/loading_list_column_test.dart`, which reads the skeleton's
 // real card rect off the built tree and compares it to the token.
-const int _offGridBudget = 16;
+// fourth time the same lesson, and the second slice in a row where the literal
+// that left was the ONLY thing wrong in the diff. `detect_location.dart`'s
+// `DetectedPlaceNote` sat its Arabic sentence a single ladder step under the
+// control it explains, while the budget row on that same form -- the same
+// icon / gap / caption line, explaining the same kind of value to the same
+// reader -- sat one step lower. R4 priced the note at exactly the same weight
+// as its sibling's four defended and deliberate sites (the trade filter's
+// `14 x 12`, the checkbox row's `6 x 2`), because a ratchet over literals
+// cannot tell an unexplained value from an explained one.
+// `test/detected_note_column_test.dart` reads the note's real band off the
+// built tree and asserts the gap against `AppTheme.s8`.
+//
+// And once more, the count is the *least* of it: 16 -> 15 is one number in a
+// text sweep, and what it stands for is a measurement that failed first, in
+// the engine's own numbers, at `Expected: <8.0>  Actual: <6.0>`.
+const int _offGridBudget = 15;
 
 List<File> _sources() {
   final dir = Directory('lib');

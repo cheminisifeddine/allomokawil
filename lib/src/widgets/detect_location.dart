@@ -94,7 +94,19 @@ class DetectedPlaceNote extends StatelessWidget {
         ? 'حُدِّد من موقع هاتفك: ${place.wilayaName}'
         : 'حُدِّد من موقع هاتفك: ${place.wilayaName} — ${place.commune}';
     return Padding(
-      padding: const EdgeInsets.only(top: 6),
+      // The gap below the control this note explains, and nothing else. It is
+      // the same step the budget row on that form uses between the two money
+      // fields and the sentence beneath them -- one screen, one reader, two
+      // explanations, and they were starting at different heights because this
+      // one sat a single ladder step tighter than its sibling.
+      //
+      // The band owns the vertical and no horizontal inset: it is inside the
+      // screen's column already and inherits its width, so pulling its own edge
+      // inside would move the Arabic sentence away from the button it talks
+      // about.
+      //
+      // Measured at test/detected_note_column_test.dart.
+      padding: const EdgeInsets.only(top: AppTheme.s8),
       child: Row(
         children: [
           const Icon(Icons.my_location_rounded,
