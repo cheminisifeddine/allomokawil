@@ -23774,10 +23774,10 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 46 on 7 Oct;
-      **slices 1-11 shipped** (11th = `auth_screen`, local `bb86e62` -> remote
-      `d96554c`, 51 -> 46, `auth_screen` 8 -> 3);
-      **46 remain across 18 files.** 197 -> 60 on 6 Oct;
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 33 on 8 Oct;
+      **slices 1-13 shipped** (13th = `chat_list_screen`, local `ae84a5d` ->
+      remote `676162`, 35 -> 33);
+      **33 remain across 17 files.** 197 -> 60 on 6 Oct;
       60 remain across **20 files** (the "19 files" in earlier notes was wrong:
       three files of 1-2 arrived with the `ui.dart` slice and were never
       counted). Do not read the slice below as the sweep being finished.**
@@ -25542,3 +25542,115 @@ green, the whole-suite count is **unknown** this cycle.
 **IN SYNC: identical tree** (`868359f`).
 
 **Next:** the R4 sweep continues. **35 remain** (down from 38).
+
+## Tick 8 Oct 2026 (2nd) — the inbox drew its **two** count pips at **two** numeral sizes
+
+**Item: slice 13 of the R4 sweep — `chat_list_screen.dart`, the count-pip
+column. SHIPPED.** The only unchecked item in the file is still the sweep.
+
+**The defect.** A row's trailing column draws two count pips and nothing else:
+a washed **cloud pip** for messages this phone has not sent yet (`queued`), and
+a solid **accent pip** for messages the server has not acknowledged
+(`unread`). Both boxes were byte-identical — `rPill`, `minWidth: 24`,
+`symmetric(horizontal: 8, vertical: 3)` — stacked 7 dp apart in one column.
+
+The **boxes agreed and the numbers did not**. The cloud pip's glyph was
+`AppTheme.fsBadge` (11 dp); the accent pip's was `AppTheme.fsCaption`
+(12.5 dp). A capsule's height is `fontSize * height + padding`, and padding
+and line factor were identical on both sides — so the two capsules could not
+both be right, and measured in pixels they came out **19 dp and 21 dp**, one
+sitting directly on top of the other.
+
+**Why this is the row that matters.** It is the one row that carries *both*
+pips: a conversation with unsent messages **and** unread ones — the state a
+user reaches on a dropped Algerian connection, and precisely what the queued
+pip was written to warn about. Everywhere else in the app a count is drawn at
+`fsBadge`: the tab bar's pip and the bell's are both on it. The accent pip was
+the outlier, and it is the one that moved.
+
+**Why no existing guard could see it — three blind spots, not one.**
+  * R4 counts off-grid literals **inside `EdgeInsets`**. The only literals here
+    were the padding, and the two pips already shared those to the byte. It was
+    reading the **box** and blind to the **glyph**, because a `fontSize` is not
+    an `EdgeInsets`. This is the R4 blind spot the `profile_edit` slice
+    recorded, arriving again from a different direction: last tick the counter
+    read one of two writers; this tick it read the one thing both writers
+    already agreed on.
+  * `test/chat_column_edges_test.dart` measures the **thread's four left
+    edges**, not the numbers drawn inside them.
+  * `test/pill_inset_test.dart` compares `StatusPill` against `StatusPill`.
+    **Neither of these pips is a `StatusPill`** — both are hand-rolled
+    `Container`s — so a same-component comparison cannot reach them. That is
+    the second blind spot `pill_inset_test.dart`'s own header documents (the
+    verification screen's hand-rolled verdict pill), and it recurred.
+
+**Shipped**
+- `lib/src/core/theme/app_theme.dart` — **`pipNumeral`** (= `fsBadge`),
+  **`pipMinW`** (24) and **`pipPad`**, the count pip's recipe, written once.
+  The `vertical: 3` is off the 4 dp ladder **on purpose**, like `pillPad` and
+  `pillGap`: it is the capsule's own proportion around an 11 dp numeral, not a
+  component gap, and R4 is wrong to count it — the same argument those two
+  tokens already carry.
+- `lib/src/screens/chat/chat_list_screen.dart` — both pips onto the three
+  tokens. **The cloud pip was already correct and goes onto the token too**,
+  because a token is what stops the *next* writer arriving with its own idea of
+  how large a count is drawn.
+- `test/chat_list_pip_test.dart` (new, 4 cases) — boots the real screen with
+  the one conversation carrying both pips, and asserts the two glyph sizes are
+  equal and the two capsules the same height.
+- `test/card_recipe_test.dart` — R4 budget **35 -> 33**.
+
+**Red before green, reverting only the numeral** (screen still compiles):
+```
+Expected: <11.0>                         Actual: <12.5>   (the glyph)
+Expected: within <0.01> of <19.0>       Actual: <21.0>   (the capsule)
+```
+Both reds are independent and both come from one character in one `TextStyle`.
+
+**The third case I wrote first was worthless and was replaced.** It asserted the
+numeral was *centred* in its capsule — which passed before **and** after,
+because the taller glyph stays centred; it could not have caught a 1.5 dp size
+disagreement and would have gone into the tree as a green test that guarded
+nothing. It was replaced by the **capsule-height** assertion, which is the
+quantity that actually moved, and the centring check was kept only as the
+regression it really is.
+
+**Proven by pixels** (throwaway shot harness, 3.0x DPR, real Cairo, the one
+row that carries both pips, read out of `tool/png_read.py`):
+
+| | queued (cloud) pip | unread (accent) pip |
+|---|---|---|
+| before | **19.00 dp** tall | **21.00 dp** tall, 28.3 dp wide |
+| after | 19.00 dp tall (unchanged) | **19.00 dp** tall, 26.7 dp wide |
+
+The lower capsule also lost 1.6 dp of width, because a wider glyph at the same
+`minWidth` is what pushed the box out. The ASCII dump of the column shows the
+two capsules identical afterwards and visibly unequal before.
+`/tmp/shots/zz_pip_{BEFORE,AFTER}.png` — **not committed**; the harness was
+deleted before the commit and `git ls-files` confirms 0 traces.
+
+**A fourth site left deliberately on the floor.** The same list's page column
+is `EdgeInsets.fromLTRB(18, 12, 18, 28)`, and `AppTheme.pagePad` is
+`fromLTRB(gutter, s8, gutter, s28)` — the same three numbers with the **top
+rung one step down the ladder**. It looked like a free rename and it is not:
+`s8` and `s12` differ by 4 dp of top clearance under the app bar, so folding it
+onto `pagePad` is a **visible behaviour change**, not a rename. That is a
+second judgement with its own measurement behind it and it did not ride along on
+a pip fix.
+
+**Gate.** `flutter analyze` -> **No issues found!** 9 affected shards
+(`card_recipe`, `chat_list_pip`, `chat_outbox`, `chat_column_edges`,
+`pill_inset`, `unconfirmed_pip`, `chat_timeline`, `chat_preview_copy`,
+`profile_edit_clearance`) -> **58 passed / 0 failed**. **The full `run_tests.py`
+gate did not run this cycle** — 13 shards at ~3 min is ~40 min and
+`MemAvailable` measured 2.0 GB, so the whole-suite count is **unknown**, not
+"passing".
+
+**Commit:** local `ae84a5d` -> remote `676162`. `tool/remote_state.py`:
+**IN SYNC: identical tree** (`673f969`).
+
+**Next:** the R4 sweep continues. **33 remain** (down from 35) across **17
+files**. The next file by count is `auth_screen.dart` (3), then `ui.dart` (3);
+`chat_screen.dart` has 2 (`vertical: 3` on the unresolved pip and
+`vertical: 5` on the day divider) — the unresolved one is now a `pipPad` away
+from being on the token this slice added.
