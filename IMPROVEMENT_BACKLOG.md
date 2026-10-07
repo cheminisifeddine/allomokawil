@@ -23775,6 +23775,10 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       it goes red, `git status --short` is the first thing to read.
 
 - [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 32 on 8 Oct;
+      **slices 1-17 shipped** (17th = `SelectableTile`'s off-ladder `horizontal:
+      6`, local `154bbf7` -> remote `60e3f58`, **R4 unchanged at 32** — the
+      literal was 16 slices of vocabulary and one truncation R4 could not price;
+      see the slice below, which also corrects slice 16's arithmetic);
       **slices 1-16 shipped** (16th = the dead `chipTheme`, local `a6790fa` ->
       remote `1df3c49`, **R4 unchanged at 32** — it deletes a field R4 never
       counted, in a file R4 excludes; see the slice below, which settles the
