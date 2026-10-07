@@ -162,10 +162,21 @@ class _DzPhoneFieldState extends State<DzPhoneField> {
               contentPadding: AppTheme.fieldPad,
               suffixIconConstraints:
                   const BoxConstraints(minWidth: 40, minHeight: 40),
+              // The tick is on the inset the digits it validates sit on. It used
+              // to pad itself `only(left: 6, right: 12)`: the 12 was on the 4 dp
+              // ladder and agreed with nothing in particular, while the **6** is
+              // the glyph-to-border inset the user actually sees, and it was 10
+              // dp tighter to the border than the number beside it. Worse, the
+              // framework hands the suffix a fixed 40 x 40 box, so the padding IS
+              // the inset -- an asymmetric one gave a checkmark a 22 x 40 box, not
+              // the square it draws. Off-grid and asymmetric with no token behind
+              // it; `fieldPad` is the column it belongs to. Measured at
+              // test/phone_valid_tick_test.dart.
               suffixIcon: valid
-                  ? const Padding(
-                      padding: EdgeInsets.only(left: 6, right: 12),
-                      child: Icon(Icons.check_circle_rounded,
+                  ? Padding(
+                      padding: AppTheme.fieldPad.copyWith(
+                          top: 0, bottom: 0),
+                      child: const Icon(Icons.check_circle_rounded,
                           size: 21, color: AppTheme.success),
                     )
                   : null,
