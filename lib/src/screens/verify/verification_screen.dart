@@ -671,27 +671,34 @@ class _PartsStatusCard extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(child: Text(label, style: AppTheme.body)),
         const SizedBox(width: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: ok ? AppTheme.successWash : AppTheme.surfaceAlt,
-            borderRadius: BorderRadius.circular(AppTheme.rPill),
-            border: Border.all(color: ok ? AppTheme.success : AppTheme.line),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(mark, size: 13, color: colour),
-              const SizedBox(width: 5),
-              Text(
-                text,
-                style: AppTheme.caption.copyWith(
-                  fontSize: AppTheme.fsBadge,
-                  color: colour,
-                ),
-              ),
-            ],
-          ),
+        // A real [StatusPill], not a hand-rolled copy of one. This row and the
+        // `_DocCard` pills below it are direct children of the same `ListView`
+        // (`:271`), so a worker scrolls between them and watches the pill
+        // change: this used to be `symmetric(horizontal: 10, vertical: 5)`
+        // with a 13 dp icon and a 5 dp gap, sitting beside a `StatusPill` at
+        // `pillPad` (10x6) with a 14 dp icon and a 6 dp gap — same radius, same
+        // caption size, 1 dp of slop between neighbours. R4 could not see it
+        // (it counts literals per file and there was nothing off-grid left to
+        // count) and `pill_inset_test.dart` could not see it (it compares the
+        // three pills that already were one component). The word, the colour
+        // and the icon are one decision, so this row now makes it once.
+        //
+        // `fsBadge` (11) was the one thing the copy got that `StatusPill`
+        // does not do: it is a *count/overline* size, while the three pills
+        // this one now sits beside are all `fsCaption` (12.5). Two verdicts in
+        // one scroll view reading at 11 and 12.5 is the same "unfinished"
+        // signal as the 1 dp, so the caption is the shared one.
+        //
+        // The **border** is the only thing this row had that `StatusPill` did
+        // not, and it earns its place: `surfaceAlt` on a white card is 1.06:1,
+        // so without the outline «لم تُرسل» is a grey ghost with no edge. It is
+        // a parameter on the shared pill, not a second pill.
+        StatusPill(
+          label: text,
+          icon: mark,
+          color: colour,
+          wash: ok ? AppTheme.successWash : AppTheme.surfaceAlt,
+          border: ok ? AppTheme.success : AppTheme.controlLine,
         ),
       ],
     );

@@ -437,12 +437,29 @@ class StatusPill extends StatelessWidget {
   final Color wash;
   final IconData? icon;
 
+  /// Draw a 1 px outline around the pill. `null` = none, which is what every
+  /// caller that shows a pill *beside* other pills wants: two pills on one row
+  /// are separated by their wash, and an outline on both reads as a table.
+  ///
+  /// This is how [StatusPill] absorbed the hand-rolled verdict pill on the
+  /// verification screen (`_PartsStatusCard._part`, deleted 9 Oct). That copy
+  /// drew `symmetric(horizontal: 10, vertical: 5)`, icon 13 and a 5 dp gap
+  /// beside a real [StatusPill] on **the same `ListView`**, so a worker
+  /// scrolled between two pills that agreed on radius and font and disagreed
+  /// by 1 dp of inset and 1 dp of gap. What it also had that this one did not
+  /// was a **border** — the outline is what told «لم تُرسل» apart from the two
+  /// washes behind it, so it could not simply be dropped. Rather than keep two
+  /// pills, the border became an option on this one. `null` by default, so
+  /// every existing caller paints exactly the same pixels as before.
+  final Color? border;
+
   const StatusPill({
     super.key,
     required this.label,
     this.color = AppTheme.info,
     this.wash = AppTheme.infoWash,
     this.icon,
+    this.border,
   });
 
   /// The pill on a project card and on the project page.
@@ -535,6 +552,7 @@ class StatusPill extends StatelessWidget {
       decoration: BoxDecoration(
         color: wash,
         borderRadius: BorderRadius.circular(AppTheme.rPill),
+        border: border == null ? null : Border.all(color: border!),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

@@ -23,6 +23,22 @@
 //     `const SizedBox` is not a child with a rect of its own in some builds,
 //     so the assertion is on the distance between the two *painted* boxes, and
 //     a pill with no icon is excluded rather than measured against nothing.
+//
+// **Second blind spot, closed 9 Oct: a pill that was never written as one.**
+// The three pills above all *were* `StatusPill`, so a guard that compares
+// `StatusPill` against itself compares three instances of one widget. The
+// verification screen's `_PartsStatusCard._part` hand-rolled its verdict pill —
+// `symmetric(horizontal: 10, vertical: 5)`, icon 13, gap 5, `fsBadge` — in the
+// **same `ListView`** as the real `StatusPill`s on `_DocCard`, so the defect
+// was a disagreement *between two components* on a screen, not inside one. A
+// per-file literal counter and a same-component comparison both miss it by
+// construction — and so would a fixture *here*, which is why this file does
+// not carry one. The guard for that defect is
+// `test/verification_parts_pill_test.dart`: it boots the real screen and
+// measures the parts row and the doc row **in the same tree**, because that
+// adjacency is the whole defect. What this file still owns is the shared
+// inset itself — so that when the parts row is fixed onto the token, the token
+// it is fixed onto is the one measured here.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
