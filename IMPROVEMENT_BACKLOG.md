@@ -23838,9 +23838,11 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       source: **on this ratchet, a comment that quotes a retired off-grid
       literal is a live count.**),
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 20 on 7 Oct;
-      **20 remain** after slice 25. Local `f5840a5` -> remote `f8104a3`, all 3
-      blobs MATCH by SHA.
+- [x] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 17 on 7 Oct;
+      **17 remain** across 14 files after slice 26 (local `8a994d3` +
+      `fe3ceee` -> remote `1b6f331`, all 5 blobs MATCH by SHA).
+      ~~**20 remain** after slice 25. Local `f5840a5` -> remote `f8104a3`, all 3
+      blobs MATCH by SHA.~~
       **slice 25 shipped** (25th = the **project card's budget band was not the
       app's pill**). `project_card.dart:90` drew `symmetric(horizontal: 10,
       vertical: 7)` with a 14 dp glyph and a **5 dp gap** to its word, by hand,
@@ -23910,6 +23912,91 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       outside the theme at `chat_list_screen.dart:589`, `:625`,
       `chat_screen.dart:1232`), **proved pre-existing** by stashing to HEAD and
       re-running: identical three lines. Recorded, not hidden.
+      **slice 26 shipped** (26th = **the wash callout was not the app's callout**).
+      This is the item the previous tick left as a *decision* rather than a
+      rename: the `14 x 12` pair had three writers. Answered by measurement, not
+      by taste. `trade_filter_bar:286` is a `_FilterPill` with an `onTap` and an
+      `InkWell` -- a **tap target**, and a wider pad is the only thing that buys a
+      control for a finger, so it keeps its inset. The other two are **labels**:
+      `auth_screen.dart` `AuthNotice` and the no-price callout inside
+      `_QuoteCard`. Neither has an `onTap`, a `GestureDetector`, an `InkWell` or
+      an `A11y.button` anywhere in its body, and the new test **asserts that
+      absence** rather than trusting it, so the pill's exemption is earned and a
+      future `InkWell` in either box breaks the file instead of quietly reopening
+      a 2 dp disagreement.
+      **What settled it was the four siblings, which the 16th slice never looked
+      at.** The stale-list banners on browse / inbox / home / notifications are
+      one wash callout drawn four times -- same fill, same icon, same line height
+      -- and every one of them already sits on `AppTheme.cardPadRail` =
+      `EdgeInsets.all(s12)`, twelve on **all four** edges. The app had five wash
+      callouts, three on the token and two carrying a private pair.
+      **What hid it is the lesson worth keeping, and it is slice 24's again.**
+      `12` is on the 4 dp ladder, so **the vertical already agreed with all four
+      siblings** and only the horizontal was 2 dp out. Half a component agreeing
+      is the worst state a reviewer can be handed: the eye checks the vertical and
+      it matches, the ratchet counts both numbers as one line, and the horizontal
+      -- the edge the Arabic sentence actually starts against -- is the one number
+      neither can see. R4 had carried this site for weeks at the same price as
+      the deliberate exceptions, because nothing distinguishes "off-grid and
+      defended" from "off-grid and nobody decided".
+      **The engine found a second defect in the same box, one gap after the
+      first.** `AuthNotice` put **10 dp** between the glyph and the word where all
+      four banners put `AppTheme.s8`. Not the site the slice was opened for: it
+      came out of a measurement taken off the built tree rather than read out of
+      source, and it is pinned by the same file. Two hand-written numbers in one
+      40-line widget, both inherited from a banner nobody reconciled with its
+      siblings.
+      **R4 20 -> 17 literals, 16 -> 14 sites.** Still structurally blind to the
+      fix: `cardPadRail` is an *identifier* and `_literals()` skips identifiers by
+      design, so the counter moves while saying nothing about whether the callouts
+      agree. Fifth repeat. Every assertion in the new file is an equality against
+      the token or a measurement off the tree, and **no retired literal appears in
+      it** -- on this ratchet a comment quoting one is a live count (slice 23).
+      **Red before green, engine's own numbers** -- 3 of the 4 new cases fail with
+      `lib/` reverted: `Expected: EdgeInsets:<EdgeInsets.all(12.0)>` /
+      `Actual: <EdgeInsets(14.0, 12.0, 14.0, 12.0)>`; `Expected: <8.0>` /
+      `Actual: <10.0>`; and the source sweep naming both sites,
+      `'lib/src/screens/auth/auth_screen.dart:AuthNotice:689'` and
+      `'lib/src/screens/project/project_detail_screen.dart:_QuoteCard:1264'`.
+      **Proven by pixels on a genuine before/after pair** (throwaway harness;
+      `lib/` stashed and the literal **confirmed back in the file** before
+      re-shooting, harness deleted, `git ls-files` clean): the **box** does not
+      move -- page padding plus the 1 dp border fix both edges -- and the ink on
+      the RTL start edge moves **42.67 -> 40.67 dp, exactly -2.00 dp**, with the
+      far edge byte-identical, which is the confirmation that only the horizontal
+      moved. **0.20%** of the frame differs. A first measurement of the *wash box*
+      reported before == after, which is correct and useless: the box never moved.
+      Same trap as slice 25's same-image before/after, one level up -- **measure
+      the thing the change moves, not the thing it sits inside.**
+      **Golden re-baselined, and the re-baseline was proved, not assumed.**
+      `07_project_detail` failed because this slice moved the quote card's callout.
+      With `lib/` checked out at the parent commit `1ac57b0` the baseline
+      **passes**, so it was good before the change and this is a re-baseline, not
+      a stale baseline laundered into a fix. Comparing the committed baseline to
+      the new one in golden space: **only rows y 702..774 differ, 0.796% of the
+      frame** -- the callout's own band at the bottom of the screen. (A first
+      comparison reported 4.5% across the whole frame; that was comparing a DPR-1
+      baseline against DPR-3 output, an artefact. **Never compare captures taken
+      at different pixel ratios.**) The other **22 shots pass untouched**.
+      **The census wanted registering, and it was right to.** A new sweep that
+      reads `lib/` must appear in `_appRuleGuards` by name, and its rule token
+      must be provably *applied*, not merely written down. Two attempts failed
+      first: an identifier-shaped token cannot be blanked by the sweep reader, and
+      a rule held in a local was not credited as applied. The shape that satisfies
+      it is `layering_test.dart`'s -- one `const List<String>` read through
+      `.contains`. Recorded because the guard is doing its job, not obstructing
+      the slice.
+      **Gate.** `flutter analyze` -> **No issues found!** · **4 passed** new guard
+      · **17 passed** `app_source_scope` after registration · **25 passed**
+      `card_recipe` + the three auth column/duplication guards · **22 passed**
+      `design_shots_test.dart`. Full `run_tests.py`: **13 shards, 11 green, 2 not
+      green in 18:47**. Shard 3 was the `07_project_detail` golden, resolved by
+      the re-baseline above; shard 12 is `type_scale_test.dart`
+      (`AppTheme.pipNumeral` outside the theme at `chat_list_screen.dart:589`,
+      `:625`, `chat_screen.dart:1232`), **proved pre-existing by file**: none of
+      those three files is in this slice's diff. Recorded, not hidden. Shard 8 --
+      the shard the 6 Oct note says hung and ignored its deadline -- **passed in
+      1:10**, so the KNOWN BUG did not reproduce.
       **slice 24 shipped** (24th = the **customer home header's wilaya pill was
       not the app's pill**). It drew `symmetric(horizontal: 12, vertical: 7)`
       with a 15 dp glyph and a 5 dp gap, on the screen a user sees **first** —
