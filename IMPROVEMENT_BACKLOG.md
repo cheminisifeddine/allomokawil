@@ -25461,3 +25461,84 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
 
       *Commit:* local `8d11b2a` -> remote `ee96ab`; `remote_state.py`:
       **IN SYNC: identical tree** (`dd99f7e`).
+
+## Tick 8 Oct 2026 — the page column, where R4 measured one of **two** writers
+
+**Item: slice 12 of the R4 sweep — `profile_edit_screen.dart`. SHIPPED.** The
+previous tick left this one staged and uncommitted (it had been gated and
+red-proven, then stopped by the tick's clock); per the protocol's own rule —
+finish what the last tick left open before opening anything new — this cycle
+committed it rather than starting a new item. The only unchecked item in the
+file is still the sweep itself.
+
+**The defect.** The contractor's profile form wrote its page column **twice**:
+the `ListView`'s own `EdgeInsets.fromLTRB(18, 4, 18, 30)` and a trailing
+`SizedBox(height: 22)` between the last field and the `]`. The clearance under
+the last control — the gap a reader sees between his final input and the save
+button — was `30 + 22 = **52 dp**`, against **28** on the three sibling screens
+that pin the identical bar (`project_detail` and `worker_profile`, both
+`AppTheme.pagePad`; `project_new` on 36). His last input sat a hand's width
+further from the button than the same button on the screen he came from.
+
+**Shipped:** `lib/src/screens/worker/profile_edit_screen.dart` — one number, on
+the house token. The spacer is **gone** rather than re-gridded, because a
+spacer and a padding that mean the same thing are two writers for one column
+and the next sweep would have had to reconcile them again. The horizontal `18`
+is `AppTheme.gutter` by rename only — measured identical to the pinned bar's
+own inset (`card x = 18.0 .. 374.7`, `button x = 18.0 .. 374.7`), so those
+pixels do not move.
+
+**Why R4 could not have seen it, and could not have confirmed it either.** It
+counts literals **inside `EdgeInsets` constructors**, and a `SizedBox` is not an
+`EdgeInsets`: the counter was reading one of two writers for a quantity
+neither of them owned. The one number that described the gap was not one of
+the numbers R4 reads. It also went **green the instant `30` became `s28`**,
+because `_literals()` skips identifiers by design — the same blind spot the
+`auth_screen` slice paid a whole tick for, and the reason "lower the count"
+was never going to be the question.
+
+**The guard.** `test/profile_edit_clearance_test.dart` (3 cases) asserts the
+**laid-out** clearance against the token, off the real screen booted against a
+fake API. Two measurement traps are recorded in its header and both cost the
+first draft real time: a **bare `MaterialApp` answers the wrong numbers**
+(`AppTheme.light` sets `toolbarHeight: 60`, the M3 default is 56, which moves
+every control by 4 dp), and **the probe must prove it is at maximum extent**
+before reading — the first draft dragged once and reported a 238 dp clearance
+on a screen whose clearance is 28.
+
+**Red before green, with only the screen reverted so the file still compiles:**
+
+    Expected: <28.0>   Actual: <30.0>      (the padding)
+    Expected: 30.0     Actual: <52.0>      (the laid-out gap — the defect)
+
+**Proven by pixels** (throwaway shot harness, 3.0× DPR, real Cairo + icon
+faces, screen flinged to max extent — the defect is only *visible* there;
+harness deleted before the commit and never pushed):
+
+| | card border ends | save bar starts | white band |
+|---|---|---|---|
+| before | y 2148 | y 2307 | **159 px = 53.0 dp** |
+| after | y 2220 | y 2307 | **87 px = 29.0 dp** |
+
+29.0 dp is the 28 dp token plus its 1 px hairline, read straight out of
+`tool/png_read.py`. `/tmp/shots/zz_profile_edit_BEFORE.png` and
+`..._AFTER.png` — **not** committed.
+
+**R4 ratchet:** budget lowered **40 → 35**. Three literals retired (the `30`
+and the two `18`s) for a **24 dp** correction — the first slice where the count
+moved by less than the defect by exactly the amount the counter was built to
+miss. Measured, not assumed: budget forced to 0 reads **35** after and **38**
+before.
+
+**Gate.** `flutter analyze` -> **No issues found!**
+`card_recipe_test` + `profile_edit_clearance_test` -> **16 passed / 0 failed**;
+`design_shots_test` -> **22 passed** (no golden moved; there is no design shot
+for this screen). **The full `run_tests.py` gate did not run this cycle** — 13
+shards at ~3 min is ~40 min and the known 6 Oct runner bug (deadline not
+firing) would have eaten the tick. So: the files this change touches are
+green, the whole-suite count is **unknown** this cycle.
+
+**Commit:** local `46078c0` -> remote `53f8f0a`. `tool/remote_state.py`:
+**IN SYNC: identical tree** (`868359f`).
+
+**Next:** the R4 sweep continues. **35 remain** (down from 38).
