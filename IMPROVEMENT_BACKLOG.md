@@ -23839,8 +23839,67 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       literal is a live count.**),
 
 - [x] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 17 on 7 Oct;
-      **17 remain** across 14 files after slice 26 (local `8a994d3` +
+      **17 remain** across 14 files after slice 27 (local `8b82b38` -> remote
+      `d93ed4b`, all 3 blobs MATCH, remote tree identical). 17 after slice 26
+      (local `8a994d3` +
       `fe3ceee` -> remote `1b6f331`, all 5 blobs MATCH by SHA).
+      **slice 27 shipped** (27th = **`phone_field.dart`'s validity tick is the
+      app's field inset drawn at a third one**). The tick handed itself
+      `EdgeInsets.only(left: 6, right: 12)` — asymmetric, off-grid, with **no
+      comment defending it**, which by slice 24's rule makes it an accident
+      rather than a decision. The load-bearing part is not the 12: the framework
+      centres `suffixIcon` inside a fixed `40 x 40` box, so **the padding IS the
+      glyph-to-border inset** — there is no second, invisible inset to read
+      instead, and an asymmetric pad handed a checkmark a **22 x 40** box.
+      **Measured off the built tree, not read out of source:** with `lib/`
+      reverted the guard answers `EdgeInsets(6.0, 0.0, 12.0, 0.0)` against the
+      house `EdgeInsets(16.0, 18.0, 16.0, 18.0)`, `border-to-glyph = 6.0`, and
+      `GLYPH = 22.0 x 40.0`. Green answers `16/16`, `16.0`, `21 x 40`. So the
+      tick sat **10 dp tighter to the border than the number it validates** — on
+      the edge the Arabic actually starts against, inside a field that
+      `auth_screen` already sits in a column with `fieldPad`.
+      **A correction the measurement forced, and the file says so.** The test
+      first asserted the box was **square**, on the reading that a tick handed
+      22 x 40 was being distorted. It is not: the height was **40 dp before this
+      slice as well**, because the framework centres the suffix in its 40 x 40
+      box and `Icon` centres its glyph in whatever box it is given — so the paint
+      was always a true circle and **height was never the defect**. What the
+      asymmetry did was skew the *width* (22 dp of room against 21 with the edges
+      even). Asserting on the number the source happens to spell would have sent
+      the fix after a value that was already correct — the slice-23 trap again.
+      **R4 18 -> 17 literals**, budget tightened 20 -> 17 to match. Verified in
+      both directions rather than trusted: the file at budget 0 prints `now 17`
+      on HEAD and `now 18` with `lib/` reverted, so the drop is exactly the one
+      literal this commit removed. `phone_field.dart` no longer appears in the
+      site's list. **Still structurally blind**, sixth repeat, for the same
+      reason as slice 26: `_literals()` skips identifiers, so moving to
+      `AppTheme.fieldPad` moves the counter without any guard asserting the two
+      agree — hence `test/phone_valid_tick_test.dart`, which asserts the
+      **relationship** and quotes **no retired literal anywhere** (on this
+      ratchet a comment quoting one is a live count).
+      **Pixels, genuine before/after at DPR 3 with the real Cairo face**
+      (throwaway harness, deleted; `lib/` stashed and the `6 / 12` literal
+      confirmed back in the file before re-shooting): tick ink on the RTL start
+      edge **28.33 -> 37.67 dp, +9.34 dp off the border**, diff confined to a
+      **77 x 47 px** band — the glyph, nothing else. The **field box is
+      byte-identical** (`Rect.fromLTRB(19.0, 31.0, 373.0, 93.0)` both ways);
+      only the tick inside it moved. No web bundle or headless-Chrome needed:
+      the change is a 21 dp glyph inside a 40 dp box in a widget, and the
+      rasteriser that ships it is the same engine the goldens use.
+      **Gate.** `flutter analyze` -> **No issues found!** · new guard **3
+      passed** · `card_recipe_test` **15 passed** · `app_source_scope` +
+      `design_shots_test` **39 passed** (22 shots, no golden touched).
+      **No census registration, and it is not an oversight:** the census covers
+      guards that read app *source text*; this one mounts the widget and measures
+      the built tree, so there is no source for it to sweep — the same category
+      as the presence guards slice 21 deliberately left out.
+      **NOT claimed: no whole-suite number.** `run_tests.py` was started and the
+      tick's own 900 s cap killed it at **shard 10/13** (9 green first), which is
+      a truncated run, not a result. Recorded rather than papered over; the
+      targeted numbers above cover every file this diff touches, and all four
+      phone guards pass (`dz_phone_test`, `dz_phone_keystrokes_test`,
+      `phone_field_test`, `phone_posted_value_test` were green in shards 3 and 6
+      of that partial run).
       ~~**20 remain** after slice 25. Local `f5840a5` -> remote `f8104a3`, all 3
       blobs MATCH by SHA.~~
       **slice 25 shipped** (25th = the **project card's budget band was not the
@@ -26706,7 +26765,7 @@ covers every consumer of the three files touched.
 
 ### Next
 
-R4's remaining 26 are unchanged in kind — the census says 16 files, and
+R4's remaining 17 are unchanged in kind — the census says 16 files, and
 `auth_screen` (3) plus `project_detail_screen`/`trade_filter_bar`/`auth_screen`
 still carry the byte-identical `14 x 12` chip inset that four writers spell. That
 is still a **decision, not a rename** (the trade pill is a tap target and the bid
