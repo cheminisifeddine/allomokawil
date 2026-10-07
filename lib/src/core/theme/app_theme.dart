@@ -126,6 +126,31 @@ class AppTheme {
   static const EdgeInsets pillPad =
       EdgeInsets.symmetric(horizontal: 10, vertical: 6);
 
+  /// The numeral inside a **count pip** — the small round capsule that carries a
+  /// number and nothing else: the unread count on a tab bar, the bell's count,
+  /// a thread's unresolved-message count, and the two pips an inbox row draws
+  /// in its trailing column.
+  ///
+  /// A count pip is judged against the count pip **stacked beside it**. An
+  /// inbox row draws two of them — messages this phone still owes (the cloud
+  /// pip) and messages the server has not acknowledged (the accent pip) — in
+  /// the same column, `minWidth` [pipMinW] apart, with byte-identical padding.
+  ///
+  /// **The bug this token exists to prevent, measured.** Both pips in that
+  /// column wrote the same box and then disagreed about the number *inside* it:
+  /// the cloud pip at [fsBadge] (11 dp) and the accent pip at [fsCaption]
+  /// (12.5 dp). Two capsules of 19 dp and 21 dp, one on top of the other, on
+  /// the one row that carries both — which is the row a user reaches on a
+  /// dropped connection, the exact situation the queued pip exists to warn
+  /// about. Nothing else in the app is inconsistent about this: the tab-bar pip
+  /// and the bell's are both [fsBadge], so the inbox was the only place a count
+  /// was drawn at a second size.
+  ///
+  /// [fsBadge] is the count numeral app-wide. [pillPad] and [pillGap] are the
+  /// *word* pills and stay separate — those carry an icon and a label, this
+  /// carries a digit.
+  static const double pipNumeral = fsBadge;
+
   /// The gap between a pill's icon and its word. One number for every pill,
   /// so a new pill cannot arrive with its own idea of the spacing.
   ///
@@ -135,6 +160,25 @@ class AppTheme {
   /// `test/pill_inset_test.dart`, which asserts the *equality* between the
   /// writers instead.
   static const double pillGap = 6;
+
+  /// The width a count pip never draws narrower than, so a one-digit count and
+  /// a `99+` count are both a pill and not a lozenge.
+  static const double pipMinW = 24;
+
+  /// A count pip's inset, both edges.
+  ///
+  /// **The `vertical: 3` is off the 4 dp ladder on purpose**, exactly like
+  /// [pillPad] and [pillGap]: it is the capsule's own proportion around an
+  /// 11 dp numeral rather than a component gap, and it is held so a pip
+  /// reading 19 dp stays clear of [tapMin]. These are **labels, not targets** —
+  /// the tap target around them is the whole row.
+  ///
+  /// R4 counts the `3` and is wrong to, the same way it is wrong to about
+  /// [pillPad] and [pillGap]; see `test/pill_inset_test.dart` for the argument
+  /// that the *equality* of the writers is the property worth asserting.
+  /// This file puts the number somewhere it is written down once.
+  static const EdgeInsets pipPad =
+      EdgeInsets.symmetric(horizontal: 8, vertical: 3);
 
   /// The white ring drawn around an avatar or a selected chip, so the thing
   /// inside it separates from the thing behind it.

@@ -559,9 +559,9 @@ class _ConversationTile extends StatelessWidget {
                 Tooltip(
                   message: queuedCountLabel(queued),
                   child: Container(
-                    constraints: const BoxConstraints(minWidth: 24),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    constraints:
+                        const BoxConstraints(minWidth: AppTheme.pipMinW),
+                    padding: AppTheme.pipPad,
                     decoration: BoxDecoration(
                       color: AppTheme.accentWash,
                       borderRadius: BorderRadius.circular(AppTheme.rPill),
@@ -575,8 +575,13 @@ class _ConversationTile extends StatelessWidget {
                         Text(
                           '$queued',
                           textAlign: TextAlign.center,
+                          // Was already [AppTheme.fsBadge], and now it is the
+                          // token by name: the pip below it in this column was
+                          // the writer that drifted, and a token is what stops
+                          // the *next* one from arriving with its own idea of
+                          // how large a count is drawn.
                           style: AppTheme.label.copyWith(
-                              fontSize: AppTheme.fsBadge,
+                              fontSize: AppTheme.pipNumeral,
                               height: 1.2,
                               color: AppTheme.accentDeep),
                         ),
@@ -588,9 +593,9 @@ class _ConversationTile extends StatelessWidget {
               if (hasUnread) ...[
                 if (conv.lastMessageAt != null) const SizedBox(height: 7),
                 Container(
-                  constraints: const BoxConstraints(minWidth: 24),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  constraints:
+                      const BoxConstraints(minWidth: AppTheme.pipMinW),
+                  padding: AppTheme.pipPad,
                   decoration: BoxDecoration(
                     // Accent is the app's single highlight colour.
                     color: AppTheme.accent,
@@ -599,8 +604,22 @@ class _ConversationTile extends StatelessWidget {
                   child: Text(
                     conv.unreadCount > 99 ? '99+' : '${conv.unreadCount}',
                     textAlign: TextAlign.center,
+                    // **This was the outlier.** The pip above it, in this same
+                    // column, is the same box at [AppTheme.fsBadge] — and so
+                    // are the tab bar's pip and the bell's. This one number was
+                    // [AppTheme.fsCaption], 1.5 dp larger, which made the
+                    // capsule 2 dp taller than the one stacked directly above
+                    // it: two pills of two sizes on the one row that carries
+                    // both, which is the row a user reaches when a message
+                    // failed to send. Same shape, same padding, same radius,
+                    // one glyph too big — and R4 counted none of it, because a
+                    // `fontSize` is not an `EdgeInsets` and the two literals it
+                    // *did* read (the padding) were already identical.
+                    // See `test/chat_list_pip_test.dart`.
                     style: AppTheme.label.copyWith(
-                        fontSize: AppTheme.fsCaption, height: 1.2, color: AppTheme.navy),
+                        fontSize: AppTheme.pipNumeral,
+                        height: 1.2,
+                        color: AppTheme.navy),
                   ),
                 ),
               ],
