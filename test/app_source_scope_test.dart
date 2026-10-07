@@ -148,6 +148,17 @@ const _knownRoots = <String>{
   // pruned as dead: a guard that walks one of them is understood, not flagged.
   'lib/src/core/theme/motion.dart',
   'lib/src/core/theme/app_theme.dart',
+  // ...and these four are declared in the *literal* spelling, taught to
+  // `_rootsOf` on 8 Oct: `File('…').readAsStringSync()`. Two of them are read
+  // by guards this file already names for other roots
+  // (`layering_test.dart`, `quote_count_copy_test.dart`); the other two are
+  // the point of the change, because `lib/src/widgets/ui.dart` was the root of
+  // a guard that declared **none** and was therefore invisible to every case
+  // in this file while reading a shared kit the whole app draws from.
+  'lib/src/core/format/calendar_day.dart',
+  'lib/src/data/chat_time.dart',
+  'lib/src/models/plan.dart',
+  'lib/src/widgets/ui.dart',
   // The suite reading its own test directory: `wall_clock_seam_site_test.dart`
   // walks `Directory('test')` to police other guards. It holds no shipped Dart,
   // so it contributes no coverage -- it is listed so the census *names* the
@@ -229,6 +240,15 @@ const _appRuleGuards = <String, String>{
   'test/phone_posted_value_test.dart':
       'the posted-phone rule: a phone reaches the API canonicalised, or not at '
       'all',
+  // Added 8 Oct with the `File('…')` root shape. This guard enforced a real
+  // rule about app source -- every taxonomy label fits the tile the app draws
+  // -- and `lib/src/widgets/ui.dart` was its only root. The reader could
+  // *resolve* a file spec and had never *read* one, so the guard declared
+  // nothing and answered to none of the by-name lists here. Its evidence token
+  // is the pattern it applies to `ui.dart` to read the inset back.
+  'test/tile_label_fit_test.dart':
+      'the tile-label rule: every Arabic label the app ships fits its tile at '
+      'every width the app claims',
 };
 
 /// The literal each named guard must still carry to be the guard it is
@@ -285,6 +305,7 @@ const _ruleEvidence = <String, List<String>>{
   // be one only a real call site can carry -- the named argument itself, with
   // the colon and the label spelled the way a call spells it.
   'test/phone_posted_value_test.dart': [r'phone:\s*(.+?),?\s*$'],
+  'test/tile_label_fit_test.dart': [r'symmetric\(\s*horizontal:'],
 };
 
 /// The literal roots a source sweep enumerates, read out of its own source.
@@ -393,6 +414,57 @@ _Read _rootsOf(String source) {
     }
   }
 
+  // A whole-file read: `File('lib/src/widgets/ui.dart').readAsStringSync()`.
+  // **Taught this tick, and the hole it closes is the one the previous tick
+  // left as work.** `tile_label_fit_test.dart` declared its only root in this
+  // shape. The reader could *resolve* a file spec (that is what `_resolveRoot`
+  // has always done) but had never *read* one, so the guard declared nothing:
+  // absent from the root census, from the coverage set, and from the by-name
+  // rule lists -- a rule about app source this file could not see.
+  //
+  // Three things are required of a spec before it is read as a root, and each
+  // one is a shape this tree actually contains:
+  //
+  //   * **A read.** The pattern is anchored on `.readAsStringSync` /
+  //     `.readAsLinesSync`, not on the constructor, so
+  //     `File('lib/…').existsSync()` -- an assertion about a path, not an
+  //     enumeration of it -- is not credited. Same exclusion `Directory`
+  //     gets one level down, for the same reason.
+  //   * **A literal.** `'${Directory.current.path}/tool/build_gate.py'` is a
+  //     file `tool_clock_seam_test.dart` really reads, and it is built at
+  //     runtime. It cannot go into `unresolved`, because the pin table beside
+  //     that list is keyed by guard and `tool_clock_seam_test.dart` already
+  //     spends its one entry on its fixtures directory -- a second root per
+  //     guard has nowhere to be written down. So it is reported in `skipped`
+  //     with its reason, and the case below refuses a skipped spec that points
+  //     at the app. Pinning it silently is what the reader must not do.
+  //   * **A root shape.** `lib/…` or `test/…`, exactly the filter the
+  //     `<String>[…]` reader above applies, for its reason: a string in a file
+  //     is not a root, and a string that *is* a path is.
+  //
+  // Reads held in a variable -- `File(_reviewPath)` in
+  // `contrast_tokens_test.dart` -- are a fourth shape this reader still does
+  // not model. That is pre-existing and stated in `_knownRoots`; it is not
+  // widened here, because a const-holding guard is a different reader again
+  // and this tick's claim is only about the literal spelling.
+  final skipped = <String, String>{};
+  // One pattern in one literal: two adjacent raw strings do not concatenate
+  // in Dart, which parsed as a broken argument list rather than as anything
+  // about the reader, so the mistake was invisible in the failure.
+  final wholeFileRead = RegExp(
+      r"""File\(\s*['"]([^'"]+)['"]\s*\)\s*\.\s*(?:readAsStringSync|readAsLinesSync)""");
+  for (final m in wholeFileRead.allMatches(code)) {
+    final spec = m.group(1)!;
+    if (spec.contains(r'$')) {
+      skipped[spec] = 'built at runtime by interpolation, so it is not a '
+          'literal this census can resolve';
+    } else if (!spec.startsWith('lib') && !spec.startsWith('test/')) {
+      skipped[spec] = 'not root-shaped: it names neither `lib/` nor `test/`';
+    } else {
+      roots.add(spec);
+    }
+  }
+
   // A root built at runtime cannot be resolved here and is **not** guessed at.
   // It is returned separately so the caller can tell "this guard walks the app"
   // from "this guard's root is a shape nobody has read", and kept out of `roots`
@@ -404,12 +476,13 @@ _Read _rootsOf(String source) {
       roots
         ..sort()
         ..toSet().toList(),
-      unresolved);
+      unresolved,
+      skipped);
 }
 
 /// The two answers a root reader can give, kept apart on purpose.
 class _Read {
-  _Read(this.roots, this.unresolved);
+  _Read(this.roots, this.unresolved, this.skipped);
 
   /// Roots that are literal paths this census can model.
   final List<String> roots;
@@ -417,6 +490,12 @@ class _Read {
   /// Roots written as a runtime expression. Not a modelled root, not a failure
   /// on its own — a fact for the caller to pin by name.
   final List<String> unresolved;
+
+  /// Whole-file reads this reader recognised and declined to call a root,
+  /// each with the reason it was declined. Kept so the skip is *visible*: a
+  /// shape dropped without a reason is the silent hole this file exists for,
+  /// and the caller asserts on the reasons rather than trusting the drop.
+  final Map<String, String> skipped;
 }
 
 /// What one declared root actually resolves to in this checkout.
@@ -603,7 +682,7 @@ String _blankComments(String src) => blankComments(src, blankStrings: false);
 
 /// One source-scanning guard and every root it declares.
 class _Root {
-  _Root(this.file, this.roots, this.unresolved);
+  _Root(this.file, this.roots, this.unresolved, this.skipped);
 
   /// The guard, as `test/…dart`.
   final String file;
@@ -615,6 +694,11 @@ class _Root {
   /// Roots written as runtime expressions, kept out of [roots] so they cannot
   /// pass for coverage.
   final List<String> unresolved;
+
+  /// Whole-file reads [_rootsOf] saw and declined, with the reason. Asserted on
+  /// in the case below: a skip is a *decision*, and a decision about app
+  /// source that nobody reads back is the silent hole this file exists for.
+  final Map<String, String> skipped;
 
   bool get reads => roots.isNotEmpty;
 
@@ -1167,7 +1251,8 @@ void main() {
         final src = File(path).readAsStringSync();
         if (!_isSourceSweep(path, src)) continue;
         final read = _rootsOf(src);
-        sweeps[path] = _Root(path, read.roots, read.unresolved);
+        sweeps[path] =
+            _Root(path, read.roots, read.unresolved, read.skipped);
       }
     });
 
@@ -1722,6 +1807,74 @@ void main() {
               'this census cannot read, so its coverage is unmeasured and a '
               'rule added there goes dark unnoticed:\n'
               '${unreadable.join('\n')}');
+    });
+
+    test('no whole-file read that could name app source is dropped quietly',
+        () {
+      // **The third direction of the case above, and the one that keeps the
+      // `File('…')` reader honest.** Teaching `_rootsOf` a new shape is a new
+      // place to be wrong in two opposite directions: credit a root that reads
+      // nothing, or drop a real one and say nothing. The first is caught by the
+      // two cases above. This one is the second.
+      //
+      // The reader is *allowed* to decline, and it declines two kinds of spec
+      // on purpose: one built at runtime (`'${Directory.current.path}/tool/
+      // build_gate.py'`, which `tool_clock_seam_test.dart` really reads), and
+      // one that is not root-shaped. Neither is a hole. The hole is a spec that
+      // **could** name app source being dropped without a word -- which is
+      // precisely what happened to `lib/src/widgets/ui.dart` for the tick
+      // before this one: a guard enforcing a real rule about a shared kit,
+      // declaring no root, and answering to no list in this file.
+      //
+      // So the assertion is not "nothing was skipped". It is: nothing was
+      // skipped that names `lib/` or `test/`, which is the direction that
+      // loses coverage, and the reader *can* skip at all, which is what makes
+      // the case above falsifiable rather than vacuously true.
+      final hidden = <String>[];
+      for (final sweep in sweeps.values) {
+        sweep.skipped.forEach((spec, why) {
+          // A runtime-built prefix can still name the app one level down --
+          // `'${dir}/lib/src/models/plan.dart'` -- so the test is containment,
+          // not prefix.
+          if (spec.contains('lib/') || spec.contains('test/')) {
+            hidden.add('${sweep.file} -> $spec\n    dropped as: $why');
+          }
+        });
+      }
+      expect(hidden, isEmpty,
+          reason:
+              'these whole-file reads could name app source and were dropped '
+              'rather than read as roots, so the guard\'s coverage is '
+              'unmeasured and invisible — the shape '
+              '`tile_label_fit_test.dart` hid in for a tick. Teach `_rootsOf` '
+              'the spec, or pin it by name with the reason it carries no app '
+              'coverage:\n${hidden.join('\n')}');
+
+      // And the reader can decline at all. Without this the case above compares
+      // two empty sets and would stay green if the skip branch went dead.
+      expect(sweeps.values.expand((s) => s.skipped.keys), isNotEmpty,
+          reason:
+              'no whole-file read was declined anywhere in the 17 recognised '
+              'sweeps, so the case above proved nothing: either the skip '
+              'branch is dead or the reader has stopped seeing this shape. '
+              'Measure it before believing the green above.');
+
+      // And the shape this tick taught is not decorative: at least one guard
+      // must reach a root **through it**, read off the tree rather than
+      // asserted from the map -- otherwise the four `.dart` entries now in
+      // `_knownRoots` are an amnesty for a shape nothing uses.
+      final viaWholeFile = sweeps.values
+          .where((s) => s.roots.any((r) => r.endsWith('.dart')))
+          .map((s) => s.file)
+          .toList()
+        ..sort();
+      expect(viaWholeFile, contains('test/tile_label_fit_test.dart'),
+          reason:
+              'no guard declares a whole-file root any more, so the '
+              '`File(\'\u2026\')` shape this tick taught is unread — and '
+              'a guard whose only root is one file is exactly what it was '
+              'written for. Declared through it:\n'
+              '${viaWholeFile.isEmpty ? 'none' : viaWholeFile.join(', ')}');
     });
 
     test('every rule token is applied to source, not just written down', () {
