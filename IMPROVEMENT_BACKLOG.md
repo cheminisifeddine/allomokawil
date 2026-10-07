@@ -27110,3 +27110,85 @@ defended literal. Then the sweep restarts: `category_grid.dart:77`,
 `profile_edit_screen.dart:516`, `quote_worker_trust.dart:82`,
 `customer_home_screen.dart:1530`, and the decided `trade_filter_bar.dart:286`
 exemption.
+
+## Tick 7 Oct 2026 (`e55b036`) — `SectionTitle`'s vertical `10` was defended by a
+## false claim, and three files had repeated it
+
+**The `10` was not load-bearing. It was protected by an inverted sentence.**
+`ui.dart:134`'s band was `fromLTRB(0, 10, 0, 4)`, and the comment, plus
+`card_recipe_test.dart` and `section_title_edge_test.dart`, all gave the same
+reason for leaving it counted: it is *the arithmetic that keeps a 56 dp tap
+target inside a 70 dp band (`10 + 56 + 4`)*. `section_title_edge_test.dart`
+went further and **asserted** `tapMin + 14`, citing that sentence as the cause.
+So the defence was not merely recorded, it was a test — and a test cannot be
+re-read the way a comment can.
+
+**Measured, and it is inverted.** The 56 dp belongs to
+`SizedBox(height: AppTheme.tapMin)` inside the row, not to the padding:
+
+- with this padding zeroed to `0`, the band is **56 dp** and the action still
+  measures **exactly 56.0 dp**;
+- `tap_target_test.dart` — the a11y tick the comment names as its authority —
+  **passes green with the padding gone** (13/13);
+- only **3 of the 25** call sites render an action at all, all three on
+  customer home, so 22 call sites never had a tap target to protect;
+- the action holds its 56 dp under caller-owned padding too.
+
+Padding around a child that already guarantees its own height was never the
+thing holding the target. That single measurement is the slice.
+
+**What `10` actually bought**, which is the real defect: a rhythm no other
+section in the app draws — 10 dp above the heading and **4** below, so the band
+is glued to the content it introduces and floats away from the content it
+follows. `10 + 56 + 4` vs `8 + 56 + 4` also means the two shapes of this widget
+disagreed about the gap by design, not by accident.
+
+**Shipped:** `fromLTRB(0, 10, 0, 4)` -> `fromLTRB(0, AppTheme.s8, 0, AppTheme.s4)`.
+Net **2 dp** on 25 headings across eight screens. The horizontal `2` paragraph
+above it was corrected in the same edit, since it repeated the myth.
+
+**R4 14 -> 13**, because the seventh literal is genuinely paid and the ratchet
+is a `lessThanOrEqualTo`. Both guard and `card_recipe_test.dart`'s own header
+were updated to say *measured* rather than *deliberate*.
+
+**Two test cases replaced, one added.** The band case now asserts the action's
+own height and the ladder steps; the new case pins that the action is 56 dp
+however the band is padded — the property the old comment claimed and nobody
+had ever checked.
+
+### Evidence
+
+`flutter analyze` -> **No issues found!** (11.9 s) · `section_title_edge_test`
+**4 passed**. **R4 14 -> 13** measured with the same scanner, not inferred.
+
+**Goldens: 4 re-baselined**, and read first as `test/goldens/README.md` requires.
+The naive diff is misinformative — `04_customer_home` reports 3.99 % / 13307 px
+and `08_worker_home` 1.74 % / 5805 px, which reads like a reflow. Decoded both
+master and test images at the real 392x850 capture size:
+
+- the heading ink moves **up by exactly 2 dp** (master row 641 -> test row 639);
+- **every row below the changed band is byte-identical** (`758..849` and
+  `763..849` match at shift 0, 50/50 rows).
+
+So the body did not reflow — the only thing that moved is the band, by 2 dp, the
+way it was asked to.
+
+**Not claimed:** the whole-suite total is not reported here, because the gate
+run is the thing that settles it and it is recorded in the tick report, not
+inferred here. `type_scale_test.dart` remains red on the same three
+**pre-existing** `pipNumeral` lines (`chat_list_screen.dart:589`, `:625`,
+`chat_screen.dart:1232`) — chat files, untouched by this slice, verified by
+running the file alone.
+
+*One process note, for the tick that reads this:* the first full-suite run was
+started **before** the goldens were re-baselined, so its shard 3 failure was my
+own stale tree and its shard 12 failure was the pre-existing `type_scale_test`.
+Two shards reading red for two different reasons in the same log is exactly the
+ambiguity worth naming rather than summarising as "suite red".
+
+### Next
+
+The sweep restarts. `category_grid.dart:77` (two literals, `6` and the `10` this
+slice's sibling at `ui.dart:419` pays), `profile_edit_screen.dart:516`,
+`quote_worker_trust.dart:82`, `customer_home_screen.dart:1530`, and the decided
+`trade_filter_bar.dart:286` exemption.
