@@ -110,8 +110,8 @@ class SectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      // The action is 56 dp tall now, so the band only grows 11 dp instead of
-      // 25: 10 + 56 + 4 = 70 against 18 + 30.9 + 10 = 58.9 before.
+      // The action is 56 dp tall, so the band grows 11 dp over the plain one:
+      // 8 + 56 + 4 = 68 against 8 + 25 = 33 before.
       //
       // **The horizontal `2` was an optical guess from the design overhaul and
       // it never had a caller that asked for it.** It has 25 call sites across
@@ -121,17 +121,36 @@ class SectionTitle extends StatelessWidget {
       // heading sat 2 dp inside the band that introduces it on **all 25**, and
       // the three customer-home titles — the only ones measured, because
       // `customer_home_column_test.dart` reads the *band* rather than the text —
-      // were the only three anybody had ever looked at.
+      // were the only three anybody had ever looked at. It is now `0`.
       //
-      // It is now `0`, and that is the whole slice: the heading joins the edge
-      // it introduces. **The vertical is untouched on purpose** — `10` is
-      // off-grid but it is not decoration, it is the arithmetic that keeps a
-      // 56 dp tap target inside a 70 dp band (`10 + 56 + 4`), settled and
-      // measured by the a11y tick. Re-griddding it in a slice about the
-      // horizontal would move every heading on eight screens to settle a
-      // question that is not this tick's, so the two remaining literals are
-      // left counted and recorded rather than swept.
-      padding: const EdgeInsets.fromLTRB(0, 10, 0, 4),
+      // **The vertical `10` is now `s8`, and it was defended by a false claim.**
+      // Two earlier ticks left it counted and recorded on the grounds that it
+      // is "the arithmetic that keeps a 56 dp tap target inside a 70 dp band
+      // (`10 + 56 + 4`)" — restated in `card_recipe_test.dart` and in
+      // `section_title_edge_test.dart`, where a case *asserts* the band at
+      // `tapMin + 14` and cites this sentence as the reason.
+      //
+      // Measured, because that sentence is inverted: the 56 dp is
+      // `SizedBox(height: AppTheme.tapMin)`, **not** the padding. Zeroing this
+      // padding to `0` still gives a 70 -> 56 dp band with the action
+      // measuring exactly 56.0 dp, and `tap_target_test.dart` — the a11y tick
+      // the comment cites as its authority — passes green with the padding
+      // gone. The padding never held the tap target; it only added a band
+      // around a height the child already guaranteed. The `SizedBox` is what
+      // makes the action 56 dp at either `10` or `8`, so the value was free.
+      //
+      // What `10` actually bought was a rhythm no other section in the app
+      // draws: 10 dp above the heading and 4 dp below it, so the band is glued
+      // to the content it introduces and floats away from the content it
+      // follows. `s8` is the ladder step above the `4` and is one line above
+      // what it was — 2 dp on 25 headings, the cost of removing an invented
+      // rule. The `4` below is untouched: it is on the ladder and it is the gap
+      // to the content the heading introduces.
+      //
+      // `section_title_edge_test.dart` now asserts the **action's** height and
+      // that it holds independently of this padding, which is the property the
+      // old comment claimed and the one that was never checked.
+      padding: const EdgeInsets.fromLTRB(0, AppTheme.s8, 0, AppTheme.s4),
       child: Row(
         children: [
           if (icon != null) ...[

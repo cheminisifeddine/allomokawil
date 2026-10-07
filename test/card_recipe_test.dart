@@ -135,13 +135,19 @@ import 'package:allomokawil/src/widgets/ui.dart';
 // `test/pill_inset_test.dart` holds it there. The sixth swept literal is the
 // `5` that became `pillGap`, and the three that answered to `pillPad` cost
 // nothing but the six: the seventh was `SectionTitle`'s vertical `10`, which
-// is tap arithmetic (`10 + 56 + 4`) and stays counted and recorded.
+// was recorded here as tap arithmetic (`10 + 56 + 4`) and stayed counted.
 //
-// What stayed, and why. `SectionTitle` keeps its band
-// `fromLTRB(0, 10, 0, 4)` unchanged: the horizontal is already `0` and the
-// vertical `10` is off-grid on purpose, because it is the arithmetic that
-// holds a 56 dp action inside a 70 dp band. Re-gridding it would move every
-// heading on eight screens to settle a question that is not this tick's.
+// **That recorded reason was false, and it is why the seventh survived two
+// sweeps — this ratchet has a `lessThanOrEqualTo` and every one of those ticks
+// read "deliberately defended" and moved on.** The 56 dp is
+// `SizedBox(height: AppTheme.tapMin)` inside the row, not the padding: with
+// this padding zeroed the action still measured exactly 56.0 dp and
+// `tap_target_test.dart` passed green. Measured on 7 Oct, then re-gridded from
+// `10` to `s8`, so the seventh is now paid and this budget may drop 14 -> 13.
+//
+// What stayed, and why. The horizontal is already `0` and the vertical is now
+// `fromLTRB(0, s8, 0, s4)`: the 56 dp action is held by its own `SizedBox`,
+// which is the only thing that ever had to hold it.
 // Lowered 40 -> 35 on 8 Oct: the thirteenth slice, `profile_edit_screen`, and
 // the first slice where **the counter moved less than the defect** by exactly
 // the amount it was built to miss. Three literals retired — `30` and the two
@@ -191,7 +197,7 @@ import 'package:allomokawil/src/widgets/ui.dart';
 // And once more, the count is the *least* of it: 16 -> 15 is one number in a
 // text sweep, and what it stands for is a measurement that failed first, in
 // the engine's own numbers, at `Expected: <8.0>  Actual: <6.0>`.
-const int _offGridBudget = 14;
+const int _offGridBudget = 13;
 
 List<File> _sources() {
   final dir = Directory('lib');

@@ -25,10 +25,11 @@
 // heading's glyphs actually start.
 //
 // The second trap, inherited and re-paid: `Padding` is measured by its content
-// box, never by `rect.left`, and the vertical `10`/`4` are deliberately left
-// off-grid (they are the arithmetic that keeps a 56 dp tap target inside a
-// 70 dp band — see `tap_target_test.dart`), so this file asserts the
-// *horizontal* and says so rather than grading the whole rectangle.
+// box, never by `rect.left`, so this file asserts the *horizontal* and says so
+// rather than grading the whole rectangle. The vertical used to be excused
+// here as off-grid tap arithmetic (`10 + 56 + 4`); that was inverted — the
+// `SizedBox(height: tapMin)` holds the 56 dp — and it is `s8`/`s4` now, so the
+// vertical group below measures it directly.
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -123,22 +124,25 @@ void main() {
       expect(_rowLeft(tester), 0.0);
     });
 
-    testWidgets('the vertical band is unchanged by this slice',
-        (tester) async {
+    testWidgets('the vertical band is on the ladder, not off it', (tester) async {
       // Both the tall and the short band, because they are different shapes and
-      // only one of them is the a11y one.
+      // only one of them carries a tap target.
       //
-      // **My first version of this case asserted 70 dp and it was wrong — the
-      // fixture has no action, so there is no 56 dp `SizedBox` inside it.** The
-      // band is `10 + text + 4` = 39 dp without an action and `10 + 56 + 4` =
-      // 70 with one. That is the a11y tick's arithmetic and it is load-bearing:
-      // `tap_target_test.dart` measures the 56 dp action directly. So this case
-      // pins the *short* band here and the tall one below, and the off-grid
-      // `10` stays counted on purpose in both.
+      // **This case used to assert `tapMin + 14` (70 dp) and cite the padding as
+      // the reason the action stayed 56 dp. That was inverted, and it was the
+      // reason the off-grid `10` survived two sweeps.** The 56 dp is
+      // `SizedBox(height: AppTheme.tapMin)` inside the row; the padding only
+      // wraps it. Zeroing this padding to 0 still measured the action at
+      // exactly 56.0 dp, and `tap_target_test.dart` passed green with it gone.
+      //
+      // So the case now asserts what actually has to hold — the **action**,
+      // not the band — plus the band arithmetic as arithmetic. The row is 25 dp
+      // (a 19 dp icon beside 17.5 dp Cairo text at height 1.45), so the band is
+      // `8 + 25 + 4` = 37 dp without an action and `8 + 56 + 4` = 68 with one.
       await _pump(tester);
-      expect(tester.getSize(find.byType(SectionTitle)).height, 39.0,
-          reason: 'no action: 10 + heading + 4. This must not move under a '
-              'slice about the horizontal');
+      expect(tester.getSize(find.byType(SectionTitle)).height, 37.0,
+          reason: 'no action: s8 + a 25 dp row + s4. Both paddings are on the '
+              'ladder; the row height is the text/icon, not a literal');
 
       await tester.pumpWidget(MaterialApp(
         debugShowCheckedModeBanner: false,
@@ -158,9 +162,54 @@ void main() {
       await tester.pump();
 
       final withAction = tester.getSize(find.byType(SectionTitle)).height;
-      expect(withAction, AppTheme.tapMin + 14,
-          reason: '10 + 56 + 4. This is the band that has to keep a 56 dp tap '
-              'target whole, and it is why the off-grid `10` is still here');
+      expect(withAction, AppTheme.tapMin + AppTheme.s8 + AppTheme.s4,
+          reason: 's8 + 56 + s4. The band is the action plus the two steps');
+
+      // The property the old comment claimed and nobody ever checked: the tap
+      // target is the action's own height, and it holds **without** the band's
+      // padding contributing anything to it.
+      final action = find
+          .ancestor(
+              of: find.text('عرض الكل'), matching: find.byType(GestureDetector))
+          .first;
+      expect(tester.getSize(action).height, AppTheme.tapMin,
+          reason: 'the 56 dp belongs to SizedBox(height: tapMin), not to the '
+              'band padding — this is the reason the vertical was free to '
+              're-grid');
+    });
+
+    testWidgets('the action is 56 dp however the band is padded', (tester) async {
+      // The falsification, kept as a test so the old claim cannot come back as
+      // a comment: wrap the widget in caller-owned vertical padding and the
+      // action must measure the same. If it ever moves with the padding again,
+      // something other than `SizedBox(height: tapMin)` is sizing it.
+      await tester.pumpWidget(MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light,
+        locale: const Locale('ar'),
+        supportedLocales: const [Locale('ar'), Locale('en')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: Scaffold(
+          body: Padding(
+            padding: const EdgeInsets.only(top: 40, bottom: 24),
+            child: SectionTitle('مقاولون موثوقون',
+                actionText: 'عرض الكل', onAction: () {}),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final action = find
+          .ancestor(
+              of: find.text('عرض الكل'), matching: find.byType(GestureDetector))
+          .first;
+      expect(tester.getSize(action).height, AppTheme.tapMin,
+          reason: 'the action is sized by its own SizedBox; band padding and '
+              'caller padding are both external to it');
     });
   });
 }
