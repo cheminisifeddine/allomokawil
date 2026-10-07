@@ -23838,9 +23838,78 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       source: **on this ratchet, a comment that quotes a retired off-grid
       literal is a live count.**),
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 22 on 7 Oct;
-      **22 remain across 14 files** after slice 24. Local `019d1c4` -> remote
-      `b81a6ef`, all 4 blobs MATCH by SHA.
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 20 on 7 Oct;
+      **20 remain** after slice 25. Local `f5840a5` -> remote `f8104a3`, all 3
+      blobs MATCH by SHA.
+      **slice 25 shipped** (25th = the **project card's budget band was not the
+      app's pill**). `project_card.dart:90` drew `symmetric(horizontal: 10,
+      vertical: 7)` with a 14 dp glyph and a **5 dp gap** to its word, by hand,
+      with no paragraph defending it — the same profile as slice 24's site. The
+      kit already had the answer written down (`AppTheme.pillPad` `10 x 6`,
+      `AppTheme.pillGap` 6, 14 dp glyph) and `StatusPill` + `CategoryBadge`
+      both use it, so **one card carried three capsules and the third
+      disagreed with the other two**: the `CategoryBadge` on line 1 and the
+      `StatusPill` 9 dp above were both `10 x 6 / 6 dp gap`, and the budget band
+      was `10 x 7 / 5 dp gap`.
+      **What hid it is the lesson worth keeping:** the horizontal **already
+      matched**. `10` is on the 4 dp ladder and reads as deliberate, and the two
+      dp that were actually wrong — the vertical and the gap — are the ones a
+      reader sees as *unfinished* rather than as a defect. R4 had counted this
+      site for weeks and priced it at one line among 22, the same price as the
+      deliberate exceptions (the trade filter's `14 x 12`, the auth checkbox
+      row's `6 x 2`), every one of which carries a justification. This one
+      carried none, because it was not a decision.
+      `pillPad` binds rather than the trade filter's larger tap-target inset
+      because this band is a **label**: no `onTap`, no `GestureDetector`, no
+      `InkWell` inside it. The test asserts that rather than assuming it, so
+      the exemption is earned. The band's `rSm` is untouched — it is a
+      full-bleed strip, not a capsule; only the inset and the gap were wrong.
+      **R4 structurally cannot see this** — `pillPad` is an *identifier* and
+      `_literals()` skips identifiers by design, so the move takes the ratchet
+      22 -> 20 while changing nothing about whether the capsules agree. Fifth
+      repeat of that lesson. So the assertions are **equality against the
+      token**, with the gap read **off the built tree** between the two painted
+      rects; none of the 10, 6, 7, 14 or 5 appears anywhere in the test.
+      **Red before green, engine's own numbers** — with `lib/` reverted, **3 of
+      the 5 new cases fail**:
+      `Expected: EdgeInsets:<EdgeInsets(10.0, 6.0, 10.0, 6.0)>` /
+      `Actual: <EdgeInsets(10.0, 7.0, 10.0, 7.0)>`;
+      `Expected: within<0.01> of <6.0>  Actual: <5.0>`; and
+      `Expected: within<0.01> of <12.0>  Actual: <14.0>`.
+      **A trap this slice walked into, recorded because it looks like a
+      regression and is not one.** The band's height is not the glyph's height:
+      the row is as tall as its tallest child, and the tallest child is the
+      Arabic caption's **line box** — 19 dp at `fsCaption` x 1.4 against the
+      14 dp glyph. Asserting "glyph + pad" read **31 against 26** and reads as
+      a 5 dp defect while being a correct measurement of the wrong quantity. So
+      the assertion measures the row off the tree and asks what the box *around*
+      it contributes.
+      **Proven by pixels, on a genuine before/after pair.** The repo already had
+      a shot file for this card (`budget_zero_card_shot_test.dart`), so the band
+      was captured both ways by stashing `lib/` and re-running it, rather than
+      asserted from source:
+      **BEFORE band height 33.0 dp, top y=483, width 246.0 dp, left 351, right
+      1088 -> AFTER band height 31.0 dp, top y=483, width 246.0 dp, left 351,
+      right 1088.** 33 -> 31 is the 19 dp line box plus 14 of pad becoming 12;
+      top edge and **both horizontal edges are byte-identical**, which is the
+      confirmation that only the vertical was wrong. **1.41%** of the frame
+      differs. **None of the nine `design_shots_test.dart` baselines move** —
+      the band is below the fold at 392x850, which is exactly why it needed its
+      own picture. (First attempt at this evidence was **worthless**: the 12:36
+      captures had been written by the suite *after* the fix, so "before" and
+      "after" were the same image and measured identically at 31 dp. Recorded
+      because a same-image before/after is the failure mode that looks most like
+      a clean result.)
+      **Gate.** `flutter analyze` -> **No issues found!** · **24 passed** over the
+      new test + `card_recipe` + `pill_inset` · new `app_source_scope` re-run
+      clean at **17 passed** after `git add`. Full `tool/run_tests.py`:
+      **13 shards, 11 green, 2 not green in 20:27**, and **both accounted
+      for**. Shard 1 was `app_source_scope_test` seeing the new file
+      **untracked** — that guard working exactly as documented, resolved by
+      `git add`. Shard 12 is `type_scale_test.dart` (`AppTheme.pipNumeral`
+      outside the theme at `chat_list_screen.dart:589`, `:625`,
+      `chat_screen.dart:1232`), **proved pre-existing** by stashing to HEAD and
+      re-running: identical three lines. Recorded, not hidden.
       **slice 24 shipped** (24th = the **customer home header's wilaya pill was
       not the app's pill**). It drew `symmetric(horizontal: 12, vertical: 7)`
       with a 15 dp glyph and a 5 dp gap, on the screen a user sees **first** —
