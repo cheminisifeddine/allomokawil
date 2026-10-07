@@ -23774,10 +23774,10 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 33 on 8 Oct;
-      **slices 1-13 shipped** (13th = `chat_list_screen`, local `ae84a5d` ->
-      remote `676162`, 35 -> 33);
-      **33 remain across 17 files.** 197 -> 60 on 6 Oct;
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 32 on 8 Oct;
+      **slices 1-14 shipped** (14th = `chat_screen`, local `1648f84` ->
+      remote `bc5cfd8`, 33 -> 32);
+      **32 remain across 19 files.** 197 -> 60 on 6 Oct;
       60 remain across **20 files** (the "19 files" in earlier notes was wrong:
       three files of 1-2 arrived with the `ui.dart` slice and were never
       counted). Do not read the slice below as the sweep being finished.**
@@ -23804,6 +23804,84 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       **R4 now reads 60, across 20 files.** `browse_screen.dart` (7) is the
       next file, and the same two questions apply to it: one column or
       several, and is anything derived being transcribed somewhere else?
+
+      **Lowered 33 -> 32 on 8 Oct: the fourteenth slice, `chat_screen.dart`, and
+      the count is the smallest part of it — the slice is worth recording for
+      what it says about the sweep's own instrument.** The site was one literal,
+      `vertical: 3`. The defect was not that literal at all.
+
+      *What was actually wrong.* The banner above the composer draws a count pip
+      for unresolved messages: `rPill`, `minWidth: 24`,
+      `symmetric(horizontal: 8, vertical: 3)` — **byte-identical to the box the
+      thirteenth slice measured on the inbox row** — with its numeral at
+      `AppTheme.fsCaption` (12.5) where every other count in the app is
+      `AppTheme.pipNumeral` (11). It is the **same control, a third writer, one
+      screen over**, and it is the writer the previous slice did not reach. So
+      the app was drawing count pips at two sizes again *after* slice 13 had
+      fixed exactly that pair, and the only thing the thirteenth slice's guard
+      asserts is that the two pips **inside one screen** agree — which it
+      cannot reach across a screen boundary.
+
+      *Measured, not asserted.* Pip rect off a booted thread at DPR 2.75:
+      **21.00 dp tall / 28.7 wide at fsCaption, 19.00 dp / 27.2 at
+      pipNumeral.** Rasterised and scanned at 3.0x with
+      `tool/pngscan.py --color E8A33D`: the pip region goes **86x62 px ->
+      81x56 px**, while the two neighbouring accent regions in the same frame
+      are bit-identical (166x168 and 36x36, same offsets), which is what rules
+      out the "1442 raster rows of antialiasing noise" trap that
+      `reviews_short_list_shot_test` recorded. Shots `/tmp/shots/zz_banner_
+      {BEFORE,AFTER}.png`, throwaway harness deleted, `git ls-files` clean.
+
+      ***R4's one counted literal was the one that was not wrong.*** It read the
+      hand-written `3`, and the `3` went green the instant it became
+      `AppTheme.pipPad` — **reporting a fix that had not touched the glyph.**
+      The `fontSize` and the `BoxConstraints` are not `EdgeInsets` and never
+      counted once. So the ratchet's decrement was, for one tick, evidence of
+      nothing. That is the sharpest statement yet of what the count is worth,
+      and it is worth more than the single site: every slice in this sweep has
+      said the same thing about itself in softer words.
+
+      *Red before green, and one honest correction.* Reverting **only** the
+      numeral: `Expected: <11.0> Actual: <12.5>` and
+      `Expected: within<0.01> of <19.2> Actual: <19.0>`. The **19.2 was my
+      arithmetic being wrong, not the fix**: a Text's line box is snapped to
+      whole logical pixels, so 13.2 dp of line lays out as 13. The expectation is
+      now the measured 19.00, in the same spirit as the sampled `#E7E7E9` wash
+      in `chat_recheck_shot_test.dart` — a number read off the capture, not
+      chosen to make an assertion pass.
+
+      *New guard:* `test/chat_banner_pip_test.dart` (4 cases). It cannot assert
+      "the other pip" — there is no other pip on this screen — so it asserts the
+      numeral against `AppTheme.pipNumeral` and the capsule height against the
+      measured 19.00 dp. **Harness trap:** the pip only draws when
+      `_unresolved.length > 1`, so the queue is loaded with three unconfirmed
+      records and the re-read is made to fail; a naive boot finds no pip at all
+      and every assertion would compare nothing.
+
+      *Gate:* `flutter analyze` -> **No issues found!**; all **19 chat shards**
+      green (the new file, `chat_list_pip_test`, `pill_inset_test`,
+      `card_recipe_test`, `chat_column_edges_test`, `chat_day_divider_clock`,
+      and the 14 remaining `chat_*` files), **155 tests passed / 0 failed**.
+      Shots rendered and scanned. Local `1648f84` -> remote `bc5cfd8`, all three
+      blobs MATCH against the remote tree.
+
+      **The whole-suite count is again NOT verified** — `tool/run_tests.py` over
+      13 shards is ~40 min on this 2-core box and the tick ended first. What is
+      verified is every shard that touches `chat_screen.dart`, `app_theme.dart`
+      or the ratchet. The rest of the suite is **unknown**, not "passing".
+
+      **Next by count: `auth_screen.dart` (3) and `ui.dart` (3).** One honest
+      note before either is picked up: `auth_screen`'s `AuthNotice` keeps
+      `symmetric(horizontal: 14, vertical: 12)`, and this sweep has now found
+      that **four writers spell that same chip inset** —
+      `AppTheme.chipTheme.padding`, `AuthNotice`, `project_detail_screen`'s
+      bid band and `trade_filter_bar`'s pill are byte-identical. The trade pill
+      is a tap target and the bid band is not, so a token that covers all four
+      is not obviously right; but they are also not four **equal** controls, and
+      the twelfth slice already built the mechanism for that case
+      (`AppTheme.pillPad` for the small pill). **That is a decision, not a
+      rename, and it needs `10_browse.png` and the project-page golden
+      re-baselined — a gate this tick could not run.**
 
       **AUDITED, NOT SHIPPED — `browse_screen.dart`, all 7 sites, 6 Oct. The
       box refused the gate for the whole tick, so this is the reading and the
