@@ -23775,8 +23775,8 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       it goes red, `git status --short` is the first thing to read.
 
 - [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 32 on 8 Oct;
-      **slices 1-14 shipped** (14th = `chat_screen`, local `1648f84` ->
-      remote `bc5cfd8`, 33 -> 32);
+      **slices 1-15 shipped** (15th = `auth_screen`, local `6b7b872` ->
+      remote `30bac8f`, **R4 unchanged at 32** — see why that is the finding);
       **32 remain across 19 files.** 197 -> 60 on 6 Oct;
       60 remain across **20 files** (the "19 files" in earlier notes was wrong:
       three files of 1-2 arrived with the `ui.dart` slice and were never
@@ -23870,8 +23870,85 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       verified is every shard that touches `chat_screen.dart`, `app_theme.dart`
       or the ratchet. The rest of the suite is **unknown**, not "passing".
 
-      **Next by count: `auth_screen.dart` (3) and `ui.dart` (3).** One honest
-      note before either is picked up: `auth_screen`'s `AuthNotice` keeps
+      **The fifteenth slice landed on `auth_screen.dart` — and R4 stayed at
+      32, which is the whole point of recording it.** `6b7b872` -> remote
+      `30bac8f`.
+
+      *The defect.* The «remember me» row held
+      `EdgeInsets.symmetric(horizontal: 2, vertical: 6)`. That `2` pushed the
+      row's content **2 dp inside** the line every other element in the same
+      `AppCard` sits on. Measured at 392x850, DPR 1.0, Arabic:
+
+      ```
+      AppCard outer box        18.0 .. 374.0   (gutter 18)
+      content = +1 cardLine + cardPad 16   35.0 .. 357.0
+      «رقم الهاتف» label icon   right 357.0   ok
+      the phone field          right 357.0   ok
+      «كلمة المرور» label icon  right 357.0   ok
+      the password field       right 357.0   ok
+      the error notice         right 357.0   ok
+      «تذكرني»                 left   37.0   <-- 2 dp in, alone
+      its Checkbox             right 355.0   <-- the same 2
+      ```
+
+      Six elements on one column, one of them off it by 2 dp. Nobody can name
+      that as a defect; everybody reads it as unfinished, which is the argument
+      `pillPad`/`pillGap` were written for after three pill writers disagreed by
+      1 dp.
+
+      ***R4 counted the defect and could not see it, in the same breath.** The
+      two literals it read were both false positives: `vertical: 6` is the tap
+      floor (48 + 6x2 = 60 dp, settled by hand in `tool/tap_target_audit.py`)
+      and the `2` was the real defect. So the count went 3 -> 3, stayed inside
+      the budget, and `card_recipe_test.dart` is green — **reporting a fix on a
+      file whose pixels moved, because the only number that dropped was a number
+      that was never wrong.** That is slice 14's finding again, one level up:
+      last tick the counted literal was not the wrong one, this tick the
+      uncounted one was. R4 reads `EdgeInsets`; a column is not an
+      `EdgeInsets`.
+
+      *The deliverable is the geometry guard, not the count.*
+      `test/auth_card_column_test.dart` resolves the card's content line **from
+      the theme** — outer box + `AppTheme.cardLineWidth` +
+      `AppTheme.cardPad.right`, asserted to measure 35.0 — and asserts six
+      elements land on it, so it still means "they agree" if the recipe's own
+      numbers ever move. Reverting **only** the inset goes red on the first
+      element: `Expected: <357.0> Actual: <355.0>`.
+
+      *Three traps, all in the file header.* RTL (start is the RIGHT edge —
+      `auth_page_column_test.dart` records the same); the rect is not the inset
+      (`AppCard`'s rect is the outer edge, one border and one padding in); and
+      **the two rows run in opposite directions** — the field labels and the
+      `Checkbox` are leading, `«تذكرني»` trails — so "compare every element's
+      `right`" fails three *correct* elements and I would have "fixed" a column
+      that was already aligned. I hit that one: the first draft classified the
+      `Checkbox` as trailing and failed it at 309.0.
+
+      *Golden.* `01_signin.png` re-baselined, and the diff is the proof rather
+      than the paperwork: the isolated diff is **547 px confined to x254..341,
+      y475..496**, and the checkbox's own `#E8E8EC` border moves
+      **x322..339 -> x324..341** — a clean 2 px shift with nothing else in the
+      frame moving. `golden: 01_signin` was checked **green at HEAD first**, so
+      the 2 dp is the only cause and the baseline is not carrying a pre-existing
+      failure.
+
+      *Gate:* `flutter analyze` -> **No issues found!**; **60 passed / 0 failed**
+      across `auth_card_column`, `auth_page_column`, `auth_field_inset`,
+      `auth_gate`, `tap_target`, `card_recipe` and `design_shots` (all nine
+      goldens). Whole-suite count again **NOT verified** — 13 shards, ~40 min on
+      this 2-core box, tick ended first.
+
+      **The `14 x 12` question from the fourteenth slice is still open and is
+      still the right next decision.** Four writers spell it
+      byte-identically — `chipTheme.padding`, `AuthNotice`,
+      `project_detail_screen`'s bid band, `trade_filter_bar`'s pill — and the
+      trade pill is a tap target while the bid band is not, so one token for all
+      four is not obviously right. Note `AuthNotice` is the one on the screen
+      this slice just measured: its content sits at 35.0/357.0 like everything
+      else, so its `14` is the chip's own inset and not part of that column.
+
+      **Next by count, after the fifteenth slice took `auth_screen`: `ui.dart`
+      (3).** One honest note before it is picked up: `auth_screen`'s `AuthNotice` keeps
       `symmetric(horizontal: 14, vertical: 12)`, and this sweep has now found
       that **four writers spell that same chip inset** —
       `AppTheme.chipTheme.padding`, `AuthNotice`, `project_detail_screen`'s
