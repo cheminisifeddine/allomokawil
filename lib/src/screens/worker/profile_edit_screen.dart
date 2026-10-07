@@ -320,7 +320,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                 const SectionTitle('تخصصاتك', icon: Icons.handyman_rounded),
                 const _Hint(
                     'اختر كل المهن التي تتقنها. ظهورك يزيد مع كل تخصص.'),
-                const SizedBox(height: 10),
+                const SizedBox(height: AppTheme.s12),
                 CategoryGridMultiTiles(
                   selected: _specialties,
                   onToggle: (slug) => setState(() {
@@ -348,7 +348,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                 ),
                 const SectionTitle('أسعارك (دج)', icon: Icons.payments_rounded),
                 const _Hint('اتركهما فارغين إذا كنت تفضل التسعير حسب المشروع.'),
-                const SizedBox(height: 10),
+                const SizedBox(height: AppTheme.s12),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -510,18 +510,44 @@ class _FieldLabel extends StatelessWidget {
 class _Hint extends StatelessWidget {
   final String text;
   const _Hint(this.text);
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 2, bottom: 2),
-      child: Text(
-        text,
-        style: const TextStyle(
-          fontFamily: 'Cairo',
-          fontSize: AppTheme.fsCaption,
-          height: 1.6,
-          color: AppTheme.textMuted,
-        ),
+    // **No padding, and the `2` + `2` this used to carry never had a job.**
+    // Measured off the real screen at 392 logical, both call sites read the
+    // same: `SectionTitle` bottom 200.0, hint top 202.0, hint 40.0 tall,
+    // grid top 254.0 — so the gap below the caption was **12 dp written twice**,
+    // `bottom: 2` here and a `SizedBox(height: 10)` in the column. Same shape
+    // as the `30` + `SizedBox(height: 22)` clearance this file gave up in an
+    // earlier slice, and the third time here has been two writers.
+    //
+    // The `top: 2` also fought the rule it sits under: `SectionTitle` puts
+    // `s4` beneath itself precisely because a heading is *glued* to the content
+    // it introduces, and a 2 dp pad on the child put 6 dp of air between a
+    // heading and its own caption. The 40 dp box is already the leading --
+    // `fsCaption` 12.5 at `height: 1.6` = 20 dp per line, two lines -- so the
+    // glyphs carry their own space and the pad was pure double-counting.
+    //
+    // R4 could not see it. `2` is off-grid and R4 does read it, but R4 counts
+    // literals and has no second copy to compare against: the `SizedBox(10)`
+    // under the hint is not an `EdgeInsets`, so the counter saw one writer for
+    // a quantity two writers owned -- the same blindness as `22` and `30`.
+    // `10` is off-grid too and R4 never counted it either, for the same
+    // reason. It is now `AppTheme.s12`, which is what the measured 12 dp
+    // already was: `verification_screen.dart:366` draws the identical
+    // heading-caption-row stack with a `SizedBox(height: 12)`, so the two
+    // screens finally agree without either being hand-tuned.
+    //
+    // Guard: `test/profile_hint_rhythm_test.dart`, which reads the laid-out
+    // gaps on both call sites and pins them to the sibling screen's rhythm
+    // rather than restating these numbers.
+    return Text(
+      text,
+      style: const TextStyle(
+        fontFamily: 'Cairo',
+        fontSize: AppTheme.fsCaption,
+        height: 1.6,
+        color: AppTheme.textMuted,
       ),
     );
   }
