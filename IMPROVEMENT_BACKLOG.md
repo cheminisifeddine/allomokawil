@@ -23774,7 +23774,12 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 32 on 8 Oct;
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 27 on 7 Oct;
+      **slices 1-18 shipped** (18th = two screens hand-typing the page column
+      and disagreeing with it on the top edge by 4 dp, local `13bc267`,
+      **R4 32 -> 27** — four literals out, but the real find is that the token
+      `AppTheme.pagePad` had five callers and two re-derivations; new guard R5
+      is a census for the re-derivation, see the slice below);
       **slices 1-17 shipped** (17th = `SelectableTile`'s off-ladder `horizontal:
       6`, local `154bbf7` -> remote `60e3f58`, **R4 unchanged at 32** — the
       literal was 16 slices of vocabulary and one truncation R4 could not price;
@@ -26028,3 +26033,110 @@ goldens being byte-identical, not on a render I looked at.
 `tool/tap_target_audit.py` already settles by hand (`10 + 56 + 4`). With the
 tile's horizontal inset now on the ladder, the remaining `ui.dart` literals are
 the one item R4 still counts that is not a component gap.
+
+      **The eighteenth slice found the defect R4's own decrement was hiding —
+      two screens that re-derived the page column and paid 4 dp for it.**
+
+      **The site.** `chat_list_screen.dart:374` and `verification_screen.dart:272`
+      both held `EdgeInsets.fromLTRB(18, 12, 18, 28)`, byte-identical to each
+      other. Three of the four edges ARE the house column — `18` is
+      `AppTheme.gutter` (verified at `app_theme.dart:196`) and `28` is
+      `AppTheme.s28` — and only the **top** disagreed, carrying `12` where
+      `AppTheme.pagePad` has `s8`. Five screens call `pagePad` by name; these
+      two re-derived it and sat 4 dp lower than every one of them.
+
+      *Measured in pixels, not arithmetic.* Both screens re-rendered BEFORE and
+      AFTER through `test/design_shots_test.dart` at DPR 3.00, reading the top
+      of the first content band off the capture with `tool/png_read.py`:
+
+      | shot | BEFORE | AFTER | moved |
+      | --- | --- | --- | --- |
+      | `11_chat_list` | 72.00 dp (216 px) | **68.00 dp** (204 px) | 4.00 dp |
+      | `14_verification` | 72.00 dp (216 px) | **68.00 dp** (204 px) | 4.00 dp |
+      | `09_worker_profile` (already `pagePad`) | 68.00 dp | 68.00 dp | — |
+      | `13_profile` (already `pagePad`) | 68.00 dp | 68.00 dp | — |
+
+      The last two rows are the ones that make it a finding rather than a
+      number: the two fixed screens now sit where the two that already used the
+      token sat. That is **four screens agreeing**, not two moving.
+
+      **R4 priced the whole thing at zero, and this is the clearest statement
+      yet of what its count is worth.** It read four counted literals and
+      reported a decrement, 32 -> 27. The decrement was the *number* going
+      down, not the column agreeing — the sixteenth slice said this from the
+      other side (a literal that went green without touching the glyph), and
+      this slice says it from the dangerous side: the ratchet went green on a
+      real 4 dp user-visible misalignment. Worse, once the column is spelled
+      `AppTheme.pagePad` it stops counting **entirely**, so R4 cannot see a
+      screen hand-typing one tomorrow, nor a screen drifting the token's
+      meaning by editing `pagePad` for itself.
+
+      **New guard R5** (`card_recipe_test.dart`, 1 case), in the R1-R4 idiom: a
+      census for the re-derivation. It resolves `gutter`/`s8`/`s28` off the
+      ladder and reports any `fromLTRB` of four plain numbers that matches the
+      token on left, right and bottom **but not on top** — the exact shape of
+      this defect, and the only shape worth reporting, because a column that
+      disagrees on three edges is visibly a different column while one that
+      disagrees on one is invisible until that number moves.
+
+      Two decisions inside it are recorded because both were wrong first:
+
+      * **Read by VALUE, not by spelling.** The obvious regex is
+      `EdgeInsets.fromLTRB(18,`, which passes the day `gutter` moves to 20 and
+        misses every column now quietly 2 dp narrow. The edges are resolved
+        against the ladder instead, the same way `tool/label_fit.py` resolves
+        tokens, and a stale probe raises rather than falling back.
+      * **Comments are blanked, newlines kept.** This app documents its old
+        literals in comments — `worker_profile_screen.dart` still keeps
+        `fromLTRB(gutter, s8, gutter, s28)` spelled out above the token it
+        became. A strip that *removed* newlines would report a plausible line
+        for the wrong piece of code, which is worse than no line at all.
+
+      *Red before green,* both sites restored to the literal:
+
+      ```
+      Actual: ['lib/src/screens/chat/chat_list_screen.dart:379
+                fromLTRB(18.0, 12.0, 18.0, 28.0) — AppTheme.pagePad is
+                fromLTRB(18.0, 8.0, 18.0, 28.0)',
+               'lib/src/screens/verify/verification_screen.dart:277
+                fromLTRB(18.0, 12.0, 18.0, 28.0) — ...']
+      ```
+
+      *Gate:* `flutter analyze` -> **No issues found!** (9.8 s). **115 passed /
+      0 failed** over the 15 files that render either screen, hold the ratchet,
+      or shoot these views — all nine goldens byte-identical. R4 green at
+      **27**, read off the ratchet's own failure message rather than recounted
+      by hand.
+
+      ***`app_source_scope_test.dart` is red at HEAD, and this tick proved it
+      is inherited, not caused.*** Stashing all three files and running it on
+      clean `origin/main` fails identically: slice 17 committed
+      `tile_label_fit_test.dart` declaring its only root as
+      `File('lib/src/widgets/ui.dart')`, and the census's `_rootsOf` models
+      `Directory('lib')` and `<String>[…]` lists but has **never read the
+      `File(...)` spelling** — despite `_rootsOf` being able to *resolve* a file
+      spec since the whole-file entries were modelled. A shape that is declared
+      and unreachable, which is precisely what `_knownRoots` exists to prevent.
+
+      Two fixes were built and **both rejected, recorded here so the next tick
+      does not rebuild them**:
+
+      1. *Pin it in `_knownUnmodelled`.* The census's own staleness check fired
+         immediately — the root is not actually unresolved, so the pin "has
+         outlived its reason". Correct check, and it killed the idea.
+      2. *Teach `_rootsOf` the `File(...)` spelling* (what I tried first). It
+         works — it turns `tile_label_fit_test` green — and it **immediately
+         surfaced 12 further unmodelled roots** across `layering_test`,
+         `header_trust_wiring_test`, `quote_count_copy_test` and the census
+         itself, including runtime-interpolated paths like `$_outDir/$name.png`
+         and `$path/index.dart` that are *not* roots at all. That is a real
+         defect in the reader and worth fixing, but it is four failing cases
+         and a reader redesign, and **a tick that quietly widens the instrument
+         it is being measured by is not measuring itself** — the same sentence
+         the chat slice used to decline widening `run_tests.py`'s deadline.
+
+      **Left for the next tick, stated as work rather than as a wish:** teach
+      `_rootsOf` the `File('…')` shape *and* exclude interpolated specs from it
+      (the same `existsSync()` exclusion `Directory` already has, one level
+      down), then model the real whole-file roots it reveals. It is the
+      highest-value item in this file and it is not a layout slice.

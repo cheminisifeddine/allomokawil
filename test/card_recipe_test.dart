@@ -213,8 +213,8 @@ List<String> _topLevelArgs(String s, int open) {
 
 /// Numeric literals in [body]. `AppTheme.s16` is an identifier, not a 16.
 Iterable<double> _literals(String body) sync* {
-  for (final m in RegExp(r'[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?')
-      .allMatches(body)) {
+  for (final m
+      in RegExp(r'[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?').allMatches(body)) {
     final t = m.group(0)!;
     if (RegExp(r'^[A-Za-z_]').hasMatch(t)) continue;
     yield double.parse(t);
@@ -251,8 +251,14 @@ void main() {
       expect(AppTheme.cardPadRows,
           const EdgeInsets.symmetric(horizontal: 16, vertical: 8));
       for (final v in <double>[
-        AppTheme.s4, AppTheme.s8, AppTheme.s12, AppTheme.s16,
-        AppTheme.s20, AppTheme.s24, AppTheme.s28, AppTheme.s32,
+        AppTheme.s4,
+        AppTheme.s8,
+        AppTheme.s12,
+        AppTheme.s16,
+        AppTheme.s20,
+        AppTheme.s24,
+        AppTheme.s28,
+        AppTheme.s32,
       ]) {
         expect(v % 4, 0, reason: '$v is off the grid');
       }
@@ -297,7 +303,8 @@ void main() {
       ));
 
       final container = tester.widget<Container>(find
-          .descendant(of: find.byType(AppCard), matching: find.byType(Container))
+          .descendant(
+              of: find.byType(AppCard), matching: find.byType(Container))
           .first);
       expect(container.padding, AppTheme.cardPad);
       final d = container.decoration! as BoxDecoration;
@@ -320,7 +327,8 @@ void main() {
         ),
       ));
       final container = tester.widget<Container>(find
-          .descendant(of: find.byType(AppCard), matching: find.byType(Container))
+          .descendant(
+              of: find.byType(AppCard), matching: find.byType(Container))
           .first);
       final d = container.decoration! as BoxDecoration;
       expect(d.color, AppTheme.cardFill,
@@ -396,10 +404,10 @@ void main() {
 
     test('the guard can see the app', () {
       expect(sources, isNotEmpty,
-          reason: 'run from the package root — test/card_recipe_test.dart reads '
+          reason:
+              'run from the package root — test/card_recipe_test.dart reads '
               'lib/ as text');
-      expect(
-          sources.any((f) => f.path.endsWith('app_theme.dart')), isTrue);
+      expect(sources.any((f) => f.path.endsWith('app_theme.dart')), isTrue);
     });
 
     test('R1 — a radius is named, never typed', () {
@@ -551,6 +559,112 @@ void main() {
               'Material chip inherits colour and rendered white-on-white '
               'before — use ui.dart\'s CategoryBadge/StatusPill or '
               'TradeFilterBar\'s _FilterPill:\n'
+              '${offenders.join('\n')}');
+    });
+
+    // Added by the eighteenth slice, for the defect R4 priced at zero.
+    //
+    // The site was `fromLTRB(18, 12, 18, 28)` in `chat_list_screen.dart` and
+    // `verification_screen.dart`, byte-identical to each other. Three of the
+    // four edges ARE the house column — `18` is `AppTheme.gutter` and `28` is
+    // `AppTheme.s28` — and only the top one disagreed, by 4 dp, with
+    // `AppTheme.pagePad`'s `s8`. So both screens' first row sat 4 dp below
+    // every other page column in the app.
+    //
+    // R4 read this as four counted literals and reported a decrement, and the
+    // decrement was **the number going down, not the column agreeing**. That is
+    // the same blind spot the sixteenth slice found from the other side: once
+    // a column is spelled `AppTheme.pagePad` it stops counting, so the ratchet
+    // cannot see a new screen hand-typing one, or an existing screen drifting
+    // a token's *meaning* by editing `pagePad` for itself. This is the check
+    // that outlives the fix, and it is deliberately a census over the source
+    // rather than a measurement: a rendered column needs a booted screen per
+    // screen, and the thing that must not come back is the literal.
+    test('R5 — no screen hand-types the page column', () {
+      // `pagePad` is `fromLTRB(gutter, s8, gutter, s28)`. A screen that writes
+      // those four numbers out has re-derived the column and can disagree with
+      // it on any of them — which is exactly what happened on the top edge.
+      //
+      // Read by VALUE, not by spelling: matching `EdgeInsets.fromLTRB(18,`
+      // would pass the day the ladder moves `gutter` to 20 and miss every
+      // column that is now quietly 2 dp narrow. So the four edges are resolved
+      // the same way `tool/label_fit.py` resolves tokens, and a hand-typed
+      // column is reported against the token it shadows.
+      final ladder = sources
+          .firstWhere((f) => f.path.endsWith('app_theme.dart'))
+          .readAsStringSync();
+      double tok(String name) {
+        final m = RegExp('static const double $name\\s*=\\s*([\\d.]+)')
+            .firstMatch(ladder);
+        if (m == null) {
+          throw StateError('card_recipe: $name left the ladder — R5 is stale');
+        }
+        return double.parse(m.group(1)!);
+      }
+
+      final g = tok('gutter');
+      final top = tok('s8');
+      final bot = tok('s28');
+      final offenders = <String>[];
+      final lookup = RegExp(r'EdgeInsets\.fromLTRB\(');
+      for (final f in sources) {
+        if (f.path.endsWith('app_theme.dart')) continue;
+        final s = f.readAsStringSync();
+        // Comments are how this app documents *why* a number is what it is —
+        // `worker_profile_screen.dart` keeps the old literal spelled out in a
+        // comment above the token it became. Only code counts, so blank the
+        // comments out while keeping every newline, which is what keeps the
+        // reported line pointing at real source.
+        final lines = s.split('\n');
+        final code = <String>[];
+        var inBlock = false;
+        for (final line in lines) {
+          if (inBlock) {
+            final end = line.indexOf('*/');
+            if (end < 0) {
+              code.add('');
+              continue;
+            }
+            inBlock = false;
+            code.add(' ' * end + line.substring(end + 2));
+            continue;
+          }
+          final open = line.indexOf('/*');
+          final slash = line.indexOf('//');
+          if (open >= 0 && (slash < 0 || open < slash)) {
+            inBlock = !line.substring(open + 2).contains('*/');
+            code.add(slash >= 0 && slash < open
+                ? line.substring(0, slash)
+                : line.substring(0, open));
+            continue;
+          }
+          code.add(slash < 0 ? line : line.substring(0, slash));
+        }
+        final stripped = code.join('\n');
+        for (final m in lookup.allMatches(stripped)) {
+          final block = _balanced(stripped, m.end - 1);
+          // Four plain numbers is the whole signature: any identifier in an
+          // edge position is the screen composing a column deliberately
+          // (`fromLTRB(12, 0, 12, 24)` is an inset inside a card, not a page).
+          final nums =
+              RegExp(r'(?<![\w.])[\d.]+(?![\w.])').allMatches(block);
+          if (nums.length != 4) continue;
+          final v = nums.map((e) => double.parse(e.group(0)!)).toList();
+          // Right edge too — three of four agreeing is what made this defect
+          // invisible, so a column is only reported when the gutter pair AND
+          // the bottom both match the token and only the TOP drifted.
+          if (v[0] == g && v[2] == g && v[3] == bot && v[1] != top) {
+            offenders.add('${f.path}:'
+                '${stripped.substring(0, m.start).split('\n').length} '
+                'fromLTRB(${v.join(', ')}) — AppTheme.pagePad is '
+                'fromLTRB($g, $top, $g, $bot)');
+          }
+        }
+      }
+      expect(offenders, isEmpty,
+          reason: 'use AppTheme.pagePad. A hand-typed column agrees with the '
+              'token on three edges and disagrees on the fourth, which is '
+              'invisible until the one number moves:\n'
               '${offenders.join('\n')}');
     });
   });

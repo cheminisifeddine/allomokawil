@@ -371,7 +371,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
               // something to pull. A failure is stated, not acted on: the rows
               // are real and a newer read did not land.
               child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+                // The page column, by its own name. This was
+                // `fromLTRB(18, 12, 18, 28)` — three of the four edges ARE
+                // the house token (`gutter`, `s28`), and the top one silently
+                // disagreed by 4 dp, so this screen's first row sat 4 dp lower
+                // than every other page column in the app.
+                padding: AppTheme.pagePad,
                 itemCount: convs.length + (failed ? 1 : 0),
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
                 itemBuilder: (context, i) {

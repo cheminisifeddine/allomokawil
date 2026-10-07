@@ -269,7 +269,12 @@ class _VerificationScreenState extends State<VerificationScreen> {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 620),
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+                // The page column, by its own name. This was
+                // `fromLTRB(18, 12, 18, 28)` — three of the four edges ARE
+                // the house token (`gutter`, `s28`), and the top one silently
+                // disagreed by 4 dp, so this screen's first card sat 4 dp lower
+                // than every other page column in the app.
+                padding: AppTheme.pagePad,
                 children: [
                   if (verified)
                     const _VerifiedBanner()
