@@ -163,7 +163,7 @@ import 'package:allomokawil/src/widgets/ui.dart';
 // whole tick for. `test/profile_edit_clearance_test.dart` asserts the laid-out
 // clearance against the token instead, which is the thing the counter
 // structurally cannot express.
-const int _offGridBudget = 26;
+const int _offGridBudget = 24;
 
 List<File> _sources() {
   final dir = Directory('lib');

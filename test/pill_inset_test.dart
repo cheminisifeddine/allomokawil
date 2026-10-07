@@ -43,8 +43,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:allomokawil/src/core/theme/app_theme.dart';
-import 'package:allomokawil/src/screens/project/project_detail_screen.dart'
-    show MetaChip;
 import 'package:allomokawil/src/widgets/ui.dart';
 
 /// The icon-to-word gap of the pill under [key], read off layout.

@@ -587,6 +587,61 @@ class StatusPill extends StatelessWidget {
   }
 }
 
+/// The neutral metadata pill: a 14 dp icon, one short word, the soft grey
+/// wash. The project page's place chip, and — since the twenty-first slice —
+/// the three fact tags on the browse contractor card.
+///
+/// **It moved here for a measured reason.** It used to be private to
+/// `project_detail_screen.dart` and its doc comment already said what
+/// happened next: "Naming it means the next pill is a caller, not a copy." The
+/// copy was `worker_card.dart`'s private `_MiniTag`, which spelled the same
+/// pill by hand at `symmetric(9, 5)`, icon 13, gap 4 and `fsBadge` — **25.0 dp
+/// tall against this pill's 26.0**, measured off real layout at 320/360/392.
+/// The two are on the **same screen**: the client home draws the contractor
+/// strip and the project cards in one column, so a customer scrolls from a
+/// 25 dp tag to a 26 dp status pill and watches the pill change height.
+///
+/// A pill is judged against the pill it sits next to, which is the argument
+/// `pillPad` was written for, and that argument does not care which file the
+/// other pill lives in. So the shared one moved to the shared kit rather than
+/// a second copy moving in.
+///
+/// Kept as its own widget rather than folded into [StatusPill]: [StatusPill]
+/// takes a colour and a wash and a label and is a *state*, while this is a
+/// *fact* with no state — merging them would have made the browse card's
+/// "paused" tag read as a status. See `test/worker_card_tag_pill_test.dart`,
+/// whose census is the assertion that class of copy cannot survive.
+/// The place chip on the project page. Public on purpose: it is the third
+/// writer of this pill, and a private widget cannot be rendered by the guard
+/// that holds the three of them to one inset (`test/pill_inset_test.dart`).
+/// Naming it means the next pill is a caller, not a copy.
+class MetaChip extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const MetaChip({super.key, required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: AppTheme.pillPad,
+      decoration: BoxDecoration(
+        color: AppTheme.lineSoft,
+        borderRadius: BorderRadius.circular(AppTheme.rPill),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppTheme.textSecondary),
+          const SizedBox(width: AppTheme.pillGap),
+          Text(text,
+              style: AppTheme.caption
+                  .copyWith(fontSize: AppTheme.fsCaption, color: AppTheme.textSecondary)),
+        ],
+      ),
+    );
+  }
+}
+
 /// Star rating row (read-only display).
 class RatingStars extends StatelessWidget {
   final double rating;

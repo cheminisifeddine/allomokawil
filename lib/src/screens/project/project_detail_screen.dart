@@ -22,6 +22,7 @@ import '../../widgets/net_image.dart';
 import '../../widgets/quote_worker_trust.dart';
 import '../../widgets/number_field.dart';
 import '../../widgets/ui.dart';
+
 import '../browse/browse_screen.dart';
 import '../auth/auth_screen.dart';
 import '../chat/chat_screen.dart';
@@ -910,36 +911,6 @@ class _StatusRow extends StatelessWidget {
   }
 }
 
-/// The place chip on the project page. Public on purpose: it is the third
-/// writer of this pill, and a private widget cannot be rendered by the guard
-/// that holds the three of them to one inset (`test/pill_inset_test.dart`).
-/// Naming it means the next pill is a caller, not a copy.
-class MetaChip extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  const MetaChip({super.key, required this.icon, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: AppTheme.pillPad,
-      decoration: BoxDecoration(
-        color: AppTheme.lineSoft,
-        borderRadius: BorderRadius.circular(AppTheme.rPill),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: AppTheme.textSecondary),
-          const SizedBox(width: AppTheme.pillGap),
-          Text(text,
-              style: AppTheme.caption
-                  .copyWith(fontSize: AppTheme.fsCaption, color: AppTheme.textSecondary)),
-        ],
-      ),
-    );
-  }
-}
 
 /// Photo carousel: swipeable pages with a dot indicator underneath.
 class _Photos extends StatefulWidget {

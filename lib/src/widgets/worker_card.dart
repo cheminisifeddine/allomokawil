@@ -10,7 +10,7 @@ import '../data/worker_stats_copy.dart';
 import '../models/enums.dart';
 import '../models/worker.dart';
 import 'net_image.dart';
-import 'rating_stars.dart';
+import 'ui.dart';
 
 /// Contractor card — used in the top-rated strip and in browse results.
 ///
@@ -240,10 +240,8 @@ class WorkerCard extends StatelessWidget {
                     children: [
                       if (availability != null)
                         _MiniTag(
-                          icon: Icons.pause_circle_filled_rounded,
-                          text: availability,
-                          tone: AppTheme.textSecondary,
-                          wash: AppTheme.lineSoft),
+                            icon: Icons.pause_circle_filled_rounded,
+                            text: availability),
                       if (experienceYearsAr(worker.experienceYears)
                           case final years?)
                         _MiniTag(
@@ -326,45 +324,40 @@ class _Avatar extends StatelessWidget {
   }
 }
 
+/// The three facts a customer scans a contractor for, as pills.
+///
+/// **Was a hand-rolled pill**, and that was the defect: `symmetric(9, 5)`, a
+/// 13 dp icon, a 4 dp gap and `fsBadge`, where the house pill — `MetaChip`,
+/// `StatusPill`, `CategoryBadge` — is `AppTheme.pillPad` `symmetric(10, 6)`, a
+/// 14 dp icon, `AppTheme.pillGap` and `fsCaption`. Measured off real layout:
+/// **25.0 dp tall here, 26.0 there**, same `rPill` radius and the same
+/// `lineSoft` wash, on a screen that draws both — the client home column holds
+/// this card and `ProjectCard`'s status pills in one scroll.
+///
+/// Neither instrument could see it, which is why this is a caller now and not
+/// a smaller duplicate. `card_recipe_test.dart`'s R4 reads off-grid literals
+/// and `9` is one, but R4 is a budget and a single row inside it is invisible
+/// to a counter that can only ask "make the count go down"; fixing it for R4
+/// would have been a rename. `pill_inset_test.dart` compares three pills that
+/// already *were* one component — it cannot see a pill that was spelled out
+/// instead of reused, which is exactly what this was.
+///
+/// The three call sites pass `tone`/`wash` pairs that are the neutral defaults
+/// `MetaChip` already carries, so each one now reads as the fact it is and not
+/// as a re-declaration of a grey pill: "paused" stays grey, and the years and
+/// price tags inherit the same one rather than each choosing their own.
 class _MiniTag extends StatelessWidget {
   final IconData icon;
   final String text;
 
-  /// The two tokens this tag draws with, so a caller that needs to state the
-  /// opposite of the default does not hand-roll a second recipe here. The
-  /// defaults are the original neutral pair, byte for byte: every tag that
-  /// existed before this tick still renders the same colour.
-  final Color? tone;
-  final Color? wash;
-
   const _MiniTag({
     required this.icon,
     required this.text,
-    this.tone,
-    this.wash,
   });
 
   @override
-  Widget build(BuildContext context) {
-    final color = tone ?? AppTheme.textSecondary;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: wash ?? AppTheme.lineSoft,
-        borderRadius: BorderRadius.circular(AppTheme.rPill),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: color),
-          const SizedBox(width: 4),
-          Text(text,
-              style: AppTheme.caption.copyWith(
-                  fontSize: AppTheme.fsBadge, color: color)),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      MetaChip(icon: icon, text: text);
 }
 
 class _Pressable extends StatelessWidget {
