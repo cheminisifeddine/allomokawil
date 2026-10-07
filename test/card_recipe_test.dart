@@ -163,7 +163,20 @@ import 'package:allomokawil/src/widgets/ui.dart';
 // whole tick for. `test/profile_edit_clearance_test.dart` asserts the laid-out
 // clearance against the token instead, which is the thing the counter
 // structurally cannot express.
-const int _offGridBudget = 24;
+// Lowered 24 -> 23 on 7 Oct: `empty_state.dart`'s `LoadingList` went from
+// `EdgeInsets.all(18)` to `AppTheme.pagePad`, and that is the only count this
+// slice moved. It is also the slice where R4's decrement is the *least* of
+// what happened: the `18` was not wrong on the gutters — it agreed with
+// `pagePad` there only because `gutter` happens to be 18 — and the two edges
+// that actually differed were `8` and `28`, which R4 never read because they
+// were spelled as an identifier in the token and never appeared in the source
+// at all. So the literal that left is the one that was never the defect, and
+// the defect was a pair of numbers this ratchet cannot see. Same shape as
+// slice 14 (`chat_screen`'s `3`) and slice 15 (`auth_screen`'s `2`), and the
+// third time the same lesson: the count goes down, and what it means is
+// carried by `test/loading_list_column_test.dart`, which reads the skeleton's
+// real card rect off the built tree and compares it to the token.
+const int _offGridBudget = 23;
 
 List<File> _sources() {
   final dir = Directory('lib');

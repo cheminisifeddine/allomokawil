@@ -23774,7 +23774,69 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 24 on 7 Oct;
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 23 on 7 Oct;
+      **23 remain across 14 files** after slice 23 (`empty_state.dart`, the
+      loading skeleton, which was the last of the 15 files and left the
+      `EdgeInsets.all` call R5 could never reach). Local `c955380` ->
+      remote pending; backlog tick `914ad7b`.
+      **slices 1-23 shipped** (23rd = `LoadingList` — the shared loading
+      skeleton for list screens — sat **10 dp below the first row of the list
+      it was standing in for**, on both the screens that use it. `empty_state.dart`
+      carried `EdgeInsets.all(18)` while `browse_screen.dart:347` and
+      `chat_list_screen.dart:328` draw their real rows with
+      `padding: AppTheme.pagePad` = `fromLTRB(gutter 18, s8 8, 18, s28 28)`.
+      **The two agreed on the gutters by coincidence** — `gutter` happens to
+      be 18 — and disagreed on BOTH verticals: top 18 vs 8 (10 dp low) and
+      bottom 18 vs 28 (10 dp short), so the whole column jumped twice, once as
+      the shimmer appeared and once as the rows landed. The gutter agreement is
+      precisely what hid it: it is the only pair an alignment check can see,
+      and R5 (which compares plain numbers in `fromLTRB`) never reaches the
+      skeleton at all because its call is `EdgeInsets.all`. **Measured off the
+      raster, not argued**: at 392x850 / DPR 3 the old skeleton's first card
+      band starts at **y 54 px (18 dp)** and the real rows' at **y 24 px
+      (8 dp)**; after the fix the skeleton and the rows are **pixel-identical
+      on all four offsets** — 24 / 288 / 552 / 816 px, gutters x 54..1121 in
+      both. Shots `/tmp/shots/zz_load_{OLD,NEW,ROWS}.png`, throwaway harness
+      deleted, `git ls-files` clean.
+      **Red before green, with the engine's own number:**
+      `Expected: within<0.01> of <8.0>  Actual: <18.0>`, off by **10.0 dp**.
+      New `test/loading_list_column_test.dart` (2 cases) resolves the expected
+      column **from `AppTheme.pagePad`** and reads the actual card rect **off the
+      built tree** — nothing in it transcribes the inset, per the stale-constant
+      trap `tile_label_fit_test.dart` records.
+      **R4 24 -> 23 and 15 files -> 14, and that count is again the least of
+      it.** The `18` that left is the one that was never wrong (it matched the
+      gutters), and the two numbers that *were* wrong — 8 and 28 — were spelled
+      as an identifier in the token and never appeared in the source for R4 to
+      read. Third repeat of slices 14/15's lesson, recorded once more because
+      three is where a pattern stops being an accident.
+      **Gate, and one failure this slice did NOT cause.**
+      `flutter analyze` -> **No issues found!** ·
+      **85 passed / 0 failed** across the 11 files that render `LoadingList`
+      or its screens, and **22 passed** over `design_shots_test.dart` (all
+      goldens green — no baseline carries the loading state, so **nothing had
+      to be re-baselined**, which is worth stating because slice 20 and 21 both
+      had to). Full suite via `tool/run_tests.py`: **13 shards, 12 green,
+      1 not green in 20:19** — and the one is `type_scale_test.dart`
+      ("no file outside the theme types a font size"), which fails on
+      `AppTheme.pipNumeral` appearing outside the theme at
+      `chat_list_screen.dart:589`, `:625` and `chat_screen.dart:1232`.
+      **Proved pre-existing, not assumed**: `git stash` to HEAD and re-ran it
+      — identical failure, same three lines. It arrived with slice 14's pip
+      work (the `pipNumeral` token is from that slice) and this sweep is not
+      the place to fix it, so it is **recorded, not hidden**. Whole-suite total
+      is therefore **unknown**, not "passing" — 12 of 13 shards are evidence,
+      the 13th is the gap.
+
+      **One correction, and it is the kind worth catching.** My first pass wrote
+      the retired literal into the explanatory comment ("this was
+      `EdgeInsets.all(18)`"). R4 **counts comments** — only R5 blanks them —
+      so the fix put the count straight back to 24 and the ratchet went red on
+      a fix I had already made. The comment now describes the old shape
+      ("a uniform all-around gutter") without spelling the number. Worth
+      knowing for any future slice that documents its own before-value in
+      source: **on this ratchet, a comment that quotes a retired off-grid
+      literal is a live count.**),
       **slices 1-22 shipped** (22nd = the sign-in screen printed **one phone
       complaint twice, ~320 dp apart** in one card. `_signIn` AND `_register`
       each set `_phoneTried = true` AND `_error = S.phoneInvalid` in the SAME

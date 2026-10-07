@@ -74,7 +74,20 @@ class LoadingList extends StatelessWidget {
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(18),
+      // The page column, by its own name. It was a uniform all-around gutter,
+      // which agreed with [AppTheme.pagePad] on the two sides *because*
+      // `gutter` happens to have that value — an agreement by coincidence,
+      // which is what hid it — and disagreed on both verticals: the first
+      // skeleton card sat 10 dp lower than the first real row and the last one
+      // stopped 10 dp short of the bottom, so the whole column jumped twice,
+      // once as the shimmer appeared and once as the rows landed.
+      //
+      // Both callers draw their real rows with `padding: AppTheme.pagePad`
+      // (`browse_screen.dart:347`, `chat_list_screen.dart:328`), so this is
+      // the token that keeps the skeleton's shape equal to the shape it is
+      // standing in for. `test/loading_list_column_test.dart` reads both
+      // numbers off the built tree rather than trusting either one.
+      padding: AppTheme.pagePad,
       itemCount: count,
       itemBuilder: (_, __) => Container(
         margin: const EdgeInsets.only(bottom: 12),
