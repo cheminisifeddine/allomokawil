@@ -100,11 +100,24 @@ class _AuthScreenState extends State<AuthScreen> {
     }
     // Same rule as the API. Signing in with a number the server will normalise to
     // something else is exactly how "الرقم غير مسجل" happens for a valid account.
+    //
+    // `_phoneTried` alone, and no `_error`. This used to also set
+    // `_error = S.phoneInvalid` — the same sentence [DzPhoneField] renders from
+    // the same `DzPhone.isValid` this line just consulted. So the user read one
+    // complaint twice, ~320 dp apart in one scroll.
+    //
+    // Measured off the rendered frame at 392x850 / DPR 1.0, RTL, the danger ink
+    // formed TWO 65 dp bands — y 304..368 (the field's own) and y 631..695
+    // (`AuthNotice`) — and now forms ONE, y 304..368. Both span x 35..356, so
+    // they were the SAME width, not two different ones: what made the repeat
+    // read as noise was the 263 dp of unrelated rows between them and the
+    // second box's own border and wash, not a mismatch the eye could measure.
+    //
+    // The screen has nothing to add about a number, so it stays quiet and lets
+    // the field — which owns the number and highlights it — be the one that
+    // says it.
     if (!DzPhone.isValid(_phone.text)) {
-      setState(() {
-        _phoneTried = true;
-        _error = S.phoneInvalid;
-      });
+      setState(() => _phoneTried = true);
       return;
     }
     setState(() {
@@ -138,11 +151,12 @@ class _AuthScreenState extends State<AuthScreen> {
     }
     // The number is checked here, not by the server: a bad phone is caught before
     // a round trip and the field explains itself in Arabic.
+    //
+    // `_phoneTried` alone, for the reason given in `_signIn`: the field renders
+    // this exact sentence from this exact rule, so setting `_error` here too
+    // printed it twice on one screen.
     if (!DzPhone.isValid(_phone.text)) {
-      setState(() {
-        _phoneTried = true;
-        _error = S.phoneInvalid;
-      });
+      setState(() => _phoneTried = true);
       return;
     }
     if (pwd.length < 8) {
