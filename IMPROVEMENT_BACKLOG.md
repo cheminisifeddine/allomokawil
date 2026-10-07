@@ -23774,7 +23774,25 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 27 on 7 Oct;
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 26 on 7 Oct;
+      **slices 1-20 shipped** (20th = `review_screen.dart` declared a **local**
+      called `pagePad` holding 20 or 8 and drew `L/R 20, T 14, B 28` — the house
+      column's own NAME on a column that matched the house column on one edge of
+      four. Both ratchets are blind to it by construction: R4 reads literals and
+      two of the four edges were an identifier, R5 compares four PLAIN NUMBERS
+      and skipped the same two edges. This is slice 19's finding inverted — there
+      a token-spelled column hid; here the token's NAME hid, so the screen reads
+      as the one that got it right. The width branch is load-bearing, not a
+      rename: the five 56 dp stars stop fitting at `5 * tapMin + 2 * gutter + 2 *
+      cardLineWidth = 318`, measured (overflow 316, clean 318), so the branch
+      stays, is now DERIVED from the tokens instead of guessed at 360, and the
+      narrow case keeps the house top/bottom and gives up only its gutter.
+      Raster at DPR 3.0: wide 392 dp gutters 20 -> 18, top 14 -> 8; narrow 320 dp
+      gutters 8 -> 18. New `test/review_page_column_test.dart` (4 cases) leads
+      with a census against **shadowing** — the class neither ratchet can reach,
+      since a shadow is spelled as a name somewhere else. R4 **27 -> 26** across
+      16 files, budget 32 -> 26. Local `0ece9ab` -> remote `c9bf198`, all four
+      blobs MATCH. Details in the slice below),
       **slices 1-19 shipped** (19th = the gallery page column written in TOKENS
       and so invisible to R5, local `d4fd296` -> remote `79f5970`, **R4 unchanged
       at 27** — a rename is not a count, and the 4 dp was 4 dp either way; the
@@ -26246,3 +26264,109 @@ the one item R4 still counts that is not a component gap.
       **named token of their own**, so "is this the page column" stops being a
       question the census has to answer by guessing. That is a theme change
       with rendered consequences, so it is its own slice.
+
+## Slice 20 (7 Oct) — the review screen named its own column `pagePad`
+
+**SHIPPED.** Local `0ece9ab` -> remote `c9bf198`, all four blobs MATCH against
+the remote tree, `git diff HEAD origin/main` empty.
+
+### The defect
+
+`review_screen.dart:127` declared a **local**:
+
+```dart
+final pagePad = MediaQuery.sizeOf(context).width >= 360 ? 20.0 : 8.0;
+```
+
+and drew `EdgeInsets.fromLTRB(pagePad, 14, pagePad, 28)`. The house column is
+`AppTheme.pagePad` = `fromLTRB(gutter, s8, gutter, s28)` = **18/8/18/28**. So the
+screen agreed with the house column on the **bottom edge only** and disagreed on
+three — gutter 20 (not 18), top 14 (not 8), and below 360 the gutter fell to 8
+while the top stayed 14.
+
+### The finding, and it is the sharpest thing this sweep has produced
+
+**Both ratchets are blind to this by construction.** R4 counts off-grid literals
+inside `EdgeInsets` and skipped the site because two of the four edges were an
+identifier — the single literal it did see, `14`, is on-grid, so R4 read a
+compliant screen and its count never moved. R5 is the census for hand-typed
+columns and matches **four plain numbers**; it skipped the same two edges.
+
+Slice 19 recorded that a **token-spelled** column is invisible because R5 reads
+numbers. This is the mirror case and it is worse: the local was named after the
+**token itself**. A reader auditing this file sees `pagePad` and concludes the
+token is in use. The app has 141 files reading app source and two spacing
+guards, and a screen can name the house column and get three of its four edges
+wrong without either of them noticing.
+
+### Not a rename — the width branch is load-bearing
+
+The obvious sweep here would have been an overflow. Five 56 dp stars plus two
+gutters plus the card's own border stop fitting at:
+
+```
+5 * tapMin + 2 * gutter + 2 * cardLineWidth = 5*56 + 2*18 + 2*1 = 318
+```
+
+Measured, not derived on paper: **RenderFlex overflow at 316, clean at 318**.
+Replacing the branch with the house token outright leaves every phone under
+318 dp with a stripe. So the branch stays and is now **derived from the tokens**
+rather than guessed at 360; the narrow case keeps the house **top and bottom**
+and gives up only its gutter; and the old bare `8` is named (`AppTheme.s8`).
+
+### Evidence
+
+DPR 3.0 rasters, `/tmp/shots/{before,after}/{wide,narrow}.png`, ink extents read
+off the PNGs:
+
+| | before | after |
+|---|---|---|
+| wide 392 dp | gutters **20** | gutters **18** |
+| wide top edge | **14** | **8** |
+| narrow 320 dp | gutters **8** | gutters **18** (house now fits) |
+
+### The guard
+
+`test/review_page_column_test.dart`, 4 cases. The one worth keeping is a census
+against **shadowing** — the class neither ratchet can reach, because a shadow is
+spelled as a name somewhere else and a literal census cannot see a name. It is
+registered in `app_source_scope_test`'s `_appRuleGuards` and `_ruleEvidence` by
+name, which that census requires of any guard reading app source.
+
+**Red before green, three at once on the original:**
+
+```
+Expected: EdgeInsets:<EdgeInsets(18.0, 8.0, 18.0, 28.0)>
+  Actual: EdgeInsets:<EdgeInsets(20.0, 14.0, 20.0, 28.0)>
+Expected: <8.0>   Actual: <14.0>
+'lib/src/screens/review/review_screen.dart:126 pagePad = MediaQuery.sizeOf(context).width >= 360 ? 20.0 : 8.0'
+```
+
+The boundary case correctly *passes* at 318 on the original too — which is the
+proof it is measuring geometry and not merely detecting the branch.
+
+### Gate
+
+`flutter analyze` -> **No issues found!** · **90 passed / 0 failed / 1 skipped**
+(the skip is `live_review_e2e_test`, a live-network file) across the 11 files
+that render this screen, hold its tokens or shoot it — including
+`tap_target_test`'s existing 56 dp star guard, green at both 392 and 320.
+
+**R4 27 -> 26 across 16 files**, ratchet budget tightened 32 -> 26 to match, as
+every slice in this sweep has done.
+
+**Not claimed:** no whole-suite number (13 shards, ~40 min on 2 cores). 90
+covers every consumer of the three files touched.
+
+### Next
+
+R4's remaining 26 are unchanged in kind — the census says 16 files, and
+`auth_screen` (3) plus `project_detail_screen`/`trade_filter_bar`/`auth_screen`
+still carry the byte-identical `14 x 12` chip inset that four writers spell. That
+is still a **decision, not a rename** (the trade pill is a tap target and the bid
+band is not), and it needs the `10_browse.png` and project-page goldens
+re-baselined. The `pagePad` shadow census just shipped should be re-read against
+the **shared** skeletons (`SkeletonCardList`, `SkeletonFormPage`,
+`AppBootSkeleton`) before any token reader is built — a widget that serves three
+pages is not a page column, and that is the discriminator the rejected R5 reader
+could not find.
