@@ -84,10 +84,28 @@ class ProjectCard extends StatelessWidget {
                 // ("60000 - 6000…") — the one field that must never be cut.
                 if (project.budgetMin != null || project.budgetMax != null) ...[
                   const SizedBox(height: 8),
+                  // The budget band was a pill drawn by hand: a 14 dp glyph, a
+                  // tight gap to its word, and an inset off the 4 dp ladder on
+                  // both axes. It shares a card with a `CategoryBadge` above it
+                  // and a `StatusPill` 9 dp higher, and those two already sit on
+                  // [AppTheme.pillPad] and [AppTheme.pillGap] — so one card
+                  // carried three capsules and the third disagreed with both.
+                  //
+                  // The horizontal already matched, which is exactly what hid
+                  // it: a number that is on the ladder reads as deliberate, and
+                  // the two dp that were actually wrong are the ones a reader
+                  // sees as *unfinished* rather than as a defect.
+                  //
+                  // [AppTheme.pillPad] binds here, not the trade filter's larger
+                  // tap-target inset, because this band is a label: it takes no
+                  // `onTap` and nothing wraps it in a `GestureDetector` or an
+                  // `InkWell`. Its `rSm` is NOT the capsule radius — it is a
+                  // full-bleed strip, and it stays as it is. Only the inset and
+                  // the gap were wrong. See
+                  // `test/project_card_budget_strip_test.dart`.
                   Container(
                     width: double.infinity,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    padding: AppTheme.pillPad,
                     decoration: BoxDecoration(
                       color: AppTheme.accentWash,
                       borderRadius: BorderRadius.circular(AppTheme.rSm),
@@ -104,7 +122,11 @@ class ProjectCard extends StatelessWidget {
                           children: [
                             const Icon(Icons.payments_rounded,
                                 size: 14, color: AppTheme.accentDeep),
-                            const SizedBox(width: 5),
+                            // The app-wide gap between a pill's glyph and its
+                            // word. This one was a private number, 1 dp tighter
+                            // than every sibling pill — the same disagreement
+                            // the kit's own comment on `StatusPill` records.
+                            const SizedBox(width: AppTheme.pillGap),
                             Text(
                               'الميزانية',
                               style: AppTheme.label.copyWith(
