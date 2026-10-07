@@ -27192,3 +27192,107 @@ The sweep restarts. `category_grid.dart:77` (two literals, `6` and the `10` this
 slice's sibling at `ui.dart:419` pays), `profile_edit_screen.dart:516`,
 `quote_worker_trust.dart:82`, `customer_home_screen.dart:1530`, and the decided
 `trade_filter_bar.dart:286` exemption.
+
+---
+
+## Slice 33 — the horizontal category strip had no fit guard at all, and its vertical padding was one step from a real overflow
+
+**`category_grid.dart:77` — shipped.** The item the last three ticks pointed at:
+`EdgeInsets.symmetric(horizontal: 6, vertical: 10)`, two off-ladder literals,
+the `10` being this sweep's own sibling of the `ui.dart:419` `10` slice 32
+retired.
+
+### The gap the slice started from
+
+`tile_label_fit_test.dart` lays out `SelectableTile`. **`CategoryGrid`'s strip
+tile is a different widget** that paints the *same taxonomy names*, and it was
+measured in no test in the repo — so both literals survived while the same
+numbers in the same widget were argued about for four ticks.
+
+### Measured, and the `10` moved nothing
+
+| vpad | room plain | room selected | slack plain | slack selected |
+| --- | --- | --- | --- | --- |
+| `10` (was) | 82.00 | 80.00 | 4.50 | 2.50 |
+| **`8` (ships)** | **86.00** | **84.00** | **8.50** | **6.50** |
+| `12` | 78.00 | 76.00 | 0.50 | **-1.50** |
+
+The column is centred, so `labelTop` measures **311.00** at vpad 12, 10, 8, 6 and
+4 alike: padding around a centred child is arithmetic, not layout. Nothing
+claimed otherwise, but the number was off-ladder and undefended.
+
+The reason it is a fix and not a rename is the third row: `s12` leaves
+**-1.50 dp** in the selected state, a real RenderFlex overflow, and the
+off-grid `10` sat one step from it. `Flexible` **clips** instead of painting the
+stripe, so nothing in the repo could have seen it coming.
+
+**One claim of mine was wrong and the engine caught it.** The comment I first
+wrote said `s12` would leave "0 dp of slack". Flat arithmetic that ignored the
+selected tile's 2 dp border; measured, it is 0.50 plain and **-1.50 selected**.
+Same overstatement the last two slices recorded, caught before commit.
+
+### The horizontal `6` was not a fit defect
+
+Worst taxonomy name «بلاط وسيراميك ورخام» needs **72.25 dp** for two lines; the
+tile left 82.00 plain / 80.00 selected. **Nothing truncates.** So this is the
+*same number* as the `ui.dart:399` fix but **not the same bug** — that tile was
+72.00 against a 72.06 label and missed by 0.06 dp. Recorded so the next tick
+does not re-argue it as a fit fix. `s4` is chosen on the ladder and headroom:
+86.00 / 84.00, 13.75 / 11.75 dp clear, where `s8` would leave 5.75 / 3.75.
+
+**Shipped:** `horizontal: 6, vertical: 10` -> `horizontal: s4, vertical: s8`.
+**R4 13 -> 11** across 9 files, ratchet budget tightened to match.
+
+### Two of my own instruments were wrong, and both were caught
+
+Worth recording because each one nearly became a finding:
+
+1. **`_minRoom` returned a constant 200 dp for all sixteen labels, twice.**
+   The binary search's bounds were inverted. A "measurement" that returns the
+   same constant for every input is a broken probe, not a tight fit — and I read
+   it as a result twice before noticing. Replaced with a 0.25 dp linear scan,
+   and the guard now **proves the scan** against a label whose threshold is
+   known (`fits@82 == true`, `fits@65 == false`) before using it.
+2. **`computeLineMetrics().length` cannot exceed `maxLines`** — `maxLines`
+   *clips*, so a fit guard built on line count is green forever.
+   `didExceedMaxLines` is the only correct authority.
+
+### Red before green, two at once on the original
+
+```
+Expected: a value greater than or equal to <8.0>   Actual: <4.5>
+Expected: empty                                    Actual: ['6.0', '10.0']
+```
+
+The slack case then failed **green-side** at 6.5 selected, because the selected
+state's border costs 2 dp and my first assertion was flat. Asserted at the
+tighter of the two states so it cannot pass on the plain tile alone.
+
+### Gate
+
+`flutter analyze` -> **No issues found!** (8.6 s) · new guard **5 passed** ·
+`app_source_scope_test` **17 passed**, identical to the HEAD baseline I measured
+by stashing · `card_recipe` + `tile_label_fit` + `tap_target` +
+`a11y_semantics` + `browse_column` **47 passed** · the five files that render
+the strip or its tiles **50 passed**.
+
+**Goldens: 9 of 9 green, none re-baselined.** `04_customer_home` is the golden
+that draws this strip (rows ~1300-1450 carry the tile washes
+`231,245,238` / `234,241,251` / `253,243,227`, decoded off the PNG), so the
+change is **pixel-identical at 392** — consistent with `s8` vertical matching
+the 8 dp gap the column already draws. The slack this slice buys is against
+the **selected** tile's content, which the goldens never render.
+
+Registering the guard in `app_source_scope_test` took **four** attempts and
+each failure was real, not noise: the census caught the file **untracked**
+("a guard written but not added is a rule nobody is enforcing"), then an
+**unknown root**, then a **token held by a `const`** instead of passed to the
+reader, then a **capture group dropped** in the fix for that — which broke the
+guard's own regex and would have shipped a `RangeError`.
+
+### Next
+
+`profile_edit_screen.dart:516` (two `2`s), `quote_worker_trust.dart:82`
+(`1.5`), `customer_home_screen.dart:1530` (`1`), and the decided
+`trade_filter_bar.dart:286` exemption. `ui.dart:419` is the last `10` and is
+the sibling of the one this slice just retired.

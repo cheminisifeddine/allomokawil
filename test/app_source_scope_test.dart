@@ -159,6 +159,12 @@ const _knownRoots = <String>{
   'lib/src/data/chat_time.dart',
   'lib/src/models/plan.dart',
   'lib/src/widgets/ui.dart',
+  // ...and this one is the root of the 7 Oct strip-label guard
+  // (`category_strip_fit_test.dart`), which reads the strip tile's own padding
+  // back out of source. A widget that is read only by a test and never by a
+  // screen is exactly the file the coverage case cannot see, so it is named
+  // here rather than left to fail the unknown-root case.
+  'lib/src/widgets/category_grid.dart',
   // The suite reading its own test directory: `wall_clock_seam_site_test.dart`
   // walks `Directory('test')` to police other guards. It holds no shipped Dart,
   // so it contributes no coverage -- it is listed so the census *names* the
@@ -257,6 +263,14 @@ const _appRuleGuards = <String, String>{
   'test/tile_label_fit_test.dart':
       'the tile-label rule: every Arabic label the app ships fits its tile at '
       'every width the app claims',
+  // Added 7 Oct (21st). The horizontal strip tile is the OTHER tile the
+  // taxonomy labels are painted into, and `tile_label_fit_test.dart` only ever
+  // laid out `SelectableTile` -- so the strip's label had been measured in no
+  // test at all, exactly the gap this file's own header describes one guard
+  // over. It reads `category_grid.dart`, so the census needs it by name.
+  'test/category_strip_fit_test.dart':
+      'the strip-label rule: every taxonomy name fits the horizontal category '
+      'strip in both tile states, and the tile keeps vertical slack for it',
   // Added 7 Oct (20th). `review_screen.dart` declared a **local** called
   // `pagePad` holding 20 or 8, and drew `L/R 20, T 14, B 28` -- the house
   // column's own name on a column that matched the house column on one of its
@@ -329,6 +343,9 @@ const _ruleEvidence = <String, List<String>>{
   // the colon and the label spelled the way a call spells it.
   'test/phone_posted_value_test.dart': [r'phone:\s*(.+?),?\s*$'],
   'test/tile_label_fit_test.dart': [r'symmetric\(\s*horizontal:'],
+  // Same shape as its sibling's token, but the pattern it applies to
+  // `category_grid.dart` to read the inset back.
+  'test/category_strip_fit_test.dart': [r'symmetric\(\s*horizontal:'],
   // The declaration itself, with the type keyword, so the token can only be
   // carried by a real `final <name> =` statement and not by any other mention
   // of the word. The rule turns on the *declaration*, not on the value -- a
