@@ -239,6 +239,56 @@ remote tree, read off the git-data API rather than trusted from the push line.
 
 ## Phase 6 — the loop's own instruments
 
+- [ ] **The control-outline guard shipped last tick could not see half the
+      borders it exists to police — and it reported the tree clean.** (OPEN,
+      work saved, red as of 8 Oct)
+      **Take this item first.** The token is in the tree
+      (`AppTheme.hairline`, last tick) and the guard
+      (`test/hairline_token_test.dart`) went **4/4 green on a tree that still
+      contained six raw border widths.** The gap: its detector regex was
+      `width\s*:\s*(?:const\s*)?(\d+(?:\.\d+)?)` — a *bare number* only. Every
+      conditional width (`width: selected ? 2 : 1`) is an expression, so it was
+      invisible. Six sites: `category_grid.dart`, `ui.dart`, `project_new_screen`,
+      `worker_home_screen`, `notifications_screen` (`unread ? 1.4 : 1`) and
+      `phone_field.dart` (`(focused || error != null) ? 1.8 : 1`). A guard that
+      goes quiet on the defect it was written for is the same defect class the
+      Phase 6 runner item shipped.
+      *Red before green, measured:* with the detector widened, the guard failed
+      and named all six; reverting **one** site (`category_grid.dart`) alone
+      reproduced a red naming that one line, which the old regex could not do.
+      *The fix's rule:* **a width is raw exactly when it contains a digit.**
+      Anything naming a token (`AppTheme.hairline`, `cardLineWidth`, a forwarded
+      `borderWidth` parameter) passes whatever shape it is written in. An earlier
+      draft allowed only `hairline` by name and reported the theme's own
+      `borderWidth ?? cardLineWidth` as an offender — that would have meant
+      allowlisting the theme's parameters, a net that closes behind itself.
+      *Why it is still open — the suite went red and the tree was not committed.*
+      Naming the conditional widths changed pixels, and two guards noticed:
+      - `category_strip_fit_test.dart` computes label room as
+        `tileWidth - 2*border - padding` and **pins `selected ? 2.0 : 1.0`**
+        with the reason *"if the border changed, this guard is measuring a tile
+        that no longer ships"*. Aligning the resting outline onto `hairline`
+        (1 → 1.5) costs 1 dp of label room in a 96 dp tile.
+      - 6 design goldens in `test/goldens/` changed.
+      `flutter analyze` was **No issues found!** and the guard itself 4/4, but
+      `tool/run_tests.py` printed **"This is NOT a suite result"** (shards 1, 2, 3
+      red; shard 6 HUNG), so per step 4 **nothing was committed.**
+      *What the next tick must do, in order:* (1) finish the change —
+      `hairlineSelected`/`hairlineResting`/`hairlineFocus` tokens exist in
+      `app_theme.dart` in the working tree; (2) update `category_strip_fit_test`
+      to read the token instead of pinning 2.0/1.0, and **decide the 1 dp** —
+      either the tile's padding yields the dp or the resting outline stays at 1;
+      (3) regenerate goldens **only after reading the diff**; (4) re-gate.
+      *Correction to last tick's report:* `quote_worker_trust.dart:82` was
+      reported as a blocked `1.5` border-width writer. It is
+      `EdgeInsets.all(1.5)` — a **padding**, not a border width — and the file is
+      `lib/src/widgets/`, not `screens/worker/`. It was never in scope and
+      nothing was ever blocked on it. Three ticks of a phantom blocker.
+      Work preserved at `cache/scratch/hairline_slice.patch` (537 lines, full
+      change incl. test) and `lib_only.patch`; lib half is already in the tree.
+      Note: `/home/renia/tools/*` is gone on this host — use
+      `/home/hatch/tools/sdk/flutter/bin/flutter` (see the Loop protocol).
+
 - [x] **The suite runner announced a retry it had not paid for — and the line a
       tick reads to answer "was the suite retried?" was the false one.**  `0b2ff38`.
       A non-build tick: `build_gate.py` answered NO ROOM at **720 MB against the
