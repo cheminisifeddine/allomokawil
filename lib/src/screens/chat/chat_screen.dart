@@ -1203,12 +1203,24 @@ class _ChatScreenState extends State<ChatScreen> {
           // described by the sentence beside it.
           if (_unresolved.length > 1) ...<Widget>[
             Container(
-              constraints: const BoxConstraints(minWidth: 24),
-              // `s8` on the rail, and the vertical 3 stays: it is what makes
-              // the pill 3 dp above and below a 12 dp caption, so it is the
-              // pill's own proportion rather than a rung on the inset ladder.
-              padding: const EdgeInsets.symmetric(
-                  horizontal: AppTheme.s8, vertical: 3),
+              // **The app's last count pip still off-token.** The tab bar's and
+              // the bell's are both `pipNumeral`, and so are the two in an
+              // inbox row's trailing column, which the previous slice measured
+              // against each other. This one drew its number at
+              // [AppTheme.fsCaption] inside a `minWidth: 24` capsule —
+              // byte-identical to the box the previous slice measured — so it
+              // was that same box at 21.0 dp against their 19.2 dp, and the
+              // count sat in it 1.5 dp larger than every other count the user
+              // is shown.
+              //
+              // R4 could not see either number. It reads literals inside
+              // `EdgeInsets`, so the hand-written `3` below *was* counted, and
+              // it went green the instant it became an identifier — reporting
+              // a fix that had not touched the glyph. The `fontSize` and the
+              // `BoxConstraints` are not `EdgeInsets` and never counted once.
+              // `test/chat_banner_pip_test.dart` reads the glyph instead.
+              constraints: const BoxConstraints(minWidth: AppTheme.pipMinW),
+              padding: AppTheme.pipPad,
               decoration: BoxDecoration(
                 color: AppTheme.accent,
                 borderRadius: BorderRadius.circular(AppTheme.rPill),
@@ -1217,7 +1229,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 '${_unresolved.length}',
                 textAlign: TextAlign.center,
                 style: AppTheme.label.copyWith(
-                    fontSize: AppTheme.fsCaption, height: 1.2, color: AppTheme.navy),
+                    fontSize: AppTheme.pipNumeral,
+                    height: 1.2,
+                    color: AppTheme.navy),
               ),
             ),
             const SizedBox(width: 8),
