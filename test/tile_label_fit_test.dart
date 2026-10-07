@@ -23,6 +23,18 @@
 // **Why both states are checked.** The bug lived in the *selected* tile, whose
 // 2 dp border costs 2 dp of room. A guard that only lays out the plain tile
 // passes forever while the defect ships.
+//
+// **The guard this file grew is the one that was wrong, and that is why the
+// layout moved while every case stayed green.** It built its own TextStyle by
+// hand -- `AppTheme.label.copyWith(fontSize: AppTheme.fsBadge, ...)` -- so it
+// measured the font the tile *used to* draw. `SelectableTile` actually painted
+// `fsCaption` (12.5): the type ladder commit `f589ae0` replaced the bare
+// `fontSize: 12` with the nearest step and grew the label by half a dp, and the
+// guard kept checking 11. **A hand-written replica of the widget's style is
+// the weakest link in a fit guard**, because the widget can change and the
+// replica cannot: this file was green for 12.5's worth of growth and would have
+// been green for 30. The style below is now READ OFF THE `Text` in the tree,
+// and `styleMatchesTheWidgetItMeasures` fails the moment it drifts.
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -59,6 +71,34 @@ int _lines(String label, double room, TextStyle style) {
     ellipsis: '\u2026',
   )..layout(maxWidth: room);
   return tp.didExceedMaxLines ? 99 : tp.computeLineMetrics().length;
+}
+
+/// The `TextStyle` the tile's own label is painted with, read off the tree.
+///
+/// Throws if the tile stops having a styled label, rather than silently
+/// measuring the caller's own idea of it.
+TextStyle _paintedStyle(WidgetTester tester) {
+  final text = tester.widget<Text>(
+    find.descendant(
+      of: find.byType(SelectableTile).first,
+      matching: find.byType(Text),
+    ),
+  );
+  final style = text.style;
+  if (style == null || style.fontSize == null) {
+    fail('the tile label has no style, so nothing can be measured — this '
+        'guard is now reading nothing and would pass forever');
+  }
+  return style;
+}
+
+/// Unconstrained advance width of [label] — what it wants if it got its way.
+double _needs(String label, TextStyle style) {
+  final tp = TextPainter(
+    text: TextSpan(text: label, style: style),
+    textDirection: TextDirection.rtl,
+  )..layout();
+  return tp.width;
 }
 
 Widget _host(bool selected) {
@@ -106,11 +146,6 @@ void main() {
 
   testWidgets('every taxonomy label fits its grid tile at every claimed width',
       (tester) async {
-    final style = AppTheme.label.copyWith(
-      fontSize: AppTheme.fsBadge,
-      height: 1.25,
-      color: AppTheme.textPrimary,
-    );
     final bad = <String>[];
     for (final page in pages) {
       for (final selected in [false, true]) {
@@ -127,6 +162,11 @@ void main() {
         final tile = tester
             .element(find.byType(SelectableTile).first)
             .findRenderObject() as RenderBox;
+        // The style the tile ACTUALLY paints, read off its own Text. Handing
+        // this test a style built here is how 12.5 shipped behind a green
+        // check that believed it was measuring 11; the tile is the only
+        // authority on how big its own label is.
+        final style = _paintedStyle(tester);
         // Room the label really gets: the tile, less its own horizontal
         // padding, less the border the state draws (2 when selected, 1 when
         // not). This is the number the defect turned on.
@@ -182,6 +222,40 @@ void main() {
     // Same outer width either way — the border is inside the box.
     expect(sel.size.width, moreOrLessEquals(plain.size.width, epsilon: 0.01));
     expect(AppTheme.fsBadge, 11.0);
+  });
+
+  testWidgets('the fit guard measures the style the tile really paints',
+      (tester) async {
+    // The property that would have caught the 12.5. If the tile's font size
+    // moves again and this file's own `_lines` call stops following, the only
+    // honest failure is that one -- so it is asserted directly rather than left
+    // implied by a number that happens to still fit.
+    tester.view.physicalSize = const Size(320 * 3, 600 * 3);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(_host(true));
+    final painted = _paintedStyle(tester);
+    final tile = tester
+        .element(find.byType(SelectableTile).first)
+        .findRenderObject() as RenderBox;
+    final box = tester.widget<AnimatedContainer>(
+      find.descendant(
+        of: find.byType(SelectableTile).first,
+        matching: find.byType(AnimatedContainer),
+      ),
+    );
+    final pad = box.padding! as EdgeInsets;
+    final room = tile.size.width - pad.horizontal - 4;
+    // The tightest pair in the app, at the width where it bites: if the size
+    // ever goes up by a ladder step this stops being true, which is exactly
+    // the moment someone should be told rather than left to re-measure.
+    final tightest = Taxonomy.categories
+        .map((c) => c.name)
+        .reduce((a, b) => _needs(b, painted) > _needs(a, painted) ? b : a);
+    expect(_lines(tightest, room, painted), lessThanOrEqualTo(2),
+        reason: 'the widest label needs ${_needs(tightest, painted).toStringAsFixed(2)} dp '
+            'of the ${room.toStringAsFixed(2)} this tile has at 320 dp selected, '
+            'at ${painted.fontSize} dp');
   });
 
   test('the horizontal inset is on the 4 dp ladder', () {

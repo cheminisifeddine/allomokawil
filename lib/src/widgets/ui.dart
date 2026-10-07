@@ -429,8 +429,41 @@ class SelectableTile extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   // Explicit colour — this is the bug fix.
+                  //
+                  // The size is [fsBadge] (11), and it was `fsCaption` (12.5)
+                  // until this slice. `git log -L` on this line is the whole
+                  // story: the tile drew a bare `fontSize: 12` until the type
+                  // ladder landed (`f589ae0`), which snapped it *up* to the
+                  // nearest step. Nothing asked whether the tile still fitted
+                  // its own label, and the numbers here are the fit, not the
+                  // type: a 3-column grid on a 320 dp page gives the tile
+                  // 78.00 dp of label room (88.00 tile, less 2 x s4, less the
+                  // 1 dp border) and 76.00 when selected, because the selected
+                  // border is 2 dp. «تشطيب عام وتسليم مفتاح», «سباكة وترصيص
+                  // صحي» and «بلاط وسيراميك ورخام» need **78.40 / 80.57 /
+                  // 81.88 dp** for two lines at 12.5 — so those three names
+                  // ellipsized on *every*
+                  // 320 dp phone, in both tile states, on both screens that
+                  // show this grid (publish and profile edit), and only there:
+                  // at 392 and 360 every label fits, which is why the goldens
+                  // are clean and nobody saw it.
+                  //
+                  // 11 needs 72.06 dp, and its twin agrees: the horizontal
+                  // strip tile in `category_grid.dart` draws the same trade
+                  // names at the same [fsBadge] — so after this the two ways
+                  // the app asks a user to pick a trade answer in one size.
+                  //
+                  // **A step below (`fsBadge` is the ladder floor) is not the
+                  // fix and was not taken.** Letting a third line was the other
+                  // way out, and at the width that matters it does not even
+                  // work: 3 lines at 12.5 need **46.88 dp** and the 320 dp tile
+                  // has **31.65 dp** of vertical room (95.65 tile, less 2x10
+                  // padding, less the 2 dp border, less the 36 dp glyph, less
+                  // the 6 dp gap). It clears at 392 (57.74 dp available) and
+                  // not at 320, so it would trade this defect for a narrower
+                  // one on the cheapest phone the app supports.
                   style: AppTheme.label.copyWith(
-                    fontSize: AppTheme.fsCaption,
+                    fontSize: AppTheme.fsBadge,
                     height: 1.25,
                     color: selected ? AppTheme.navy : AppTheme.textPrimary,
                   ),
