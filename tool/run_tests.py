@@ -550,6 +550,28 @@ def main(argv=None):
                 break
             if status == HUNG:
                 _kill_leaked_tester()
+            # **The retry must be announced only if it is actually paid for.**
+            # A HUNG attempt spends its shard's whole cap, so on a plan whose
+            # remaining budget is smaller than one more attempt -- the single
+            # shard case, where the whole-run budget *is* the per-batch cap, or
+            # any caller who set --deadline tight -- the loop below exits on
+            # `remaining <= 0` without running anything. The message used to be
+            # printed unconditionally, one line above that exit, so the log read
+            # "retrying inside its own shard" and then the shard summary
+            # reported "1 attempt(s)": the runner claimed an attempt it had
+            # never made. Two logs in one run contradicted each other, and the
+            # one a tick reads to decide whether the suite was retried was the
+            # false one. Measured on both shapes before the fix: a 1-shard run
+            # at `deadline 3s` and a 2-shard run at `--deadline 3s` each printed
+            # the retry line and reported a single attempt. Now the budget is
+            # checked first and an unpaid retry is named as what it is.
+            if global_end - time.monotonic() <= 0:
+                print("--- shard %d/%d failed (%s); no whole-run budget left "
+                      "for the retry (%d of %d spent) ---"
+                      % (i, len(shards), "HUNG" if status == HUNG else "FAIL",
+                         attempts, a.retries + 1))
+                sys.stdout.flush()
+                break
             print("--- shard %d/%d failed (%s); retrying inside its own shard ---"
                   % (i, len(shards), "HUNG" if status == HUNG else "FAIL"))
             sys.stdout.flush()

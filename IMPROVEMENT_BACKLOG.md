@@ -239,6 +239,36 @@ remote tree, read off the git-data API rather than trusted from the push line.
 
 ## Phase 6 — the loop's own instruments
 
+- [x] **The suite runner announced a retry it had not paid for — and the line a
+      tick reads to answer "was the suite retried?" was the false one.**  `0b2ff38`.
+      A non-build tick: `build_gate.py` answered NO ROOM at **720 MB against the
+      900 MB floor**, worse than the 868 MB last tick measured with nothing
+      running, so the gate denied `flutter analyze` and `tool/run_tests.py`
+      again and this cycle is Python-only. The item taken was **this file's own
+      open KNOWN BUG** at the top of step 4 of the Loop protocol — *"the
+      deadline did not fire"* — because a known bug everyone has stopped reading
+      is how it stays known.
+      *It does not reproduce.* A stub that hangs forever under a 6.0s cap
+      returns HUNG at **6.1s wall**; `run()`'s `proc.wait(timeout=deadline)` is
+      sound and the protocol's own suspect (the shard's test files) is the wrong
+      one. *The real defect is a line above it, and it is a lie rather than a
+      hang.* `main()` printed "retrying inside its own shard" and only then
+      looped back to `remaining = global_end - time.monotonic()`; a HUNG attempt
+      has already spent its shard cap, so the loop exits on `remaining <= 0`
+      having run nothing, while the summary — from the real `attempts` counter —
+      says "1 attempt(s)". Reached by the single-shard plan (budget falls back
+      to the per-batch cap) and by any tight `--deadline`; both reproduced.
+      *Shipped:* budget checked before the message; an unpaid retry is named
+      ("no whole-run budget left for the retry (1 of 2 spent)"). The paid-for
+      retry still runs.
+      *Evidence.* `python3 test/run_tests_retry_budget_test.py` -> **2/4** against
+      the unfixed runner (exactly the two defect cases), **4/4** with it; the
+      guard cases were green both ways and count the stub's launches rather than
+      trust the log under test, so silencing the message does not pass. The 4
+      existing Dart runner suites could not run, so every CLI shape they pin was
+      replayed against the real runner: **11/11**. No Dart changed.
+      Full detail in the Tick 8 Oct (2nd) section at the foot of this file.
+
 The backlog is empty and the gate was lying, so this phase is about the
 harness rather than the app. Items here are only real if they change what a
 future tick can *see*.
@@ -27490,3 +27520,122 @@ rather than once. It needs a tick the box can host a build on. Also queued:
 backlog's own name for the trade-filter item is **wrong** (`286` is a comment /
 `1.2` is at `290`) — corrected here so the next tick does not open the wrong
 line.
+
+---
+
+## Tick 8 Oct 2026 (2nd) — the runner announced a retry it never ran, and the
+one line a tick reads to answer "was the suite retried?" was the false one
+
+**No Dart was written and no build was started.** `tool/build_gate.py` answered
+`NO ROOM` again, exit 1, at **720 MB reclaimable against the 900 MB floor** —
+worse than the 868 MB the last tick measured, so the box got *tighter*, not
+looser, with nothing running. Same conclusion as last tick and no reason to
+re-derive it: the floor stays, this tick is non-build.
+
+The item taken was **the KNOWN BUG this file itself carries**, at the top of
+step 4 of the Loop protocol: *"KNOWN BUG, measured 6 Oct — the deadline did not
+fire."* It is still open, and it was worth checking rather than inheriting,
+because a known bug in a file everyone has stopped reading is how it stays
+known.
+
+**It does fire.** Measured directly against a stub that hangs forever: a 6.0s
+cap returned `STATUS=2` at **6.1s wall**. The protocol's own advice pointed at
+the shard's files (`quote_duration_copy_test.dart` .. `rows_partial_test.dart`),
+which is the wrong suspect — `run()`'s `proc.wait(timeout=deadline)` is the
+part that bounds a run and it is sound.
+
+**The real defect is one line above it, and it is a lie rather than a hang.**
+`main()` prints `"--- shard N/M failed (HUNG); retrying inside its own shard ---"`
+and *then* loops back to `remaining = global_end - time.monotonic()`. A HUNG
+attempt has already spent its whole shard cap, so whenever the remaining
+whole-run budget cannot fund one more attempt the loop exits on `remaining <= 0`
+having run nothing at all. The message was emitted unconditionally, one line
+above that exit, while the shard summary — printed from the real `attempts`
+counter — correctly said otherwise. **One run, two logs, contradicting each
+other:**
+
+```
+=== shard 1/1, attempt 1/2 — 3 file(s), deadline 3s ===
+--- shard 1/1 failed (HUNG); retrying inside its own shard ---
+shard 1/1: HUNG in 0:03 (1 attempt(s), 0 test(s))
+```
+
+Two shapes reach it. The **single-shard** plan, where `default_deadline`
+returns `None` and `main()` falls back to `a.shard_deadline`, so the whole-run
+budget *is* the per-batch cap and attempt 1 consumes all of it. And any caller
+who sets `--deadline` tighter than the shards need. Both were reproduced before
+the fix (B and C below); both are pinned after it.
+
+**Shipped:** the budget is checked *before* the message, and an unpaid retry is
+named as what it is —
+`"no whole-run budget left for the retry (1 of 2 spent)"` — so the log agrees
+with the counter instead of overstating it. The paid-for retry is untouched:
+`attempt 2/2` still runs whenever there is budget for it.
+
+**Why this is Phase 6 and not a cosmetic fix.** The loop's rule is that a
+gate's output *is* the evidence. `passed_count` returning `None` once made this
+same runner raise `TypeError` instead of printing `"?"` (`%d` vs `%s`), and the
+fix for that is recorded in the file as *"a note that lies about its own number
+is worse than no note."* This is the same defect wearing a different hat: the
+line that answers **"did the runner retry this shard?"** was the false one. A
+tick reading that line concludes the suite got a second chance it never had,
+and reports a retry as the mitigation for a hang that had none.
+
+**Evidence — red before green, honestly counted.**
+
+| case | pre-fix | post-fix |
+| --- | --- | --- |
+| B single shard, hang | claims "retrying", 1 attempt | `no whole-run budget left` |
+| C caller-set tight `--deadline`, hang | claims "retrying", 1 attempt | `no whole-run budget left` |
+| D FAIL-then-pass, 1 shard | 2 attempts, SUITE PASS | 2 attempts, SUITE PASS |
+| E derived 2-shard budget, hang | 2 attempts per shard | 2 attempts per shard |
+
+`test/run_tests_retry_budget_test.py` -> **2/4 against the unfixed runner**,
+exactly the two defect cases, and **4/4 with the fix**. The two guard cases
+stayed green in *both* directions, which is what makes them guards: a fix that
+merely suppressed the message — the cheapest way to pass B and C — is caught by
+case 3, because the retry is counted by the stub's own launch log rather than
+by the line being tested. A python suite, not a Dart one, for the reason
+`test/build_gate_test.py` already established: it spawns real children, it needs
+no engine, and it is the only shape runnable on a box whose gate refuses.
+
+**And the 4 existing Dart runner suites, replicated by hand.** I changed a file
+pinned by `run_tests_deadline_test.dart`, `run_tests_shard_test.dart`,
+`run_tests_budget_test.dart` and `run_tests_orphan_test.dart`, none of which
+can run while the gate refuses — so silence there would have been evidence of
+nothing. Every CLI shape they pin was replayed against the real runner:
+**11/11**, including `deadline -> exit 2 + HUNG + culprit`, a clean exit never
+read as HUNG, a busy gate spawning nothing, the single-batch label kept
+verbatim, the FAIL retry saving the run, and a red shard refusing a grand
+total. `flutter analyze` and `tool/run_tests.py` were **not** run: the gate
+denied them, and this change adds no Dart.
+
+**Two of my own assertions were wrong before the runner was suspected**, and
+both are written into the test file:
+
+* case 3 asserted the stub was launched **twice** for two shards; it launched
+  **four** times, because the budget is per *shard* and a derived whole-run
+  figure funds 2 attempts in each of 2 shards rather than 2 overall. "Per shard"
+  and "per run" are indistinguishable in the runner's own log.
+* a hand replication assumed a never-green shard exits **HUNG (2)**; it exits
+  **FAIL (1)** and prints "This is NOT a suite result" — `INCOMPLETE` is
+  reserved for shards that never got their turn. HUNG means the harness lost
+  control; a shard that ran twice and failed twice is a red tree, and
+  conflating the two sends a tick hunting a harness bug it does not have.
+
+Same lesson slice 33 recorded for `_minRoom` and the last tick recorded for the
+border-width census: **a probe returning an implausible number is a broken
+probe, not a result.** Both were caught by reading the runner's actual output.
+
+*Not visual.* A retry message in a process runner draws nothing; no screenshot
+is claimed and none should be.
+
+### Next
+
+`quote_worker_trust.dart:82` is still blocked as written — it is one of six
+`1.5` border-width writers and the real slice is the `AppTheme.hairline` token
+plus a guard that the six agree, which needs a build. Next to it: delete the
+dead `OutlineButton` (`big_button.dart:108`, zero callers since the initial
+commit, byte-identical to the live `SecondaryButton` at `ui.dart:303`), and the
+`trade_filter_bar.dart` literal is **`1.2` at line 290**, not `286` as this
+backlog's own notes have said for four ticks.
