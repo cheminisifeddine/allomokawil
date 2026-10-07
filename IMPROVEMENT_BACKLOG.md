@@ -27386,3 +27386,107 @@ decided `trade_filter_bar.dart:286` exemption. The three `SizedBox(height: 6)`
 in `profile_edit_screen.dart` (label -> field, lines 360/375/414) are a **fourth
 pattern** in the same file and were left alone: they are a label-to-control gap,
 not a heading rhythm, so they want their own slice.
+
+---
+
+## Tick 8 Oct 2026 (read-only) — the build gate denied at **875 MB against a 900 MB floor**, and the denial cannot be cleared from inside
+
+**No Dart was written and no build was started.** `tool/build_gate.py` returned
+`NO ROOM — nothing is building, but only 868 MB is reclaimable`, exit 1, and the
+denial was **stable across three samples** (MemAvailable 794056 / 794024 /
+791820 kB). The floor is `MIN_AVAILABLE_MB = 900`, so the box sat **~110 MB
+short** and no tick could have satisfied it.
+
+### Why it could not be cleared
+
+| lever | result |
+| --- | --- |
+| `python3 tool/build_gate.py --reap` / `--quiet` | BUSY three times, never CLEAR |
+| `echo 3 > /proc/sys/vm/drop_caches` | **denied — `/proc/sys` is read-only** in this container |
+| `/sys/fs/cgroup/memory.*` | **unreadable** — no cgroup accounting to reclaim against |
+| `SwapTotal` | **0** — no swap, as every previous tick recorded |
+
+The interesting half is *who* holds it. All 8 visible processes together are
+**879 MB RSS**, but `used` is **7146 MB**. `hermes` (PID 1827) is 514 MB and the
+`hatch` daemon (PID 67) is 343 MB — and PID 1827 **is this cron session's own
+runtime**. So the two largest holders in the box are the agent harness and the
+daemon it runs under, neither of which is a build this loop started, and the
+`--reap` arm correctly refuses them: it only SIGTERMs processes the survey
+*proves* are this loop's leaked renders. A leaked browser would have been
+cleared; a gateway is not a leak.
+
+So the remaining ~6 GB is held **outside this PID namespace** by neighbours on a
+shared host. That is the honest read: `available` is low because the box is
+shared, not because this loop leaked. **The 900 MB floor is doing exactly its
+job** — it refuses to start a second engine on a box that measured 1177 MB for a
+healthy run. **No tick should raise the floor to get past this**; if the box
+genuinely needs to host a build again the answer is more RAM or a swap file, and
+both are founder/infra decisions, not a constant to edit.
+
+### What was done instead: the audit the denial paid for
+
+The named next item was `quote_worker_trust.dart:82` (`EdgeInsets.all(1.5)`),
+and reading it produced a **fifth writer** that the backlog had never listed.
+`AppTheme.ring` (line 191) is the token that was *created* for exactly this job —
+"the white ring drawn around an avatar or a selected chip" — and it is used in
+**three** places (`worker_home_screen.dart:1606`, `:1906`,
+`worker_profile_screen.dart:403`). The quote card's own badge ring was never
+counted as a fourth writer because it draws a **1.5** ring, not `ring`'s 3, and
+it has no test pinning which is correct.
+
+### The census, measured (13 off-grid border-width literals, not 1)
+
+R4 reads off-grid literals **inside `EdgeInsets` constructors** and reads
+**none** of these — a `BorderSide` width is not an `EdgeInsets`. Every number
+below was produced by the corrected scanner and then **re-read by hand**, because
+the first two versions of that scanner were wrong:
+
+- v1 matched only single lines and found **1** site — it missed 12.
+- v2 fixed multi-line but its `_balanced` helper returned the text *after* the
+  closing paren, so it matched `width: 42` from a `Container(width: 42)` further
+  down the file. It reported **18** sites including a border that does not exist
+  (`category_grid.dart:112` is `width: selected ? 2 : 1`).
+- v3 returns the arguments between the parens and was validated on two sites read
+  by hand before use.
+
+**Same trap slice 33 recorded for `_minRoom`:** a measurement that returns
+implausible values is a broken probe, not a result. Both were caught only
+because the output was checked against the source.
+
+| literal | sites | what it is |
+| --- | --- | --- |
+| `1.5` | **6** | the outline/knockout ring: `app_tab_bar.dart:379`, `notifications_bell.dart:312`, `big_button.dart:132`, `ui.dart:303`, `app_theme.dart:577`, `project_new_screen.dart:1504` |
+| `2` | 3 | focus/selected ring: `auth_screen.dart:548`, `app_theme.dart:639`, `:647` |
+| `1.6` | 1 | the "remember me" checkbox, `auth_screen.dart:635` |
+| `1.4` | 1 | portfolio tile border, `my_portfolio_screen.dart:953` |
+| `1.2` | 1 | trade pill border, `trade_filter_bar.dart:290` — **this is the item four ticks have been calling "the decided `trade_filter_bar.dart:286` exemption"**; the real literal is at **290** and it is `1.2`, not what the name suggests |
+| `1` | 1 | `app_tab_bar.dart:167` top hairline |
+
+**The `1.5` is six writers of one quantity and R4 counts none of them.** The
+`big_button.dart:132` and `ui.dart:303` pair is the strongest evidence: two
+button recipes, `OutlineButton` and `SecondaryButton`, **byte-identical apart
+from indentation**, and the only difference in their whole style block is which
+file holds it.
+
+### And `OutlineButton` has **zero callers**
+
+`SecondaryButton` (`ui.dart`) is used in **10** places. `OutlineButton`
+(`big_button.dart:108`) is used in **none** — verified across `lib/`, `test/` and
+`tool/`, and `git log -S` shows it has existed unchanged since the initial commit
+`a40b812`. So of the two identical recipes, the one that is live is
+`SecondaryButton` and the other is **dead code carrying a live duplicate of the
+theme's border width**. Deleting it is a real (if small) cleanup, and it is a
+**deletion**, which makes it safe to ship without a golden re-baseline.
+
+### Next
+
+`quote_worker_trust.dart:82` is **blocked as written** — it is one of six `1.5`
+writers, and the honest slice is a **border-width token**, not an `EdgeInsets`
+rename: `AppTheme.hairline = 1.5` beside the existing `ring = 3`, consumed by all
+six `1.5` sites at once, with a guard asserting the six agree. That is one
+quantity, one writer, and it drops the `1.5` out of R4's reach permanently
+rather than once. It needs a tick the box can host a build on. Also queued:
+`OutlineButton` is dead and can be deleted whenever a build is available, and the
+backlog's own name for the trade-filter item is **wrong** (`286` is a comment /
+`1.2` is at `290`) — corrected here so the next tick does not open the wrong
+line.
