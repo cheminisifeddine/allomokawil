@@ -249,6 +249,16 @@ const _appRuleGuards = <String, String>{
   'test/tile_label_fit_test.dart':
       'the tile-label rule: every Arabic label the app ships fits its tile at '
       'every width the app claims',
+  // Added 7 Oct (20th). `review_screen.dart` declared a **local** called
+  // `pagePad` holding 20 or 8, and drew `L/R 20, T 14, B 28` -- the house
+  // column's own name on a column that matched the house column on one of its
+  // four edges. Both spacing guards were blind to it by construction: R4 reads
+  // literals and the two gutter edges were an identifier, and R5 only compares
+  // four plain numbers. A shadow is invisible to a literal census *because* it
+  // is spelled as a name somewhere else, so the rule is about the shadowing.
+  'test/review_page_column_test.dart':
+      'the token-shadow rule: no local may take a house inset token\'s name and '
+      'hold a different value',
 };
 
 /// The literal each named guard must still carry to be the guard it is
@@ -306,6 +316,12 @@ const _ruleEvidence = <String, List<String>>{
   // the colon and the label spelled the way a call spells it.
   'test/phone_posted_value_test.dart': [r'phone:\s*(.+?),?\s*$'],
   'test/tile_label_fit_test.dart': [r'symmetric\(\s*horizontal:'],
+  // The declaration itself, with the type keyword, so the token can only be
+  // carried by a real `final <name> =` statement and not by any other mention
+  // of the word. The rule turns on the *declaration*, not on the value -- a
+  // guard that only matched the word `pagePad` would fire on the rule's own
+  // prose in any file it read.
+  'test/review_page_column_test.dart': [r'(?:final|var)\s+'],
 };
 
 /// The literal roots a source sweep enumerates, read out of its own source.

@@ -120,11 +120,24 @@ class _ReviewScreenState extends State<ReviewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Five 56 dp stars need 280 dp of clear width. A 392 dp phone spends 20 + 16
-    // per side on the page and the card and is comfortable; a 320 dp one only
-    // has 40 dp to give in total, so there the card drops its own inset and the
-    // page keeps 8. Measured on the rendered tree at both widths.
-    final pagePad = MediaQuery.sizeOf(context).width >= 360 ? 20.0 : 8.0;
+    // Five 56 dp stars need 280 dp of clear width, and the house column spends
+    // `gutter` on each side plus the card's own line — so it stops fitting
+    // below 5 * tapMin + 2 * gutter + 2 * cardLineWidth = 318 dp. That is the
+    // RenderFlex overflow boundary, measured on the rendered tree (it fails at
+    // 316 and is clean at 318), not an estimate, so the test beside it
+    // recomputes it rather than repeating 318.
+    //
+    // Below it the page gives up **its gutter and nothing else**: the top and
+    // the bottom stay the house edges. This branch used to be spelled as a
+    // local called `pagePad` holding 20 or 8 with a top of 14 — the house
+    // column's own name, on a column that agreed with the house column on none
+    // of its three varying edges. Naming it `pagePad` is what hid it: R4 reads
+    // literals and skips identifiers, and R5 only compares four plain numbers,
+    // so a screen that *looked* like it used the token used nothing.
+    final wideEnoughForTheColumn = MediaQuery.sizeOf(context).width >=
+        AppTheme.tapMin * 5 +
+            AppTheme.gutter * 2 +
+            AppTheme.cardLineWidth * 2;
     return Scaffold(
       appBar: AppBar(title: const Text('قيّم المقاول')),
       body: SafeArea(
@@ -132,7 +145,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 620),
             child: ListView(
-              padding: EdgeInsets.fromLTRB(pagePad, 14, pagePad, 28),
+              padding: wideEnoughForTheColumn
+                  ? AppTheme.pagePad
+                  : AppTheme.pagePad
+                      .copyWith(left: AppTheme.s8, right: AppTheme.s8),
               children: [
                 Text('كيف كانت تجربتك مع المقاول؟',
                     textAlign: TextAlign.center, style: AppTheme.h1),
