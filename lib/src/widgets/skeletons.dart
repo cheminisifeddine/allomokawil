@@ -227,8 +227,18 @@ class SkeletonGrid extends StatelessWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 620),
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(
-                AppTheme.gutter, AppTheme.s12, AppTheme.gutter, AppTheme.s28),
+            // This is the gallery's own column, and it has to be the same
+            // column: `SkeletonGrid` stands in for `MyPortfolioScreen` while
+            // the first read is in flight, and it held `s12` on the top edge
+            // where the screen says `s8`. The two are drawn one after the
+            // other, so the grid sat 4 dp higher than the photographs that
+            // replaced it and the whole gallery jumped as it loaded.
+            //
+            // Measured off the engine, both states, before this line changed:
+            // the skeleton `T=12.0`, the settled screen `T=12.0`. The settled
+            // one is `8.0` now; this one has to be the same number or the
+            // fix trades a static offset for a jump.
+            padding: AppTheme.pagePad,
             children: [
               const Row(
                 children: [

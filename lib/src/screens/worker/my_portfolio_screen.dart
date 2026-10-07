@@ -612,8 +612,23 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 620),
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(
-                      AppTheme.gutter, AppTheme.s12, AppTheme.gutter, AppTheme.s28),
+                  // The page column, by its own name — `AppTheme.pagePad`.
+                  //
+                  // This screen spelled it out in tokens instead, as
+                  // `gutter, s12, gutter, s28`, and three of those four ARE
+                  // the column. Only the top disagreed: `s12` where the house
+                  // `pagePad` says `s8`. So the contractor's gallery grid
+                  // started 4 dp lower than the profile screen he came from —
+                  // the same 4 dp disagreement the eighteenth slice fixed in
+                  // `chat_list_screen` and `verification_screen`, on a screen
+                  // R5 could not see (see the note below).
+                  //
+                  // Writing it in tokens did not make it safer, it made it
+                  // invisible: a token-spelled column looks named, so nothing
+                  // compares it to `pagePad`, and the only guard for this
+                  // (R5) matches four PLAIN NUMBERS. That blind spot is
+                  // closed by R5's second direction below.
+                  padding: AppTheme.pagePad,
                   children: [
                     // The band **replaces** the danger card when the grid is
                     // still on screen, and this is the half that is easy to

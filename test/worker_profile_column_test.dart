@@ -45,6 +45,7 @@ import 'package:allomokawil/src/core/app_scope.dart';
 import 'package:allomokawil/src/core/network/api_client.dart';
 import 'package:allomokawil/src/core/security/auth_state.dart';
 import 'package:allomokawil/src/core/theme/app_theme.dart';
+import 'package:allomokawil/src/screens/worker/my_portfolio_screen.dart';
 import 'package:allomokawil/src/screens/worker/worker_profile_screen.dart';
 import 'package:allomokawil/src/widgets/skeletons.dart';
 
@@ -295,6 +296,144 @@ void main() {
       expect(AppTheme.ring % 4 != 0, isTrue,
           reason: 'ring is deliberately off-grid; if this ever goes green the '
               'token and its documented reason disagree');
+    });
+  });
+
+  // Added by the nineteenth slice: the same pairing, one screen over — and the
+  // reason it needed saying out loud rather than another rename.
+  //
+  // `my_portfolio_screen.dart` held the page column in TOKENS —
+  // `AppTheme.gutter, AppTheme.s12, AppTheme.gutter, AppTheme.s28` — which
+  // reads as the safe way to write it and is why nothing compared it to
+  // `pagePad` for a day: `card_recipe_test.dart`'s R5 matches four PLAIN
+  // NUMBERS, so a token-spelled column is invisible to the one guard that owns
+  // this rule. It sat 4 dp low on the top edge, live since 6 Oct, while the
+  // eighteenth slice fixed the identical 4 dp on two screens R5 *could* see.
+  //
+  // Fixing the screen alone would have been worse than leaving it: the gallery
+  // draws `SkeletonGrid()` while the first read is in flight, that skeleton
+  // held the same `s12`, and the two are drawn one after the other. Moving one
+  // trades a static offset for a 4 dp jump the moment the photographs land.
+  // So the pairing is pinned here, by the same method as the three above and
+  // for the same reason: two states, one column, measured on the tree.
+  group('the gallery opens on the column its photographs land on', () {
+    EdgeInsets columnOf(WidgetTester tester, Finder list) {
+      final w = tester.widget<ListView>(list);
+      return w.padding!.resolve(TextDirection.rtl);
+    }
+
+    testWidgets('the loading frame and the gallery agree, to the pixel',
+        (tester) async {
+      tester.view.physicalSize = const Size(1080, 2600);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+
+      // The skeleton, mounted as the screen mounts it. Measured directly
+      // rather than by holding a read open, because the skeleton is a plain
+      // widget with no gate of its own and a gate here would test the mock.
+      await tester.pumpWidget(MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light,
+        locale: const Locale('ar'),
+        home: Scaffold(
+          body: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 620),
+              child: const SkeletonGrid(),
+            ),
+          ),
+        ),
+      ));
+      // Bounded, never pumpAndSettle: `Shimmer` animates forever.
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 80));
+      }
+
+      final skeleton = find.byType(SkeletonGrid);
+      expect(skeleton, findsOneWidget,
+          reason: 'the skeleton must actually be on screen, or the assertion '
+              'below is comparing two numbers nothing drew');
+      final skelColumn = columnOf(tester, find.descendant(
+          of: skeleton, matching: find.byType(ListView)).first);
+
+      // The settled gallery, booted for real against a mock API.
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final api = ApiClient(
+        baseUrls: const ['https://x.test'],
+        httpClient: MockClient((req) async {
+          if (req.url.path.contains('/portfolio')) {
+            return _json(const <Object>[]);
+          }
+          if (req.url.path.contains('/subscription')) {
+            return _json(<String, Object?>{
+              'currency': 'DZD',
+              'note_ar': '',
+              'commission_percent': 0,
+              'commission_per_order': 0,
+              'plans': <Object?>[],
+              'current': <String, Object?>{
+                'plan': 'free_trial',
+                'name_ar': 'الخطة المجانية',
+                'status': 'active',
+                'starts_at': '2026-09-01 00:00:00',
+                'expires_at': null,
+                'quote_limit': 3,
+                'portfolio_limit': 20,
+                'quotes_used_this_month': 0,
+              },
+            });
+          }
+          if (req.url.path.endsWith('/api/login') ||
+              req.url.path.endsWith('/api/register')) {
+            return _json(<String, Object?>{
+              'token': 'tok',
+              'user': <String, Object?>{
+                'id': 31, 'phone': '0773000000', 'email': null,
+                'full_name': 'مقاول تجربة', 'type': 'worker', 'avatar_url': null,
+                'wilaya': '16', 'commune': null,
+                'created_at': '2026-09-11 20:00:00',
+              },
+            });
+          }
+          return _json(const <Object>[]);
+        }),
+      );
+      final auth = AuthState(api);
+      await auth.login(phone: '0773000000', password: 'secret123');
+
+      await tester.pumpWidget(AppScope(
+        api: api,
+        auth: auth,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          locale: const Locale('ar'),
+          supportedLocales: const [Locale('ar'), Locale('en')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: const MyPortfolioScreen(),
+        ),
+      ));
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 80));
+      }
+
+      expect(find.byType(SkeletonGrid), findsNothing,
+          reason: 'the read answered; the gallery is showing');
+      final gallery = columnOf(tester, find.byType(ListView).first);
+
+      expect(skelColumn, AppTheme.pagePad,
+          reason: 'SkeletonGrid is drawn in the gallery\'s place while the '
+              'first read is in flight, so it is the column the reader sees '
+              'first');
+      expect(gallery, skelColumn,
+          reason: 'the page must not shift when the photographs land — the '
+              'loading frame and the gallery it stands in for are one column, '
+              'and sweeping only one of them is what this case is here to '
+              'catch');
     });
   });
 }
