@@ -23774,7 +23774,79 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 16 on 7 Oct;
+- [x] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 15 on 7 Oct;
+      **15 remain across 13 files** after slice 29. Local `f751ea5` -> remote
+      `53aebdf`, trees identical (`ae3b692` both sides), all 3 blobs MATCH by
+      SHA.
+
+      **slice 30 shipped** (30th = **the client's first-run step row was one
+      step off the row rhythm its own twin draws**). `_StepRow` in
+      `client_start_card.dart` painted `EdgeInsets.symmetric(vertical: 5)` --
+      off the 4 dp ladder, one step above the house step, with **no comment
+      defending it**, which by slice 24's rule makes it an accident rather than
+      a decision.
+
+      **The oracle is a pair, and the pair is documented in the source.** The
+      class doc above the card says this card "is the client's half of that":
+      the *other* half is the contractor's `_GettingStarted` checklist on the
+      worker home, which draws the same one-line row with `AppTheme.s4`
+      (`worker_home_screen.dart:2139`). Two guides, same shape on purpose, two
+      different spaces between their steps. R4 counted the `5` and priced it
+      identically to six defended siblings -- **ninth repeat**, and the first
+      one where the file naming the correct answer was the *class doc* two
+      hundred lines above the defect.
+
+      **Red before green, engine's own numbers:** band
+      `EdgeInsets(0.0, 5.0, 0.0, 5.0)` and measured row-to-row **10.0** against
+      expected **8.0**; green band `EdgeInsets(0.0, 4.0, 0.0, 4.0)`, row-to-row
+      **8.0**. New `test/client_step_row_column_test.dart` (2 cases) mounts the
+      real card and asserts the band off the built tree against `AppTheme.s4`.
+
+      **The guard was wrong twice first, and both mistakes were the kind that
+      would have shipped a false claim.** (1) It searched **ancestors** for the
+      band's `Padding` when the key sits on `_StepRow` and the `Padding` is what
+      that widget *returns* -- a child. It reported "the row carries no Padding
+      of its own" on a row that plainly had one. (2) It then read
+      `tester.getRect` on the keyed widget, which returns the `Padding`'s box,
+      and **a `Padding`'s own padding is inside its rect** -- so two adjacent
+      rows measure **0.0 dp apart** and the first version would have "proved" a
+      touching-rows defect that does not exist. Both are recorded in the file and
+      each helper now names which box it reads. Third correction, dropped rather
+      than fixed: a third case asserted the row was flush with the card and read
+      a 1 dp disagreement that is **fractional text metrics** on a
+      `start`-aligned column, not a layout defect -- asserted nothing about the
+      card's measure rather than write a rule for a rounding artefact.
+
+      **Pixels, real before/after at DPR 3** (throwaway harness deleted,
+      `lib/` reverted and the retired literal confirmed back in the file before
+      re-shooting): at the widget's own size the card is **462 -> 456 px**, i.e.
+      **6 dp shorter** -- three rows, 2 dp each, which is the arithmetic of the
+      fix and not an estimate. In a fixed 392x850 dp frame the diff is confined
+      to **y 36.7-153.7 dp** (8.54% of pixels); **everything below the card is
+      byte-identical**.
+
+      **R4 15 -> 14**, budget lowered with it and **verified in both
+      directions** rather than trusted: at 13 the file prints `now 14` and
+      fails, at 14 it passes. Tenth repeat of the standing lesson -- the literal
+      that left was the only wrong thing in the diff, and the ratchet priced it
+      the same as the six defended siblings, because a counter cannot tell
+      unexplained from explained.
+
+      **Gate.** `flutter analyze` -> **No issues found!** (9.8 s) · new guard
+      **2 passed** · **47 passed / 0 failed** across the five touched files
+      (`client_first_run`, `customer_home_column`, `card_recipe`,
+      `app_source_scope`, the new guard) · `design_shots_test` **22 goldens
+      green, none re-baselined**. The **source census caught this slice's own
+      new file** for one run: `app_source_scope_test` fails `setUpAll` on any
+      Dart file under `test/` that `git ls-files` cannot see, so an untracked
+      guard is a guard nobody is enforcing. `git add` turned it green; worth
+      knowing that this repo fails a red test on the act of writing a test.
+
+      **No whole-suite number claimed.** `run_tests.py` was launched and was at
+      **shard 4/13** with 1-3 green (192, 246) when this tick ended.
+
+- [x] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 16 on 7 Oct;
+
       **16 remain across 13 files** after slice 28 (`empty_state.dart`, the
       loading skeleton, which was the last of the 15 files and left the
       `EdgeInsets.all` call R5 could never reach). Local `c955380` ->
