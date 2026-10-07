@@ -23778,7 +23778,7 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       **23 remain across 14 files** after slice 23 (`empty_state.dart`, the
       loading skeleton, which was the last of the 15 files and left the
       `EdgeInsets.all` call R5 could never reach). Local `c955380` ->
-      remote pending; backlog tick `914ad7b`.
+      remote `2d7b19d`; backlog tick `6f0559c`. All 4 blobs MATCH by SHA.
       **slices 1-23 shipped** (23rd = `LoadingList` — the shared loading
       skeleton for list screens — sat **10 dp below the first row of the list
       it was standing in for**, on both the screens that use it. `empty_state.dart`
