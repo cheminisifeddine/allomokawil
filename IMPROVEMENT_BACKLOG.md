@@ -23775,6 +23775,10 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       it goes red, `git status --short` is the first thing to read.
 
 - [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 32 on 8 Oct;
+      **slices 1-16 shipped** (16th = the dead `chipTheme`, local `a6790fa` ->
+      remote `1df3c49`, **R4 unchanged at 32** — it deletes a field R4 never
+      counted, in a file R4 excludes; see the slice below, which settles the
+      `14 x 12` question three ticks called open);
       **slices 1-15 shipped** (15th = `auth_screen`, local `6b7b872` ->
       remote `30bac8f`, **R4 unchanged at 32** — see why that is the finding);
       **32 remain across 19 files.** 197 -> 60 on 6 Oct;
@@ -25809,3 +25813,120 @@ files**. The next file by count is `auth_screen.dart` (3), then `ui.dart` (3);
 `chat_screen.dart` has 2 (`vertical: 3` on the unresolved pip and
 `vertical: 5` on the day divider) — the unresolved one is now a `pipPad` away
 from being on the token this slice added.
+
+---
+
+## Slice 16 (7 Oct) — the `14 x 12` question, settled: the field was dead
+
+**The fifteenth slice left one decision open and three ticks called it open.
+It was not a decision.** Ticks 13, 14 and 15 each re-derived the same framing
+from the same note in `test/card_recipe_test.dart`'s header — *"`AuthNotice`,
+`chipTheme.padding`, the trade pill and one banner in `project_detail_screen`
+— that is four writers spelling one chip inset, and the honest fix is a named
+token"* — and each handed it forward as the next right thing. The framing is
+false. `chipTheme` renders **nothing**, so the number was shared by three
+unrelated components and no fourth writer existed.
+
+**Measured before anything was edited.** `ChipThemeData` declared once
+(`app_theme.dart:653`), consumed zero: `Chip(`/`RawChip`/`ChoiceChip`/
+`FilterChip`/`ActionChip`/`InputChip` over `lib/` **and** `test/` -> 0 hits in
+code; no `RawChip`/`CustomChip` subclass; no chip package in `pubspec.yaml`.
+All five "hits" earlier notes recorded were **comments**: the kit header
+(`ui.dart:21`), `trade_filter_bar:251`, `category_grid:13`, `worker_home:1810`
+and `project_new:40` each say the app deliberately avoids Material chips —
+they inherit colour and rendered white-on-white.
+
+So the three real writers share a number and nothing else:
+
+| writer | radius | border | is it a target |
+|---|---|---|---|
+| `AuthNotice` (`auth_screen:675`) | `rMd` | yes | no |
+| quote amount band (`project_detail:1293`) | `rSm` | **no** | no |
+| `_FilterPill` (`trade_filter_bar:286`) | `rPill` | yes | **yes** |
+
+The token the sweep was about to build would have been **three renames and
+zero pixels** — the outcome this file has twice praised, reached here by a
+rename wearing a fix's clothes. Fifteen slices of counting literals could not
+have found this, because the missing writer is an *absence*, and a counter
+cannot count what is not there.
+
+**What shipped is the dead field plus the trap its removal reopens.** Deleting
+`ChipThemeData` is 15 lines of nothing rendering; leaving it deleted silently
+would let the next person reach for a Material `Chip` and inherit an inset
+measured against nothing. So `test/card_recipe_test.dart` gains
+`no Material chip has crept back in`, which fails on any Material chip in
+`lib/`.
+
+**The guard matches code, not prose — and this app documents its bans in
+comments**, so matching naively would have failed on the very comments that
+record the rule. Comments are blanked first (block and line, newlines
+preserved so a reported line is the real line). Verified against fixtures: a
+doc comment naming `ChoiceChip`/`FilterChip` is ignored; an injected
+`FilterChip` is caught at the **exact injected line**; a `//` inside a string
+is a known limitation (truncates the line) and `lib/` has **0** such lines —
+noted in the guard rather than papered over.
+
+*Red before green, on a valid injection:* the first attempt was
+`FilterChip()` with no `label`, which failed to **compile** and proved nothing
+about the guard; replaced with a real one and it went red exactly as intended:
+
+```
+Expected: empty
+Actual: ['lib/src/widgets/ui.dart:30 FilterChip(']
+```
+
+**Files:** `lib/src/core/theme/app_theme.dart` (`ChipThemeData` deleted, the
+reason written down where it was; the `pillPad` note no longer points at a
+field that does not exist), `test/card_recipe_test.dart` (guard + the header
+corrected, since it is the note that mis-framed the question three times).
+
+**Gate.** `dart analyze lib test` -> **No issues found!** (the analyzer gate
+in full — `flutter analyze` was refused by `tool/build_gate.py`, see below).
+**96 passed / 0 failed** across 6 files, no overlaps:
+`card_recipe` **14** (incl. the new guard), `design_shots` **22** (**all nine
+goldens unchanged**), `pill_inset` + `trade_filter_bar` + `empty_states`
+**26**, `auth_gate` + `auth_card_column` + `auth_page_column` **9**,
+`app_source_scope` **16**, `review_submit` +
+`reviews_section_contradiction` **9**.
+
+**Zero pixels, verified in the way that matters:** `design_shots` was run
+green **at HEAD with the change stashed** first, then green with it, so the
+nine identical goldens are a real comparison and not a baseline carrying a
+pre-existing failure. `dart format` reports 315/436 files non-canonical, so
+formatting is not this repo's gate and my files match house style.
+
+**The box refused a build for the first half of this tick.** `build_gate.py`
+answered **NO ROOM** twice — 704 MB then 534 MB available against a 900 MB
+floor and a measured 1177 MB floor for the suite — with `hermes` (519 MB) and
+`hatch` (355 MB) holding everything and nothing building. Per the protocol
+this was a **non-build tick**: audit first, commit second. It cleared to
+**1226 MB / CLEAR** before the runs above, so the gate was re-read rather than
+assumed, and no process was killed. **`flutter analyze` itself was never run** —
+`dart analyze` over the same `lib test` roots is the analyzer result quoted,
+and that substitution is stated here rather than blurred into "analyze passed".
+
+**R4 stays 32, and that is the fourth slice in a row where it does.** This one
+is the cleanest case of all: the deleted field was in `app_theme.dart`, which
+R4 skips by name. The sweep's instrument cannot see a dead field, cannot see
+a comment counting as a writer, and cannot see an absence — every fact of this
+slice was in code it never reads.
+
+**Whole-suite count NOT verified — 1696 passed / 3 skipped is the last
+full-run figure and is *not* re-confirmed by this tick.** `tool/run_tests.py`
+is 13 shards at a measured ~20 min; the tick did not have it. What is verified
+is the 96 above, which covers every file that reads the theme, every file that
+carries a `14 x 12` inset, the guard census and all nine goldens. The other
+shards are **unknown, not passing** — and the change is theme-level, so this
+is a wider net than a screen edit would need.
+
+**Next:** `ui.dart` (3) — `SectionTitle`'s `vertical: 10` (settled by hand in
+`tool/tap_target_audit.py`: `10 + 56 + 4`) and `SelectableTile`'s
+`symmetric(horizontal: 6, vertical: 10)`, which **R4 counts as 2 and is 1
+defect**: the two share one `Padding` object. Measured this tick: at
+`height: 92` (the auth role tiles) a two-line label needs 73.25 dp against
+72 dp of inner box — **-1.25 dp** — but the real Arabic labels
+(`أنا صاحب مشروع`, `أنا مقاول/حرفي`) fit one line at 392/360/320, so the
+2-line case is unreachable and the padding is not a defect today. That is a
+*reading*, not a fix: the grid tiles (`height: double.infinity`) have no
+floor, so a longer future label is where this would bite. Worth a real
+measurement with `SelectableTile` at three widths rather than arithmetic.
