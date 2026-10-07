@@ -27197,7 +27197,9 @@ slice's sibling at `ui.dart:419` pays), `profile_edit_screen.dart:516`,
 
 ## Slice 33 — the horizontal category strip had no fit guard at all, and its vertical padding was one step from a real overflow
 
-**`category_grid.dart:77` — shipped.** The item the last three ticks pointed at:
+**`category_grid.dart:77` — shipped, `0b08b8c` -> remote `5fb3de6`, all five
+blobs verified against the remote tree.** The item the last three ticks pointed
+at:
 `EdgeInsets.symmetric(horizontal: 6, vertical: 10)`, two off-ladder literals,
 the `10` being this sweep's own sibling of the `ui.dart:419` `10` slice 32
 retired.
