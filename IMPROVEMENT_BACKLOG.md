@@ -23774,7 +23774,42 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       with a scratch shot file mid-run. It is working hygiene, not a defect: if
       it goes red, `git status --short` is the first thing to read.
 
-- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 26 on 7 Oct;
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 24 on 7 Oct;
+      **slices 1-21 shipped** (21st = `worker_card.dart`'s private
+      `_MiniTag` was a **fifth hand-rolled pill** at `symmetric(9, 5)`, icon
+      13, gap 4 and `fsBadge`, beside the house `StatusPill`/`CategoryBadge`/
+      `MetaChip` at `pillPad` `symmetric(10, 6)`, icon 14, `pillGap`,
+      `fsCaption`. Measured off real layout in one tree: **tags 25.0 dp tall,
+      house chip 30.0 dp** — same `rPill` radius, same `lineSoft` wash, same
+      caption weight, **on the same screen**: the client home column draws the
+      contractor strip and `ProjectCard`'s status pills in one scroll, so a
+      customer watches the pill change height. The raster says the same: the
+      wash band under the tags measured `y 307..331` (25 dp) in the golden's
+      master. `MetaChip` had already predicted this in its own doc comment —
+      "Naming it means the next pill is a caller, not a copy" — so it **moved
+      into the shared kit `ui.dart`** (it had to: `project_detail_screen`
+      imports `browse_screen`, which imports `worker_card`, so absorbing the
+      other way round was a cycle) and `_MiniTag` is now a one-line caller.
+      Kept separate from `StatusPill` on purpose: that one is a *state* with a
+      colour and a wash, this is a *fact* with no state, and merging them would
+      make the card's «غير متاح الآن» read as a status. **Both ratchets blind by
+      construction**: R4 read `9` and `5` but is a *budget*, so one row inside
+      26 is invisible to a counter that can only ask "make the count go down" —
+      fixing it for R4 would have been a rename; and `pill_inset_test`
+      compares three pills that already *were* one component, which cannot see
+      a pill spelled out instead of reused. New `test/worker_card_tag_pill_test.dart`
+      leads with a **census over the built tree** — every pill-shaped `Container`
+      must draw on `AppTheme.pillPad` — and it fired on exactly the three tags
+      with `MetaChip` clean. **Deliberately NOT in `app_source_scope_test`'s
+      `_appRuleGuards`**, and this cost a correction worth recording: that map is
+      for guards that are *text sweeps*, and it rejects a guard that is not one.
+      A source-text sweep would have **missed this defect entirely**, since after
+      the rename `MetaChip(icon:, text:)` spells no padding at all — the thing
+      the slice finds is only visible in laid-out pixels. `pill_inset_test`, its
+      closest sibling, is absent from the map for the same reason. Golden
+      `10_browse` re-baselined (one capture, one golden changed). Local
+      `236f109` -> remote `ab16351`, all eight blobs MATCH. R4 **26 -> 24**,
+      budget 26 -> 24),
       **slices 1-20 shipped** (20th = `review_screen.dart` declared a **local**
       called `pagePad` holding 20 or 8 and drew `L/R 20, T 14, B 28` — the house
       column's own NAME on a column that matched the house column on one edge of
