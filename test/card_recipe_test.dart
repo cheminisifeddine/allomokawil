@@ -176,7 +176,7 @@ import 'package:allomokawil/src/widgets/ui.dart';
 // third time the same lesson: the count goes down, and what it means is
 // carried by `test/loading_list_column_test.dart`, which reads the skeleton's
 // real card rect off the built tree and compares it to the token.
-const int _offGridBudget = 23;
+const int _offGridBudget = 22;
 
 List<File> _sources() {
   final dir = Directory('lib');

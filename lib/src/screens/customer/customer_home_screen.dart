@@ -1182,9 +1182,20 @@ class _HomeHeader extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               // Location pill — wilaya the user registered with.
+              //
+              // It was `symmetric(horizontal: 12, vertical: 7)` with a 15 dp
+              // glyph and a 5 dp gap, and it was the only off-grid inset in the
+              // app with no comment defending it. The kit already had the
+              // answer written down — `AppTheme.pillPad` with `AppTheme.pillGap`
+              // and a 14 dp glyph — and `StatusPill` and `CategoryBadge` both
+              // use them, so the same idea was drawn at two sizes depending on
+              // the screen. `_FilterPill` keeps its larger 14 x 12 on purpose:
+              // that one is a tap target, this one is a label, and `pillPad` is
+              // the label's. The wash stays a translucent white because the
+              // header behind it is navy, which is the one thing that makes
+              // this pill different from the others rather than a copy of them.
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                padding: AppTheme.pillPad,
                 decoration: BoxDecoration(
                   color: AppTheme.onNavy.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(AppTheme.rPill),
@@ -1193,8 +1204,8 @@ class _HomeHeader extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Icon(Icons.location_on_rounded,
-                        size: 15, color: AppTheme.accent),
-                    const SizedBox(width: 5),
+                        size: 14, color: AppTheme.accent),
+                    const SizedBox(width: AppTheme.pillGap),
                     Flexible(
                       child: Text(
                         location,
