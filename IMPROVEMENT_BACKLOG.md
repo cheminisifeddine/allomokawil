@@ -23775,6 +23775,37 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       it goes red, `git status --short` is the first thing to read.
 
 - [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 24 on 7 Oct;
+      **slices 1-22 shipped** (22nd = the sign-in screen printed **one phone
+      complaint twice, ~320 dp apart** in one card. `_signIn` AND `_register`
+      each set `_phoneTried = true` AND `_error = S.phoneInvalid` in the SAME
+      `setState`; `forceValidate: _phoneTried` is then true, so `DzPhoneField`
+      re-derived its own error from the very `DzPhone.isValid` the screen had
+      just consulted, and the identical Arabic sentence appeared a second time
+      in `AuthNotice` further down the same column. **Measured off the rendered
+      frame** (392x850, DPR 1.0, RTL), not argued: the danger ink formed **TWO
+      65 dp bands, y 304..368 and y 631..695**, and now forms **ONE, y 304..368**.
+      Both spanned **x 35..356 — the SAME width**, so my first draft of the
+      comment claiming "two different widths" was wrong and the pixels said so;
+      what made the repeat read as noise was the 263 dp of unrelated rows
+      between them plus the second box's own border and wash, not a mismatch
+      anyone could measure. The fix is that the screen now sets `_phoneTried`
+      alone and lets the field — which owns the number and highlights it — say
+      it once; the empty-form, short-password and server-answer messages are
+      untouched, because those are the screen's own to keep. **No existing guard
+      could see it, and each is blind for a different reason**: R4 counts the
+      `7` and the `14`, but both rows sit inside the budget, so two bands that
+      should not coexist are indistinguishable from two that should;
+      `phone_field_test` pumps `DzPhoneField` alone and cannot see `AuthNotice`;
+      and `auth_card_column_test` **does** pump the whole screen but asserts
+      column *alignment*, which both bands pass because both sit inside the
+      content inset. New `test/auth_phone_error_duplication_test.dart`
+      (4 cases) is a **presence** guard — it asserts the count of DISTINCT
+      danger-coloured sentences equals the number printed, which is what the
+      user perceives — and it is **RED on HEAD**, GREEN here. Deliberately NOT
+      in `_appRuleGuards` for slice 21's reason (that map is for source-text
+      sweeps). **R4 unchanged at 24, correctly**: the `7` and the `14` are still
+      literals, and a structural defect is not a rename. Local `710c101` ->
+      remote `ca46c43`, both blobs MATCH),
       **slices 1-21 shipped** (21st = `worker_card.dart`'s private
       `_MiniTag` was a **fifth hand-rolled pill** at `symmetric(9, 5)`, icon
       13, gap 4 and `fsBadge`, beside the house `StatusPill`/`CategoryBadge`/
