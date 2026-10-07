@@ -25930,3 +25930,97 @@ defect**: the two share one `Padding` object. Measured this tick: at
 *reading*, not a fix: the grid tiles (`height: double.infinity`) have no
 floor, so a longer future label is where this would bite. Worth a real
 measurement with `SelectableTile` at three widths rather than arithmetic.
+
+---
+
+## Slice 17 — the tile label that fit by 0.06 dp, and the probe that caught it
+
+**SHIPPED.** The item was left open by slice 16, which ended by saying the
+`SelectableTile` question "needs real measurement at three widths, not
+arithmetic". It is measured now, and **the arithmetic was wrong**.
+
+**The defect.** `SelectableTile`'s padding was
+`symmetric(horizontal: 6, vertical: 10)` — `6` is **off the 4 dp ladder**
+(`s4/s8/s12/s16/s20/s24/s28/s32`). At a 320 dp page the three-column grid gives
+each tile `(320 - 2*18 - 2*10)/3 = 88.00 dp`, so the **selected** tile — the one
+carrying a 2 dp border instead of 1 — leaves the label `88 - 12 - 4 = 72.00 dp`.
+The longest taxonomy label, «بلاط وسيراميك ورخام», needs **72.06 dp** to stay on
+two lines. It missed by **0.06 dp**, so it ellipsized to «بلاط وسيراميك…`.
+
+**Why it survived slice 16 and the sixteen before it.** Three reasons, all of
+them structural:
+  * the *plain* tile has 74.00 dp and fits, so the truncation appeared only in
+    the state the user **chooses** and vanished in the one they did not;
+  * at 392 and 360 — the two widths the goldens are shot at — it never appears
+    at all, so nine committed goldens were blind to it;
+  * R4 counts off-ladder literals, so it *counted* the `6` sixteen times over
+    as three files' worth of padding without ever asking what the number cost.
+    A ratchet reads the size of the vocabulary, not the size of the layout.
+
+**Fix.** `horizontal: 6` -> `AppTheme.s4`. 72.00 dp -> **76.00 dp**, 3.94 dp of
+headroom over the 72.06 dp needed, and the literal is gone from the sweep as a
+side effect. `vertical: 10` is untouched — it is the tile's own proportion, not
+a grid gap.
+
+**Two instruments, and they agree.** `tool/label_fit.py` (carried over from the
+interrupted tick, uncommitted) lays the strings out through PIL+raqm;
+`test/tile_label_fit_test.dart` asks the engine via
+`TextPainter.didExceedMaxLines`. Per-label natural widths agree to **0.01 dp**
+(«تشطيب عام وتسليم مفتاح» 128.69 both; «بلاط وسيراميك ورخام» 101.80 vs 101.81),
+and both now report 76.00 dp of room at 320/selected. The engine is the
+authority; the probe is kept because it is instant and its self-test pins it
+against the drift that matters.
+
+**I was wrong twice inside this tick, and both are worth writing down.**
+
+1. **My first engine check cleared the bug.** I wrote a `TextPainter` probe,
+   got "no truncation at any width", and read it as "the probe is lying" —
+   because `computeLineMetrics().length` reported 2 for a label that overflows.
+   The engine had already said `didExceedMaxLines`. **Counting lines cannot see
+   a line that was dropped**; only the flag can. The corrected check found the
+   one real case, and the PIL probe was vindicated rather than the engine
+   doubted. The arithmetic in slice 16 and my quick check shared one blind spot:
+   both trusted a line count.
+
+2. **My own guard passed while the bug was still in the source.** The test took
+   the page width as a *host argument*, which never reaches the surface —
+   `flutter test` boots at 800 physical / dpr 3 = **266.67 dp**, so it measured
+   266.67 at every width and reported "fits". Fixed by setting
+   `tester.view.physicalSize` per width. Then it still failed *after* the fix,
+   because the room formula had `- 12` transcribed: it kept reporting
+   `72.00 dp` while the padding read `AppTheme.s4`. Now the padding is **read
+   off the laid-out `AnimatedContainer`**, so the guard cannot quote its own
+   arithmetic back at itself.
+
+**Red before green, on a real injection.** With `6` restored:
+```
+Actual: ['page 320 selected: «بلاط وسيراميك ورخام» needs 99 lines in 72.00 dp']
+```
+Both the measurement and the ladder guard fail; with `AppTheme.s4` all 3 pass.
+
+**Evidence.** `flutter analyze` -> **No issues found!** (10.2 s).
+`flutter test` over `design_shots` + `card_recipe` + `tile_label_fit` ->
+**39 passed / 0 failed**, **all nine goldens byte-identical** (the tiles in the
+shots are at 392 dp, where this change moves no line break and no pixel). The
+six suites that render these tiles — `auth_card_column`, `auth_gate`,
+`profile_edit_clearance`, `profile_edit_midflight`, `project_new_edges`,
+`submit_busy_category` — **16 passed / 0 failed**. R4 green at **32**.
+`tool/label_fit.py` exits **0**; its self-test is **20/20** including the new
+case 7 (a ladder *token* resolves; an unknown one stops the probe).
+
+**Files.** `lib/src/widgets/ui.dart` (the inset, and the reason written where it
+was), `test/tile_label_fit_test.dart` (new, 3 checks), `tool/label_fit.py`
+(token resolver + a readable failure instead of a traceback),
+`test/label_fit_test.py` (case 7), `IMPROVEMENT_BACKLOG.md`.
+
+**Not verified:** the whole-suite count. `tool/run_tests.py` is 13 shards at
+~20 min and this tick did not have it; the 55 above cover every consumer of the
+changed widget and all nine goldens, and the change is three tokens deep in one
+shared tile. **No web build and no screenshot** — `build_web.sh` needs a JDK,
+which this box does not have, so "the pixels do not move" rests on the nine
+goldens being byte-identical, not on a render I looked at.
+
+**Next:** `ui.dart` (2) — `SectionTitle`'s `vertical: 10`, which
+`tool/tap_target_audit.py` already settles by hand (`10 + 56 + 4`). With the
+tile's horizontal inset now on the ladder, the remaining `ui.dart` literals are
+the one item R4 still counts that is not a component gap.

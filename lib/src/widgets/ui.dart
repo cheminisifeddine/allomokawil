@@ -383,7 +383,21 @@ class SelectableTile extends StatelessWidget {
         child: AnimatedContainer(
           duration: AppMotion.fast,
           height: height,
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+          // The horizontal inset was `6` — off the 4 dp ladder, and the reason
+          // the selected tile is the only one that ever ellipsizes a label.
+          // Two grids of three columns at a 320 dp page leave the *selected*
+          // tile 72.00 dp of label room (88.00 tile, less 2x4 padding, less the
+          // 2 dp border the user is looking at), and the longest label in the
+          // taxonomy needs 72.06 dp to stay on two lines. It missed by 0.06 dp,
+          // so «بلاط وسيراميك ورخام» drew as «بلاط وسيراميك…» on exactly the
+          // tile the user had just tapped. `s4` is the ladder step that clears
+          // it: 76.00 dp, 3.94 dp of headroom.
+          //
+          // Measured off the engine, not inferred: see
+          // `test/tile_label_fit_test.dart`, which lays every label out in a
+          // real `TextPainter` at 392/360/320 in both tile states.
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppTheme.s4, vertical: 10),
           decoration: BoxDecoration(
             color: selected ? AppTheme.accentWash : AppTheme.surface,
             borderRadius: BorderRadius.circular(AppTheme.rMd),
