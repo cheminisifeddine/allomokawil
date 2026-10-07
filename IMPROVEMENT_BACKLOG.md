@@ -23837,6 +23837,68 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       knowing for any future slice that documents its own before-value in
       source: **on this ratchet, a comment that quotes a retired off-grid
       literal is a live count.**),
+
+- [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 22 on 7 Oct;
+      **22 remain across 14 files** after slice 24. Local `019d1c4` -> remote
+      `b81a6ef`, all 4 blobs MATCH by SHA.
+      **slice 24 shipped** (24th = the **customer home header's wilaya pill was
+      not the app's pill**). It drew `symmetric(horizontal: 12, vertical: 7)`
+      with a 15 dp glyph and a 5 dp gap, on the screen a user sees **first** —
+      above the fold, before any list has loaded. It was the **only off-grid
+      inset in the app with no comment defending it**: every other one R4 has
+      counted for weeks (the trade filter's `14 x 12`, the auth checkbox row's
+      `6 x 2`, the tile's `6 x 10`) carries a paragraph saying why it is off the
+      ladder on purpose. This one carried none, because it was not a decision.
+      The kit already had the answer written down — `AppTheme.pillPad` `10 x 6`
+      with `AppTheme.pillGap` 6 and a 14 dp glyph — and `StatusPill` and
+      `CategoryBadge` both use it, so the app drew **one idea at two sizes**.
+      `_FilterPill` keeps its larger `14 x 12` because that one **is** a tap
+      target; this is a label with no `onTap` and no `GestureDetector`, and the
+      new test asserts that rather than assuming it.
+      **R4 prices this at one line among 23, the same as the deliberate
+      exceptions, and structurally cannot see the disagreement**: `pillPad` is an
+      *identifier* and `_literals()` skips identifiers by design, so moving the
+      site onto the token would have taken the ratchet 23 -> 21 while changing
+      nothing about whether the pills agree — the slice-23 lesson from the other
+      side. Hence `test/home_location_pill_test.dart` asserts **equality against
+      the token** and measures the icon-word gap **off the built tree**; neither
+      the 10, 6, 14 nor the 12, 7, 15 appears in it.
+      **Red before green, engine's own numbers:**
+      `Expected: EdgeInsets:<EdgeInsets(10.0, 6.0, 10.0, 6.0)>` /
+      `Actual: <EdgeInsets(12.0, 7.0, 12.0, 7.0)>`, and
+      `Expected: within<0.01> of <6.0>  Actual: <5.0>`.
+      **How the site was chosen, since the count did not choose it.** All 22
+      remaining sites were enumerated with a scanner replicating R4's own
+      helpers, then triaged: most carry a justifying paragraph and are
+      deliberate. `customer_home:1187` was the one with no defence *and* a
+      same-widget-class disagreement behind it.
+      **Golden re-baselined, and the re-baseline was CHECKED, not assumed.**
+      `04_customer_home` reported 41090 px across 549 rows — alarming on any
+      other screen. It is the pill being 1 dp shorter (7 -> 6) so everything
+      below the header moves up 2 px: **97.2% of all pixels below the pill match
+      the master shifted exactly -2, vs 90.2% at -1**, and no other band moved,
+      so exactly one golden changed. The baseline was proved good at HEAD first
+      (stash -> green), otherwise this would have been a stale baseline
+      mistaken for a regression.
+      **Gate.** `flutter analyze` -> **No issues found!** · **24 passed** over the
+      new test with `card_recipe` / `pill_inset` / `customer_home_column` ·
+      **22 passed** over `design_shots_test.dart`. Full suite via
+      `tool/run_tests.py`: **13 shards, 11 green, 2 not green in ~19:4x**, and
+      **both are accounted for**. Shard 1 was `app_source_scope_test` — the new
+      test file was **untracked**, which is that guard working exactly as this
+      file describes; `git add` + re-run of shard 1 clean at **192 passed**.
+      Shard 11 is `type_scale_test.dart` (`AppTheme.pipNumeral` outside the
+      theme at `chat_list_screen.dart:589`, `:625`, `chat_screen.dart:1232`),
+      **proved pre-existing** by stashing to HEAD and re-running — identical
+      three lines. Recorded, not hidden.
+      **A trap this slice walked into, recorded because it cost two red runs
+      that were NOT the defect.** A naive `find.ancestor(... Container)` matches
+      the header's own gradient `Container` as well as the pill, so the
+      assertion read the wrong box; and the icon-word gap computed as
+      `text.left - icon.right` gave **-107.5** on an RTL screen where the glyph
+      leads on the **right**. Both produced confident-looking numbers. The
+      narrowed finder (`padding != null`) and the RTL arithmetic
+      (`icon.left - text.right`) are what turn them into real measurements.
       **slices 1-22 shipped** (22nd = the sign-in screen printed **one phone
       complaint twice, ~320 dp apart** in one card. `_signIn` AND `_register`
       each set `_phoneTried = true` AND `_error = S.phoneInvalid` in the SAME
