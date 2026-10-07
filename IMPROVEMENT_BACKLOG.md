@@ -23775,6 +23775,13 @@ a tick the box lets me build. Also still open, still unanswered by the founder:
       it goes red, `git status --short` is the first thing to read.
 
 - [ ] **`card_recipe_test.dart` R4 — IN PROGRESS, not done. 197 -> 27 on 7 Oct;
+      **slices 1-19 shipped** (19th = the gallery page column written in TOKENS
+      and so invisible to R5, local `d4fd296` -> remote `79f5970`, **R4 unchanged
+      at 27** — a rename is not a count, and the 4 dp was 4 dp either way; the
+      find is that R5 matches plain NUMBERS so a token-spelled column was
+      compared to nothing while the eighteenth slice fixed the same defect on two
+      screens R5 could see; see the slice below, which also records the reader
+      that was BUILT, MEASURED and REJECTED rather than shipped red),
       **slices 1-18 shipped** (18th = two screens hand-typing the page column
       and disagreeing with it on the top edge by 4 dp, local `13bc267`,
       **R4 32 -> 27** — four literals out, but the real find is that the token
@@ -26140,3 +26147,102 @@ the one item R4 still counts that is not a component gap.
       (the same `existsSync()` exclusion `Directory` already has, one level
       down), then model the real whole-file roots it reveals. It is the
       highest-value item in this file and it is not a layout slice.
+
+      **The nineteenth slice found the same 4 dp again, one spelling further
+      from the eye — and R5, shipped a day earlier, could not see it. Local
+      `d4fd296` -> remote `79f5970`. R4 unchanged at 27.**
+
+      **The site.** `my_portfolio_screen.dart:615` held the page column as
+      `AppTheme.gutter, AppTheme.s12, AppTheme.gutter, AppTheme.s28`. Same
+      defect as slice 18, byte-for-byte in meaning: three of the four edges ARE
+      the house column and only the **top** disagrees, carrying `s12` where
+      `AppTheme.pagePad` has `s8`. Live since `12a91a4` on 6 Oct — and slice 18
+      shipped its R5 on the 7th and fixed two *other* screens while this one sat
+      there.
+
+      *This is the sharpest thing the sweep has produced, and it is not about
+      R4 at all.* **Writing the column in tokens made it LESS safe, not more.**
+      A hand-typed column looks like a typo and is compared to nothing; a
+      token-spelled column looks *named*, so it reads as already-swept, and R5 —
+      the guard written specifically to catch re-derived columns — matches four
+      **plain numbers**. The safer-looking spelling is the invisible one. The
+      eighteenth slice's ratchet went green on a real misalignment; this says why
+      it could, and the next guard was going to make the same mistake in the
+      opposite direction.
+
+      *Measured off the engine, both states, DPR 2.75:*
+
+      | what | BEFORE | AFTER |
+      | --- | --- | --- |
+      | settled gallery | `L=18.0 T=12.0 R=18.0 B=28.0` | **`T=8.0`** |
+      | `AppTheme.pagePad` | `L=18.0 T=8.0 R=18.0 B=28.0` | (reference) |
+
+      **Fixing the screen alone would have been worse than leaving it alone.**
+      `my_portfolio_screen.dart:610` draws `SkeletonGrid()` while the first read
+      is in flight, that skeleton carried the **same `s12`**, and the two are
+      drawn one after the other — so moving one trades a static offset for a
+      **4 dp jump at the exact moment the photographs land**, which is the
+      "one band moved, its neighbour left behind" shape three earlier slices
+      had to undo. `skeletons.dart` now reads `AppTheme.pagePad` too; both
+      states measure `T=8.0`, measured separately before and after.
+
+      **The token-resolving reader for R5 was built, measured, and REJECTED.**
+      Recorded so the next tick does not rebuild it:
+
+      * Resolving `AppTheme.s12`-style edges is correct **in isolation** and
+        wrong **here**: it names **four more sites**, and all four are
+        legitimate.
+      * Three are in `skeletons.dart` (`:181`, `:328`, `:467`). `:328` carries a
+        comment stating it stands in for three pages that open at **12, 4 and
+        16**, so its top edge is deliberately not the page's — the guard's own
+        premise (top edge == the page's top edge) is false for a shared widget.
+      * One is `profile_edit_screen.dart:300`, a real page at `s4` with its own
+        clearance guard and a long comment explaining why.
+      * I tried the discriminator that separates them — "gutter pair plus house
+        bottom" — and **it does not separate them**: it matches all four exactly,
+        because that shape is what made the defect invisible in the first
+        place. The premise of R5's third direction cannot be stated for a
+        widget that serves several pages.
+      * So the guard could only have gone green by pinning four exceptions, and
+        **an excuse list for a rule that cannot tell a page column from a
+        deliberate composition is the same defect wearing a different hat** —
+        the same sentence that rejected widening `_rootsOf` last tick and
+        widening `run_tests.py`'s deadline before that.
+
+      *Delivered instead:* a pairing case in `worker_profile_column_test.dart` —
+      the file that already pins **three** such pairs for the profile page, by
+      the same method (two states, read off the laid-out tree, the skeleton
+      asserted against the loaded state rather than a second hand-typed
+      constant, which is what makes two constants drift apart silently).
+      Red before green:
+
+      ```
+      Expected: EdgeInsets:<EdgeInsets(18.0, 8.0, 18.0, 28.0)>
+        Actual: EdgeInsets:<EdgeInsets(18.0, 12.0, 18.0, 28.0)>
+      ```
+
+      *Two harness traps, both inherited and both re-fired here:* a `ListView`
+      hands its padding to an internal `SliverPadding` and its own field is
+      **null**, so the naive read answers 0.0 and passes for any inset; and
+      `Shimmer` animates forever, so `pumpAndSettle` never returns and the test
+      **hangs instead of failing** — bounded pumps only.
+
+      *Gate:* `flutter analyze` -> **No issues found!** (2.6 s, after one real
+      lint: `no_leading_underscores_for_local_identifiers` on the new local).
+      **170 passed / 0 failed** across the 18 files that render either screen,
+      hold a skeleton, or shoot these views — up from 115 last slice only in
+      that the file set grew; the count is not a like-for-like comparison and
+      should not be read as one.
+
+      **Not claimed:** the whole-suite count (13 shards, ~40 min on this 2-core
+      box). The 170 cover every consumer of both files touched. The tree was
+      clean at start, so no other writer was displaced.
+
+      **Left for the next tick:** the R5 token reader is still worth building,
+      but it needs a premise that is true — *a column belongs to exactly one
+      page* — rather than four pins. Stated as work: find the widgets a single
+      `pagePad` serves more than one page (`SkeletonCardList`,
+      `SkeletonFormPage`, `AppBootSkeleton`) and give the shared ones a
+      **named token of their own**, so "is this the page column" stops being a
+      question the census has to answer by guessing. That is a theme change
+      with rendered consequences, so it is its own slice.
