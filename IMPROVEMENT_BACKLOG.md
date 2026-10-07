@@ -27028,3 +27028,85 @@ the **shared** skeletons (`SkeletonCardList`, `SkeletonFormPage`,
 `AppBootSkeleton`) before any token reader is built — a widget that serves three
 pages is not a page column, and that is the discriminator the rejected R5 reader
 could not find.
+
+---
+
+## Slice 31 — the grid trade tile's label was sized by a token that no longer fit it
+
+**`ui.dart:399` (`SelectableTile`) — shipped, `aa64b19` -> remote `0abed36`,
+trees verified identical (`9c3f5a7`).** This entry is the tick that the 18:20
+reboot orphaned: the edits were on disk at 18:16/18:18 in `ui.dart` and
+`tile_label_fit_test.dart`, no process was alive, and the last commit was 40
+minutes stale. Finished in place rather than reverted.
+
+**The defect.** The tile painted `AppTheme.fsCaption` (12.5). It was a bare
+`fontSize: 12` until the type ladder landed (`f589ae0`), which snapped it *up*
+to the nearest step, and nothing asked afterwards whether the tile still held
+its own label. Room, measured off the laid-out tile: **78.00 dp** at 320 plain
+and **76.00 dp** selected (88.00 tile, less 2 x s4, less a 1 dp / 2 dp border).
+`«تشطيب عام وتسليم مفتاح»`, `«سباكة وترصيص صحي»` and `«بلاط وسيراميك ورخام»`
+need **78.40 / 80.57 / 81.88 dp** for two lines at 12.5 — so those three names
+ellipsized on *every* 320 dp phone, in *both* tile states, on both screens that
+show the grid (publish and profile edit), and only there: at 392 and 360 every
+label fits, which is why the goldens are clean and nobody saw it. Down to
+`fsBadge` (11), the ladder floor and the size the horizontal strip tile in
+`category_grid.dart` already draws the same names at.
+
+**Three numbers in the orphaned comment were wrong, and one of them inverted
+the argument it was making.** Caught before commit, by measuring every claim
+instead of reading it:
+
+| claim | in the comment | measured |
+| --- | --- | --- |
+| two lines needed at 12.5 | `82.00` (one figure for three labels) | `78.40 / 80.57 / 81.88` |
+| two lines needed at 11 | `72.50` | **`72.06`** — contradicts `72.06` written 60 lines above |
+| vertical room, 320 dp | `53.65` | **`31.65`** |
+| 3 lines at 12.5 need | `46.88` | `46.88` (correct — `12.5 x 1.25 x 3`) |
+
+The vertical one mattered most: the comment used it to say three lines "fits",
+which is false at 320 (it clears at 392, 57.74 dp). The real reason not to take
+the third line is stronger than the one written — it would trade this defect for
+a narrower one on the cheapest phone the app supports.
+
+**The guard was measuring the wrong font, which is why the defect was green.**
+It built its own `TextStyle` by hand at `fsBadge`, so it kept checking the font
+the tile *used to* draw: 12.5 shipped through a guard that believed it measured
+11, and the file was green for 12.5's worth of growth and would have been green
+at 30. The style is now read off the tile's own `Text` in the tree, with a
+`fail()` if it goes missing, so the widget is the only authority on how big its
+own label is. `ui.dart:134`'s `SectionTitle` is the same widget's other half of
+that enum and is next.
+
+**Red before green, both guards failing at 12.5:**
+```
+page 320 plain: «تشطيب عام وتسليم مفتاح» needs 99 lines in 78.00 dp
+page 320 selected: «بلاط وسيراميك ورخام» needs 99 lines in 76.00 dp
+the widest label needs 146.24 dp of the 76.00 this tile has at 320 dp selected, at 12.5 dp
+```
+
+### Gate
+
+`flutter analyze` -> **No issues found!** (14.1 s) · **57 passed / 0 failed**
+across the nine files that render this tile, the guard or shoot it —
+`tile_label_fit`, `design_shots`, `card_recipe`, `auth_card_column`,
+`auth_gate`, `profile_edit_clearance`, `profile_edit_midflight`,
+`project_new_edges`, `submit_busy_category` — all goldens green, **none
+re-baselined**. Temp measurement harness deleted before commit.
+
+**R4 unchanged at 14**, and deliberately: this slice swaps a *type* token, and
+R4 counts off-ladder *spacing* literals. Nothing to lower.
+
+**Not claimed:** the whole-suite total. `type_scale_test.dart` is still red and
+still for the same three lines — `pipNumeral` at `chat_list_screen.dart:589`
+and `:625`, `chat_screen.dart:1232` — **pre-existing**, unchanged, and not in
+this diff. No screenshot: the change is a font size, so a render would show a
+different glyph size and nothing else, and the goldens (shot at 392, where this
+moves no line break) are the honest evidence for that.
+
+### Next
+
+`ui.dart:134` (`SectionTitle`'s `vertical: 10`) — the same widget's other
+defended literal. Then the sweep restarts: `category_grid.dart:77`,
+`profile_edit_screen.dart:516`, `quote_worker_trust.dart:82`,
+`customer_home_screen.dart:1530`, and the decided `trade_filter_bar.dart:286`
+exemption.
