@@ -580,6 +580,20 @@ class _FieldLabel extends StatelessWidget {
 /// [MergeSemantics] folds the row into one node, the `Checkbox` names it, and
 /// the visible `Text` is wrapped in [ExcludeSemantics] so the sentence is not
 /// read twice — reading a control twice is worse than not reading it at all.
+/// The vertical `6` here is the tap floor, not a gap: it is what carries the
+/// row from the Material `Checkbox`'s own 48 dp to **60 dp**, and
+/// `tool/tap_target_audit.py` settles that by hand at 48 + 6x2 = 60. It stays
+/// off the 4 dp ladder for exactly that reason and R4 counting it is a known
+/// false positive, the same one `pillPad` and `pipPad` carry.
+///
+/// The `horizontal: 2` it used to hold was not that. It pushed the row's
+/// content **2 dp inside** the column every other element in this card sits on:
+/// the two field labels, the two fields and the error notice all start at 35.0
+/// against the card's 16 dp inset, and `تذكرني` started at 37.0 — measured on
+/// the booted screen, DPR 1.0, 392 dp wide. Two dp is invisible as a defect and
+/// visible as *unfinished*, which is the same argument `pillGap` was written
+/// for: a neighbour that is 1-2 dp off reads as a mistake even when no one can
+/// say what the mistake was.
 class _RememberRow extends StatelessWidget {
   final bool value;
   final ValueChanged<bool> onChanged;
@@ -595,7 +609,7 @@ class _RememberRow extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppTheme.rSm),
           onTap: () => onChanged(!value),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+            padding: const EdgeInsets.only(top: 6, bottom: 6),
             child: Row(
               children: [
                 Checkbox(
