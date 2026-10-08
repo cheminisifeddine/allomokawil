@@ -29563,3 +29563,91 @@ by filename in the first place. Read-only, one tick.
   or any guard derive it, or is it another hand-copy with no collection behind
   it? Same shape as the four just closed, and `rPill = 999` is a deliberate
   outlier that any ordering check has to account for.
+
+---
+
+## Tick 10 Oct 2026 (13th) — the radius ladder was the same defect, and R1's
+## rule was narrower than it reads
+
+`ce251e9`, remote `a6c9b64`. The backlog had no unchecked item; the **Next** the
+last tick left named the `r*` ladder, so that was the item.
+
+**The finding.** `test/card_recipe_test.dart:265-270` pins all six radius values
+by hand — `rXs 6`, `rSm 12`, `rMd 16`, `rLg 20`, `rXl 28`, `rPill 999`. That is
+the file transcribing the thing it claims to check, the same defect
+`font_weight_token_test.dart` had. What hid it is that **R1 looks like it covers
+the family**: *"a radius is named, never typed"* scans every
+`BorderRadius.circular(<digit>)`, so the rule constrains the **shape** of a
+radius and never **which** name. An invented token satisfies it perfectly —
+the identical trap tracking fell into one tick ago, one file over.
+
+**Measured, not argued.** Planted `rWild = 13` beside the real six, declared
+with no measurement behind it, applied for real from `lib/`
+(`review_screen.dart`, over a screen that was using `rSm`):
+
+| guard | result on the plant |
+| --- | --- |
+| `card_recipe_test.dart` | **all green, 16 tests** |
+| `home_location_pill_test.dart` + `project_card_budget_strip_test.dart` | **green, 8 tests** |
+| `exemption_census_test.py` | **9 passed, 0 failed** |
+
+A 7 dp radius off the ladder, carrying a design decision nobody made, and the
+entire radius guard family called the tree clean.
+
+**Shipped** `radius_ladder_reader()` — derived from `app_theme.dart`, five
+directions that can each fail alone:
+
+| direction | what it refuses |
+| --- | --- |
+| **orphan** | a radius declared in the theme that `card_recipe_test.dart` never names |
+| **ghost** | a radius the guard names that the theme does not declare, so its `expect()` pins nothing |
+| **unapplied** | a radius nothing in `lib/` applies — a corner-shape decision that exists only in the theme |
+| **ordering + distinctness** | `rXs < rSm < rMd < rLg < rXl`, strictly. Radius has a real ladder, so it gets the claim tracking could not have |
+| **sentinel** | `rPill` held above every rung and distinct from them |
+
+**On `rPill = 999`, which the last tick flagged as the open question.** It is a
+sentinel, not a rung — "as round as the platform will let you be". Putting it
+through an ascending-order check would pass for the wrong reason or force a fudge
+factor into the rule, so it is **excluded from the order claim** and asserted
+separately: above every rung, and not equal to one. That is the property that
+actually matters — a pill and a card corner must not draw the same shape by
+accident. Registered as test 9; the ladder control now covers five readers
+instead of four.
+
+**One bug the reader found in itself, on its first run.** The family regex was
+`r\w+`, and **`AppTheme.ring` is a 3 dp focus-ring WIDTH** that shares the
+prefix. The first green-tree run therefore **FAILED**, naming `ring` as an
+orphan and demanding a corner radius be named for it. Tightened to `r[A-Z]\w*`
+in all four scans. Worth recording as a process note: the reader's first output
+was red and the instinct was to blame the tree — reading the message is what
+turned it into the real finding, and trusting that first run would have shipped
+a broken guard.
+
+**Red before green, all five, exit 1 on each** (every code re-measured
+unpiped — the `| tail` trap from the last two ticks):
+
+| plant | message |
+| --- | --- |
+| `rWild` declared, never named | orphan, *"R1 only insists a radius is NAMED, never which name … arrives off the ladder with no measurement and no owner: rWild"* |
+| `AppTheme.rGhost` named, never declared | ghost, *"the guard is pinning a value that does not exist, so its expect() asserts nothing: rGhost"* |
+| `rLoose` declared **and** named, never applied | unapplied, *"a corner-shape decision that exists only in the theme … the shape the next caller will find and assume was drawn"* |
+| `rLg` dragged to 14, under `rMd` | ordering, *"the radius ladder is not strictly ascending, weakest first: rXs, rSm, rMd, rLg, rXl = 6, 12, 16, 14, 28"* |
+| `rPill` dragged to 18, inside the ladder | sentinel, *"rPill (18) must sit above every rung (28) … if it lands inside the ladder a pill and a card corner draw the same shape by accident"* |
+
+Clean tree → **10 passed, 0 failed**, exit 0.
+
+**Evidence**
+- census → **10 passed, 0 failed**, exit 0.
+- `flutter analyze` → **No issues found!** (10.5 s).
+- `tool/build_gate.py` → **CLEAR** at 2707 MB available, so the gate is
+  reporting a real box and not denying the run.
+- Blob check against the remote tree: **MATCH** on
+  `test/exemption_census_test.py`; remote tip `a6c9b64`.
+- **No screenshot** — no token value changed and `lib/` is byte-identical, so
+  there is no pixel delta to look at.
+
+**Next.** The `s4…s32` spacing ladder and the hairline family
+(`hairline`, `hairlineResting`, `hairlineSelected`, `hairlineFocus`, `ring`) —
+the census has still looked at neither. `s*` is the more likely find: it has
+eight rungs and a ratchet-style guard, which is exactly the shape that reads as
+covered and constrains only the **shape** of a value.
