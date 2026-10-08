@@ -239,6 +239,33 @@ remote tree, read off the git-data API rather than trusted from the push line.
 
 ## Phase 6 — the loop's own instruments
 
+- [ ] **The suite runner counts a shard with skipped tests as ZERO — and the
+      number it prints is the number this loop gates on.** FOUND 8 Oct, not
+      started. `passed_count()` reads the reporter's progress lines with
+      `_PROGRESS = r"\+(\d+)(?: -\d+)?:"`. That regex handles the **failure**
+      form (`+169 -6:`) — the fix recorded beside it — but **not the skip
+      form**, `+163 ~3:`, because the optional group only covers ` -N`.
+      Measured on the 8 Oct green run: shards 4 and 7 both end on a `~N`
+      line, so the regex matched nothing at all in either shard, `best` stayed
+      `None`, and both printed **`(0 test(s))`** — the runner's own docstring
+      calls this exact failure «a silent 0 to a total that is about to be
+      presented as the suite's number», and it is doing it anyway.
+      *What it costs.* The run printed **SUITE PASS — 2297 tests**. The real
+      total, read off the 13 final reporter lines, is **2516**. The deficit is
+      **219** = shards 4 (163) and 7 (181) minus the two zeros, and the
+      2459 figure last tick recorded is on the same scale, so **the baseline
+      this loop compares against has been counting two shards as empty for as
+      long as both forms have been in the reporter's output.** Step 4's gate —
+      «count must be >= the previous count» — is therefore comparing two
+      numbers neither of which is the suite. Worse than useless: a shard that
+      lost 163 tests would print `0` and be **indistinguishable from a shard
+      that ran nothing**, and a dropped guard in either file would show up as
+      the count going *up*.
+      *Next tick:* teach `_PROGRESS` the skip form (and prove it against the
+      three real reporter shapes, not a sample), then re-measure the whole
+      suite and re-baseline this loop against the true number. Do **not**
+      "fix" it by editing the baseline to 2297 — that records the lie.
+
 - [x] **The reviews contradiction card threw the number away — «يظهر أعلاه
       تقييمات» — and the two tests guarding it could not fail on that.**
       SHIPPED 8 Oct. A one-line ternary,
