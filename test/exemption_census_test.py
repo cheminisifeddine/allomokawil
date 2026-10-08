@@ -380,6 +380,145 @@ def line_height_ladder_reader():
             "test is reading a stale copy: %s" % ", ".join(sorted(ghosts)))
 
 
+def radius_ladder_reader():
+    """The radius leg -- `rXs..rXl` plus the `rPill` sentinel -- and the
+    question the tracking tick left as the next one: is the radius ladder
+    derived by any guard, or is it a hand-copy the way weight and line-height
+    were?
+
+    Answer, measured before this reader existed: **a hand-copy, and a
+    narrower rule than R1 looks.**
+
+    `test/card_recipe_test.dart:265-270` pins all six values:
+
+        expect(AppTheme.rXs, 6);   expect(AppTheme.rSm, 12);
+        expect(AppTheme.rMd, 16);  expect(AppTheme.rLg, 20);
+        expect(AppTheme.rXl, 28);  expect(AppTheme.rPill, 999);
+
+    which is the file transcribing the thing it claims to check -- the same
+    defect `font_weight_token_test.dart` had. What made it invisible is that
+    R1 *looks* like it covers the family: "a radius is named, never typed"
+    scans every `BorderRadius.circular(digit)`. So the guard enforces the
+    **shape** of a radius (it is named) and never **which** name, and a new
+    named radius satisfies it perfectly.
+
+    Measured: planted `rWild = 13` beside the real six, declared with no
+    measurement behind it, and applied for real from `lib/`
+    (`BorderRadius.circular(AppTheme.rWild)` in `review_screen.dart`, over a
+    screen that was using `rSm`). `card_recipe_test.dart` -> **all green, 16
+    tests**; `home_location_pill_test.dart` + `project_card_budget_strip_test
+    .dart` -> **green**; this census -> **9 passed, 0 failed**. A 7 dp radius
+    that is not on the ladder, carrying a design decision nobody made, and the
+    whole radius guard family calls it clean.
+
+    So the check is derived from `app_theme.dart` and runs in five directions:
+
+      * **orphan** -- a radius declared in the theme that
+        `card_recipe_test.dart` never names. This is the plant above.
+      * **ghost** -- a radius the guard names that the theme does not
+        declare, so `expect(AppTheme.<token>, 6)` pins nothing.
+      * **unapplied** -- a radius nothing in `lib/` ever applies, which is the
+        other half of "one owner": a corner-shape decision that exists only in
+        the theme is the shape the next caller finds and assumes was drawn.
+      * **ordering + distinctness** -- the four rungs `rXs < rSm < rMd < rLg <
+        rXl`, strictly. This is the direction the other three ladders had and
+        tracking did not; radius has a real ladder, so it gets the claim.
+      * **sentinel** -- `rPill` is deliberately NOT a rung. `999` is "as round
+        as the platform will let you be", so putting it through an ascending
+        order check would either pass for the wrong reason or force a
+        fudge factor into the rule. It is named explicitly and asserted to sit
+        above every rung and to be distinct from them, which is the property
+        that actually matters: the pill radius must not collide with a real
+        corner.
+
+    Floor: 5 rungs and 1 sentinel, the counts measured at HEAD, so the reader
+    cannot pass on a theme it failed to read.
+    """
+    theme = os.path.join(REPO, "lib", "src", "core", "theme", "app_theme.dart")
+    with open(theme, encoding="utf-8") as fh:
+        code = _strip_comments(fh.read())
+    declared = re.findall(r"static const double (r[A-Z]\w*)\s*=", code)
+    _assert(declared,
+            "radius_ladder_reader read zero tokens -- this reader is broken, "
+            "not the tree")
+
+    # `rPill` is a sentinel, not a rung: 999 means "fully rounded", so it is
+    # excluded from the ordering claim rather than fudged into it.
+    sentinels = [d for d in declared if d == "rPill"]
+    rungs = [d for d in declared if d not in sentinels]
+
+    guard_path = os.path.join(REPO, "test", "card_recipe_test.dart")
+    with open(guard_path, encoding="utf-8") as fh:
+        guard_src = fh.read()
+    named = set(re.findall(r"AppTheme\.(r[A-Z]\w*)", guard_src))
+
+    applied = set()
+    for root, _dirs, files in os.walk(os.path.join(REPO, "lib")):
+        for fname in files:
+            if not fname.endswith(".dart"):
+                continue
+            if fname == "app_theme.dart":
+                continue  # the declaration is not a use
+            with open(os.path.join(root, fname), encoding="utf-8") as fh:
+                applied |= set(re.findall(r"AppTheme\.(r[A-Z]\w*)", fh.read()))
+
+    orphans = [d for d in declared if d not in named]
+    ghosts = [g for g in sorted(named) if g not in declared]
+    unapplied = [d for d in declared if d not in applied]
+
+    _assert(not orphans,
+            "app_theme.dart declares a radius token that card_recipe_test.dart "
+            "never names -- R1 only insists a radius is NAMED, never which "
+            "name, so an invented token satisfies it perfectly and arrives off "
+            "the ladder with no measurement and no owner: %s"
+            % ", ".join(orphans))
+    _assert(not ghosts,
+            "card_recipe_test.dart names a radius token app_theme.dart does "
+            "not declare -- the guard is pinning a value that does not exist, "
+            "so its expect() asserts nothing: %s" % ", ".join(ghosts))
+    _assert(not unapplied,
+            "app_theme.dart declares a radius token nothing in lib/ ever "
+            "applies -- a corner-shape decision that exists only in the theme, "
+            "which is the shape the next caller will find and assume was "
+            "drawn: %s" % ", ".join(unapplied))
+
+    values = dict(re.findall(r"static const double (r[A-Z]\w*)\s*=\s*([0-9.]+)",
+                             code))
+    _assert(all(r in values for r in rungs),
+            "could not read a numeric value for every rung (%s) -- the ladder "
+            "cannot be ordered from a token whose right-hand side is not a "
+            "literal" % ", ".join(r for r in rungs if r not in values))
+    ladder = [float(values[r]) for r in rungs]
+    ordered = sorted(set(ladder))
+    _assert(ladder == ordered,
+            "the radius ladder is not strictly ascending, weakest first: %s "
+            "= %s. A card drawn at the wrong rung is not a taste call -- it is "
+            "the design ladder skipped."
+            % (", ".join(rungs), ", ".join("%g" % v for v in ladder)))
+    _assert(len(set(ladder)) == len(ladder),
+            "the radius ladder repeats a value: %s"
+            % ", ".join("%s=%g" % (r, float(values[r])) for r in rungs))
+
+    _assert(sentinels,
+            "app_theme.dart declares no `rPill` sentinel -- the fully-rounded "
+            "radius lost its name, so every pill is being drawn at whatever "
+            "corner happens to be free")
+    for s_name in sentinels:
+        _assert(float(values[s_name]) > max(ladder),
+                "%s (%g) must sit above every rung (%g) -- it means 'as round "
+                "as the platform allows', and if it lands inside the ladder a "
+                "pill and a card corner draw the same shape by accident"
+                % (s_name, float(values[s_name]), max(ladder)))
+        _assert(float(values[s_name]) not in ladder,
+                "%s (%g) collides with a rung -- the pill radius and a card "
+                "corner are the same number, so one of them is a lie"
+                % (s_name, float(values[s_name])))
+
+    _assert(len(rungs) >= 5,
+            "read %d radius rungs; HEAD has 5 (rXs..rXl), so fewer means the "
+            "reader read nothing" % len(rungs))
+
+
 def tracking_token_reader():
     """The tracking leg -- the one type-scale family with a **single** rung,
     and the question the last tick left open: is a single-value family guarded
@@ -562,6 +701,13 @@ def _results():
     #     tracking_token_reader() for the plant that proved it.
     yield ("app_theme.dart's tracking token has one owner and one user",
            tracking_token_reader)
+    # 4c. the radius leg -- `rXs..rXl` plus the `rPill` sentinel. R1 in
+    #     card_recipe_test.dart looks like it covers this family ("a radius is
+    #     named, never typed") but it constrains the SHAPE of the value, never
+    #     which token, so a seventh radius walks in the same door tracking did.
+    #     See radius_ladder_reader() for the plant that proved it.
+    yield ("app_theme.dart's radius ladder is derived, not transcribed",
+           radius_ladder_reader)
 
     # 5. the control for THIS reader: the planted sixth rung the tree does not
     #    have. A reader that cannot fail on a known-bad input is not a reader,
@@ -573,6 +719,7 @@ def _results():
             (["fsBody", "fsGhost"], ["fsBody"], "size"),
             (["lhBody", "lhThunder"], ["lhBody"], "line-height"),
             (["lsDigits", "lsWild"], ["lsDigits"], "tracking"),
+            (["rXs", "rWild"], ["rXs"], "radius"),
         ):
             orphans = [d for d in declared if d not in listed]
             _assert(orphans,
