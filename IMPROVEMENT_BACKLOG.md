@@ -239,9 +239,23 @@ remote tree, read off the git-data API rather than trusted from the push line.
 
 ## Phase 6 — the loop's own instruments
 
-- [ ] **The phone field's error sentence starts against the edge the digits
+- [x] **The phone field's error sentence starts against the edge the digits
       start against — a guard that is green on every other row of this file.**
-      **Take this item first; found 8 Oct by `b8b977a`'s shard-6 run.**
+      `dbf1531`. **SHIPPED 8 Oct — and the field was never broken; the guard
+      was.** `e8be33c` had already fixed `DzPhoneField` (the band is now
+      `EdgeInsets.only(top: AppTheme.s8)`, no horizontal inset), and this
+      assertion is what went red when it landed. It read
+      `greaterThan(digitsInset)`, i.e. it demanded the sentence start
+      *further in* than the digits — which is exactly what the 4 dp
+      self-insetting band produced. Measured both trees: `e8be33c~1` reads
+      21.8 / 26.0 and is **green**; `e8be33c` reads 22.0 / 22.0 and was
+      **red**. The test's own name states the requirement, and that is an
+      equality, so it is now `closeTo(0.0, 1.0)`. The new guard is strictly
+      stronger: against the original bug it reports a 4.2 dp split and fails,
+      where the old one accepted it. No `lib/` change. Analyzer clean; 108
+      passed phone/auth/card, 673 across the first 80 files, zero failures.
+      No screenshot: nothing in `lib/` moved, so there is no new pixels to
+      look at. Filing text follows.
       Shard 6 fails exactly one test and it is **not** one of the two files the
       previous item filed:
       `test/phone_error_band_test.dart: the phone field error is on the field's

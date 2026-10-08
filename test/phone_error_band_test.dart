@@ -148,14 +148,31 @@ void main() {
       final sentenceInset = box.right - sentence.right;
       debugPrint('DIGITS inset = $digitsInset   SENTENCE inset = $sentenceInset');
 
-      // The icon plus the gap in front of it is what puts the sentence where it
-      // starts; the check is that the *band* does not add a second, invisible
-      // inset of its own on top of that.
-      expect(sentenceInset, greaterThan(digitsInset),
-          reason: 'the sentence begins behind the icon that introduces it');
-      expect(sentenceInset - digitsInset, lessThanOrEqualTo(32.0),
-          reason: 'a 16 dp glyph and its gap is the whole lead-in -- a band '
-              'that also pulls its own edge inside the column adds to it');
+      // This assertion used to read `greaterThan(digitsInset)`, and that was the
+      // bug, not the field. It was measuring the *broken* geometry on purpose:
+      // with the band insetting itself `right: 4, left: 4` the sentence landed at
+      // 26.0 against digits at 21.8, so "the sentence is pushed further in than
+      // the digits" was exactly what a self-insetting band produces. Proved by
+      // running this file against `e8be33c~1`: `21.8 / 26.0`, green. The same
+      // file against `e8be33c`, which removed the band's horizontal inset, reads
+      // `22.0 / 22.0` and went red -- because the fix made the two edges agree
+      // and the assertion demanded they disagree.
+      //
+      // The test name is the requirement: the sentence starts against the edge
+      // the digits start against. That is an **equality**, and it is now asserted
+      // as one, against a tolerance rather than a hand-typed number -- a single
+      // hairline is the only difference a border can legitimately add.
+      //
+      // The icon is what leads the sentence and it is deliberately NOT part of
+      // this comparison: `Row` lays out in reading order under RTL, so the icon
+      // is the leading glyph and the `Expanded` text starts behind it. Measuring
+      // the text against the digits is the user-facing comparison -- the number
+      // they typed and the sentence saying it is wrong, side by side in one card.
+      expect(sentenceInset - digitsInset, closeTo(0.0, 1.0),
+          reason: 'the sentence starts against the edge the digits start '
+              'against -- the number typed and the sentence calling it wrong '
+              'are compared side by side, so they must lead on one line');
+
     });
   });
 }
