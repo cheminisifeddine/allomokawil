@@ -29182,3 +29182,107 @@ exact defect class or proves there is no fourth. What it must NOT do is stop at
 "a filename is skipped": the defect is an exemption with **no compensating reader**,
 so for each of the five the question is only answerable by finding whether some
 *other* test in the same file walks that file. A guard that is merely narrow is fine.
+
+## Tick 10 Oct 2026 (11th) — the exemption census, and the four ways my own census lied
+
+**The item.** The previous tick left one queued, read-only: *sweep the
+source-scanning guards in `test/` for a file-level exemption with no
+compensating reader.* No Dart was needed to find it, and no Dart was needed to
+fix it — the defect it describes is entirely in `test/`, so a Python guard is
+the correct instrument, not a consolation prize.
+
+### The census is 11 exemptions, not the 5 the last tick listed
+
+The previous tick's table had five candidates. Measured across every
+`test/*.dart`, there are **11 file-level exemption sites** over **4 distinct
+files** — `card_recipe_test.dart` alone holds five. What was missed:
+
+| guard:line | exempts | compensating reader? |
+| --- | --- | --- |
+| `card_recipe_test.dart:465,520,645` | `app_theme.dart`, `ui.dart` | **yes** — `tile_label_fit_test.dart:265` reads `ui.dart` |
+| `motion_test.dart:339` | `core/theme/motion.dart` | **NO — the finding, fixed below** |
+| `type_scale_test.dart:220` | `app_theme.dart` | yes (via `ui.dart`'s reader + the ladder itself) |
+| `review_page_column_test.dart:103`, `wash_callout_pad_test.dart:175`, `letter_spacing_token_test.dart:352` | `app_theme.dart` | yes |
+| `agreement_comment_test.dart:208` | itself | **yes** — `expect(claims.length, greaterThanOrEqualTo(6))` at line 160 |
+
+### The finding: `motion.dart` is exempt, and its own "completeness" test cannot see a new rung
+
+`motion_test.dart:339` skips `core/theme/motion.dart` — correctly, it is the
+file that *defines* the tempo ladder. But nothing else in the tree reads that
+file as source. `motion_test.dart:30` claims *"every duration in the spec is
+listed in `AppMotion.all`"* and then proves it against a **hand-copied set of
+the same five rungs**:
+
+```dart
+expect(AppMotion.all.toSet(), {AppMotion.fast, AppMotion.press,
+    AppMotion.reveal, AppMotion.screen, AppMotion.shimmer});
+```
+
+That is the file comparing itself to a transcription of itself. Add a sixth
+rung to `motion.dart` and nothing fails: the source scan is exempt from that
+exact file, and the completeness test only checks that the five it already
+knows are present. **A speed the app may use, that no guard can name** — in the
+one file the guard skipped.
+
+**Shipped.** Commit `e9551f2` — hash read back out of `git log` after the
+commit, never written before it, which is the rule the previous tick set.
+
+*Fixed:* `motion_reader()` derives the check from `motion.dart` instead of
+copying it — every declared `static const Duration` is in `AppMotion.all`, and
+every entry of `all` is declared. Both directions. **Zero change to any
+duration**, so no pixel delta.
+
+### Four ways this census lied about its own tree, all found by planting
+
+A census that cannot fail is decoration, so it was proved red on six shapes.
+It stayed **green through the first four attempts**, and every green was a real
+defect in the census, not in the tree:
+
+1. **A negated filter is not a guard clause.** `!f.path.endsWith(x)` in a
+   `where` chain drops the file exactly as silently; the scanner only matched
+   `... continue;`.
+2. **A comment is not a read.** `app_source_scope_test.dart` names all three
+   theme files in prose (lines 149-161) and in a backtick on 615. None of it is
+   code. Reading it as a reader made `app_theme.dart` look watched.
+3. **A basename prefix is not the file.** Matching `category_str` counted
+   `category_strip_fit_test.dart` as a reader of a file that does not exist.
+4. **A guard cannot witness its own blind spot** — and the const-naming case
+   hid it, because the filename sat on a line away from the `endsWith` that
+   consumed it.
+
+Also worth recording: the **first plant never landed**. `str.replace()` was
+called with 6-space indentation against a 10-space line, so it changed nothing,
+`git diff` was empty, and the run reported green — a false proof from a command
+that reported success. Caught by checking `git diff --stat`, not by reading the
+plant. The lesson is the one this file keeps earning: **a guard run that cannot
+be shown to have changed something proves nothing.**
+
+**Final plant run: 4 red** (guard-clause, negated `where`, const-named, and a
+planted sixth rung in `motion.dart` naming it), **2 green** (non-`.dart` skip,
+self-exemption with a floor).
+
+### Evidence
+
+- `python3 test/exemption_census_test.py` -> **4 passed, 0 failed**, exit 0.
+- `flutter analyze` -> **No issues found!** (11.3 s).
+- `tool/run_tests.py` -> **SUITE PASS — 2544 tests across 14 shard(s), every shard green**,
+  `2536 passed / 8 skipped`, **18:58**, zero FAIL/HUNG lines. Baseline **2544 held exactly** —
+  a Python guard adds no Dart test, so a drop here would mean a Dart file was touched. It
+  was not: `lib/` is untouched this tick and the only new file is `test/*.py`. **Shard 8
+  green**, fourth tick running; the 30 Sep deadline bug did not fire.
+- The gate answered **NO ROOM** (832 MB against a 900 MB floor) for the first
+  half of this tick and flipped to **CLEAR** (1196 MB) before the Dart gate —
+  recorded because `pgrep -fc "[f]lutter"` also returned **2** while nothing was
+  building: it matches the *tick's own command line*. The protocol's build-
+  safety check is unreliable in this exact form. `pgrep -c java` was the honest
+  signal, and it was 0.
+- **No screenshot** — nothing visual changed; `motion.dart` keeps every value.
+
+### Next
+
+The census exists to be run *after* a guard is written, and this tick's own
+defect class is general: **a test that asserts against a copy of the thing it
+claims to check.** `motion_test.dart:30` was one instance; `card_recipe_test`'s
+`tok()` reads the ladder by regex and is fine, but the census has not yet been
+pointed at the *other* hand-copied constants in the tree. Read-only, one tick.
+
