@@ -239,7 +239,7 @@ remote tree, read off the git-data API rather than trusted from the push line.
 
 ## Phase 6 — the loop's own instruments
 
-- [ ] **The suite runner counts a shard with skipped tests as ZERO — and the
+- [x] **The suite runner counts a shard with skipped tests as ZERO — and the
       number it prints is the number this loop gates on.** FOUND 8 Oct, not
       started. `passed_count()` reads the reporter's progress lines with
       `_PROGRESS = r"\+(\d+)(?: -\d+)?:"`. That regex handles the **failure**
@@ -261,10 +261,31 @@ remote tree, read off the git-data API rather than trusted from the push line.
       lost 163 tests would print `0` and be **indistinguishable from a shard
       that ran nothing**, and a dropped guard in either file would show up as
       the count going *up*.
-      *Next tick:* teach `_PROGRESS` the skip form (and prove it against the
-      three real reporter shapes, not a sample), then re-measure the whole
-      suite and re-baseline this loop against the true number. Do **not**
-      "fix" it by editing the baseline to 2297 — that records the lie.
+      *DONE 8 Oct — `df517a1` (remote `66d3840`).* `_PROGRESS` now captures
+      all three groups (`~N` was the missing one) and the SUITE PASS total is
+      built from a new `ran_count()` = passed + skipped + failed, with the
+      split printed whenever anything was skipped.
+      *The symptom was worse than `0`.* `passed_count` returns the **last
+      parseable line**, so on a shard whose skips begin early it returned a
+      *partial*, not zero: a 5-test file reported **1**. A shard that lost its
+      first file would report the count of whatever ran after — the exact
+      shape of a healthy shard. Red under the old regex, green under the new.
+      *Evidence — real reporter lines, not samples.* All four shapes were
+      captured from actual `flutter test --reporter expanded` runs on this box
+      (two from a file with `skip:` on three tests, two from two deliberate
+      failures) after reading `compact.dart::_progressLine`, which builds
+      `+passed`, then ` ~skipped` / ` -failed` **only when non-empty**, in
+      that order. `test/runner_progress_count_test.dart` (4 Dart cases — the
+      `.py` suites under `test/` are not discovered by `flutter test`)
+      imports the real runner and runs the **pre-fix** pattern against the
+      same four lines, so the guard cannot go idle.
+      *True baseline, re-measured.* **SUITE PASS — 2528 tests across 13
+      shard(s)**, 13/13 green, `2520 passed, 8 skipped`, 18:42. Shards 4 and
+      7 now report **163** and **181** where they printed `0`. **The number
+      this loop gates on from now on is 2528**, not 2297 or 2459 — both of
+      those were counting two shards as empty. Under the old reader the same
+      green tree would have reported 2322, so this single tick is worth
+      **+206** to the count and removes a blind spot, not just a wrong digit.
 
 - [x] **The reviews contradiction card threw the number away — «يظهر أعلاه
       تقييمات» — and the two tests guarding it could not fail on that.**
@@ -768,6 +789,19 @@ in this file that dies on arrival is how two ticks were lost.
    ```
    /home/hatch/tools/sdk/flutter/bin/flutter analyze   # must print "No issues found!"
    python3 tool/run_tests.py                           # count must be >= the previous count
+
+   **The baseline is 2528, measured 8 Oct -- and it is a number, not an
+   assumption.** `SUITE PASS - 2528 tests across 13 shard(s)`, 13/13 green,
+   `2520 passed, 8 skipped`, 18:42, zero FAIL/HUNG lines. It REPLACES two
+   earlier figures that were not wrong by accident: **2297** and **2459**
+   were both counting shards 4 and 7 as empty, because `passed_count`
+   could not read a progress line carrying a skip marker (see the Phase 6
+   item). The same green tree under the old reader reported **2322**, so
+   the real gain from that one fix is **+206** -- the deficit was missing
+   tests, not noise.
+   **Do not "restore" 2297/2459**, and do not gate on a number lower than
+   the last green run: the count only moves when tests are added or lost,
+   and a drop is the one signal this gate exists to give.
    ```
    If either fails: `git checkout -- .` (or `git stash`) and report the failure
    instead of committing. **A red build is never shipped.**
