@@ -388,7 +388,7 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
               Text('صورة واضحة للعمل بعد الانتهاء تجلب لك عروضاً أكثر.',
                   textAlign: TextAlign.center,
                   style: AppTheme.caption
-                      .copyWith(color: AppTheme.textSecondary, height: 1.6)),
+                      .copyWith(color: AppTheme.textSecondary, height: AppTheme.lhRoomy)),
               const SizedBox(height: 16),
               PrimaryButton(
                 label: 'الكاميرا',
@@ -655,7 +655,7 @@ class _MyPortfolioScreenState extends State<MyPortfolioScreen> {
                             Expanded(
                               child: Text(_error!,
                                   style: AppTheme.caption.copyWith(
-                                      color: AppTheme.danger, height: 1.6)),
+                                      color: AppTheme.danger, height: AppTheme.lhRoomy)),
                             ),
                           ],
                         ),
@@ -769,7 +769,7 @@ class _Header extends StatelessWidget {
                   style: AppTheme.caption.copyWith(
                       color: AppTheme.success,
                       fontSize: AppTheme.fsCaption,
-                      height: 1.5),
+                      height: AppTheme.lhProse),
                 ),
               ],
             ),
@@ -837,7 +837,7 @@ class _FullNotice extends StatelessWidget {
                     style: AppTheme.caption.copyWith(
                         color: AppTheme.textSecondary,
                         fontSize: AppTheme.fsCaption,
-                        height: 1.5)),
+                        height: AppTheme.lhProse)),
               ],
             ),
           ),
@@ -887,7 +887,7 @@ class _StaleGalleryBanner extends StatelessWidget {
               key: const Key('stale-gallery-line'),
               style: AppTheme.body.copyWith(
                 color: AppTheme.accentDeep,
-                height: 1.5,
+                height: AppTheme.lhProse,
                 fontWeight: FontWeight.w600,
               ),
             ),

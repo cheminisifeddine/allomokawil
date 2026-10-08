@@ -137,7 +137,7 @@ class _CategoryStripTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: AppTheme.label.copyWith(
                     fontSize: AppTheme.fsBadge,
-                    height: 1.25,
+                    height: AppTheme.lhTile,
                     color: selected ? AppTheme.navy : AppTheme.textPrimary,
                   ),
                 ),

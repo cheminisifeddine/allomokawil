@@ -469,7 +469,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                   style: const TextStyle(
                     fontFamily: 'Cairo',
                     fontSize: AppTheme.fsMeta,
-                    height: 1.5,
+                    height: AppTheme.lhProse,
                     color: AppTheme.danger,
                   ),
                 ),
@@ -546,7 +546,7 @@ class _Hint extends StatelessWidget {
       style: const TextStyle(
         fontFamily: 'Cairo',
         fontSize: AppTheme.fsCaption,
-        height: 1.6,
+        height: AppTheme.lhRoomy,
         color: AppTheme.textMuted,
       ),
     );

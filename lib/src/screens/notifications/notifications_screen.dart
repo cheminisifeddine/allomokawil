@@ -722,7 +722,7 @@ class _StaleNotificationsBanner extends StatelessWidget {
               key: const Key('stale-notifications-line'),
               style: AppTheme.body.copyWith(
                 color: AppTheme.accentDeep,
-                height: 1.5,
+                height: AppTheme.lhProse,
                 fontWeight: FontWeight.w600,
               ),
             ),

@@ -249,6 +249,15 @@ const _appRuleGuards = <String, String>{
   // because the sweep is the whole point of it.
   'test/hairline_token_test.dart': 'the hairline rule: no tappable control '
       'types a raw border width',
+  // Added 8 Oct with the line-height ladder it guarded. The font ladder got
+  // tokens and the line-height ladder beside it did not, so 41 sites across
+  // 21 files typed their own `height:` -- including one pair byte-identical in
+  // two files (`category_grid.dart` and `ui.dart`, the 2-line category tile at
+  // 1.25). Declared here because it enforces one of the app's own rules over
+  // every shipped file, and `flutter analyze` cannot: a raw line-height is a
+  // perfectly valid `double`, so nothing but this sweep can see it.
+  'test/line_height_token_test.dart': 'the line-height rule: no text style '
+      'types a raw line-height',
   'test/failure_reported_test.dart': 'the failure-reported rule: every caught '
       'failure reaches the user in Arabic',
   'test/header_trust_wiring_test.dart': 'the header trust-signals rule',
@@ -425,6 +434,19 @@ const _ruleEvidence = <String, List<String>>{
   // the ONLY way this guard sees the app's source at all -- drop it and the
   // rule cannot be applied, only described.
   'test/hairline_token_test.dart': [r"(\w+)\s*:\s*([^,]*)"],
+  // The line-height rule turns on the named argument `height`, matched inside a
+  // text style's argument list -- the ONLY way this guard sees a line-height at
+  // all. Drop the token and the sweep parses every file in `lib/` and reports
+  // nothing, which is a clean tree that says nothing about line-heights.
+  //
+  // It is the plain `height` literal, not a `RegExp`, for the reason the entry
+  // above spells out at length: this suite scores `literal.contains(token)`,
+  // so the token has to be the value of the literal itself. And `height` is
+  // the front of the pipeline -- `a.name.lexeme != 'height'` decides which
+  // arguments are even candidates, before `is DoubleLiteral` narrows them to
+  // raw numbers. Citing the `DoubleLiteral` type instead would credit the
+  // guard with a rule it reaches second-hand.
+  'test/line_height_token_test.dart': ['height'],
   'test/failure_reported_test.dart': [r'\bcatch\b'],
   'test/header_trust_wiring_test.dart': [r'NotificationCountTrust\s*\('],
   'test/payload_coverage_test.dart': ['/api/mobile/workers/top'],

@@ -167,6 +167,7 @@ class AppTheme {
 
 
 
+
   /// The outline of a control that is **currently selected** — a chosen trade
   /// chip, the category tile you tapped, an unread row.
   ///
@@ -462,6 +463,29 @@ class AppTheme {
   static const double fsH1 = 21; // screen heads
   static const double fsDisplay = 23; // the hero figure
   static const double fsHero = 30; // the landing promise
+
+  /// The line-height ladder — the second half of the type scale, and for a
+  /// long time the half nobody named.
+  ///
+  /// The font sizes above got a ladder on their own; the **spacing between
+  /// lines** did not, so "how loose is this paragraph?" had no answer and the
+  /// answer was typed by hand into **41 sites across 21 files**. Measured on
+  /// this tree, by AST rather than by grep: 1.5 x19, 1.6 x13, 1.25 x2, 1.2 x4,
+  /// and one each of 1.15, 1.1 and 1.45. A grep counted 46, because it also
+  /// counted five mentions inside comments -- which is the same trap as the
+  /// font ladder's `fontSize: 11.5`, where a comment read as a writer.
+  ///
+  /// These are **exactly** the numbers that were already in the widgets. A
+  /// screen names the token and the rendering is byte-identical, so this is a
+  /// rename with no visual delta: changing any of these is now a one-line
+  /// decision instead of a sweep across 21 files.
+  static const double lhTightest = 1.1; // a number pip on the tab bar
+  static const double lhBadge = 1.15; // the tab bar's own count
+  static const double lhTile = 1.25; // a category tile label, capped at 2 lines
+  static const double lhProse = 1.5; // the default for running Arabic prose
+  static const double lhRoomy = 1.6; // dense metadata that must breathe
+  static const double lhList = 1.2; // single-line rows, chat bubbles
+  static const double lhSubtle = 1.45; // muted one-liners under a caption
 
   /// The ladder in order — for tests, and for the next person who needs a size.
   static const List<double> scale = <double>[

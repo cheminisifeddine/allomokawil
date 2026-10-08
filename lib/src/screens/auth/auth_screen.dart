@@ -254,7 +254,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       Text(
                         isWorker ? S.workerDesc : S.customerDesc,
                         style: AppTheme.caption.copyWith(
-                            color: AppTheme.textSecondary, height: 1.6),
+                            color: AppTheme.textSecondary, height: AppTheme.lhRoomy),
                       ),
                       const SizedBox(height: 16),
                     ],
@@ -711,7 +711,7 @@ class AuthNotice extends StatelessWidget {
             child: Text(
               message,
               style: AppTheme.label
-                  .copyWith(color: AppTheme.danger, fontSize: AppTheme.fsSmall, height: 1.5),
+                  .copyWith(color: AppTheme.danger, fontSize: AppTheme.fsSmall, height: AppTheme.lhProse),
             ),
           ),
         ],

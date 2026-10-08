@@ -485,7 +485,7 @@ class SelectableTile extends StatelessWidget {
                   // one on the cheapest phone the app supports.
                   style: AppTheme.label.copyWith(
                     fontSize: AppTheme.fsBadge,
-                    height: 1.25,
+                    height: AppTheme.lhTile,
                     color: selected ? AppTheme.navy : AppTheme.textPrimary,
                   ),
                 ),

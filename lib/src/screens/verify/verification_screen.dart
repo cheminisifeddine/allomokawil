@@ -361,7 +361,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                       'إن كانت بحوزتك شهادة تكوين أو دبلوم حرفة فأضفها هنا. '
                       'تظهر في ملفك وترفع ثقة أصحاب المشاريع بك، خاصة إن كنت جديداً بلا تقييمات.',
                       style: AppTheme.bodySoft
-                          .copyWith(fontSize: AppTheme.fsMeta, height: 1.6),
+                          .copyWith(fontSize: AppTheme.fsMeta, height: AppTheme.lhRoomy),
                     ),
                     const SizedBox(height: 12),
                     for (var i = 0; i < _certs.length; i++)
@@ -453,7 +453,7 @@ class _UnderReviewPanel extends StatelessWidget {
                       'يراجعها فريقنا خلال 24-48 ساعة.',
                       style: AppTheme.bodySoft.copyWith(
                           fontSize: AppTheme.fsMeta,
-                          height: 1.6,
+                          height: AppTheme.lhRoomy,
                           color: AppTheme.info),
                     ),
                   ],
@@ -647,7 +647,7 @@ class _PartsStatusCard extends StatelessWidget {
                     ? 'وصلت وثائقك وهي قيد المراجعة. تُقبل المستندات واحداً واحداً، وسيتغيّر هذا الجدول مع كل قبول.'
                     : 'تُقبل المستندات واحداً واحداً. أي جزء لم يُقبل بعد يمكنك إعادة رفعه من الأسفل.'),
             style: AppTheme.caption.copyWith(
-                fontSize: AppTheme.fsBadge, height: 1.6),
+                fontSize: AppTheme.fsBadge, height: AppTheme.lhRoomy),
           ),
         ],
       ),

@@ -464,7 +464,7 @@ class _StaleInboxBanner extends StatelessWidget {
               key: const Key('stale-inbox-line'),
               style: AppTheme.body.copyWith(
                 color: AppTheme.accentDeep,
-                height: 1.5,
+                height: AppTheme.lhProse,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -587,7 +587,7 @@ class _ConversationTile extends StatelessWidget {
                           // how large a count is drawn.
                           style: AppTheme.label.copyWith(
                               fontSize: AppTheme.pipNumeral,
-                              height: 1.2,
+                              height: AppTheme.lhList,
                               color: AppTheme.accentDeep),
                         ),
                       ],
@@ -623,7 +623,7 @@ class _ConversationTile extends StatelessWidget {
                     // See `test/chat_list_pip_test.dart`.
                     style: AppTheme.label.copyWith(
                         fontSize: AppTheme.pipNumeral,
-                        height: 1.2,
+                        height: AppTheme.lhList,
                         color: AppTheme.navy),
                   ),
                 ),

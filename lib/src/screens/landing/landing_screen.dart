@@ -115,7 +115,7 @@ class _Welcome extends StatelessWidget {
           style: AppTheme.h1.copyWith(
             color: AppTheme.navy,
             fontSize: AppTheme.fsHero,
-            height: 1.2,
+            height: AppTheme.lhList,
           ),
         ),
         const SizedBox(height: 10),
@@ -125,7 +125,7 @@ class _Welcome extends StatelessWidget {
           style: AppTheme.body.copyWith(
             color: AppTheme.textSecondary,
             fontSize: AppTheme.fsBody,
-            height: 1.5,
+            height: AppTheme.lhProse,
           ),
         ),
       ],

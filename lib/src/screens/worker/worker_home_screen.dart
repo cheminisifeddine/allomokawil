@@ -1278,7 +1278,7 @@ class _StaleMarketBand extends StatelessWidget {
               key: const Key('stale-market-line'),
               style: AppTheme.body.copyWith(
                 color: AppTheme.accentDeep,
-                height: 1.5,
+                height: AppTheme.lhProse,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -2077,7 +2077,7 @@ class _GettingStarted extends StatelessWidget {
                         style: const TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: AppTheme.fsCaption,
-                          height: 1.5,
+                          height: AppTheme.lhProse,
                           color: AppTheme.textSecondary,
                         ),
                       ),

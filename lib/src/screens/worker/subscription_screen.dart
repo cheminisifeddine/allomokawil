@@ -736,7 +736,7 @@ class _PromiseCard extends StatelessWidget {
                 Text(
                   note.isEmpty ? S.planNoteFallback : note,
                   style: AppTheme.body.copyWith(
-                      color: AppTheme.textSecondary, height: 1.6),
+                      color: AppTheme.textSecondary, height: AppTheme.lhRoomy),
                 ),
                 if (renewNote != null) ...[
                   const SizedBox(height: AppTheme.s8),
@@ -787,7 +787,7 @@ class _PrepaidBadge extends StatelessWidget {
             note,
             style: AppTheme.body.copyWith(
               color: AppTheme.textSecondary,
-              height: 1.6,
+              height: AppTheme.lhRoomy,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -1091,7 +1091,7 @@ class _PlanCard extends StatelessWidget {
                 const SizedBox(width: AppTheme.s8),
                 Expanded(
                   child: Text(feature,
-                      style: AppTheme.body.copyWith(height: 1.6)),
+                      style: AppTheme.body.copyWith(height: AppTheme.lhRoomy)),
                 ),
               ],
             ),
@@ -1127,7 +1127,7 @@ class _PlanCard extends StatelessWidget {
               key: const Key('plan-already-requested'),
               textAlign: TextAlign.center,
               style: AppTheme.caption
-                  .copyWith(color: AppTheme.textSecondary, height: 1.5),
+                  .copyWith(color: AppTheme.textSecondary, height: AppTheme.lhProse),
             ),
           ],
         ],
@@ -1264,7 +1264,7 @@ class _PendingCard extends StatelessWidget {
                 const SizedBox(height: AppTheme.s4),
                 Text(S.planPendingBody,
                     style: AppTheme.body.copyWith(
-                        color: AppTheme.textSecondary, height: 1.6)),
+                        color: AppTheme.textSecondary, height: AppTheme.lhRoomy)),
                 // The receipt. Separated from the prose above so a payload with
                 // no usable facts renders exactly the card that shipped before
                 // rather than a title and a bare separator.
@@ -1289,7 +1289,7 @@ class _PendingCard extends StatelessWidget {
                     key: const Key('pendingPeriodNote'),
                     style: AppTheme.caption.copyWith(
                       color: AppTheme.textSecondary,
-                      height: 1.5,
+                      height: AppTheme.lhProse,
                     ),
                   ),
                 ],
@@ -1347,7 +1347,7 @@ class _StaleBanner extends StatelessWidget {
               key: const Key('stale-catalogue-line'),
               style: AppTheme.body.copyWith(
                 color: AppTheme.accentDeep,
-                height: 1.5,
+                height: AppTheme.lhProse,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -1621,7 +1621,7 @@ class _PayInstructions extends StatelessWidget {
             Expanded(
               child: Text(S.planSupportFallback,
                   style: AppTheme.body.copyWith(
-                      color: AppTheme.textSecondary, height: 1.6)),
+                      color: AppTheme.textSecondary, height: AppTheme.lhRoomy)),
             ),
           ],
         ),
@@ -1633,7 +1633,7 @@ class _PayInstructions extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           for (final line in lines) ...[
-            SelectableText(line, style: AppTheme.body.copyWith(height: 1.6)),
+            SelectableText(line, style: AppTheme.body.copyWith(height: AppTheme.lhRoomy)),
             const SizedBox(height: AppTheme.s4),
           ],
         ],

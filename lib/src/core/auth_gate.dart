@@ -123,7 +123,7 @@ class SignInWall extends StatelessWidget {
                 body,
                 textAlign: TextAlign.center,
                 style: AppTheme.body
-                    .copyWith(color: AppTheme.textSecondary, height: 1.5),
+                    .copyWith(color: AppTheme.textSecondary, height: AppTheme.lhProse),
               ),
               const SizedBox(height: AppTheme.s16),
               BigButton(

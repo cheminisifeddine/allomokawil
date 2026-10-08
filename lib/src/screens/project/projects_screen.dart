@@ -657,7 +657,7 @@ class _StaleProjectsBanner extends StatelessWidget {
               key: const Key('stale-projects-line'),
               style: AppTheme.body.copyWith(
                 color: AppTheme.accentDeep,
-                height: 1.5,
+                height: AppTheme.lhProse,
                 fontWeight: FontWeight.w600,
               ),
             ),

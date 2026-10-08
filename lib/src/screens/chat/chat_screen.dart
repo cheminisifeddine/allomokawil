@@ -1230,7 +1230,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 textAlign: TextAlign.center,
                 style: AppTheme.label.copyWith(
                     fontSize: AppTheme.pipNumeral,
-                    height: 1.2,
+                    height: AppTheme.lhList,
                     color: AppTheme.navy),
               ),
             ),

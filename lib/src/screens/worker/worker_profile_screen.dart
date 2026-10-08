@@ -944,7 +944,7 @@ class _ReviewsSection extends StatelessWidget {
                       Expanded(
                         child: Text(partial,
                             style: AppTheme.caption.copyWith(
-                                color: AppTheme.accentDeep, height: 1.5)),
+                                color: AppTheme.accentDeep, height: AppTheme.lhProse)),
                       ),
                     ],
                   ),

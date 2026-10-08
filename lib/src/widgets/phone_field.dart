@@ -213,7 +213,7 @@ class _DzPhoneFieldState extends State<DzPhoneField> {
                     error,
                     key: const Key('dz-phone-error'),
                     style: AppTheme.caption.copyWith(
-                        color: AppTheme.danger, fontSize: AppTheme.fsMeta, height: 1.5),
+                        color: AppTheme.danger, fontSize: AppTheme.fsMeta, height: AppTheme.lhProse),
                   ),
                 ),
               ],

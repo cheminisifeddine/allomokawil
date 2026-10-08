@@ -198,7 +198,7 @@ class _StepRow extends StatelessWidget {
                 Text(
                   step.detail,
                   style: AppTheme.caption.copyWith(
-                      fontSize: AppTheme.fsCaption, height: 1.45, color: AppTheme.textMuted),
+                      fontSize: AppTheme.fsCaption, height: AppTheme.lhSubtle, color: AppTheme.textMuted),
                 ),
               ],
             ),
