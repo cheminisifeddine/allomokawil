@@ -173,6 +173,14 @@ const _knownRoots = <String>{
   // normal shape: the sweep covers the whole tree, the read-back covers the one
   // file whose call sites are the rule.
   'lib/src/widgets/phone_field.dart',
+  // ...and the one root that is a TEST file, added 8 Oct by the agreement-
+  // comment reader. `agreement_comment_test.dart` opens its OWN source with
+  // `File('test/agreement_comment_test.dart').readAsLinesSync()` so it can
+  // grade the sentences it quotes against the rule it imports. It reaches no
+  // `lib/` file, so the coverage case below reads it as a declared root that
+  // ships nothing -- correct for a guard whose subject IS a test file, and
+  // listed here rather than left to fail the unknown-root case by name.
+  'test/agreement_comment_test.dart',
   // The suite reading its own test directory: `wall_clock_seam_site_test.dart`
   // walks `Directory('test')` to police other guards. It holds no shipped Dart,
   // so it contributes no coverage -- it is listed so the census *names* the
@@ -842,6 +850,11 @@ const _rootsWithoutShippedDart = <String, String>{
       'contributes no app coverage and is named so the census says so instead '
       'of by omission',
   'test/*.dart': 'a git pathspec that finds the guards themselves',
+  'test/agreement_comment_test.dart': 'the agreement-comment guard reads its '
+      'OWN source so it can grade the sentences it quotes against the rule it '
+      'imports. Its subject is a test file, so it reaches no app Dart and '
+      'claims none -- named here for the same reason as the `test` root above, '
+      'so the census says so instead of by omission',
   '*.py': 'the Python instruments: a different language and a different '
       'question, so it covers no Dart file and is claimed as none',
 };

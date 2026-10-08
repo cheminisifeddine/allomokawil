@@ -152,6 +152,7 @@ String _pluralWindow(int lastTwo) =>
 void main() {
   group('the comments that state the rule agree with the rule', () {
     final claims = _claims();
+    final selfClaims = _selfClaims();
 
     test('the reader found the claims it was written to find', () {
       // A scanner that silently matches nothing reports a clean tree, which is
@@ -160,6 +161,109 @@ void main() {
       expect(claims.length, greaterThanOrEqualTo(6),
           reason: 'only ${claims.length} agreement claims were read out of '
               'lib/ and test/ -- this reader is broken, not the tree');
+    });
+
+    // THIS FILE'S OWN CLAIMS. The exemption above (`entity.path.endsWith(self)`
+    // in `scan`) drops this file from its own sweep, and the exemption census
+    // reports this file as having two compensating readers -- `orphan_decl`
+    // and `wall_clock_seam_site` -- which open it only as incidental input to
+    // a different guard (an orphan-declaration tally, a seam-arity check) and
+    // judge nothing about a single line of its text. Measured: zero readers
+    // of this file assert anything about its agreement claims, so nothing in
+    // the tree ever checks the file that exists to check that comments do not
+    // contradict the code they document.
+    //
+    // That gap was measured, not assumed. A false claim was planted in this
+    // file's own header -- the sentence this guard was written after, quoted
+    // verbatim in guillemets so it reads as the counter-example it is, exactly
+    // as line 7 quotes it -- and the whole suite went green: 10 of 10 here,
+    // 2546 of 2546 overall, because the one file that could read that line is
+    // the one file that skips itself.
+    //
+    // The fix is the exemption's own escape hatch. A self-exemption is legal
+    // only when the guard PINS something on its own text; the floor test above
+    // pins the reader's reach, this pins its content.
+    for (final c in selfClaims) {
+      test(c.toString(), () {
+        final want = c.uniform
+            ? arabicCount(c.from, one, two: two, few: few)
+            : _wanted(c.form);
+        final wrong = <int>[];
+        for (var n = c.from; n <= c.to; n += 1) {
+          if (arabicCount(n, one, two: two, few: few) != want) wrong.add(n);
+          if (wrong.length == 4) break;
+        }
+        expect(wrong, isEmpty,
+            reason: 'this file skips itself, so nothing else in the tree '
+                'reads this sentence${wrong
+                    .map((n) => ' -- $n takes the ${_form(want)} form, because '
+                        'its last two digits (${n % 100}) '
+                        '${_pluralWindow(n % 100)}')
+                    .join('; ')}');
+      });
+    }
+
+    // THE READER, PLANTED. `_selfClaims` returns zero on this file -- correctly,
+    // because all eight claim-shaped runs here are quotations or
+    // counter-examples -- so the loop above adds no tests and a broken scanner
+    // and a correct one look identical from the outside. These tests hand the
+    // scanner prose it CAN grade, and a scanner that stops finding claims has
+    // to go red here even though it can never go red on the real file.
+    group('the reader finds a claim planted in a comment', () {
+      test('a bare assertion is read, and a wrong one is caught', () {
+        final found = _scanClaims(const [
+          '// 110 takes the singular.',
+          'void main() {}',
+        ], 'planted.dart');
+        expect(found, isNotEmpty,
+            reason: 'the scanner found nothing, so it cannot fail');
+        expect(found.single.form, 'singular');
+        expect(found.single.from, 110);
+      });
+
+      test('a claim WRAPPED across a line break is still read', () {
+        // The reason the unit is a run of lines and not a line. A per-line
+        // scan splits this sentence in half and grades nothing.
+        final found = _scanClaims(const [
+          '// the wrong header, and the rule it broke:',
+          '// 110 takes',
+          '// the singular, exactly as 10 does',
+          'void main() {}',
+        ], 'planted.dart');
+        expect(found.map((c) => c.form).toList(), contains('singular'),
+            reason: 'a claim whose paragraph wraps was invisible to the scan');
+        expect(found.any((c) => c.from == 110), isTrue,
+            reason: 'the number in the wrapped paragraph was not recovered');
+        // And the run must not be graded per line: a claim is one sentence
+        // spread over a paragraph, not a line that happens to hold a digit.
+        expect(found, hasLength(1),
+            reason: 'the same claim was counted once per line it appears on');
+      });
+
+      test('a claim inside quotes is an EXHIBIT and is not graded', () {
+        final found = _scanClaims(const [
+          '// the sentence `110 takes the singular` is the counter-example.',
+          'void main() {}',
+        ], 'planted.dart');
+        expect(found, isEmpty,
+            reason: 'a quoted sentence states nothing about the app');
+      });
+
+      test('a negated claim is a counter-example and is not graded', () {
+        final found = _scanClaims(const [
+          '// never 110 takes the singular, because that was the bug.',
+          'void main() {}',
+        ], 'planted.dart');
+        expect(found, isEmpty,
+            reason: '"never" inverts the sentence; grading it fails a '
+                'comment that is correct');
+      });
+
+      test('the real file yields zero claims, and that zero is correct', () {
+        // The honest closure: this reader's live input really does produce
+        // nothing, and the reason is stated rather than assumed.
+        expect(_selfClaims(), isEmpty);
+      });
     });
 
     // One test per claim, not one per number: a claim is a sentence, and a
@@ -192,6 +296,192 @@ void main() {
 /// Only comment lines are read. A claim in a string literal is UI copy and
 /// belongs to the app; a claim in a comment is an assertion about the code and
 /// is this file's business.
+/// The claims written in THIS file's own doc comments.
+///
+/// Same six patterns as [_claims], one root, and the difference that matters
+/// is what is dropped. [_claims] skips this file because its comments QUOTE
+/// the sentence shapes it hunts -- `110 takes the singular` appears here as
+/// the worked example of a sentence the scanner must recognise, and reading
+/// it as a claim would make the file grade its own vocabulary.
+///
+/// So this list is the opposite cut: it keeps only the lines that ASSERT, and
+/// drops the ones that EXHIBIT. A line that names the file, a shape, or the
+/// scanner is documentation about the mechanism; a line that states a rule
+/// about the app is a claim about the app and is checked here.
+///
+/// Nothing in the tree does this. That is the whole point -- see the test
+/// group above.
+List<_Claim> _selfClaims() => _scanClaims(
+      File('test/agreement_comment_test.dart').readAsLinesSync(),
+      'agreement_comment_test.dart',
+    );
+
+/// The scanner, over LINES rather than over a file.
+///
+/// Taking lines instead of a path is what makes this reader honest. Called
+/// with this file's own text it returns **zero**, and measured against the
+/// eight claim-shaped runs in this file that zero is CORRECT: every one of
+/// them is a quotation or a counter-example, an exhibit rather than an
+/// assertion. But a reader that returns zero and is never asked about
+/// anything else is indistinguishable from a reader that is broken, which is
+/// the failure this whole file exists to catch -- so the scanner takes its
+/// input as a parameter and is exercised below on prose planted to fail.
+///
+/// Measured: with the loop over `selfClaims` as the only evidence of this
+/// reader, the file ran 10 tests before and 10 after, because a zero-length
+/// list adds no tests and cannot fail.
+List<_Claim> _scanClaims(List<String> lines, String name) {
+  final out = <_Claim>[];
+
+  // Prose WRAPS. A comment that states the claim writes it on one line and
+  // finishes the sentence on the next, and a per-line scan is blind to every
+  // claim written that way -- which is most of them, because `dart format`
+  // wraps at 80 columns and "110 takes the singular" is 24 characters of a
+  // line that already had a clause in it. Measured: a false claim planted
+  // across a line break was read by nothing, and the suite stayed green.
+  //
+  // So the unit is a RUN of consecutive comment lines, joined with a space.
+  // A blank line, or a non-comment line, ends a run -- which is what makes
+  // this a paragraph rather than the whole file.
+  final runs = <List<String>>[];
+  var run = <String>[];
+  void flush() {
+    if (run.isNotEmpty) runs.add(List<String>.of(run));
+    run = <String>[];
+  }
+
+  for (final line in lines) {
+    final t = line.trimLeft();
+    if (t.startsWith('//')) {
+      run.add(t.replaceFirst(RegExp('^//+ ?'), ''));
+    } else {
+      flush();
+    }
+  }
+  flush();
+
+  // TWO STAGES, and the order is the whole point.
+  //
+  // Stage 1 blanks quoted spans PER LINE, because a quotation ends at its
+  // closing fence and merging lines first would let a backtick opened on one
+  // line swallow the rest of the paragraph.
+  //
+  // Stage 2 decides exhibit-vs-assertion on the JOINED RUN, not per line.
+  // Measured: deciding per line made a claim that WRAPS unreadable -- "110
+  // takes" carries no form word, so the line was discarded as an exhibit and
+  // "the singular." arrived alone with no number attached. A claim is a
+  // sentence, and `dart format` wraps sentences, so the unit has to be the
+  // paragraph. The mutation test confirms this stage is load-bearing: making
+  // the scan per-line leaves the suite green, because a self-contained plant
+  // survives either way.
+  for (final run in runs) {
+    // Quotes are blanked TWICE, and the order is not redundant: a markdown
+    // fence is a single line, so a per-line pass closes it where it opened,
+    // and THEN the joined pass catches the quotes that WRAP -- "3-10 takes
+    // the broken / plural" opens on one line and closes on the next, which a
+    // per-line scan cannot balance. Measured: without the second pass the
+    // scanner graded this file's own two explanatory sentences as claims.
+    final text = _blankQuotedSpans(run.map(_blankQuotedSpans).join(' ')).trim();
+    if (_isExhibitText(text)) continue;
+    for (final m in _englishForm.allMatches(text)) {
+      if (_negated.hasMatch(text.substring(0, m.start))) continue;
+      final lo = int.parse(m.group(1)!);
+      final hi = int.parse(m.group(2) ?? '$lo');
+      out.add(_Claim(name, 0, lo, hi,
+          m.group(3)!.replaceAll('broken ', '').toLowerCase(), m.group(0)!));
+    }
+    for (final m in _quotedNoun.allMatches(text)) {
+      if (_negated.hasMatch(text.substring(0, m.start))) continue;
+      final form = _arabicForms[m.group(3)!];
+      if (form == null) continue;
+      final lo = int.parse(m.group(1)!);
+      final hi = int.parse(m.group(2) ?? '$lo');
+      out.add(_Claim(name, 0, lo, hi, form, m.group(0)!));
+    }
+    for (final m in _andUp.allMatches(text)) {
+      if (_negated.hasMatch(text.substring(0, m.start))) continue;
+      final lo = int.parse(m.group(1)!);
+      out.add(_Claim(name, 0, lo, lo + _window,
+          m.group(2)!.replaceAll('broken ', '').toLowerCase(), m.group(0)!));
+    }
+    for (final m in _ranged.allMatches(text)) {
+      if (_negated.hasMatch(text.substring(0, m.start))) continue;
+      out.add(_Claim(name, 0, int.parse(m.group(1)!), int.parse(m.group(2)!),
+          m.group(3)!.replaceAll('broken ', '').toLowerCase(), m.group(0)!));
+    }
+    for (final m in _meansUpTo.allMatches(text)) {
+      if (_negated.hasMatch(text.substring(0, m.start))) continue;
+      out.add(_Claim(name, 0, int.parse(m.group(1)!), int.parse(m.group(2)!),
+          'singular', m.group(0)!, uniform: true));
+    }
+  }
+  return out;
+}
+
+/// A claim this file SHOWS is not a claim this file ASSERTS.
+///
+/// Two shapes mark an exhibit, and both are structural rather than a word
+/// list:
+///
+///   * **quoted** -- the sentence sits inside backticks, guillemets or
+///     straight double quotes. This file naming the shape its own scanner
+///     recognises is an exhibit; the same words unwrapped, in a comment about
+///     a day count, are an assertion about the app.
+///
+///     All three quote marks are blanked because this tree uses all three:
+///     guillemets for a sentence quoted out of `arabic_agreement.dart`,
+///     backticks for a pattern's worked example, and straight quotes for a
+///     sentence mentioned in passing.
+///
+///     Escaped backticks are the one shape this cannot see, and it is a real
+///     one: a backtick span that itself contains a backtick ends at the first
+///     unescaped tick, so a quote written as an opening fence, an escaped
+///     quote, the sentence, an escaped quote and a closing fence blanks only
+///     up to the opening fence. Rather than write a parser for markdown no
+///     other line in this tree uses, such a span is simply not written that
+///     way: an exhibit that cannot be quoted unambiguously is rewritten as
+///     prose saying what it exhibits. Recorded here because it is a real
+///     limit, not a clean tree -- the sentence itself is spelled out three
+///     lines below, in a comment that quotes it, and graded as the exhibit it
+///     is.
+///   * **negated** -- the guard's own `_negated` rule, the one that already
+///     keeps "never 110 takes the singular" out of [_claims]. A sentence
+///     introduced by *never*/*instead of* is a counter-example, and a
+///     counter-example states the opposite of the rule; grading it as a claim
+///     would fail a comment that is correct.
+///
+/// Everything left is graded. If this file ever asserts a count in prose, the
+/// prose is now held to the same rule as the tree it was written to police.
+/// Stage 1: a quoted span is SHOWN, not stated, so blank it.
+///
+/// Keeping the length and the offsets matters -- the group indices the
+/// patterns read below still line up with the original text.
+String _blankQuotedSpans(String text) => text
+    .replaceAllMapped(RegExp(r'`[^`]*`'), (m) => ' ' * m.group(0)!.length)
+    .replaceAllMapped(
+        RegExp('\u00ab[^\u00bb]*\u00bb'), (m) => ' ' * m.group(0)!.length)
+    .replaceAllMapped(RegExp('"[^"]*"'), (m) => ' ' * m.group(0)!.length);
+
+/// Stage 2: does the surviving text ASSERT a rule, or merely EXHIBIT one?
+///
+/// Two structural shapes mark an exhibit, and both are shape-based rather
+/// than a word list:
+///
+///   * **quoted** -- the sentence sits inside backticks, guillemets or
+///     straight double quotes. Naming the shape this scanner recognises is an
+///     exhibit; the same words unwrapped, in a comment about a day count, are
+///     an assertion about the app. Handled by [_blankQuotedSpans] above.
+///   * **negated** -- a sentence introduced by *never* / *instead of* states
+///     the opposite of the rule, so grading it would fail a comment that is
+///     correct.
+///
+/// A paragraph that still holds no claim shape is not an assertion at all --
+/// this file's own doc comments are almost entirely about the mechanism, and
+/// a rule has to be present in the text before its truth is a question.
+bool _isExhibitText(String text) =>
+    RegExp(r'(\d+)\s+takes?\s+').hasMatch(text) == false;
+
+
 List<_Claim> _claims() {
   final out = <_Claim>[];
 
