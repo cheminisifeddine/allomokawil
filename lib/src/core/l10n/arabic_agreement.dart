@@ -7,7 +7,8 @@
 //     قبل دقيقة      1   (singular)
 //     قبل دقيقتين     2   (dual)
 //     قبل 7 دقائق     3–10 (plural)
-//     قبل 15 دقيقة   11+  (singular, counted)
+//     قبل 15 دقيقة   11–102 (singular, counted)
+//     قبل 103 دقائق   103–110 (plural again — see the mod-100 rule below)
 //
 // The rule is four lines long and it was implemented three separate times, in
 // three files, with three different sets of nouns. Two of the three copies were
@@ -21,18 +22,21 @@
 // Rules, spelled out rather than implied:
 //   * [one] is the singular, already carrying any needed tanween — pass
 //     `'يوماً'` for a count in an accusative ("after N days"), not `'يوم'`.
-//   * [two] is the dual, and is normally a different word: pass `'يومين'`. The
-//     dual takes no number, so the number is never printed with it.
-//   * [few] is the plural used for 3–10, which in a count is the broken plural
-//     — `'أيام'`, not `'يوم'`.
-//   * 11 and up take [one] again, because they are *counted singular*: the
+//     1 takes the singular.
+//   * [two] is the dual, and is normally a different word: pass `'يومين'`.
+//     2 takes the dual, and the dual takes no number, so the number is never
+//     printed with it.
+//   * [few] is the plural for a broken-plural count: 3–10 take the plural
+//     «أيام», not «يوم».
+//   * 11–102 take [one] again, because they are *counted singular*: the
 //     number is what makes the noun singular, and the noun is what the number
 //     is counted in. «بعد 100 يوماً», never «بعد 100 أيام».
-//     **The range is 11–110, not 11–∞, and the boundary is 110, not 11.**
-//     The plural range of a counted noun is decided by the *last two digits* of
-//     the number, so it repeats: 103 takes «أيام» exactly as 3 does, and 110
-//     takes the singular exactly as 10 does. The helper read `n <= 10` and so
-//     got every three-digit number wrong. See [arabicCount].
+//     **But "and up" stops at 102.** The plural range of a counted noun is
+//     decided by the *last two digits* of the number, so it repeats: 103 takes
+//     the plural «أيام» exactly as 3 does, and 110 takes the plural too,
+//     because 10 is inside the 3–10 window. The whole rule is one clause —
+//     `n % 100` — and 110 is the number that catches a reader who believes
+//     "11 and up" the way they would in English. See [arabicCount].
 //
 // Nouns are passed in, never derived, so a caller can never accidentally print
 // the singular form of a feminine noun in the dual slot: the compiler sees the
@@ -61,9 +65,10 @@ String arabicCount(int n, String one, {String? two, String? few}) {
   if (n == 2) return two ?? one;
   // **The plural range repeats every hundred, and this line is the whole bug.**
   // A counted noun is decided by the last two digits of the number, so 103
-  // takes the broken plural exactly as 3 does, and 110 takes the singular
-  // exactly as 10 does. The old test was `n <= 10`, which is the same thing
-  // said only for the first hundred — correct for every number this app
+  // takes the broken plural exactly as 3 does, and so does 110 — 10 is in the
+  // window, and "11 and up is singular" is the English reading of a rule that
+  // does not work that way. The old test was `n <= 10`, which is the same
+  // thing said only for the first hundred — correct for every number this app
   // printed until a count passed two digits by one, and wrong for every
   // three-digit count whose last two digits fall in 3-10.
   //

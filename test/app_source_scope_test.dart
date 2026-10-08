@@ -288,6 +288,30 @@ const _appRuleGuards = <String, String>{
   'test/review_page_column_test.dart':
       'the token-shadow rule: no local may take a house inset token\'s name and '
       'hold a different value',
+
+  // Added 8 Oct, and the first guard in this file that polices **comments
+  // rather than code**. `arabic_agreement.dart` is the one file every count in
+  // the app is routed through, and its header gave the count ending in ten the
+  // singular where the helper two lines below it gives it the plural -- the
+  // wrong prose cost this loop a wrong assertion before any test existed to
+  // catch it. The guard reads `lib/` and `test/` as comments and checks every
+  // sentence stating the rule against the rule.
+  //
+  // Deliberately described rather than quoted. Quoting the old header back --
+  // it is a perfectly good sentence that happened to be false -- states the
+  // rule again inside a file this guard reads, and the guard is right to go
+  // red on it: nothing in the text marks a quotation as not-a-claim except the
+  // handful of words `_negated` knows. The first draft of this comment did
+  // exactly that and the guard failed the tick that added it.
+  //
+  // Declared here rather than left to the unknown-root case: it carries no
+  // shipped-Dart coverage of its own -- it reads the app's source but polices
+  // a claim about `arabicCount`, not the app's behaviour -- and a rule enforced
+  // in every build and named in no list is exactly the shape this census
+  // exists to make visible.
+  'test/agreement_comment_test.dart':
+      'the agreement-comment rule: every comment stating the Arabic number '
+      'rule says what the helper does',
 };
 
 /// The literal each named guard must still carry to be the guard it is
@@ -389,6 +413,13 @@ const _ruleEvidence = <String, List<String>>{
   // guard that only matched the word `pagePad` would fire on the rule's own
   // prose in any file it read.
   'test/review_page_column_test.dart': [r'(?:final|var)\s+'],
+  // The claim shapes, not the helper it checks against. `arabicCount` sits in
+  // the doc comments of both files this guard reads, so a token naming it
+  // would be satisfied by the very prose this guard exists to test. The rule
+  // turns on a *sentence form* -- «N takes the plural» -- and losing the
+  // pattern means the guard stops recognising the claims it was written for
+  // and passes by matching nothing.
+  'test/agreement_comment_test.dart': [r'takes?\s+the\s+'],
 };
 
 /// The literal roots a source sweep enumerates, read out of its own source.

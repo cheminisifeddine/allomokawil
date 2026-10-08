@@ -299,8 +299,50 @@ remote tree, read off the git-data API rather than trusted from the push line.
       asserts it by name: «103-110 take the broken plural, exactly as 3-10 do».
       So the comment states the opposite of both the code and its test, in the
       one file every count in this app is routed through. Cost one wrong
-      assertion on 8 Oct. *Next tick:* fix the comment to the measured rule
-      and leave the code and the test alone — the code is right.
+      assertion on 8 Oct.
+      **SHIPPED 8 Oct — the comment fixed, and the class of comment made
+      testable.** The prose now states the measured rule («and up» stops at
+      102; a count ending in 3–10 takes the plural whatever the century) and
+      the header's table reads 11–102 / 103–110. **Code and test untouched** —
+      the helper was right, and `arabic_agreement_test.dart` only had its own
+      comments corrected to match what it already asserts.
+      *Fixing the sentence is half; the other half is that nothing would have
+      caught the next one.* A comment that contradicts the code it documents is
+      worse than no comment, because it is the version a reader trusts — and
+      this one was already trusted once, by me, an hour before it was filed.
+      So `test/agreement_comment_test.dart` reads **every comment line under
+      `lib/` and `test/`**, recovers each sentence that states a number-agreement
+      claim («N takes the plural», «103 takes «أيام»», «11+ (singular)»,
+      «11 and up…», «11–99 take the singular»), and asserts it against
+      `arabicCount` itself rather than against a restatement of the rule — so
+      the comments and the code cannot drift apart again silently.
+      *Red→green, measured:* with the old comments restored the guard fails
+      **3** — the header's «11+ (singular, counted)» row (falsified at 103) and
+      **both** copies of «110 takes the singular», in the helper's header and in
+      the test's own mod-100 group. With the fix, **10/10 green**. The failure
+      message is the measured rule, not a diff: «110 takes the singular form,
+      because its last two digits (10) is in the 3-10 window».
+      *The guard caught the tick that wrote it, which is the part worth
+      keeping.* The first draft of the census registration quoted the old
+      header back («110 takes the singular exactly as 10 does») as the defect
+      it was documenting — inside `test/`, which the guard reads — and went red
+      on its own sentence. Nothing in the text marks a quotation as not-a-claim
+      except the short negation list, so the comment was rewritten to *describe*
+      the false claim instead of repeating it. A guard that fails the commit
+      that introduces it is not a nuisance; it is the first evidence it reads
+      what it claims to read.
+      *Cost the tick one registration this file's own census demanded:*
+      `app_source_scope_test.dart` fails on any sweep whose roots it cannot
+      read, and the first draft walked `lib/` and `test/` through
+      `scan('lib')` — an argument to its own function, a shape the census
+      models in neither its `Directory('…')` nor its typed `<String>[…]`
+      reader. So a rule enforced in every build would have been **invisible to
+      the file whose whole job is noticing a rule that went dark**, which is
+      the same blind spot that file was written to close. The roots are now a
+      `const roots = <String>['lib', 'test']` table, and the guard is named in
+      `_appRuleGuards` with the claim shape as its evidence token — `arabicCount`
+      itself would have been satisfied by the very doc comments under test.
+      Analyzer clean; the guard's own file and the census green together.
 
 - [x] **The phone field's error sentence starts against the edge the digits
       start against — a guard that is green on every other row of this file.**

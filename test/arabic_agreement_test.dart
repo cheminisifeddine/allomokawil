@@ -57,8 +57,9 @@ void main() {
       // The rule people get wrong: 11+ is NOT the plural. «قبل 15 دقيقة»,
       // «بعد 100 يوماً» — never «بعد 100 أيام».
       //
-      // "11 and up" means up to 110, not up to infinity — see the mod-100
-      // group below, which is why 110 is not in this list.
+      // "11 and up" does not mean up to infinity. It stops at 102: a count
+      // ending in 3-10 takes the plural again, whatever the century. That is
+      // why 110 is not in this list — see the mod-100 group below.
       for (final n in [11, 15, 40, 100, 365]) {
         expect(arabicCounted(n, one, two: two, few: few), '$n $one',
             reason: 'n=$n is counted singular');
@@ -75,9 +76,9 @@ void main() {
   //
   // A counted noun is decided by the LAST TWO DIGITS of the number, so the
   // plural range repeats every hundred: 103 takes «أيام» exactly as 3 does,
-  // and 110 takes the singular exactly as 10 does. The helper tested
-  // `n <= 10`, which is that rule said only for the first hundred, and so
-  // gave the singular to every three-digit count ending in 3-10.
+  // and so does 110 — `110 % 100` is 10, and 10 is in the window. The helper
+  // tested `n <= 10`, which is that rule said only for the first hundred, and
+  // so gave the singular to every three-digit count ending in 3-10.
   //
   // The range is reachable: the service-radius slider on the profile-edit
   // screen runs `max: 200`, and its value is saved verbatim to the profile
