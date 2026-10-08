@@ -213,6 +213,109 @@ def motion_reader():
                       "broken, not the tree")
 
 
+def weight_ladder_reader():
+    """The compensating reader `app_theme.dart`'s weight ladder never had.
+
+    `test/font_weight_token_test.dart:353` asserts the ladder is "ordered,
+    weakest first, and **complete**" -- and then proves completeness against a
+    **hand-copy of the same five rungs**:
+
+        expect(AppTheme.weights, <FontWeight>[
+          FontWeight.w400, ... w500, ... w600, ... w700, ... w800]);
+
+    That is the file comparing its ladder to a transcription of itself. The
+    scan it depends on does not help: `_rawWeights` walks all of `lib/` and
+    exempts nothing by filename, but the ladder's own `w*` declarations *are*
+    raw `FontWeight.wNNN` right-hand sides -- they are the five literals the
+    conversion deliberately put there. So a sixth rung declared the same way
+    is invisible to the scan by construction, and the completeness test only
+    checks that the five it already knows are present.
+
+    Measured, not argued: planting `wThunder = FontWeight.w900` next to the
+    real five left `font_weight_token_test`, `type_scale_test` and
+    `motion_test` **all green, 32 tests** -- an off-ladder weight the tree is
+    allowed to use and that no guard could name.
+
+    So the check is derived from `app_theme.dart` instead of copied: every
+    declared `static const FontWeight w*` is listed in `AppTheme.weights`, and
+    every entry of `weights` is declared. Both directions. Same instrument as
+    `motion_reader()`, because the defect is identical and it is in the theme
+    file -- which `type_scale_test.dart:220` exempts by name.
+    """
+    path = os.path.join(REPO, "lib", "src", "core", "theme", "app_theme.dart")
+    with open(path, encoding="utf-8") as fh:
+        code = _strip_comments(fh.read())
+
+    declared = re.findall(r"static const FontWeight (w\w+)\s*=", code)
+    block = re.search(
+        r"static const List<FontWeight> weights\s*=\s*<FontWeight>\[(.*?)\]",
+        code, re.S)
+    _assert(block is not None,
+            "app_theme.dart: `AppTheme.weights` is gone, so nothing can name a "
+            "legal weight and font_weight_token_test's completeness claim is "
+            "stale")
+    listed = [x.strip() for x in block.group(1).split(",") if x.strip()]
+
+    orphans = [d for d in declared if d not in listed]
+    ghosts = [l for l in listed if l not in declared]
+    _assert(not orphans,
+            "app_theme.dart declares a weight token that `AppTheme.weights` "
+            "does not list -- an off-ladder weight the app may use and no "
+            "guard can name: %s" % ", ".join(orphans))
+    _assert(not ghosts,
+            "AppTheme.weights lists a weight app_theme.dart does not "
+            "declare: %s" % ", ".join(ghosts))
+    _assert(len(set(listed)) == len(listed),
+            "AppTheme.weights repeats a rung: %s" % listed)
+    _assert(declared,
+            "weight_ladder_reader read zero rungs -- this reader is broken, "
+            "not the tree")
+
+
+def size_ladder_reader():
+    """The same defect, the other leg of the type scale -- and it is also clean.
+
+    `type_scale_test.dart:155` guards the *size* ladder properly: it derives
+    `AppTheme.scale` from the theme's own declarations (`ladderSizeNames()`)
+    and asserts >= 8 steps, ordering, distinctness. That is the right shape,
+    and this reader is here for the opposite reason -- to pin that it stays
+    that way, and to catch the version of the weight bug where someone adds an
+    `fs*` token beside the ladder rather than on it.
+
+    Not decoration: the previous tick's `motion_test.dart:30` failure was
+    exactly this shape on the tempo ladder, and two of the three type-scale
+    legs were rebuilt from it.
+    """
+    path = os.path.join(REPO, "lib", "src", "core", "theme", "app_theme.dart")
+    with open(path, encoding="utf-8") as fh:
+        code = _strip_comments(fh.read())
+
+    declared = re.findall(r"static const double (fs\w+)\s*=", code)
+    block = re.search(r"static const List<double> scale\s*=\s*<double>\[(.*?)\]",
+                      code, re.S)
+    _assert(block is not None,
+            "app_theme.dart: `AppTheme.scale` is gone, so type_scale_test's "
+            "ladder is reading a ladder that does not exist")
+    listed = [x.strip() for x in block.group(1).split(",") if x.strip()]
+
+    orphans = [d for d in declared if d not in listed]
+    ghosts = [l for l in listed if l not in declared]
+    _assert(not orphans,
+            "app_theme.dart declares an `fs*` size token that `AppTheme.scale` "
+            "does not list -- a font size outside the ladder, which is the "
+            "defect type_scale_test.dart exists to catch, declared in the one "
+            "file it exempts: %s" % ", ".join(orphans))
+    _assert(not ghosts,
+            "AppTheme.scale lists a size app_theme.dart does not declare: %s"
+            % ", ".join(ghosts))
+    _assert(len(set(listed)) == len(listed),
+            "AppTheme.scale repeats a step: %s" % listed)
+    _assert(len(declared) >= 8,
+            "read %d `fs*` tokens -- below the 8 steps type_scale_test.dart "
+            "itself demands, so this reader is broken, not the tree"
+            % len(declared))
+
+
 def _strip_comments(text):
     """Dart text with `//` and block comments removed, newlines kept."""
     out = []
@@ -279,6 +382,31 @@ def _results():
     #    execute is the same defect one level up.
     yield ("motion.dart's derived reader actually reads the ladder",
            motion_reader)
+
+    # 4. the two type-scale ladders, same defect class as motion.dart: a test
+    #    that asserts against a copy of the thing it claims to check. The
+    #    weight one WAS the copy; the size one is checked here so it cannot
+    #    become one.
+    yield ("app_theme.dart's weight ladder is derived, not transcribed",
+           weight_ladder_reader)
+    yield ("app_theme.dart's size ladder stays complete", size_ladder_reader)
+
+    # 5. the control for THIS reader: the planted sixth rung the tree does not
+    #    have. A reader that cannot fail on a known-bad input is not a reader,
+    #    and the weight reader is new code in a file whose whole argument is
+    #    that hand-copied assertions do not fail.
+    def ladder_control_fails():
+        for declared, listed, label in (
+            (["wBody", "wThunder"], ["wBody"], "weight"),
+            (["fsBody", "fsGhost"], ["fsBody"], "size"),
+        ):
+            orphans = [d for d in declared if d not in listed]
+            _assert(orphans,
+                    "the %s ladder control found no orphan -- the readers "
+                    "cannot fail, which is the defect class this file is "
+                    "about" % label)
+    yield ("CONTROL -- a declared rung missing from the ladder is reported",
+           ladder_control_fails)
 
 
 def _assert(cond, msg):
