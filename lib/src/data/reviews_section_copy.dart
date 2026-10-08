@@ -52,11 +52,57 @@ import 'worker_stats_copy.dart';
 /// read above this section, so it is the claim that has to be honoured. A
 /// non-positive count is not a contradiction and answers null — a man with no
 /// reviews really does have none, and that is the honest answer.
+///
+/// **The number used to be thrown away, and this file was the reason the fix
+/// was obvious.** The sentence read
+///
+///     headerCount == 1 ? 'تقييم واحد' : 'تقييمات'
+///
+/// which is a hand-written copy of [arabicCounted] with one of its four arms
+/// missing and no number at all in the remaining three. Measured on the
+/// payloads this app really receives, for every count above one it printed
+///
+///     يظهر أعلاه تقييمات، ولم تظهر تقييماته هنا.
+///
+/// **«تقييمات» on its own is the plural with nothing to pluralise.** The
+/// header two scrolls above says «(24)», the sentence cannot name the 24 it is
+/// disagreeing about, and the customer is left counting a number he cannot
+/// see. The defect was filed against the wrong thing for four days: the tests
+/// on this arm (`reviews_section_contradiction_test.dart`) assert
+/// `contains('تقييم واحد')` for one and `isNot(contains('تقييم واحد'))` for
+/// twenty-four — **neither assertion can fail on this bug**, because both are
+/// satisfied by a sentence with no number in it. A green guard over a sentence
+/// that lost its number is the same shape as the phone-error-band guard
+/// `dbf1531` found: the test was green and the widget was wrong.
+///
+/// It is also one function below [reviewsSectionPartialAr], which never made
+/// the mistake — it counts through [reviewCountAr] and reads «يظهر 30 تقييماً
+/// أعلاه». The same noun, the same number, the same sentence shape, written
+/// twice, one correct. So the count now comes from the same helper:
+///
+///     2  ->  يظهر أعلاه تقييمان،      (dual, no number, the dual says two)
+///     3  ->  يظهر أعلاه 3 تقييمات،    (broken plural, 3-10 and 103-110)
+///     11 ->  يظهر أعلاه 11 تقييماً،  (counted singular, 11+ and 110+)
+///     1  ->  يظهر أعلاه تقييم واحد،  (unchanged — a count of one reads
+///                                       better in the word than in digits)
 String? reviewsSectionUnbackedAr({required int headerCount}) =>
     headerCount > 0
-        ? 'يظهر أعلاه ${headerCount == 1 ? 'تقييم واحد' : 'تقييمات'}، '
+        ? 'يظهر أعلاه ${_headerCountAr(headerCount)}، '
             'ولم تظهر تقييماته هنا. قد يكون الاتصال غير مستقر — أعد المحاولة.'
         : null;
+
+/// The count this sentence names, read from the one place that owns it.
+///
+/// [reviewCountAr] is the same helper [reviewsSectionPartialAr] uses one
+/// function below, so the two arms cannot drift apart a second time — which
+/// is what they had already done once, in opposite directions, on the same
+/// screen. `reviewCountAr` answers null for a count of zero or less; the gate
+/// above has already returned for those, so the fallback is unreachable
+/// rather than reachable-and-empty.
+String _headerCountAr(int n) {
+  if (n == 1) return 'تقييم واحد';
+  return reviewCountAr(n) ?? '';
+}
 
 /// The sentence under a reviews list that is **shorter than the header claims**.
 ///

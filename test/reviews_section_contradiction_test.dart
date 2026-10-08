@@ -155,6 +155,19 @@ void main() {
     expect(find.textContaining('24'), findsWidgets,
         reason: 'the aggregate above is the claim that has to be honoured, '
             'so the section must not quietly drop the number either');
+    // **Scoped to the sentence.** The `find.textContaining('24')` above is
+    // satisfied by the header's own «(24)» two scrolls up, so it passed on
+    // 8 Oct against a sentence that read «يظهر أعلاه تقييمات» — no number in
+    // it at all, and the guard was green. A guard that can be satisfied by
+    // another widget on the screen is not a guard, so this one reads the
+    // sentence itself and checks the number is in THAT string.
+    final sentence = reviewsSectionUnbackedAr(headerCount: 24)!;
+    expect(sentence, contains('24'),
+        reason: 'the sentence quotes the aggregate it is disagreeing about, '
+            'so the customer does not have to remember a number from above');
+    expect(sentence, isNot(contains('أعلاه تقييمات،')),
+        reason: '«تقييمات» with no number in front of it is a plural with '
+            'nothing to pluralise');
   });
 
   testWidgets('the honest empty state is untouched when the two agree',
@@ -201,5 +214,95 @@ void main() {
     expect(reviewsSectionUnbackedAr(headerCount: 24), isNotNull);
     expect(reviewsSectionUnbackedAr(headerCount: 1), contains('تقييم واحد'));
     expect(reviewsSectionUnbackedAr(headerCount: 24), isNot(contains('تقييم واحد')));
+  });
+
+  group('the count agrees with the number, in every arm', () {
+    // **This group is the defect.** Until it existed, the two assertions above
+    // were the whole guard on this sentence, and both are satisfied by a
+    // sentence carrying no number whatsoever: `contains('تقييم واحد')` passes
+    // only for a count of one, and `isNot(contains('تقييم واحد'))` passes for
+    // every other count — including a bare «تقييمات». The screen was wrong
+    // and the suite was green.
+    //
+    // Measured on the payloads the API really sends, the hand-written
+    // `headerCount == 1 ? 'تقييم واحد' : 'تقييمات'` printed, for every count
+    // above one: «يظهر أعلاه تقييمات». The number was in scope, typed into
+    // the string, and then thrown away by a ternary that had two arms for four
+    // cases.
+    String unbacked(int n) => reviewsSectionUnbackedAr(headerCount: n)!;
+
+    test('the dual takes no number, because it already says two', () {
+      // Arabic writes the dual without it: «تقييمان», never «2 تقييمان».
+      expect(unbacked(2), contains('تقييمان'));
+      expect(unbacked(2), isNot(contains('2 تقييمان')));
+    });
+
+    test('3-10 takes the broken plural, with the number in front', () {
+      for (final n in [3, 4, 5, 6, 7, 8, 9, 10]) {
+        expect(unbacked(n), contains('$n تقييمات'),
+            reason: 'the plural range repeats every hundred, so 3 and 103 '
+                'agree');
+      }
+      expect(unbacked(103), contains('103 تقييمات'));
+      expect(unbacked(110), contains('110 تقييم'));
+    });
+
+    test('11+ takes the counted singular, not the plural', () {
+      // «11 تقييم» and never «11 تقييمات» — the number is what makes the noun
+      // singular. The whole point of the shared rule, and the reason a private
+      // copy of it is a defect and not a saving.
+      //
+      // **Scoped to the counted fragment, and that is not pedantry.** The
+      // sentence's second clause is «ولم تظهر تقييماته هنا», whose possessive
+      // «تقييماته» contains «تقييمات» as a substring — so a whole-sentence
+      // `isNot(contains('تقييمات'))` fails on the fix for a reason that has
+      // nothing to do with the count. This tick hit that: the first version of
+      // this assertion went red against correct code, and the red was the
+      // test's. Only the text between «أعلاه » and the first «،» is the count,
+      // so that is what the agreement is asserted on.
+      String counted(int n) => unbacked(n).split('أعلاه ')[1].split('،').first;
+
+      expect(counted(11), '11 تقييم');
+      expect(counted(24), '24 تقييم');
+      expect(counted(3), '3 تقييمات');
+      expect(counted(2), 'تقييمان');
+      expect(counted(1), 'تقييم واحد');
+      // 110 is plural, not singular. Asserted here because this tick got it
+      // wrong first: the doc comment on `arabic_agreement.dart` says «110 takes
+      // the singular exactly as 10 does», and 10 takes the *plural*. The code
+      // (`n % 100 >= 3 && n % 100 <= 10`) and `arabic_agreement_test.dart`
+      // both have it right; only that comment line is wrong, and it is filed
+      // separately rather than fixed inside this item. Corrected here to the
+      // measured behaviour so this guard cannot propagate the typo.
+      expect(counted(110), '110 تقييمات');
+    });
+
+    // 103 is plural exactly as 3 is, and 110 is singular exactly as 10 is —
+    // a rule that read `n <= 10` gets both wrong, which is how the 26 Sep
+    // bug looked on a slider capped at 200. Asserted above, in the ladder.
+
+    test('the arm one function below never drifted, and now cannot', () {
+      // `reviewsSectionPartialAr` counted through the same helper all along
+      // and was correct for every value. Both arms now read `reviewCountAr`,
+      // so the two sentences on one screen cannot disagree about the number
+      // again — which is exactly how they disagreed on 8 Oct.
+      String partial(int n) =>
+          reviewsSectionPartialAr(headerCount: n, shownCount: 1)!;
+      for (final n in [2, 3, 11, 12, 103]) {
+        final want = reviewCountAr(n);
+        expect(unbacked(n), contains(want!),
+            reason: 'unbacked and partial must name the count the same way');
+        expect(partial(n), contains(want),
+            reason: 'the two arms print the same noun from one helper');
+      }
+    });
+
+    test('a count of one is unchanged', () {
+      // Read before this fix and it reads better than the rule's own arm:
+      // «تقييم واحد» rather than the bare «تقييم» `arabicCounted` gives. Not
+      // changed here — only the counts that lost their number were broken.
+      expect(unbacked(1), contains('تقييم واحد'));
+      expect(unbacked(1), isNot(contains('1 تقييم')));
+    });
   });
 }

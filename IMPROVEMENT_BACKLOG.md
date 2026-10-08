@@ -239,6 +239,69 @@ remote tree, read off the git-data API rather than trusted from the push line.
 
 ## Phase 6 — the loop's own instruments
 
+- [x] **The reviews contradiction card threw the number away — «يظهر أعلاه
+      تقييمات» — and the two tests guarding it could not fail on that.**
+      SHIPPED 8 Oct. A one-line ternary,
+      `headerCount == 1 ? 'تقييم واحد' : 'تقييمات'`, hand-copied
+      [arabicCounted] with one of its four arms missing and **no number at all**
+      in the remaining three. Measured on the payloads the API really sends,
+      every count above one printed the same sentence: «يظهر أعلاه تقييمات،
+      ولم تظهر تقييماته هنا». «تقييمات» standing alone is a plural with
+      nothing to pluralise — the header two scrolls up says «(24)», and the
+      sentence refusing to name the 24 it is disagreeing about leaves the
+      customer counting a number he cannot see.
+      *The green guard is the worse half.* Both assertions on this arm were
+      satisfied by a sentence carrying **no number whatsoever**:
+      `contains('تقييم واحد')` passes only for a count of one, and
+      `isNot(contains('تقييم واحد'))` passes for everything else — including a
+      bare «تقييمات». The widget test's `find.textContaining('24')` was no
+      better: it was satisfied by the header's own «(24)». Same shape as
+      `dbf1531` — the test is green and the sentence is wrong.
+      *One function below it, the sibling arm was already right.*
+      `reviewsSectionPartialAr` counts through `reviewCountAr` and has always
+      read «يظهر 30 تقييماً أعلاه». Same noun, same number, same sentence
+      shape, written twice — one correct, one amputated.
+      *Shipped:* both arms now read the same helper, so they cannot drift a
+      second time. 2 -> «تقييمان» (dual, no number), 3 -> «3 تقييمات»,
+      11 -> «11 تقييم», 24 -> «24 تقييم», 103 -> «103 تقييمات»,
+      110 -> «110 تقييمات». A count of one is deliberately unchanged at
+      «تقييم واحد» — it reads better in the word than in digits, and only the
+      counts that lost their number were broken.
+      *Evidence:* `flutter analyze` -> **No issues found!**; the file went
+      **+3 -5 against the old ternary and +9 green with the fix** (red->green
+      proven, not asserted). Pixels: the real card A/B'd at 1600x1200,
+      **7841 pixels differ (0.41%)** and the ink run extends **26 px further
+      left** — in RTL, away from the reading edge, which is exactly where the
+      number now sits. `/tmp/shots/zz_card_before.png` vs
+      `/tmp/shots/zz_card_after.png`.
+      *A wrong assertion of mine, kept because the mistake is the lesson.*
+      I first asserted `110 -> «110 تقييم»`, and it went red against correct
+      code: `n % 100 >= 3 && n % 100 <= 10` sends 110 to the **plural**, and
+      `arabic_agreement_test.dart` has pinned that since 26 Sep. The code was
+      right and I was wrong. The culprit is a comment line on
+      `arabic_agreement.dart:33` — «110 takes the singular exactly as 10 does»
+      — where 10 takes the *plural*. **Filed below, not fixed here** (one item
+      per loop).
+      *Full suite, which the previous tick could not produce:* this change was
+      gated on `python3 tool/run_tests.py` end-to-end rather than on the shards
+      that answered — **2459 tests, 13/13 shards green, 22:23 elapsed**. That is
+      the first whole-suite count this tree has had in one piece; the 7 Oct and
+      8 Oct ticks both reported partial totals because the run exceeded the
+      420 s foreground ceiling. It is run in a **background session**, which is
+      what the ceiling needs and what this file never said until now.
+
+- [x] **The doc comment on `arabic_agreement.dart` contradicts the rule two
+      lines below it, and its own test.** FOUND 8 Oct, not started. `line 33`
+      reads «The range is 11–110, not 11–∞, and the boundary is 110, not 11» and
+      «110 takes the singular exactly as 10 does». The implementation is
+      `if (n % 100 >= 3 && n % 100 <= 10) return few ?? one;` — **110 % 100 =
+      10, which is the plural** — and `test/arabic_agreement_test.dart:91`
+      asserts it by name: «103-110 take the broken plural, exactly as 3-10 do».
+      So the comment states the opposite of both the code and its test, in the
+      one file every count in this app is routed through. Cost one wrong
+      assertion on 8 Oct. *Next tick:* fix the comment to the measured rule
+      and leave the code and the test alone — the code is right.
+
 - [x] **The phone field's error sentence starts against the edge the digits
       start against — a guard that is green on every other row of this file.**
       `dbf1531`. **SHIPPED 8 Oct — and the field was never broken; the guard
