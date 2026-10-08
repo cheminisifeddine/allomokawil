@@ -300,7 +300,8 @@ class SecondaryButton extends StatelessWidget {
       style: OutlinedButton.styleFrom(
         foregroundColor: AppTheme.navy,
         minimumSize: const Size.fromHeight(AppTheme.tapMin),
-        side: const BorderSide(color: AppTheme.controlLine, width: 1.5),
+        side: const BorderSide(
+            color: AppTheme.controlLine, width: AppTheme.hairline),
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppTheme.rMd)),
       ),
@@ -422,7 +423,8 @@ class SelectableTile extends StatelessWidget {
             borderRadius: BorderRadius.circular(AppTheme.rMd),
             border: Border.all(
               color: selected ? AppTheme.navy : AppTheme.line,
-              width: selected ? 2 : 1,
+              width:
+                  selected ? AppTheme.hairlineSelected : AppTheme.hairlineResting,
             ),
           ),
           child: Column(

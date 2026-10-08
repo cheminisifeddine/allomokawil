@@ -376,7 +376,8 @@ class AppTabBar extends StatelessWidget {
             // is still the best estimate it has. Only the colour changes.
             color: unconfirmed ? AppTheme.textMuted : AppTheme.accent,
             borderRadius: BorderRadius.circular(AppTheme.rPill),
-            border: Border.all(color: AppTheme.surface, width: 1.5),
+            border:
+                Border.all(color: AppTheme.surface, width: AppTheme.hairline),
           ),
           child: Text(
             // 99+ on the number, and the same cap in the announcement, so the

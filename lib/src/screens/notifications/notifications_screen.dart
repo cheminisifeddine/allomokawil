@@ -598,7 +598,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             borderRadius: BorderRadius.circular(AppTheme.rMd),
             border: Border.all(
               color: unread ? AppTheme.accent : AppTheme.line,
-              width: unread ? 1.4 : 1,
+              width:
+                  unread ? AppTheme.hairlineSelected : AppTheme.hairlineResting,
             ),
           ),
           child: Row(

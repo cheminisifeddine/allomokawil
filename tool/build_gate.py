@@ -681,6 +681,43 @@ def _total_mb():
     return None
 
 
+def balloon_mb():
+    """Memory the HYPERVISOR has taken back out of this guest, in MB, or None.
+
+    Measured on this host, 8 Oct 2026. `/proc/meminfo` carries a `Balloon:`
+    line (the virtio-balloon driver) and it reads **4920444 kB -- 4.9 GB,
+    three fifths of `MemTotal`** -- while `nr_balloon_pages` in
+    `/proc/vmstat` sits flat at 1082655 across repeated samples, i.e. the
+    guest is not being drained further and is not being handed any back.
+
+    This is the memory that makes this box read NO ROOM, and the reason it
+    matters is that **no process in this PID namespace owns any of it.** The
+    census below sums every visible pid and reaches **822 MB against 7.5 GB
+    in use** -- the gap is real, it is large, and it is invisible to a
+    process survey by construction. So the gate printed its one honest
+    number, named a 332 MB `hatch daemon` as the largest holder, and closed
+    with "if the top holder is a service, this denial is the box being at its
+    floor". That is an instruction to act, derived from a holder that cannot
+    account for the shortfall: the daemon is 3% of it. A reader following it
+    faithfully waits on, or worse signals, a process that could not free the
+    memory even if it exited.
+
+    A separate kernel mechanism (a cgroup memory limit, plain overcommit)
+    produces the same starvation with no `Balloon:` line at all, so
+    **None is a normal answer** and callers must fall back rather than treat
+    a missing field as zero. Same shape as `_available_once`: unreadable
+    input returns None and never blocks on a guess.
+    """
+    raw = _read('/proc/meminfo')
+    for line in raw.split('\n'):
+        if line.startswith('Balloon:'):
+            try:
+                return int(line.split()[1]) / 1024.0
+            except (IndexError, ValueError):
+                return None
+    return None
+
+
 def no_room():
     """True when the box is too starved to host a build.
 
@@ -938,6 +975,22 @@ def main(argv=None):
             # "NO ROOM because of a service you may not touch" call for
             # different decisions: one is worth retrying, the other is the box
             # sitting at its floor, and only the first ever clears on its own.
+            shortfall = MIN_AVAILABLE_MB - (avail or 0.0)
+            ball = balloon_mb()
+            # Named BEFORE the census, and deliberately. When the balloon
+            # covers the shortfall it *is* the explanation, and the process
+            # list printed under it is residue -- so a reader who meets the
+            # census first is sent to hunt for a process to kill. The
+            # threshold is "could returning it clear the floor", which is a
+            # checkable claim about the two numbers we hold.
+            if ball is not None and ball >= shortfall:
+                print('THE HOST IS HOLDING %.0f MB OF THIS BOX (`Balloon:` in '
+                      '/proc/meminfo, %.0f MB of %s) -- more than the %.0f MB '
+                      'the box is short. Nothing in this PID namespace owns '
+                      'it. Only the hypervisor can give it back, so NO local '
+                      'action clears this denial -- not --reap, not waiting, '
+                      'and there is no process here you may usefully kill.'
+                      % (ball, ball, _total_mb() or 0.0, shortfall))
             rows = holder_census()
             if rows:
                 print('Largest memory holders (PSS, by process tree root):')
@@ -945,11 +998,27 @@ def main(argv=None):
                     where = cwd if cwd else 'cwd unreadable'
                     print('  %-7d %6.0f MB  %2d proc  %-12s %s'
                           % (pid, mb, npids, comm[:12], where))
-                print('None of these is a build this loop started: --reap only '
-                      'clears processes the survey proves are this loop\'s own '
-                      'leaked renders. If the top holder is a service, this '
-                      'denial is the box being at its floor -- take a non-build '
-                      'item and do not kill it.')
+                top = max(r[1] for r in rows)
+                if top >= shortfall:
+                    print('None of these is a build this loop started: --reap only '
+                          'clears processes the survey proves are this loop\'s own '
+                          'leaked renders. If the top holder is a service, this '
+                          'denial is the box being at its floor -- take a non-build '
+                          'item and do not kill it.')
+                else:
+                    # The arm the census did not have. Every holder above the
+                    # floor, combined, is smaller than the deficit, so this
+                    # branch cannot be the cause and must not be offered as
+                    # one -- and this is reachable with no `Balloon:` line at
+                    # all, under a cgroup limit. Naming the largest process on
+                    # a box it cannot account for is the same defect as naming
+                    # no holder: both send the reader after the wrong thing.
+                    print('NO process here accounts for this: the %.0f MB '
+                          'shortfall is larger than every visible holder '
+                          'combined (largest: %d, %.0f MB). Do not signal any '
+                          'of them to free it -- exiting would not help. Take a '
+                          'non-build item and re-check later.' % (
+                              shortfall, top, top))
 
         else:
             print('CLEAR — no flutter/dart tool, no busy JVM, no leaked tester, '

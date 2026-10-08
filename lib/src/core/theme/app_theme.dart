@@ -84,6 +84,119 @@ class AppTheme {
   /// Fully rounded ends — pills, chips, badges, progress tracks.
   static const double rPill = 999;
 
+  /// The outline of a control that must read as tappable: the secondary and
+  /// outline buttons, the photo-picker box, the verified badge ring. It is
+  /// **1.5, not 1** — at 1 the boundary of a button stopped separating it from
+  /// the card it sits on, which is the one thing an outline exists to do.
+  ///
+  /// It was a literal typed into five widgets and one theme before this, so
+  /// "how thick is a control outline?" had no answer and changing it meant
+  /// finding all five by hand. A screen names the token, never the number.
+  static const double hairline = 1.5;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  /// The outline of a control that is **currently selected** — a chosen trade
+  /// chip, the category tile you tapped, an unread row.
+  ///
+  /// It was `selected ? 2 : 1` in five widgets and `unread ? 1.4 : 1` in a
+  /// sixth. Two different pairs for the same idea ("this one is picked"), so a
+  /// design change meant finding all six by hand and none of them agreed. The
+  /// pair is now one name: [hairlineSelected] over [hairlineResting].
+  static const double hairlineSelected = 2;
+
+  /// The outline of a field that is **being typed in**, or in error.
+  ///
+  /// It is deliberately thicker than [hairline] — that is what separates "I am
+  /// typing here" from a resting field, and a focus ring the same weight as the
+  /// resting outline is not a focus ring.
+  ///
+  /// The phone field was `1.8` while the input theme (639/647), the auth
+  /// checkbox and the passcode field all said `2`, so the one field a user
+  /// types their phone number into — the highest-stakes input in the app — had
+  /// the thinnest focus ring in it. Named here so that drift cannot come back.
+  static const double hairlineFocus = 2;
+
+  /// The outline of a control that is **not** selected. See [hairlineSelected].
+  ///
+  /// Note this is [hairline] (1.5) and not 1, where the six all sat. 1 was the
+  /// same value the old literals used, but those literals were a *pair* whose
+  /// resting half nobody owned; aligning the resting outline onto [hairline]
+  /// makes a selected control read as `hairlineSelected` against a
+  /// `hairline` background rather than as 2 against 1.
+  static const double hairlineResting = hairline;
+
   // ── Spacing — one 4 dp grid ────────────────────────────────────────────
   /// Every gap and inset comes off this ladder. There is exactly one blessed
   /// exception, [gutter], because it is a *screen margin*, not a component gap.
@@ -574,7 +687,7 @@ class AppTheme {
         style: OutlinedButton.styleFrom(
           foregroundColor: navy,
           minimumSize: const Size.fromHeight(tapMin),
-          side: const BorderSide(color: line, width: 1.5),
+          side: const BorderSide(color: line, width: hairline),
           textStyle: button.copyWith(fontSize: fsLead),
           shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(rMd)),

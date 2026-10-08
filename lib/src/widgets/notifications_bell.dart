@@ -309,7 +309,8 @@ class _NotificationsBellState extends State<NotificationsBell>
             decoration: BoxDecoration(
               color: unconfirmed ? AppTheme.textMuted : AppTheme.danger,
               borderRadius: BorderRadius.circular(AppTheme.rPill),
-              border: Border.all(color: AppTheme.surface, width: 1.5),
+              border:
+                  Border.all(color: AppTheme.surface, width: AppTheme.hairline),
             ),
             child: Text(
               _unread > 99 ? '99+' : '$_unread',

@@ -111,7 +111,8 @@ class _CategoryStripTile extends StatelessWidget {
             borderRadius: BorderRadius.circular(AppTheme.rMd),
             border: Border.all(
               color: selected ? AppTheme.navy : AppTheme.line,
-              width: selected ? 2 : 1,
+              width:
+                  selected ? AppTheme.hairlineSelected : AppTheme.hairlineResting,
             ),
           ),
           child: Column(

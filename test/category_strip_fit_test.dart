@@ -33,9 +33,10 @@
 // guard stayed green through it. So the style below is read off the `Text` in
 // the tree, and `styleIsReadOffTheTile` fails the moment it goes missing.
 //
-// **Why both states.** The selected tile's 2 dp border costs 2 dp of room, so
-// a guard that only lays out the plain tile passes while the tighter case
-// ships.
+// **Why both states.** The selected tile's border costs 0.5 dp more room than
+// the plain one (`hairlineSelected` 2 vs `hairlineResting` 1.5), so a guard
+// that only lays out the plain tile can still be measuring a tile that is
+// tighter than it thinks.
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -48,7 +49,7 @@ import 'package:allomokawil/src/widgets/category_grid.dart';
 
 /// The strip is horizontal, so the page width does not vary the label room --
 /// the tile is a fixed `width: 96`. The states that matter are plain and
-/// selected, because selection doubles the border.
+/// selected, because selection thickens the border.
 const tileWidth = 96.0;
 
 /// Real Cairo, or Arabic renders as tofu and every width below is meaningless.
@@ -112,9 +113,20 @@ double _room(WidgetTester tester, bool selected) {
   final decoration = container.decoration as BoxDecoration;
   final border = decoration.border?.top.width ?? 0.0;
   final padding = container.padding! as EdgeInsets;
-  expect(border, selected ? 2.0 : 1.0,
-      reason: 'the selected tile is the one with the 2 dp border; if the '
-          'border changed, this guard is measuring a tile that no longer ships');
+  // Read the THEME, never a literal. This used to pin `2.0 : 1.0` and the pin
+  // was the point -- it caught the border changing under the measurement. But
+  // pinning it also froze the numbers in a second place, so when the tile moved
+  // onto `hairlineSelected`/`hairlineResting` the guard failed on its own
+  // arithmetic while the layout it measures was still correct.
+  //
+  // What it must still catch is the thing the pin was for: the tile shipping a
+  // border that is NOT the one the theme says. Comparing against the token does
+  // that, and it does it against the single source of truth, so a deliberate
+  // change to the tile and a deliberate change to the theme can no longer
+  // disagree.
+  expect(border, selected ? AppTheme.hairlineSelected : AppTheme.hairlineResting,
+      reason: 'the tile must paint the theme\'s border for its state; if it '
+          'changed, this guard is measuring a tile that no longer ships');
   return tileWidth - 2 * border - padding.left - padding.right;
 }
 
@@ -206,15 +218,21 @@ void main() {
               'RenderFlex overflow stripe');
 
       // The number this slice bought, stated per state so a regression is
-      // legible. The off-grid `10` left 4.50 plain / 2.50 selected; `s8` leaves
-      // 8.50 / 6.50; `s12` would have left 0.50 / **-1.50**, a real overflow in
-      // the selected state. Asserted at the tighter of the two so the case
-      // cannot pass on the plain tile alone.
+      // legible. Asserted at the tighter of the two so the case cannot pass on
+      // the plain tile alone.
+      //
+      // MEASURED, not inherited: room = 104 - 2*8 - 2*border, content = 77.50.
+      // The resting border moving 1 -> 1.5 (`hairlineResting`) cost the PLAIN
+      // state 1 dp, taking it 8.50 -> 7.50; the selected state is on
+      // `hairlineSelected` (2) and did not move at all. That is the answer to
+      // the 1 dp the hairline slice left open: it lands in the roomy state, and
+      // the state this case asserts on -- the tighter of the two -- is unmoved.
+      // Re-derive these two numbers if either token changes.
       expect(slack, greaterThanOrEqualTo(6.5),
           reason: 'the vertical padding is now `s8`, which is the 4 dp step that '
               'matches the 8 dp gap the column already draws between icon and '
-              'label: 8.50 dp of slack plain, 6.50 selected, against the 4.50 / '
-              '2.50 the off-grid 10 left and the 0.50 / -1.50 that `s12` would '
+              'label: 7.50 dp of slack plain, 6.50 selected, against the 3.50 / '
+              '1.50 the off-grid 10 left and the -0.50 / -2.50 that `s12` would '
               'have left — negative slack paints a RenderFlex overflow stripe');
     }
   });

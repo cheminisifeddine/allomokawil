@@ -288,7 +288,8 @@ class _FilterPill extends StatelessWidget {
               color: selected ? AppTheme.navy : wash,
               borderRadius: BorderRadius.circular(AppTheme.rPill),
               border: Border.all(
-                  color: selected ? AppTheme.navy : AppTheme.line, width: 1.2),
+                  color: selected ? AppTheme.navy : AppTheme.line,
+                  width: AppTheme.hairline),
             ),
             // Keeps long category names from stretching a single pill across
             // the whole 360px viewport.

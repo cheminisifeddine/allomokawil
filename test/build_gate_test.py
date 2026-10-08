@@ -178,7 +178,33 @@ def _foreign_leaks():
 
 
 _FOREIGN = _foreign_leaks()
-_ISOLATED = os.path.join(tempfile.gettempdir(), "gate_isolated.py")
+# Every fixture this suite writes goes in ITS OWN directory, not in
+# `tempfile.gettempdir()`'s root. That is not tidiness -- it is a correctness
+# fix, and it was found by a suite that had been reporting the same 12
+# failures for several ticks and looking for the cause everywhere else.
+#
+# MEASURED 8 Oct 2026, on this box. `TMPDIR` is
+# `/home/hatch/.hermes/profiles/finili/cache/scratch`, and the loop uses that
+# same directory for its own scratch scripts. A leftover `token.py` there --
+# from an earlier tick's theme edit -- **shadows the Python standard
+# library's `token` module** for every child process that inherits
+# `TMPDIR`, because a script run as `python /path/to/x.py` puts *its own
+# directory* first on `sys.path`. `argparse` imports `dataclasses`, which
+# imports `inspect`, which imports `token`, which resolved to that file and
+# died on `EXACT_TOKEN_TYPES`.
+#
+# The consequence is a gate that cannot even start: every isolated-gate
+# subprocess exited **1 with an empty stdout and a traceback on stderr**, and
+# the suite read that as "the box was busy", "the leak was not named", "the
+# census printed nothing" -- 12 failures naming four different arms, none of
+# which had anything to do with the gate. A suite that converts an import
+# crash into a verdict about the code under test is worse than no suite.
+#
+# A private directory removes the whole class: nothing this suite writes can
+# shadow a stdlib module for anything else. `--reap`'s own `fb2` tree moves
+# with it, below.
+_SUITE_TMP = tempfile.mkdtemp(prefix="build_gate_suite_")
+_ISOLATED = os.path.join(_SUITE_TMP, "gate_isolated.py")
 
 
 def _isolated_src():
@@ -326,7 +352,7 @@ def ppid_of(pid):
 def _starved_gate():
     """A copy of the gate whose /proc/meminfo read is redirected to a
     fixture holding 512 MB available. Returns the path, or None."""
-    fixture = os.path.join(tempfile.gettempdir(), "gate_meminfo_starved")
+    fixture = os.path.join(_SUITE_TMP, "gate_meminfo_starved")
     if not os.path.exists('/proc/meminfo'):
         return None
     raw = open('/proc/meminfo').read()
@@ -337,7 +363,7 @@ def _starved_gate():
     raw = raw.replace(line[0], "MemAvailable:        524288 kB")
     with open(fixture, "w") as fh:
         fh.write(raw)
-    out = os.path.join(tempfile.gettempdir(), "gate_starved_build_gate.py")
+    out = os.path.join(_SUITE_TMP, "gate_starved_build_gate.py")
     body = _isolated_src()
     patched = body.replace(
         "def _read(path):",
@@ -349,6 +375,50 @@ def _starved_gate():
     with open(out, "w") as fh:
         fh.write(patched)
     return out
+
+
+def _ballooned_gate(mem_avail_kb, balloon_kb, tag):
+    """A copy of the gate on a fixture that is short *because the host took
+    it* -- the shape measured on this host on 8 Oct 2026.
+
+    Two numbers, injected separately, because the claim under test is a
+    comparison BETWEEN them: `Balloon:` covers the shortfall -> name the host
+    and say no local action helps; `Balloon:` absent or small -> the
+    shortfall is NOT explained by the hypervisor and must not be blamed on a
+    process either. Writing one fixture and asserting both ways is what makes
+    a run of this case evidence rather than decoration.
+
+    `Balloon:` is written or stripped at the TEXT level, so the real parse
+    path and the real kB units are in the loop -- the same rule case 6
+    established for MemAvailable, and for the same reason: a fixture that
+    monkeypatched the reader would pass while proving nothing.
+    """
+    src = _isolated_src()
+    fixture = os.path.join(_SUITE_TMP,
+                           "gate_meminfo_%s" % tag)
+    raw = open('/proc/meminfo').read()
+    lines = raw.split("\n")
+    out = []
+    for line in lines:
+        if line.startswith("MemAvailable:"):
+            out.append("MemAvailable:    %d kB" % mem_avail_kb)
+        elif line.startswith("Balloon:"):
+            if balloon_kb is None:
+                continue          # a kernel with no balloon driver at all
+            out.append("Balloon:        %d kB" % balloon_kb)
+    with open(fixture, "w") as fh:
+        fh.write("\n".join(out))
+    patched = src.replace(
+        "def _read(path):",
+        "def _read(path):\n"
+        "    if path == '/proc/meminfo':\n"
+        "        return open(%r).read()\n" % fixture, 1)
+    if patched == src:
+        return None
+    out_py = os.path.join(_SUITE_TMP, "gate_ball_%s.py" % tag)
+    with open(out_py, "w") as fh:
+        fh.write(patched)
+    return out_py
 
 
 def _is_starved(stdout):
@@ -375,7 +445,7 @@ def _countered_gate(base, vals, tag):
     case did exactly that, and reported 8/8 CLEAR with the bug still in.
     """
     src = _isolated_src()
-    ctr = os.path.join(tempfile.gettempdir(), "gate_osc_ctr_%s" % tag)
+    ctr = os.path.join(_SUITE_TMP, "gate_osc_ctr_%s" % tag)
     if os.path.exists(ctr):
         os.remove(ctr)
     inject = (
@@ -397,7 +467,7 @@ def _countered_gate(base, vals, tag):
         "        return _osc(path)\n    try:", 1)
     if patched == inject + src:
         return None
-    out = os.path.join(tempfile.gettempdir(), "gate_osc_%s.py" % tag)
+    out = os.path.join(_SUITE_TMP, "gate_osc_%s.py" % tag)
     with open(out, "w") as fh:
         fh.write(patched)
     return out
@@ -411,7 +481,7 @@ def _reparented_tester_binary():
     """
     if not os.path.exists(SLEEP):
         return None
-    d = os.path.join(tempfile.gettempdir(), "fb2")
+    d = os.path.join(_SUITE_TMP, "fb2")
     os.makedirs(d, exist_ok=True)
     b = os.path.join(d, "flutter_tester")
     shutil.copyfile(SLEEP, b)
@@ -427,7 +497,7 @@ def _spawn_orphan(binary):
     Returns None if the orphan never appeared, so the caller can report a
     broken case instead of a passing one.
     """
-    mid = os.path.join(tempfile.gettempdir(), "fb2", "orphan_mid.py")
+    mid = os.path.join(_SUITE_TMP, "fb2", "orphan_mid.py")
     with open(mid, "w") as fh:
         fh.write("import os, sys\n"
                  "os.setsid()\n"
@@ -1131,10 +1201,86 @@ def main():
                     time.sleep(0.1)
             time.sleep(0.3)
 
+    print("\n16) a starved box must blame the HOST when the host took the memory")
+    # Measured 8 Oct 2026, on the denial that cost this tick its gate:
+    # MemAvailable 425 MB against a 900 MB floor, so a 475 MB shortfall, while
+    # every visible pid summed to **822 MB** and the census's own top line was
+    # a 332 MB `hatch daemon`. The gate printed that daemon and closed with
+    # "if the top holder is a service, this denial is the box being at its
+    # floor -- take a non-build item and do not kill it" -- an instruction to
+    # act, pointing at a process holding 3% of the deficit. The real holder is
+    # `Balloon: 4920444 kB`, the virtio-balloon driver, which is the host
+    # reclaiming guest RAM: it moves 4.4-4.9 GB and no pid in this namespace
+    # owns one page of it.
+    #
+    # Two wrong answers are both tested, because the defect is naming the
+    # wrong thing, not failing to name anything. (a) blaming a process that
+    # cannot account for the gap sends a reader to kill a service; (b) the
+    # honest fallback -- "no local action clears this" -- is only true when
+    # the balloon really does cover the shortfall, and must not be claimed on
+    # a box where it does not.
+    g16 = _ballooned_gate(425 * 1024, 4800 * 1024, "hosted")
+    g16b = _ballooned_gate(425 * 1024, None, "nohost")
+    g16c = _ballooned_gate(425 * 1024, 64 * 1024, "small")
+
+    if not (g16 and g16b and g16c):
+        print("  **FAIL** could not build the balloon fixtures")
+        results.append(False)
+    else:
+        r16 = subprocess.run(["python3", g16], capture_output=True, text=True,
+                             cwd=REPO)
+        # The verdict itself must not move: this arm is a *diagnosis*, and a
+        # fix that quietly relaxed the floor would be a far worse bug.
+        still_refused = r16.returncode == 1 and _is_starved(r16.stdout)
+        results.append(still_refused)
+        print(("PASS  " if still_refused else "**FAIL**")
+              + "the refusal stands (exit=%d) -- naming the host is a "
+                "diagnosis, never a licence to build" % r16.returncode)
+
+        names_host = "THE HOST IS HOLDING" in r16.stdout
+        results.append(names_host)
+        print(("PASS  " if names_host else "**FAIL**")
+              + "the host is named as the holder of the 475 MB shortfall")
+
+        # The census must NOT be offered as the explanation while the balloon
+        # covers it. It is allowed to print residue, so the assertion is on
+        # the *advice*, which is what a reader acts on.
+        no_kill_advice = "do not kill it" not in r16.stdout
+        results.append(no_kill_advice)
+        print(("PASS  " if no_kill_advice else "**FAIL**")
+              + "no advice to act on a service that cannot free the memory")
+
+        # (b) No balloon at all -- a cgroup limit or plain overcommit. The
+        # honest fallback is all that is left, and it must still refuse.
+        r16b = subprocess.run(["python3", g16b], capture_output=True, text=True,
+                              cwd=REPO)
+        b_ok = (r16b.returncode == 1
+                and "THE HOST IS HOLDING" not in r16b.stdout
+                and _is_starved(r16b.stdout))
+        results.append(b_ok)
+        print(("PASS  " if b_ok else "**FAIL**")
+              + "no Balloon: field -> still refused, host NOT invented")
+
+        # (c) A small balloon must not be read as an explanation either --
+        # the threshold is "could returning it clear the floor", so a 64 MB
+        # balloon against a 475 MB shortfall is not a cause.
+        r16c = subprocess.run(["python3", g16c], capture_output=True, text=True,
+                              cwd=REPO)
+        c_ok = (r16c.returncode == 1
+                and "THE HOST IS HOLDING" not in r16c.stdout)
+        results.append(c_ok)
+        print(("PASS  " if c_ok else "**FAIL**")
+              + "a 64 MB balloon does not explain a 475 MB shortfall")
+
     print("\nBaseline: %s" % _foreign_note())
     ok = sum(results)
     print("== %d/%d ==  %s" % (ok, len(results),
                                  "ALL PASS" if all(results) else "SOME FAILED"))
+    # Leave the private dir behind. It is this suite's own, mkdtemp'd, and
+    # nothing else writes to it -- but the contents are Python files, and a
+    # directory full of them that outlives the run is the exact hazard the
+    # private dir exists to contain.
+    shutil.rmtree(_SUITE_TMP, ignore_errors=True)
     return 0 if all(results) else 1
 
 

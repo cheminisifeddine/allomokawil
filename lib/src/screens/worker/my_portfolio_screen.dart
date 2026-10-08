@@ -950,7 +950,8 @@ class _AddTile extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(AppTheme.rMd),
-                border: Border.all(color: AppTheme.accent, width: 1.4),
+                border: Border.all(
+                    color: AppTheme.accent, width: AppTheme.hairline),
               ),
               child: Center(
                 child: busy

@@ -1430,7 +1430,8 @@ class _UrgencyPill extends StatelessWidget {
             borderRadius: BorderRadius.circular(AppTheme.rPill),
             border: Border.all(
               color: selected ? tint : AppTheme.line,
-              width: selected ? 2 : 1,
+              width:
+                  selected ? AppTheme.hairlineSelected : AppTheme.hairlineResting,
             ),
           ),
           child: Row(
@@ -1501,7 +1502,7 @@ class _ImageAttach extends StatelessWidget {
                       decoration: AppTheme.fieldDecorationOf(
                         fill: AppTheme.cardFill,
                         border: AppTheme.navy,
-                        borderWidth: 1.5,
+                        borderWidth: AppTheme.hairline,
                       ),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,

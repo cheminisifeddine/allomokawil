@@ -632,7 +632,8 @@ class _RememberRow extends StatelessWidget {
                   onChanged: (v) => onChanged(v ?? false),
                   activeColor: AppTheme.accent,
                   checkColor: AppTheme.navy,
-                  side: const BorderSide(color: AppTheme.line, width: 1.6),
+                  side: const BorderSide(
+                      color: AppTheme.line, width: AppTheme.hairline),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppTheme.rXs)),
                 ),

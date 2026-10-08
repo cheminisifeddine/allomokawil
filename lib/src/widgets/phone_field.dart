@@ -126,7 +126,9 @@ class _DzPhoneFieldState extends State<DzPhoneField> {
             border: error != null
                 ? AppTheme.danger
                 : (focused ? AppTheme.navy : AppTheme.fieldLine),
-            borderWidth: (focused || error != null) ? 1.8 : 1,
+            borderWidth: (focused || error != null)
+                ? AppTheme.hairlineFocus
+                : AppTheme.hairlineResting,
           ),
           child: TextField(
             key: const Key('dz-phone-input'),

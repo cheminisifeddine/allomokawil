@@ -232,6 +232,13 @@ const _appRuleGuards = <String, String>{
   // no root at all -- every one of them walking `lib/` -- so a rule added to
   // any of them could go dark without a word here.
   'test/contrast_tokens_test.dart': 'the contrast-token rule',
+  // Added 8 Oct with the `Directory('lib')` root shape. The hairline tick gave
+  // the app's control outline a token and then needed a census to stop the next
+  // widget typing `1.5` by hand -- and a census nobody registered is a rule that
+  // goes dark the first time this file is edited. Declared here, with its root,
+  // because the sweep is the whole point of it.
+  'test/hairline_token_test.dart': 'the hairline rule: no tappable control '
+      'types a raw border width',
   'test/failure_reported_test.dart': 'the failure-reported rule: every caught '
       'failure reaches the user in Arabic',
   'test/header_trust_wiring_test.dart': 'the header trust-signals rule',
@@ -330,6 +337,36 @@ const _ruleEvidence = <String, List<String>>{
   'test/wash_callout_pad_test.dart': ['AppTheme.accentWash'],
   'test/motion_test.dart': [r'\w*[Dd]uration\s*:\s*(?:const\s+)?Duration\('],
   'test/contrast_tokens_test.dart': [r'wash: Color\(0xFF'],
+  // The census itself: `_namedArg.allMatches` is the call that pulls every
+  // `name: value` pair out of a border constructor's argument list, which is
+  // the ONLY way this guard sees the app's source at all -- drop it and the
+  // rule cannot be applied, only described.
+  //
+  // Three earlier tokens for this entry were wrong, and each wrong in a way
+  // that would have made this suite lie rather than fail:
+  //   * `Border.all` -- the file keeps that literal in `_borderConstructors`
+  //     precisely so it is *not* the thing being policed. It survives in the
+  //     source and proves nothing about enforcement.
+  //   * `borderWidth\s*:` -- the detector was widened on 7 Oct to "contains a
+  //     digit anywhere in it", so a conditional `width: selected ? 2 : 1`
+  //     stopped being invisible. That literal is no longer in the file at all,
+  //     and the entry kept citing it.
+  //   * `RegExp(r'\d')` -- that literal *is* in the file, and the
+  //     exists-in-source check passed on it, but it only classifies a width
+  //     that `_namedArg` already extracted. Citing the classifier credits the
+  //     guard for a rule it reaches second-hand, and the applied-to-a-call
+  //     check rightly refused it. Both readers were working; the token was
+  //     the wrong end of the pipeline.
+  // The token is now the VALUE of the string literal inside `_namedArg`'s own
+  // `RegExp(...)` -- the front of the pipeline, and the only shape both of this
+  // suite's readers can score. Two things were wrong with the attempts before
+  // it, and both were the readers being right: `_namedArg.allMatches` is a
+  // receiver chain, not a string literal, so the AST reader saw no applier; and
+  // quoting the token as `r'(...)'` added an `r'` and a `'` that are part of
+  // the raw-string DELIMITER, not of its value, so the forward-only
+  // containment check could never match it. This suite scores
+  // `literal.contains(token)`, so the token has to be inside the value.
+  'test/hairline_token_test.dart': [r"(\w+)\s*:\s*([^,]*)"],
   'test/failure_reported_test.dart': [r'\bcatch\b'],
   'test/header_trust_wiring_test.dart': [r'NotificationCountTrust\s*\('],
   'test/payload_coverage_test.dart': ['/api/mobile/workers/top'],
