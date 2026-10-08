@@ -24,6 +24,15 @@
 //     guard visited only the latter and saw **9 of 33** theme-table sites — a
 //     third of the file, reported as clean. Any guard that visits one AST shape
 //     and calls the tree clean is reporting on the shape, not the subject.
+//   * **A weight that is ABSENT is not an argument at all, and the first
+//     reader could not see it.** The two corrections above are both about
+//     arguments -- one AST shape, one level of nesting. The third is a style
+//     that sets `fontSize` and says nothing about weight, so its weight is the
+//     ambient [DefaultTextStyle]'s. There is no argument to inspect, so a census
+//     built on arguments reported six of them clean, including the theme's own
+//     `errorStyle` and `DialogTheme`'s subtitle. A second census reads the
+//     *absence* now, and it is a separate test because a raw weight and a
+//     missing one are different findings.
 //   * **A weight behind a ternary is a ConditionalExpression, and the reader
 //     descends into it.** The first conversion left **7** raw weights behind
 //     (`stale ? FontWeight.w800 : null`) — every one of them invisible to this
@@ -60,6 +69,9 @@ const _themeStyles = <String>{
 /// The named argument the rule turns on, assembled rather than written, so the
 /// literal the rule turns on never appears as one string in this file.
 const _kName = 'font' 'Weight';
+
+/// The other named argument the second census turns on, assembled the same way.
+const _kSize = 'font' 'Size';
 
 /// One raw weight, as a reportable row.
 class _Raw {
@@ -112,6 +124,76 @@ String? _bareWeight(Expression v) {
 /// A fresh instance per file on purpose: a version of this guard reused one
 /// visitor and carried the unit in a field, and the negative control caught it
 /// — a planted style reported **0** and the suite printed *All tests passed!*.
+/// A `TextStyle` built from scratch that picks its own size but never picks a
+/// weight -- so its weight is whatever the ambient [DefaultTextStyle] holds.
+///
+/// This is the third shape this guard has been blind to, and the order is the
+/// point. It read only *arguments*, so it could see a wrong weight typed by hand
+/// and a right one named as a token, and both were "an argument". A style with
+/// **no** weight argument is not an argument at all: the scan never had a row to
+/// land on. Six of them sat in `lib/` while the raw-weight census reported clean,
+/// including the theme's own `errorStyle` and `DialogTheme`'s subtitle -- the two
+/// places where the ambient weight is the Material default, so the field error
+/// line and every dialog subtitle painted at a weight nobody had chosen.
+///
+/// Why the shape matters more than the six sites: a size with no weight is the
+/// one style that looks deliberate and is not. Every one of them reads as "I set
+/// the type" and is in fact "I set half the type and inherited the other half
+/// from whichever surface I happen to be on." Move the same widget under a
+/// bolder parent and the line gets bolder with no line changing.
+///
+/// `copyWith` is deliberately **not** scanned: inheriting a weight from a style
+/// you copied is the contract, not the defect. The rule is about styles that
+/// start from nothing.
+class _UnweightedFinder extends RecursiveAstVisitor<void> {
+  _UnweightedFinder(this.path, this.report);
+  final String path;
+  final void Function(String path, int line, String source) report;
+
+  CompilationUnit? _unit;
+
+  @override
+  void visitCompilationUnit(CompilationUnit node) {
+    _unit = node;
+    super.visitCompilationUnit(node);
+  }
+
+  int _lineOf(int offset) =>
+      _unit?.lineInfo.getLocation(offset).lineNumber ?? 0;
+
+  void _take(ArgumentList args) {
+    var sized = false;
+    var weighted = false;
+    for (final a in args.arguments) {
+      if (a is! NamedArgument) continue;
+      if (a.name.lexeme == _kSize) sized = true;
+      if (a.name.lexeme == _kName) weighted = true;
+    }
+    // Sized and unweighted is the hole. Sized and weighted is the rule working.
+    if (!sized || weighted) return;
+    report(path, _lineOf(args.offset), args.toSource());
+  }
+
+  @override
+  void visitInstanceCreationExpression(InstanceCreationExpression node) {
+    // `const TextStyle(...)` and `TextStyle(...)` are different AST shapes --
+    // the second is a MethodInvocation on this analyzer version, which is how
+    // the first version of the weight census missed a third of the theme table.
+    if (node.constructorName.type.name.lexeme == 'TextStyle') {
+      _take(node.argumentList);
+    }
+    super.visitInstanceCreationExpression(node);
+  }
+
+  @override
+  void visitMethodInvocation(MethodInvocation node) {
+    if (node.methodName.name == 'TextStyle') {
+      _take(node.argumentList);
+    }
+    super.visitMethodInvocation(node);
+  }
+}
+
 class _WeightFinder extends RecursiveAstVisitor<void> {
   _WeightFinder(this.path, this.report);
   final String path;
@@ -195,6 +277,37 @@ List<_Raw> _rawWeights({Set<String> extraFiles = const <String>{}}) {
         parseString(content: file.readAsStringSync(), throwIfDiagnostics: false)
             .unit;
     final finder = _WeightFinder(file.path, (path, line, source) {
+      out.add(_Raw(path, line, source));
+    });
+    unit.accept(finder);
+  }
+  return out;
+}
+
+/// Every style under `lib/` that chooses its own size and no weight of its own.
+///
+/// Deliberately the same file walk and the same parsing as [_rawWeights], and
+/// deliberately a **separate census**: a raw weight and an absent weight are
+/// different findings, and folding them into one row would make the first rule's
+/// failure reason the second rule's success reason.
+List<_Raw> _unweightedStyles({Set<String> extraFiles = const <String>{}}) {
+  final out = <_Raw>[];
+  final files = Directory('lib')
+      .listSync(recursive: true)
+      .whereType<File>()
+      .where((f) => f.path.endsWith('.dart'))
+      .toList();
+
+  for (final path in extraFiles) {
+    files.add(File(path));
+  }
+
+  for (final file in files) {
+    if (!file.existsSync()) continue;
+    final unit =
+        parseString(content: file.readAsStringSync(), throwIfDiagnostics: false)
+            .unit;
+    final finder = _UnweightedFinder(file.path, (path, line, source) {
       out.add(_Raw(path, line, source));
     });
     unit.accept(finder);
@@ -357,5 +470,99 @@ void main() {
     // "make sure" -- is what this suite first did, and it throws
     // PathNotFoundException on a directory that is already gone: the guard's
     // own cleanup failed the build it was written to protect.
+  });
+
+  test('no style sizes itself without choosing a weight', () {
+    final bare = _unweightedStyles();
+    expect(
+      bare,
+      isEmpty,
+      reason: 'a TextStyle that sets $_kSize inherits its weight from whatever '
+          'surface it lands on.\nStyle(s) with no weight:\n${bare.join('\n')}\n'
+          'Name a token -- that is the whole cost.',
+    );
+  });
+
+  test('the unweighted census can still fail (it is not vacuous)', () {
+    // The negative control for the second rule, and the reason it is a separate
+    // test rather than another expect in the first: if this one were merged, a
+    // plant that fires would prove *something* -- not that this census works.
+    final dir = Directory.systemTemp.createTempSync('weight_unweighted_plant');
+    addTearDown(() => dir.deleteSync(recursive: true));
+
+    // 7. A style that sizes itself and says nothing about weight. This is the
+    //    shape the first version of this guard could not express at all: there
+    //    is no argument to be wrong about, so a reader that only inspects
+    //    arguments reports nothing and calls `lib/` clean.
+    final barePlant = _Plant(
+      File('${dir.path}/plant_unweighted.dart'),
+      'final t = TextStyle($_kSize: 14.0, color: 0xFF000000);\n',
+    )..write();
+    expect(
+      _unweightedStyles(extraFiles: <String>{barePlant.path}),
+      isNotEmpty,
+      reason: 'a style with a size and no weight must be reported',
+    );
+
+    // 8. The **const** spelling of the same thing. `const TextStyle(...)` is an
+    //    InstanceCreationExpression and `TextStyle(...)` is a MethodInvocation;
+    //    a visitor that handles one and calls the tree clean is reporting on
+    //    the shape, which is the mistake this file has now made twice.
+    final constBare = _Plant(
+      File('${dir.path}/plant_unweighted_const.dart'),
+      'const t = TextStyle($_kSize: 14.0);\n',
+    )..write();
+    expect(
+      _unweightedStyles(extraFiles: <String>{constBare.path}),
+      isNotEmpty,
+      reason: 'a const TextStyle with a size and no weight must be reported',
+    );
+
+    // 9. The **clean** control, and what makes plants 7 and 8 mean something: a
+    //    style that does name a weight must not be reported. Without this, a
+    //    census that flagged every sized style would pass 7 and 8 for the wrong
+    //    reason.
+    final weightedPlant = _Plant(
+      File('${dir.path}/plant_weighted.dart'),
+      "import 'package:allomokawil/src/core/theme/app_theme.dart';\n"
+      'final t = TextStyle(\n'
+      '  $_kSize: 14.0,\n'
+      '  $_kName: AppTheme.wControl,\n'
+      ');\n',
+    )..write();
+    expect(
+      _unweightedStyles(extraFiles: <String>{weightedPlant.path}),
+      isEmpty,
+      reason: 'a style that names a weight token is not an unweighted style',
+    );
+
+    // 10. `copyWith` is the negative control for the *shape* rather than the
+    //     value: a style copied from another one has no weight argument and must
+    //     NOT be reported, because inheriting there is the contract. A census
+    //     that flagged it would be wrong, not strict.
+    final copyPlant = _Plant(
+      File('${dir.path}/plant_copy_inherits.dart'),
+      "import 'package:allomokawil/src/core/theme/app_theme.dart';\n"
+      'final t = AppTheme.body.copyWith($_kSize: 14.0);\n',
+    )..write();
+    expect(
+      _unweightedStyles(extraFiles: <String>{copyPlant.path}),
+      isEmpty,
+      reason: 'copyWith inherits its weight on purpose; it is not a defect',
+    );
+
+    // 11. A style with no size at all is not this rule's business. Reporting it
+    //     would mean the rule had become "every TextStyle must name a weight",
+    //     which is not what it says and would fail on intentional inherit-style
+    //     modifiers that pass only a colour.
+    final noSize = _Plant(
+      File('${dir.path}/plant_nosize.dart'),
+      'final t = TextStyle(color: 0xFF000000);\n',
+    )..write();
+    expect(
+      _unweightedStyles(extraFiles: <String>{noSize.path}),
+      isEmpty,
+      reason: 'a style that sets no size inherits both, and is out of scope',
+    );
   });
 }

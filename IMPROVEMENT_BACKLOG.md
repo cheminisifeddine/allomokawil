@@ -28838,3 +28838,176 @@ constants and the callers should read them from a single ladder object with
 semantic names (`wTitle`, `wCaption`) rather than intensity names (`wStrong`,
 `wQuiet`) — the names are the last place the ladder encodes *how loud* instead
 of *what role*, and that is a naming question, not a rendering one.
+
+**ANSWERED next tick, by measurement: the rename is the wrong fix, and the
+premise was wrong.** The claim was that the names encode *how loud* instead of
+*what role*, so `wStrong` → `wTitle` would close the ladder. Measured the call
+sites instead of reading the names, and **one token does not have a role.** `wLoud`
+(w800) has exactly 4 sites and they are three unrelated roles:
+
+| site | what it actually is |
+| --- | --- |
+| `worker_home_screen.dart:1800` | the *stale* stamp on a quarter-old header — a warning, and only while stale |
+| `worker_home_screen.dart:2068` | the profile-completion prompt — the app's one instruction to the worker |
+| `client_start_card.dart:166` | a **step index** — a digit in a numbered list |
+| `subscription_screen.dart` (stale stamp) | the other stale stamp, written twice by design |
+
+A stale marker, a prompt and a list ordinal have nothing in common but loudness,
+so `wTitle` is **wrong for three of the four**. `wStrong` is no better behaved —
+it is a section head in one file, a price in another (`«توفّر … في السنة»`) and a
+`99+` tab badge in a third. There is no role-name that fits, because the ladder
+is not used for roles: it is used to answer *how much ink*, and every one of
+these sites asked that question and got the same answer. **The intensity names
+are the accurate description of what the ladder is**, and renaming them to roles
+would make the names lie while changing nothing on screen.
+
+**The rename is also blocked on a fact the last tick did not measure: the names
+are load-bearing for the second census below.** Not for the ladder's correctness
+— for the guard's. Decided against, on evidence, and the open question is
+closed rather than deferred. The real remaining defect was one level down and had
+nothing to do with names.
+
+## Tick 8 Oct 2026 (8th, ~14:00) — the six styles that set a size and no weight
+
+**The backlog had nothing unchecked — all 268 boxes ticked** — so this tick took
+the open question the previous tick left, measured it, decided it *against*, and
+then found the real defect one level down. Both halves are below; the second is
+the item, and it shipped.
+
+### The previous tick's proposal: `wStrong` -> `wTitle`. DECLINED, on evidence.
+
+The claim was that the ladder's names encode *how loud* rather than *what role*.
+Measured the call sites rather than reading the names, and **the ladder is not
+used for roles**, so there is no role-name that fits:
+
+| token | sites | what it is actually asked to do |
+| --- | --- | --- |
+| `wLoud` (w800) | 4 | a *stale* header stamp (x2, by design), the profile-completion **prompt**, and a **step index digit** in a numbered list |
+| `wStrong` (w700) | 19 | a section head, the saving figure `<<توفّر … في السنة>>`, and a **`99+` tab badge** |
+
+A warning marker, an instruction and a list ordinal have nothing in common but
+ink. Renaming them `wTitle`/`wHeadline` would make the names **lie** — and buy
+nothing, because every one of those sites asked "how much ink" and got the same
+answer. The intensity names are an accurate description of what this ladder is.
+Closed, not deferred.
+
+### The item: a style can be wrong by *omission*, and the guard could not see it
+
+The raw-weight census reads **arguments**: it flags a wrong weight typed by hand
+and accepts a right one named as a token. Both are arguments. A `TextStyle` that
+sets `fontSize` and says **nothing at all** about weight is therefore invisible to
+it — there is no argument to inspect, so the scan never had a row to land on.
+
+**This is the third shape this file has been blind to, and the third time the
+failure has been the same one: a rule written at a granularity that cannot
+express its own subject.** Tick 6: `TextStyle(...)` is a `MethodInvocation`, not
+an `InstanceCreationExpression` — the guard saw 9 of 33 sites. Last tick: a
+ternary is a `ConditionalExpression` — all 7 leftovers. Now: the *absence* of
+the argument. Two corrections about which argument, then one about there being
+none.
+
+**Six sites, measured by AST over `lib/`** (`fontSize:` present, no weight), all
+of them invisible to the raw census, and **two of them are in the theme itself** —
+the places a caller looks to find out what a weight should be:
+
+| site | what it is |
+| --- | --- |
+| `app_theme.dart:849` | **`errorStyle`** — the error line under every field |
+| `app_theme.dart:922` | `DialogTheme.subtitleTextStyle` — **every dialog subtitle** |
+| `profile_edit_screen.dart:431` | the availability switch's subtitle |
+| `profile_edit_screen.dart:469` | the inline error line |
+| `profile_edit_screen.dart:546` | the hint text under the radius field |
+| `worker_home_screen.dart:2077` | the line under the profile-completion prompt |
+
+**Why this is a defect and not a style preference.** For all six the weight is
+the ambient `DefaultTextStyle`'s — which is Material's `bodySmall` (w400) for the
+two theme sites, verified in `input_decorator.dart:5864-5869`, where the
+`errorStyle` default is literally `textTheme.bodySmall!.copyWith(color: error)`.
+So these lines paint at **w400 while every sibling in the same block names a
+token**: `hintStyle` is `wBody`, `labelStyle` is `wQuiet`, `floatingLabelStyle`
+is `wStrong`, and `errorStyle` — the fourth line of the same
+`inputDecorationTheme` — was the only one silent. An error message is the text
+most in need of a chosen weight, and it was inheriting one.
+
+The widget-level sites have the sharper form of the same bug: they are `Text`
+widgets whose weight depends on **which surface the user is standing on**. Move
+the hint under a bolder parent and it gets bolder with no line changing — the one
+style that *looks* deliberate and is not, because "I set the type" is exactly
+what it looks like while being "I set half the type and inherited the rest".
+
+**Fixed by naming the token on all six**, each the one its neighbours already use:
+`wQuiet` (w500) for all six, which is what `labelStyle` in the same block already
+declares for the same kind of small secondary Arabic text. **This changes what is
+on screen**: w400 -> w500 on the field error line, every dialog subtitle, and four
+secondary lines. That is the point — it is the first weight change this type
+ladder has shipped, and it is w400 -> w500, one step, on six muted secondary
+lines. It is the smallest possible delta for a defect of this class, and it is
+*not* zero, so the numbers here are the delta.
+
+**The guard now reads the absence.** `_unweightedStyles()` is a second census
+over the same walk, and it is a **separate test** because a raw weight and a
+missing one are different findings — folding them into one row would make the
+first rule's failure reason the second rule's success reason. Five plants, and
+two of them are negative controls rather than positives:
+
+- 7. `TextStyle(fontSize: 14.0)` — the MethodInvocation spelling, **must** fire;
+- 8. `const TextStyle(fontSize: 14.0)` — the other AST shape, **must** fire;
+- 9. a style that names `AppTheme.wControl` — **must not** fire (this is what
+  makes 7 and 8 mean something: a census flagging every sized style passes them
+  for the wrong reason);
+- 10. `AppTheme.body.copyWith(fontSize: 14.0)` — **must not** fire. Inheriting
+  from a style you copied is the *contract*, not the defect; the rule is about
+  styles that start from nothing. A census that flagged this would be wrong, not
+  strict;
+- 11. `TextStyle(color: ...)` with no size — **must not** fire. Out of scope: it
+  inherits both halves, and reporting it would quietly turn the rule into "every
+  `TextStyle` must name a weight".
+
+**Red before green, and the red named the right site.** With one of the six
+reverted to its pre-fix shape, both new tests failed and the guard's own message
+printed the row:
+
+```
+00:05 +4 -1: no style sizes itself without choosing a weight [E]
+  Expected: empty
+    Actual: [ ...app_theme.dart:849  (fontFamily: 'Cairo', fontSize: fsMeta, color: danger)
+```
+
+**A third blind spot closed in passing, measured while looking.** The first
+census watches `copyWith(fontWeight:)` only when the receiver is one of 9 theme
+styles. Wrote a throwaway AST pass asking whether any `copyWith(fontWeight:)` in
+`lib/` targets something else — **zero**. All 22 go through `body`(10),
+`caption`(8), `label`(4), so that scope is correct rather than lucky. Also swept
+post-`await` `setState` with no `mounted`: 4 candidates (`_retryOne`,
+`_markRead`, `_markAllRead`, `_refresh`), and **all four are safe** — every one
+puts its `setState` *before* its first await. Recorded as verified-clean, not
+silently skipped.
+
+### Evidence
+- `flutter analyze` -> **No issues found!** (11.0 s).
+- `tool/run_tests.py` -> **SUITE PASS — 2542 tests across 14 shard(s), every
+  shard green, 2534 passed / 8 skipped, 19:46.** Baseline **2540 -> 2542, +2**,
+  which is the two new cases and nothing else: the five plants run inside the
+  new test, so the count moves by the number of *tests* added, not by the number
+  of assertions in them. Deadline never fired, no retries, and **shard 8 — the
+  KNOWN BUG shard — was green.**
+- **No screenshot.** The change is a font weight on 6 muted lines — the delta is
+  w400 to w500 on an error line and some captions, and there is no headless
+  Chrome on this host after the 26 Sep rebuild, so **nothing here claims a
+  layout**. `tool/pngscan.py` *does* exist (two earlier tick notes said it did
+  not — worth a look at whoever wrote those); without a browser it is moot.
+- **No APK, no release, no tag.** Founder-gated.
+
+**Files:** `app_theme.dart`, `profile_edit_screen.dart`,
+`worker_home_screen.dart`, `test/font_weight_token_test.dart`, backlog.
+
+**Commit:** `a6ef12a`
+
+**Next:** the ladder is finished in all four legs and the names are settled. The
+open question is the **other** end of the same rule: `AppTheme`'s own 9 style
+constants are the source for `copyWith`, so a `copyWith(fontSize: ...)` that
+changes the line's *role* keeps the source's weight silently — `AppTheme.caption`
+at `fsH2` is still `wQuiet`. That is legal and usually right, and it is the one
+place the ladder can be wrong without any raw weight existing to flag it. A
+census on *that* is the natural next item; it needs a judgement about which
+combinations are legitimate, so it is a design question before it is a test.

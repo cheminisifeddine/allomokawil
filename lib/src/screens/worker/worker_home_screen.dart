@@ -2077,6 +2077,7 @@ class _GettingStarted extends StatelessWidget {
                         style: const TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: AppTheme.fsCaption,
+                          fontWeight: AppTheme.wQuiet,
                           height: AppTheme.lhProse,
                           color: AppTheme.textSecondary,
                         ),

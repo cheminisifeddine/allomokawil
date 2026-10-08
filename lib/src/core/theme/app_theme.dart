@@ -847,7 +847,10 @@ class AppTheme {
             color: navy,
             fontWeight: AppTheme.wStrong),
         errorStyle: const TextStyle(
-            fontFamily: 'Cairo', fontSize: fsMeta, color: danger),
+            fontFamily: 'Cairo',
+            fontSize: fsMeta,
+            fontWeight: wQuiet,
+            color: danger),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(fieldRadius),
           borderSide: const BorderSide(color: fieldLine),
@@ -920,7 +923,10 @@ class AppTheme {
             fontWeight: wControl,
             color: textPrimary),
         subtitleTextStyle: TextStyle(
-            fontFamily: 'Cairo', fontSize: fsMeta, color: textSecondary),
+            fontFamily: 'Cairo',
+            fontSize: fsMeta,
+            fontWeight: wQuiet,
+            color: textSecondary),
         contentPadding: cardPadRows,
       ),
 
