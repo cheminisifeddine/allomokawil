@@ -519,6 +519,131 @@ def radius_ladder_reader():
             "reader read nothing" % len(rungs))
 
 
+def spacing_ladder_reader():
+    """The spacing leg -- `s4..s32` on the theme's "one 4 dp grid" -- and the
+    shape the previous tick predicted, measured here rather than assumed.
+
+    Answer, measured before this reader existed: **a ratchet, not a ladder.**
+
+    `test/card_recipe_test.dart:288-295` transcribes all eight values by hand
+    and then asserts `v % 4 == 0` for each. So the spacing guard enforces the
+    **form** of a spacing value (it is a multiple of 4) and never **which
+    token** holds it -- the same defect `radius_ladder_reader` just found one
+    file over, and the reason the "Next" note called `s*` the likelier find:
+    eight rungs behind a value-shaped check reads as covered.
+
+    Measured: planted `sWild = 6` beside the real eight and applied it for
+    real from `lib/` (`auth_gate.dart`, over a gap that was `AppTheme.s8`).
+    `card_recipe_test.dart` -> **all green**; R4, the off-grid ratchet, stayed
+    green and said nothing, because `_literals()` skips identifiers by design
+    -- a token is off the guard's map entirely. That blind spot is documented
+    in R4's own header. A 6 dp gap, 2 dp off the grid it claims every gap comes
+    from, and the whole spacing guard family called the tree clean.
+
+    So the check is derived from `app_theme.dart` and runs in five directions:
+
+      * **orphan** -- a rung the card-recipe guard never names. This is the
+        plant above.
+      * **ghost** -- a rung the guard names that the theme does not declare,
+        so its `expect()` asserts nothing.
+      * **unapplied** -- a rung nothing in `lib/` ever applies, which is the
+        other half of "one owner".
+      * **grid** -- every rung is a positive multiple of 4. The theme says
+        "one 4 dp grid" in prose; this makes the prose a claim. Note this is
+        deliberately NOT the ratchet: R4 counts off-grid *literals* and may
+        only go down, whereas this constrains the rungs themselves.
+      * **ordering + distinctness** -- `s4 < s8 < ... < s32`, strictly. Eight
+        named rungs are a ladder and the ladder gets the claim; a duplicated
+        value means two names for one step and the next caller picks either.
+
+    Floor: 8 rungs, the count measured at HEAD, so the reader cannot pass on a
+    theme it failed to read.
+    """
+    theme = os.path.join(REPO, "lib", "src", "core", "theme", "app_theme.dart")
+    with open(theme, encoding="utf-8") as fh:
+        code = _strip_comments(fh.read())
+
+    # The rungs are numeric-named (`s4`..`s32`), so the family is
+    # `s\d+\w*` and NOT `s[A-Z]\w*` -- the first version of this reader used
+    # the radius reader's alphabet-only shape, matched zero tokens on the real
+    # theme, and failed green-until-reverted with "read zero tokens". What the
+    # radius reader's lesson actually transfers is the *shared prefix*: the
+    # strip-card metrics (`stripCardW`, `stripH`, `stripInnerH`) carry the
+    # same leading `s` and are card geometry, not spacing rungs, so neither
+    # `s\w*` nor `s[A-Z]\w*` may be used. A named rogue (`sWild`) is still in
+    # the family -- that is the plant this reader exists to catch.
+    declared = re.findall(r"static const double (s(?:\d+|[A-Z]\w*))\s*=", code)
+    _assert(declared,
+            "spacing_ladder_reader read zero tokens -- this reader is broken, "
+            "not the tree")
+
+    guard_path = os.path.join(REPO, "test", "card_recipe_test.dart")
+    with open(guard_path, encoding="utf-8") as fh:
+        guard_src = fh.read()
+    named = set(re.findall(r"AppTheme\.(s(?:\d+|[A-Z]\w*))", guard_src))
+
+    applied = set()
+    for root, _dirs, files in os.walk(os.path.join(REPO, "lib")):
+        for fname in files:
+            if not fname.endswith(".dart"):
+                continue
+            if fname == "app_theme.dart":
+                continue  # the declaration is not a use
+            with open(os.path.join(root, fname), encoding="utf-8") as fh:
+                applied |= set(re.findall(r"AppTheme\.(s(?:\d+|[A-Z]\w*))", fh.read()))
+
+    orphans = [d for d in declared if d not in named]
+    ghosts = [g for g in sorted(named) if g not in declared]
+    unapplied = [d for d in declared if d not in applied]
+
+    _assert(not orphans,
+            "app_theme.dart declares a spacing rung card_recipe_test.dart "
+            "never names -- the guard asserts `v %% 4 == 0`, which constrains "
+            "the SHAPE of a value and never which token holds it, so an "
+            "invented rung satisfies it perfectly and arrives off the grid "
+            "with no measurement and no owner: %s" % ", ".join(orphans))
+    _assert(not ghosts,
+            "card_recipe_test.dart names a spacing rung app_theme.dart does "
+            "not declare -- the guard is pinning a value that does not exist, "
+            "so its expect() asserts nothing: %s" % ", ".join(ghosts))
+    _assert(not unapplied,
+            "app_theme.dart declares a spacing rung nothing in lib/ ever "
+            "applies -- a gap decision that exists only in the theme, which "
+            "is the rung the next caller will find and assume was drawn: %s"
+            % ", ".join(unapplied))
+
+    values = dict(re.findall(r"static const double (s(?:\d+|[A-Z]\w*))\s*=\s*([0-9.]+)",
+                             code))
+    _assert(all(r in values for r in declared),
+            "could not read a numeric value for every rung (%s) -- the ladder "
+            "cannot be ordered from a token whose right-hand side is not a "
+            "literal" % ", ".join(r for r in declared if r not in values))
+
+    off_grid = [r for r in declared
+                if float(values[r]) <= 0 or float(values[r]) % 4 != 0]
+    _assert(not off_grid,
+            "the spacing ladder claims one 4 dp grid and these rungs are off "
+            "it: %s. R4 counts off-grid LITERALS and may only go down; it "
+            "cannot see a named token, which is how a 6 dp gap reached a "
+            "screen while the ratchet read zero."
+            % ", ".join("%s=%g" % (r, float(values[r])) for r in off_grid))
+
+    ladder = [float(values[r]) for r in declared]
+    ordered = sorted(set(ladder))
+    _assert(ladder == ordered,
+            "the spacing ladder is not strictly ascending, weakest first: %s "
+            "= %s. A gap drawn at the wrong rung is not a taste call -- it is "
+            "the design ladder skipped."
+            % (", ".join(declared), ", ".join("%g" % v for v in ladder)))
+    _assert(len(set(ladder)) == len(ladder),
+            "the spacing ladder repeats a value: %s"
+            % ", ".join("%s=%g" % (r, float(values[r])) for r in declared))
+
+    _assert(len(declared) >= 8,
+            "read %d spacing rungs; HEAD has 8 (s4..s32), so fewer means the "
+            "reader read nothing" % len(declared))
+
+
 def tracking_token_reader():
     """The tracking leg -- the one type-scale family with a **single** rung,
     and the question the last tick left open: is a single-value family guarded
@@ -708,6 +833,13 @@ def _results():
     #     See radius_ladder_reader() for the plant that proved it.
     yield ("app_theme.dart's radius ladder is derived, not transcribed",
            radius_ladder_reader)
+    # 4d. the spacing leg -- `s4..s32` on the theme's "one 4 dp grid". The
+    #     off-grid ratchet R4 looks like it covers this family, but it counts
+    #     LITERALS and `_literals()` skips identifiers by design, so a named
+    #     rung is off its map entirely and a 9th token walks in the same door.
+    #     See spacing_ladder_reader() for the plant that proved it.
+    yield ("app_theme.dart's spacing ladder is derived, not transcribed",
+           spacing_ladder_reader)
 
     # 5. the control for THIS reader: the planted sixth rung the tree does not
     #    have. A reader that cannot fail on a known-bad input is not a reader,
@@ -720,6 +852,7 @@ def _results():
             (["lhBody", "lhThunder"], ["lhBody"], "line-height"),
             (["lsDigits", "lsWild"], ["lsDigits"], "tracking"),
             (["rXs", "rWild"], ["rXs"], "radius"),
+            (["s4", "sWild"], ["s4"], "spacing"),
         ):
             orphans = [d for d in declared if d not in listed]
             _assert(orphans,

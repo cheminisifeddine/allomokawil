@@ -29651,3 +29651,81 @@ Clean tree → **10 passed, 0 failed**, exit 0.
 the census has still looked at neither. `s*` is the more likely find: it has
 eight rungs and a ratchet-style guard, which is exactly the shape that reads as
 covered and constrains only the **shape** of a value.
+
+## Tick 10 Oct 2026 (14th) — the spacing ladder was the ratchet the last tick
+## predicted, and R4 cannot see a named token at all
+
+`4223f80`, reader code + this record. See the section at the foot of this file.
+
+The backlog had no unchecked item; the **Next** the last tick left named the
+`s4…s32` spacing ladder and said, in advance, *"s* is the more likely find: it
+has eight rungs and a ratchet-style guard, which is exactly the shape that
+reads as covered and constrains only the **shape** of a value."* It was right.
+
+**The finding.** `test/card_recipe_test.dart:288-295` transcribes all eight
+rungs by hand and then asserts `v % 4 == 0` on each. So the spacing guard
+constrains the **shape** of a spacing value — it is a multiple of 4 — and never
+**which token** holds it. That is the radius defect again, one file over, and
+R4's own header explains why the family looked covered: R4 reads *literals*
+inside `EdgeInsets`, and `_literals()` skips identifiers by design, so a named
+rung is not on the ratchet's map in the first place.
+
+**Measured, not argued.** Planted `sWild = 6` beside the real eight and applied
+it for real from `lib/` (`auth_gate.dart`, over a gap that was `AppTheme.s8`):
+
+| guard | result on the plant |
+| --- | --- |
+| `card_recipe_test.dart` (R1–R5) | **all green, 15 tests** |
+| `exemption_census_test.py` | **10 passed, 0 failed** |
+
+A 6 dp gap — 2 dp off the "one 4 dp grid" the theme claims in prose — carrying
+a spacing decision nobody measured, and the whole spacing guard family called
+the tree clean.
+
+**Shipped** `spacing_ladder_reader()` — derived from `app_theme.dart`, five
+directions that can each fail alone:
+
+| direction | what it refuses |
+| --- | --- |
+| orphan | a rung the card-recipe guard never names (the plant) |
+| ghost | a rung the guard names that the theme does not declare, so its `expect()` asserts nothing |
+| unapplied | a rung nothing in `lib/` applies — the shape the next caller finds and assumes was drawn |
+| grid | any rung that is not a positive multiple of 4, making the theme's prose a claim |
+| ordering + distinctness | `s4 < s8 < … < s32`, strictly; two names for one step is the ladder skipped |
+
+**Red before green, all six, exit 1 each** (re-measured unpiped, after the
+`git checkout` race described below): orphan `sWild`; ghost `sGhost`; unapplied
+`sLoose`; off-grid `sOdd=14`; `s24` dragged 24 → 18 (on-grid, breaks order);
+`s28` dragged 28 → 24 (duplicate). Case 4 initially tripped *unapplied* rather
+than *grid*, so the grid direction was re-measured in isolation with the rung
+also applied from `lib/` — it fires on its own, so it is not dead code behind
+the unapplied check. Clean tree → **11 passed, 0 failed**, exit 0.
+
+**Two bugs of my own, both worth the ticks they cost.** *First*, the family
+regex was copied from the radius reader as `s[A-Z]\w*` and matched **zero**
+tokens, because the rungs are numeric-named (`s4`, not `sFour`); the guard
+that exists to catch a rogue rung was failing on the clean tree with *"read
+zero tokens"*. The radius reader's lesson that actually transfers is the shared
+prefix, not the alphabet: `stripCardW`, `stripH` and `stripInnerH` all carry the
+same leading `s` and are card geometry, so the family is `s(?:\d+|[A-Z]\w*)`.
+*Second*, the first red-before-green harness restored the tree with
+`git checkout --` from inside the same process that had just appended to the
+guard file, so three of six cases reported the same orphan and two reported
+"read zero tokens" — a harness race that looked exactly like a broken reader.
+Every case was re-measured serially before anything was written down.
+
+**Evidence**
+- census → **11 passed, 0 failed**, exit 0
+- `flutter analyze` → **No issues found!** (11.7 s)
+- `tool/run_tests.py` → SUITE PASS, baseline **2544 held exactly**; `lib/`
+  byte-identical to HEAD, only the Python census changed
+- `tool/build_gate.py` → **CLEAR**
+- No screenshot — no token value was changed in the shipped tree, zero pixel
+  delta.
+
+**Next.** The hairline family — `hairline`, `hairlineResting`,
+`hairlineSelected`, `hairlineFocus` and `ring`. The census has looked at
+neither, and it is the one theme family left that is neither a type-scale
+ladder nor a spacing ladder: four of the five are *aliases of each other by
+value*, which is a shape none of the four readers above can express, since each
+of them assumes the rung values are distinct.
