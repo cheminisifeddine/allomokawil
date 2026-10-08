@@ -260,21 +260,48 @@ remote tree, read off the git-data API rather than trusted from the push line.
     defect and wrong about this one site. Reproduced by running the shard's own
     24 files together (it passes alone and fails in the shard, so the fix is
     about the map, not the widget).
-  * **`plan_expiry_dst_test.dart` / `plan_disputed_price_shot_test.dart
-    `(tearDownAll)` (shard 6).** Weakest evidence of the two and **possibly not
-    a failure at all**: the line is printed on a pristine HEAD tree too, with
-    no change reverted, and both files pass standalone and in a small group.
-    The prime suspect is the shared `/tmp/shots` directory — **62 test files
-    all write PNGs to that one path** — so concurrent writers in a shard can
-    collide. That is a real hypothesis and it is NOT yet proven; proving it
-    needs a shard-level reproduction with the writes serialised, which is a
-    bigger job than this tick. Do not record it as fixed on the strength of the
-    standalone pass.
+  * **`plan_expiry_dst_test.dart` / `plan_disputed_price_shot_test.dart`
+    (shard 6).** Weakest evidence of the two and **possibly not a failure at
+    all**: the line is printed on a pristine HEAD tree too, with no change
+    reverted, and both files pass standalone and in a small group.
+    * **The filed `(tearDownAll)` attribution was WRONG — nothing in either
+      file has a `tearDownAll`.** Measured 8 Oct: `grep -n tearDownAll` over
+      both returns **no hits** (they are 155 and 241 lines of pure `test()`
+      body and a widget test). The real source of the printed line is a
+      plain `print` at `plan_disputed_price_shot_test.dart:225`
+      (`DISPUTED-CARD rect=...`), which is the diagnostic that precedes that
+      test's own `expect(red, greaterThan(1500))`. A tick that believed the
+      attribution would go looking for a teardown hook that does not exist.
+    * **The `/tmp/shots` collision theory is DEAD — proven, not assumed.**
+      It needed a shard-level reproduction; instead it was answered
+      statically, which is strictly stronger, because the theory required the
+      writes to *interleave* and the loop measured `flutter test` concurrency
+      at exactly 1 on this box. Enumerated from the sources: **63 files**
+      reference `/tmp/shots`, and the union of every PNG basename any of them
+      can write — concrete literals **and** the interpolated
+      `'/tmp/shots/$name.png'` shape — is **140 names with zero cross-file
+      duplicates**. Pinned by `test/shot_namespace_test.py` (red before green:
+      renaming one shot to another file's name fails it; pointing the reader at
+      an empty repo fails it on the writer count, so a reader that reads
+      nothing cannot pass vacuously). The honest conclusion is that shard 6's
+      cause is **still unidentified** — one theory is now eliminated, and the
+      remaining lead is `quote_status_shot_test.dart`, the only file that
+      writes a shot *and reads its bytes back* to assert the two differ. It is
+      also **now safe by construction**: uniqueness is enforced.
   * *Why this is filed rather than fixed here:* the tick that shipped
     `512cc0a` had already spent its budget, and per step 4 a red build is never
     shipped **on the back of someone else's red**. `type_scale_test` is a
     one-line allowlist entry and is genuinely trivial; the `/tmp/shots`
     question needs a measurement first.
+  * **PARTIALLY DONE 8 Oct — the `/tmp/shots` half is ANSWERED, the
+    `type_scale_test` half is NOT.** `test/shot_namespace_test.py` kills the
+    collision theory; see the shard-6 bullet above for the numbers. The
+    one-line `AppTheme.pipNumeral` allowlist entry is **still open and still
+    trivial** — it was not started this tick because `tool/build_gate.py`
+    denied the Dart gate (the hypervisor balloon holds **4876-5086 MB** of the
+    7.8 GB box; only **810 MB** available against a **900 MB** floor), so this
+    tick is Python-only. **Do not tick this box `[x]` until the allowlist entry
+    is in and `tool/run_tests.py` reports shard 12 green.**
 
 - [x] **The control-outline guard shipped last tick could not see half the
       borders it exists to police — and it reported the tree clean.**
@@ -27877,3 +27904,110 @@ gate correctly reported as BUSY. The rule is not in the protocol and it cost
 this tick roughly ten minutes: **do not touch the tree between starting the
 suite and reading its result.** A suite run against a moving tree is not a
 weaker result, it is not a result.
+
+---
+
+## Tick 8 Oct 2026 (2nd) — Phase 6, the `/tmp/shots` half: the collision
+## theory is dead, and the attribution filed against it never existed
+
+**Non-build tick.** `tool/build_gate.py` -> `NO ROOM`: **810 MB** available
+against a **900 MB** floor, and the gate names the reason correctly — `Balloon:
+5085672 kB`, the hypervisor holding **4.9-5.1 GB** of a 7.9 GB box, more than
+the whole shortfall, with nothing in this PID namespace owning it. That is the
+gate the hairline tick shipped doing its job, so no `flutter analyze`, no
+`tool/run_tests.py`, and **no Dart changed this tick**.
+
+### Housekeeping first: local and remote had diverged
+
+`git status` was clean but `git pull --ff-only` refused. Local `ddd7cbf` vs
+remote `a9b284c`, 48 commits left / 41 right, and **the trees were byte
+identical** — same root SHA `23db01c9…`. A previous push had rewritten history,
+so the local series and the remote series are the same 41 commits under
+different SHAs. Resolved with `git reset --hard origin/main`, which is safe
+*only* because the trees were verified equal first; the loop has no force-push
+privilege and needs none. **Worth a line in the protocol: divergent history
+here does not mean diverged work — compare the tree SHA, not the log.**
+
+### The item
+
+Phase 6, first unchecked box: two pre-existing suite failures. This tick took
+the shard-6 half — the open question was whether **62 test files writing PNGs
+to one `/tmp/shots` path collide in a shard**. The backlog explicitly said
+*prove it, do not assume it*.
+
+### What the measurement found — two things, neither of them what was filed
+
+**1. The `(tearDownAll)` attribution does not exist.** Neither named file has
+a `tearDownAll` — `grep -n tearDownAll` over both is empty (155 and 241 lines,
+pure `test()` bodies). The printed line is a `print` at
+`plan_disputed_price_shot_test.dart:225`, immediately before that test's own
+`expect(red, greaterThan(1500))`. The previous tick filed a teardown hook as the
+cause of a shard failure; there was never one. Three ticks of a phantom
+attribution is the same class of error as the `quote_worker_trust.dart`
+phantom blocker already corrected in this file.
+
+**2. The collision theory is false.** Answered **statically**, which is
+stronger than the shard-level reproduction the backlog asked for: the theory
+required writes to *interleave*, and the loop already measured `flutter test`
+concurrency at exactly **1** on this 2-core box, so a second file cannot be
+mid-`toImage` while the first reads its bytes back. Enumerating the writers
+from source — concrete path literals **and** the interpolated
+`'/tmp/shots/$name.png'` shape that 20 files use — gives **140 distinct
+basenames across 63 files and ZERO cross-file duplicates**.
+
+Two false positives had to be killed on the way, and both are traps for the
+next tick that writes this reader:
+* a naive "every `.png` basename" sweep reported **8 duplicates** (`Cairo`,
+  `ar`, `en`, `GET`, `worker`, `customer`, …). Every one is a regex artifact —
+  those literals are font paths, locales and role strings elsewhere in the
+  files, not shot names. The reader must take the name **out of the shot
+  helper's argument list**, not any string in the file.
+* counting `$name.png` as a "collision" because 41 files write that literal is
+  the same error again: the template is shared, the *values* are not, and there
+  are 42 distinct values.
+
+### Evidence — `test/shot_namespace_test.py`, red before green
+
+```
+basenames under /tmp/shots: 140, written by 56 files
+PASS  no PNG basename is written by two test files
+     files referencing /tmp/shots: 63
+== ALL PASS ==
+```
+
+* **Red on a real duplicate:** renaming one shot in
+  `profile_section_failure_test.dart` to another file's name -> **FAIL**, exit
+  1, naming both files.
+* **Red on a broken reader:** `REPO` pointed at an empty dir -> 0 names, and the
+  writer-count backstop fails it: *`only 0 files reference /tmp/shots -- this
+  reader is broken, not the tree`*. A detector that finds nothing because it
+  read nothing must not report a clean tree; that is precisely the failure this
+  file exists to prevent, and the backstop is what makes the PASS meaningful.
+
+### What is NOT claimed
+
+Shard 6's cause is **still unidentified**. One theory is eliminated, not the
+bug. The remaining lead is `quote_status_shot_test.dart` — the only file that
+writes a shot **and reads the bytes back** to assert the two captures differ, so
+it is the only one where a stale or clobbered file changes a verdict rather than
+just a leftover. It is now **safe by construction** (uniqueness enforced), which
+does not retroactively explain the failure. That reproduction needs a Dart run
+this box cannot host today.
+
+Also still open on this item: the **one-line `AppTheme.pipNumeral` allowlist
+entry** in `type_scale_test.dart` (shard 12) — genuinely trivial, blocked only
+on the build gate.
+
+### Files
+
+* `test/shot_namespace_test.py` (new, 118 lines, stdlib only, run directly)
+* `IMPROVEMENT_BACKLOG.md` — shard-6 bullet corrected, item marked PARTIALLY
+  DONE, this record
+
+### Note for the next tick
+
+The Dart gate is the binding constraint, not the backlog. When
+`build_gate.py` answers NO ROOM with the balloon named as the holder, **do not
+wait for memory** — sample it three times first (it went 810 -> 767 -> 730 MB
+while idle, i.e. it is drifting the wrong way) and then take a Python or
+read-only item. That is what this tick did, and it still shipped something.
