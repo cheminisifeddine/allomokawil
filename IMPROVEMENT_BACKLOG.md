@@ -239,9 +239,44 @@ remote tree, read off the git-data API rather than trusted from the push line.
 
 ## Phase 6 — the loop's own instruments
 
-- [ ] **Two pre-existing suite failures that cost this loop two shards, both
+- [ ] **The phone field's error sentence starts against the edge the digits
+      start against — a guard that is green on every other row of this file.**
+      **Take this item first; found 8 Oct by `b8b977a`'s shard-6 run.**
+      Shard 6 fails exactly one test and it is **not** one of the two files the
+      previous item filed:
+      `test/phone_error_band_test.dart: the phone field error is on the field's
+      own column the sentence starts against the edge the digits start against`.
+      **Confirmed pre-existing**, not a regression: it fails identically with
+      the `type_scale` change stashed, and the offending file is untouched by
+      that commit (`git status` clean, `phone_error_band_test.dart` last touched
+      by `e8be33c`). So the filed item's own claim — *both* shard-6 failures
+      were `plan_expiry_dst_test.dart` / `plan_disputed_price_shot_test.dart`
+      — was **wrong on the second half too**: those two pass in shard 6, and
+      the shard is red on a third file nobody had filed. Three ticks of
+      archaeology went into a theory about two files while the actual red sat
+      in plain sight in the summary.
+      *Why it matters to a user, and why this is not a cosmetic tick:* this is
+      Arabic RTL, where the reading edge is the **right**, and a bidi error
+      label that hangs off the wrong side of the field is the classic
+      "Algerian user sees a broken form" report. It is also the *last* red in
+      the suite, so until it is answered every future tick reads a red shard 6
+      and starts filing theories again.
+      *Not started here.* The tick that found it had spent its budget on the
+      ladder guard, and per step 4 one item per loop is the rule — so this is
+      filed rather than half-fixed. **Next tick: reproduce the failure, read
+      the guard's geometry, and either fix the field or correct the guard's
+      expectation — with a screenshot if the fix is visual, since a layout
+      claim must be backed by pixels (step 5).**
+
+- [x] **Two pre-existing suite failures that cost this loop two shards, both
       proven NOT to be caused by the slice that shipped beside them.**
-      **Take this item first.** `tool/run_tests.py` finishes **11 of 13 shards
+      `b8b977a` -> remote `c2860c7`. **SHIPPED 8 Oct** — the `type_scale_test`
+      half is closed and shard 11 (backlog "shard 12") is **green at 231
+      passed**; the `/tmp/shots` half was already answered. Shard 6 still fails
+      one test, but **not one of the two files filed here**: the culprit is
+      `phone_error_band_test.dart`, confirmed pre-existing by running it with
+      this change stashed. It is a real defect and it is **the next item**.
+      Original filing text follows. `tool/run_tests.py` finishes **11 of 13 shards
       green**; shards 6 and 12 each fail exactly one test, and neither file was
       touched by the hairline slice. Both were verified against a tree with
       *all* of this tick's work reverted, which is the only way to tell a real
@@ -302,6 +337,43 @@ remote tree, read off the git-data API rather than trusted from the push line.
     7.8 GB box; only **810 MB** available against a **900 MB** floor), so this
     tick is Python-only. **Do not tick this box `[x]` until the allowlist entry
     is in and `tool/run_tests.py` reports shard 12 green.**
+  * **DONE 8 Oct — and it was not the one-line change.** `b8b977a` -> remote
+    `c2860c7`. The allowlist was the symptom; the guard's question was the
+    defect. It asked *does the name start with `fs`?*, which is a **spelling
+    test wearing the costume of a design rule** — so it rejected
+    `AppTheme.pipNumeral` (`= fsBadge`) for the spelling of the name it
+    aliases, and would equally have accepted any token given an `fs`-prefixed
+    name regardless of its value. **The allowlist is now derived from the
+    theme**: all **44** `static const double` tokens are resolved to numbers
+    (bare, aliased, or `stripH - 34`) and qualify because they **land on a
+    ladder step**. Allowed: the 11 `fs` tokens + `pipNumeral`. Still rejected,
+    and this is the point: `gutter` (18), `ring` (3), `s16` (16), and the
+    near-misses `s12` (12) against `fsCaption` (12.5) and `rMd` (16) against
+    `fsLead` (16.5) — value-based, not a prefix widened until it stopped
+    meaning anything.
+    * **A second, worse hole the filing did not know about.* The extractor
+      was the actual bug.* `fontSize:\s*([^\s,);]+)` truncates at whitespace,
+      so `AppTheme.pipNumeral * 2` yielded the **bare token**
+      `AppTheme.pipNumeral` — on the ladder, therefore allowed — and a
+      hand-picked **22 dp passed a guard whose entire job is to reject
+      hand-picked dp**. The capture now runs to the next `,` `;` `)` or
+      newline. Checked on the clean tree first: **141 Dart files, 0 offenders**
+      under the widened capture, so the tightening costs `lib/` nothing.
+      Member matching is anchored at both ends, so a correctly-spelled token
+      followed by arithmetic cannot launder a size.
+    * *Red before green, both caught:* `AppTheme.pipNumeral * 2` ->
+      `['chat_screen.dart line 1232: AppTheme.pipNumeral * 2']`; and
+      `AppTheme.gutter` -> `['chat_list_screen.dart line 589:
+      AppTheme.gutter']`, proving the widened capture rejects a non-ladder
+      token and not merely a non-`fs` name.
+    * *Gate.* `flutter analyze` -> **No issues found!**. Shard 11 (the
+      `type_scale` shard; the backlog's 1-indexed "shard 12") -> **231
+      passed, rc=0, 59 s**, invoked through the runner's own argv so the gate
+      is the real one. Shard 6 -> **rc=1 on `phone_error_band_test.dart`**,
+      which is **neither** of the two files filed here; it fails identically
+      with this change stashed, so it is pre-existing and untouched by this
+      commit. Per step 4 this is not "someone else's red" — it is the next
+      item, filed below.
 
 - [x] **The control-outline guard shipped last tick could not see half the
       borders it exists to police — and it reported the tree clean.**
