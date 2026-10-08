@@ -239,10 +239,53 @@ remote tree, read off the git-data API rather than trusted from the push line.
 
 ## Phase 6 — the loop's own instruments
 
-- [ ] **The control-outline guard shipped last tick could not see half the
-      borders it exists to police — and it reported the tree clean.** (OPEN,
-      work saved, red as of 8 Oct)
-      **Take this item first.** The token is in the tree
+- [ ] **Two pre-existing suite failures that cost this loop two shards, both
+      proven NOT to be caused by the slice that shipped beside them.**
+      **Take this item first.** `tool/run_tests.py` finishes **11 of 13 shards
+      green**; shards 6 and 12 each fail exactly one test, and neither file was
+      touched by the hairline slice. Both were verified against a tree with
+      *all* of this tick's work reverted, which is the only way to tell a real
+      regression from a coincidence.
+  * **`type_scale_test.dart` — «no file outside the theme types a font
+    size» (shard 12).** Real and reproducible:
+    ```
+    lib/src/screens/chat/chat_list_screen.dart line 589: AppTheme.pipNumeral
+    lib/src/screens/chat/chat_list_screen.dart line 625: AppTheme.pipNumeral
+    lib/src/screens/chat/chat_screen.dart    line 1232: AppTheme.pipNumeral
+    ```
+    `AppTheme.pipNumeral` (`= fsBadge`, `app_theme.dart:266`) is a **real theme
+    token** — it is not a hand-typed size — but it is missing from this test's
+    allowlist of approved names. The token arrived with `13bc267`; the
+    allowlist entry did not, so the guard is right about the *shape* of the
+    defect and wrong about this one site. Reproduced by running the shard's own
+    24 files together (it passes alone and fails in the shard, so the fix is
+    about the map, not the widget).
+  * **`plan_expiry_dst_test.dart` / `plan_disputed_price_shot_test.dart
+    `(tearDownAll)` (shard 6).** Weakest evidence of the two and **possibly not
+    a failure at all**: the line is printed on a pristine HEAD tree too, with
+    no change reverted, and both files pass standalone and in a small group.
+    The prime suspect is the shared `/tmp/shots` directory — **62 test files
+    all write PNGs to that one path** — so concurrent writers in a shard can
+    collide. That is a real hypothesis and it is NOT yet proven; proving it
+    needs a shard-level reproduction with the writes serialised, which is a
+    bigger job than this tick. Do not record it as fixed on the strength of the
+    standalone pass.
+  * *Why this is filed rather than fixed here:* the tick that shipped
+    `512cc0a` had already spent its budget, and per step 4 a red build is never
+    shipped **on the back of someone else's red**. `type_scale_test` is a
+    one-line allowlist entry and is genuinely trivial; the `/tmp/shots`
+    question needs a measurement first.
+
+- [x] **The control-outline guard shipped last tick could not see half the
+      borders it exists to police — and it reported the tree clean.**
+      `512cc0a` -> remote `832905b`.
+      The item is SHIPPED. The guard sees every border now, the tree compiles,
+      the 6 goldens are regenerated against the tokens, and the one decision
+      this item left open — the 1 dp — is answered by measurement rather than
+      assumption. Everything below is what was true *when it was open*; the
+      record of what actually happened is at the foot of this file under
+      "Tick 8 Oct 2026".
+      *What was true when it was open.* The token was in the tree
       (`AppTheme.hairline`, last tick) and the guard
       (`test/hairline_token_test.dart`) went **4/4 green on a tree that still
       contained six raw border widths.** The gap: its detector regex was
@@ -27689,3 +27732,148 @@ dead `OutlineButton` (`big_button.dart:108`, zero callers since the initial
 commit, byte-identical to the live `SecondaryButton` at `ui.dart:303`), and the
 `trade_filter_bar.dart` literal is **`1.2` at line 290**, not `286` as this
 backlog's own notes have said for four ticks.
+
+## Tick 8 Oct 2026 — the tree could not compile, and the gate named the wrong thing
+
+Two unfinished items, one shipped commit, and a defect in the loop's own
+instrument that had been costing ticks silently.
+
+**Item taken: the hairline slice (the open Phase 6 item). It shipped.**
+
+### 1. `app_theme.dart` had the token inserted 74 times
+
+`flutter analyze` opened this tick at **73 issues**, all in one file:
+`The name 'hairline' is already defined` at 73 positions. The cause is not a
+half-finished merge: the previous tick's throwaway edit script (`token.py`,
+still sitting in TMPDIR) inserted its block **once per run** and was re-run
+repeatedly. The saved patch was clean — `grep -c` over
+`cache/scratch/lib_only.patch` returns **1** — and only the *tree* carried 74.
+Collapsed to the first occurrence, in place, keeping `rPill`'s neighbours
+intact. `flutter analyze` -> **No issues found!**
+
+Worth writing down because the two artifacts disagreed: the patch a tick
+saves is not evidence about the tree a later tick inherits.
+
+### 2. The 1 dp, measured
+
+`category_strip_fit_test` pinned `selected ? 2.0 : 1.0`, so it failed on its
+own arithmetic while the layout it measures was still correct. It now reads
+`AppTheme.hairlineSelected`/`hairlineResting` — the pin's *purpose* was to
+catch the tile shipping a border the theme does not say, and comparing to the
+token does that against one source of truth instead of freezing a second copy
+of the numbers.
+
+Verified by mutation rather than by assertion: swapping the two states in
+`category_grid.dart` still fails the guard; restored, 5/5.
+
+**The 1 dp, measured (not assumed).** `room = 104 - 2*8 - 2*border` against
+`content = 42 + 8 + 2*11*1.25 = 77.50`:
+
+| state | border | room | slack |
+| --- | --- | --- | --- |
+| plain | 1.5 (`hairlineResting`) | 85.00 | **7.50** |
+| selected | 2 (`hairlineSelected`) | 84.00 | **6.50** |
+
+So the resting outline going 1 -> 1.5 costs the **plain** state 1 dp, and the
+selected state does not move at all. The guard asserts at the tighter of the
+two (6.50), which is exactly the state that was unaffected — the answer to the
+question last tick left open, and the reason the tile's padding did not need
+to yield anything.
+
+### 3. Six goldens: regenerated, and the diff was read first
+
+As the protocol requires, before regenerating: identical **392x850** dimensions,
+**every** changed pixel inside one 40 dp band (rows 509-548), brand-blue
+`#2C5FA8` border pixels thinning into anti-aliasing as the outline moved from
+a hard 2 px to a 1.5/2 token pair. Nothing moved position, nothing resized.
+
+Causation was then proven rather than assumed: `git stash push -- lib/`
+(restoring the raw widths) makes **the same 6 goldens** fail. The diff is the
+tokens and nothing else.
+
+### 4. `app_source_scope_test` was red on a token that no longer existed
+
+Three failures, all the same root cause: the map's evidence token for
+`hairline_token_test.dart` was `borderWidth\s*:`, which stopped existing the
+moment the detector widened to "contains a digit". Repointed at the literal
+inside `_namedArg`'s own `RegExp(...)`.
+
+Getting this right took four attempts and the failures were **the suite being
+correct each time**, which is the shape worth recording:
+- `RegExp\(r'\d'\)` — the check is `code.contains(token)`, a **literal**
+  substring, not a regex search; the escapes can never match.
+- `_namedArg.allMatches` — the AST reader tracks **string literals** only, and
+  a receiver chain is not one.
+- `r'(\w+)\s*:\s*([^,]*)'` — `r'` and the quotes are the raw-string
+  *delimiter*, not part of its value, and the reader scores
+  `literal.contains(token)`.
+
+Shipped: `(\w+)\s*:\s*([^,]*)` — the value inside the `RegExp`, which is a
+string literal handed to a known applier, i.e. the only shape both readers can
+score. 17/17.
+
+### 5. The loop's own gate blamed a process that cannot free the memory
+
+`tool/build_gate.py` answered **NO ROOM — only 449 MB reclaimable** against a
+900 MB floor, and named a 332 MB `hatch daemon` as the largest holder, closing
+with *"if the top holder is a service, this denial is the box being at its
+floor -- take a non-build item and do not kill it."*
+
+The number was right. **The cause was not.** `/proc/meminfo` carries
+`Balloon: 4920444 kB` — **4.9 GB, three fifths of the box** — and
+`nr_balloon_pages` sits flat at 1082655 across repeated samples. That is the
+virtio-balloon driver: the **hypervisor reclaiming guest RAM**. The census sums
+every visible pid and reaches **822 MB against 7.5 GB in use**, so the gap is
+real, large, and invisible to a process survey *by construction*.
+
+The gate therefore sent a reader to a process holding **3% of the deficit**,
+with an instruction not to kill it — an action derived from a holder that
+could not free the memory even if it exited. Shipped: `balloon_mb()`, naming
+the host when `Balloon:` covers the shortfall, and — when *no* process accounts
+for the gap — saying so rather than offering a decoy. Both arms are needed,
+because the same starvation arrives from a cgroup limit with **no** `Balloon:`
+line at all, and a reader must not be told the host did it when it did not.
+
+Note the gate itself was correct to refuse. The defect was purely diagnostic,
+which is why it could sit there denying ticks without anyone noticing *why*.
+
+### 6. The gate's test suite had been failing for 12 reasons that were not the gate
+
+`test/build_gate_test.py` reported the **same 12 failures across several
+ticks**, which is what sent this tick looking everywhere except the obvious:
+the suite writes Python fixtures into `tempfile.gettempdir()`, and `TMPDIR`
+here is the loop's own scratch dir — where a leftover `token.py` from tick 5
+**shadows the standard library's `token` module**. A script run as
+`python /path/x.py` puts its own directory first on `sys.path`, so `argparse`
+-> `dataclasses` -> `inspect` -> `token` resolved to that file and died on
+`EXACT_TOKEN_TYPES`. Every isolated-gate subprocess exited 1 with an empty
+stdout, and the suite read the empty stdout as a verdict — "the box is busy",
+"the leak was not named", "the census printed nothing". Four different arms,
+none of them broken.
+
+A suite that converts an import crash into a verdict about the code under test
+is worse than no suite. Fixtures now go to a private `mkdtemp` directory.
+
+### Evidence
+
+- `flutter analyze` -> **No issues found!** (twice, including after the fix).
+- `test/build_gate_test.py` -> **32/32 ALL PASS**, run **with the hostile
+  `token.py` still in place** — the point being that the suite now passes
+  *despite* the hazard rather than because it was absent.
+- **Red before green, honestly split.** Reverting *only* the gate fix (keeping
+  the tmp isolation) -> **30/32**, failing exactly the two new assertions and
+  leaving the other 30 green. Reverting *only* the tmp isolation left 12
+  failures that have nothing to do with either fix. Both halves are load-bearing
+  and neither masks the other.
+- Golden causation: `git stash push -- lib/` -> the same 6 fail.
+- `tool/remote_state.py` -> **IN SYNC**, all seven sampled blobs MATCH.
+
+### A mistake worth recording
+
+Twice this tick I edited the working tree **while `tool/run_tests.py` was
+running against it**, and had to throw the result away both times. The second
+time I also killed my own suite and left a leaked `flutter_tester` that the
+gate correctly reported as BUSY. The rule is not in the protocol and it cost
+this tick roughly ten minutes: **do not touch the tree between starting the
+suite and reading its result.** A suite run against a moving tree is not a
+weaker result, it is not a result.
