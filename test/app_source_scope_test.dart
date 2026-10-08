@@ -165,6 +165,14 @@ const _knownRoots = <String>{
   // screen is exactly the file the coverage case cannot see, so it is named
   // here rather than left to fail the unknown-root case.
   'lib/src/widgets/category_grid.dart',
+  // The 8 Oct tracking guard's second root, and the only one it has besides
+  // `Directory('lib')`. It re-reads the phone field to assert the rule *as it
+  // ships* — digits carry the token, the Arabic hint carries no tracking at
+  // all — because the AST census can prove there is no raw number and still be
+  // blind to which style the tracking landed on. Two roots for one guard is the
+  // normal shape: the sweep covers the whole tree, the read-back covers the one
+  // file whose call sites are the rule.
+  'lib/src/widgets/phone_field.dart',
   // The suite reading its own test directory: `wall_clock_seam_site_test.dart`
   // walks `Directory('test')` to police other guards. It holds no shipped Dart,
   // so it contributes no coverage -- it is listed so the census *names* the
@@ -260,6 +268,15 @@ const _appRuleGuards = <String, String>{
   // perfectly valid `double`, so nothing but this sweep can see it.
   'test/line_height_token_test.dart': 'the line-height rule: no text style '
       'types a raw line-height',
+  // Added 8 Oct with the tracking ladder it guarded. Tracking was the last
+  // unwritten leg of the type scale, and the *number* was not the defect: the
+  // shipped field tracked its digits and, with the same `1.1`, the Arabic word
+  // in its own hint — measured at 15 % wider for the same letters, because
+  // tracking opens the white inside a cursive word. This guard carries the rule
+  // a literal census cannot see, which is why it is named here: a rule enforced
+  // in every build and described in no by-name list is invisible to the census.
+  'test/letter_spacing_token_test.dart': 'the tracking rule: no text style '
+      'types a raw tracking number, and no style tracks Arabic',
   'test/failure_reported_test.dart': 'the failure-reported rule: every caught '
       'failure reaches the user in Arabic',
   'test/header_trust_wiring_test.dart': 'the header trust-signals rule',
@@ -454,6 +471,10 @@ const _ruleEvidence = <String, List<String>>{
   // raw numbers. Citing the `DoubleLiteral` type instead would credit the
   // guard with a rule it reaches second-hand.
   'test/line_height_token_test.dart': ['height'],
+  // The named ARGUMENT, on the same rule as the weight entry: the rule is about
+  // the argument the census turns on, and citing the token it forbids would
+  // credit the guard with a rule it only reaches second-hand.
+  'test/letter_spacing_token_test.dart': ['letterSpacing'],
   'test/failure_reported_test.dart': [r'\bcatch\b'],
   'test/header_trust_wiring_test.dart': [r'NotificationCountTrust\s*\('],
   'test/payload_coverage_test.dart': ['/api/mobile/workers/top'],

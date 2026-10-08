@@ -28617,3 +28617,137 @@ struck; do not spend a third tick on it. Open work:
    (`stale ? FontWeight.w800 : null`). The guard reports conditionals only in a
    comment today; `subscription_screen.dart:688` picks between w700 and w500 on
    `status.isQuotaSpent`.
+
+---
+
+## Tick 8 Oct 2026 (6th, 6th cycle) — the tracking ladder, the last leg of the type scale, and the first real defect in it
+
+**Item: `letterSpacing`, the last unwritten leg. SHIPPED, and the backlog's
+open question ("worth asking whether those digits should be spaced at all") is
+answered by measurement: no.**
+
+The queue carried the question as a doubt about the digits. The digits were
+fine. **The other site was a defect, and it was not the digits.**
+
+### The census
+
+Two writers, both `1.1`, both in `lib/src/widgets/phone_field.dart` —
+confirmed by AST, not grep (an `InputDecoration`-level visitor, since
+`letterSpacing` sits on a `TextStyle` and not on the decoration):
+
+```
+lib/src/widgets/phone_field.dart:145  letterSpacing: 1.1
+lib/src/widgets/phone_field.dart:156  letterSpacing: 1.1
+```
+
+Two writers is too few to be a system and enough to be an accident. Line 145 is
+the field's `style` — the **digits**. Line 156 is the `hintStyle` — and the
+hint is `S.phoneHint` = `«مثال: 0550123456»`: an **Arabic word** followed by
+digits. The same number, typed twice, governing two different scripts.
+
+### The measurement, which is the whole item
+
+Rendered with the real Cairo face on the real strings (a throwaway probe,
+deleted before the commit) and read the **column ink profile** off the
+raster — both the ink bounding box and the connected ink bands:
+
+| string | `0` | `1.1` | |
+| --- | --- | --- | --- |
+| `05 50 12 34 56` (what the formatter holds) | 100.67 dp, 6 bands | 116.00 dp, 6 bands | +15.3 dp |
+| `«مثال»` alone | 75.7 dp, **11 bands** | 87.0 dp, **11 bands** | **+15 % wider** |
+
+Two things fall out, and the second is the finding:
+
+1. **Tracking does not break the joins.** The Arabic word paints the *same
+   number of connected ink bands* at `1.1` as at `0` — Flutter applies
+   tracking **between typographic clusters**, so a cursive ligature stays whole.
+   Every version of this probe before this one was measuring something else.
+2. **Tracking widens the white inside the word anyway.** Every interior gap
+   opened by about one tracking unit, and «مثال» rendered **87.0 dp wide
+   instead of 75.7 dp — 15 % wider for the same letters.** Arabic is cursive:
+   the white inside a word is not decorative space, it is the counter of the
+   script. Tracking on a Latin or all-caps run is a typographic tool; on Arabic
+   prose it is a defect, and it is invisible in a diff because every glyph is
+   still there.
+
+**Three probes were wrong before this one, each for a different reason**, and
+they are recorded because the numbers they printed would have supported a
+confident wrong answer:
+
+* v1 counted **ink components** and reported the digits and the hint within
+  0.2 % of each other — a number with no meaning for this question.
+* v2 printed **11 runs with a median of 16 and a max of 18** (a median above
+  the sample's own size), and a "min ink-runs in the lower half" of **0** —
+  because it included the empty rows *below the descender*. A perfect zero read
+  as "no ink at all" on a word that is full of ink.
+* v3 restricted to inked rows and then reported the **same median (16) for
+  every sample at both spacings**, while the bounding box plainly grew. Two
+  measurements disagreeing is the signal to distrust the instrument: the metric
+  was counting bands in a *row* while the question was about *columns*.
+
+### What shipped
+
+* `AppTheme.lsDigits` — the ladder's last leg, carrying **exactly** the `1.1`
+  the digits already had, so there is no visual delta on them.
+* `phone_field.dart:145` names the token (unchanged on screen).
+* `phone_field.dart:156` **drops tracking entirely**, because the hint is prose.
+  This is the user-visible change: a 15 % narrower Arabic hint word.
+* `test/letter_spacing_token_test.dart` (new, 5 tests) + registration in
+  `app_source_scope_test.dart` (`_knownRoots`, `_appRuleGuards`, `_ruleEvidence`).
+
+**Why the guard carries two rules and not one.** A raw-number census would have
+passed the shipped tree — the defect was a *token-shaped* value in the wrong
+place. The second rule (no style tracks a string carrying Arabic) is the one
+that found it, and it is the reason the guard exists rather than a rename.
+
+### Two holes the control opened, both of the kind this loop keeps meeting
+
+1. **The rule was blind to the defect it was written for.** With
+   `phone_field.dart` reverted to its shipped state, the raw-number rule went
+   red and the Arabic rule stayed **green**. The hint is `hintText: S.phoneHint`
+   — a `PrefixedIdentifier`, not a string literal — so a guard reading literals
+   never saw the Arabic. Fixed by resolving one hop through `const`
+   declarations, indexed by AST over `lib/`. After the fix the same revert
+   reports `phone_field.dart:156  letterSpacing on a hint reading «مثال: 0550123456»`.
+   *A rule written against the literal spelling of the defect is a rule that
+   cannot see the defect.*
+2. **Registration had its own price, paid in four red cases.** Splitting the
+   token (`'letter' 'Spacing'`, the trick the weight guard uses so its own
+   source never spells a raw writer) makes the token invisible to
+   `app_source_scope_test.dart`, which requires every named guard to **carry**
+   its token in its code. Both requirements are real; here the census wins,
+   because this file's own scan reads `lib/` and so cannot flag itself. The
+   census also refused an interpolated pattern (`'${_kName}:\\s*...'`) — it
+   credits a token only when a *literal* carrying it is handed to a call that
+   reads it. All four failures were real and all four are now fixed in the
+   guard, not by weakening the census.
+
+### Evidence
+
+- `flutter analyze` -> **No issues found!** (2.9 s). It first reported **2
+  warnings in my own guard** — an unused import and a dead `_arabicBoundTo`
+  left behind by the rewrite — which is the orphan sweep's own rule applied to
+  the guard that extends it.
+- `tool/run_tests.py` -> **SUITE PASS — 2540 tests across 14 shard(s), every
+  shard green, 2532 passed / 8 skipped.** Baseline **2535** held, **+5**.
+  Slowest shard 2:01 against a 300 s cap; **no retries**; the deadline did not
+  fire. **Shard 8 — the one the KNOWN BUG names — passed in 1:24.**
+- Negative control, run **twice**: with the widget reverted, three tests go
+  red and name both lines; with it fixed, 5 green. The Arabic plant is the one
+  that makes the others mean something — it carries a **token**, so a
+  literal-only rule passes it, and a scanner that flagged everything would pass
+  it too. A fifth plant (tracking on a pure-digit hint) must NOT be reported,
+  or the fourth passes for the wrong reason.
+- **Not a screenshot.** The visual claim here is a 15 % narrowing of one word
+  inside a hint, measured on the rasterised line rather than on a full-screen
+  capture: `build_web.sh` and `pngscan.py` **do not exist on this host** (the
+  26 Sep rebuild), and this box has no headless Chrome. The measurement above
+  is the real evidence and it is stated as such, not dressed up as a capture.
+- **No APK, no release, no tag.**
+
+**Next:** the **seven conditional weights** are the last raw `FontWeight.wNNN`
+left in the tree — `stale ? FontWeight.w800 : null`, and
+`subscription_screen.dart:688` picking between w700 and w500 on
+`status.isQuotaSpent`. They sit inside an expression, so the sweep that shipped
+last tick deliberately left them; the question is whether a ternary on a boolean
+is a *ladder decision* or a local one.

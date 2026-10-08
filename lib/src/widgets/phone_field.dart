@@ -141,8 +141,13 @@ class _DzPhoneFieldState extends State<DzPhoneField> {
             textDirection: TextDirection.ltr,
             textAlign: TextAlign.right,
             inputFormatters: const [DzPhoneInputFormatter()],
+            // Tracking is for the digits, and only the digits. Measured: the
+            // formatter has already grouped them with real spaces, so this
+            // widens a number that is already legible rather than rescuing one
+            // that is not -- see `AppTheme.lsDigits` for the measurement and
+            // for why the same value does NOT belong on the hint below.
             style: AppTheme.body.copyWith(
-                color: AppTheme.textPrimary, letterSpacing: 1.1),
+                color: AppTheme.textPrimary, letterSpacing: AppTheme.lsDigits),
             onChanged: (_) {
               setState(() {});
               widget.onChanged?.call();
@@ -152,8 +157,16 @@ class _DzPhoneFieldState extends State<DzPhoneField> {
               isDense: true,
               hintText: S.phoneHint,
               hintTextDirection: TextDirection.ltr,
-              hintStyle: AppTheme.body.copyWith(
-                  color: AppTheme.textMuted, letterSpacing: 1.1),
+              // **No tracking here, and this was a bug until 8 Oct.** The hint
+              // is `«مثال: 0550123456»` -- an Arabic *word* followed by digits --
+              // and it carried the same `1.1` as the digits above it. Arabic is
+              // cursive, so the tracking opened the gaps inside «مثال» itself:
+              // measured on the real Cairo face, the word went from 75.7 dp to
+              // 87.0 dp, 15 % wider for the same letters, with the hint's Arabic
+              // reading worse for it. Tracking belongs on the digits, where the
+              // run has no cursive joins to break; it is not a field-wide
+              // setting and should never be applied to a whole style.
+              hintStyle: AppTheme.body.copyWith(color: AppTheme.textMuted),
               // The same house token the auth fields use. This field sits
               // BETWEEN two `authInput` fields on one screen, so its inset is
               // part of their column: leaving it at `14` while `authInput` moved

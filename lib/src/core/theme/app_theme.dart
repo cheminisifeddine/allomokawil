@@ -522,6 +522,40 @@ class AppTheme {
     wLoud,
   ];
 
+  /// Letter tracking — the last leg of the type scale, and the only leg whose
+  /// first measurement said the value should not exist at all.
+  ///
+  /// Sizes got a ladder ([fsBody] and its ten), then line spacing ([lhProse] and
+  /// its six), then weight ([wStrong] and its four). Tracking got **two**
+  /// writers, both `1.1`, both in `phone_field.dart` — and they were not the
+  /// same decision:
+  ///
+  ///   * `phone_field.dart:145` set it on the **digits**, which the input
+  ///     formatter has already grouped with real spaces (`05 50 12 34 56`), so
+  ///     the number is legible before tracking is added;
+  ///   * `phone_field.dart:156` set the *same number* on `hintStyle`, and the
+  ///     hint is **Arabic prose** — `«مثال: 0550123456»` — not digits.
+  ///
+  /// Measured with the real Cairo face on the real strings rather than argued:
+  /// tracking is applied between **typographic clusters**, so the cursive joins
+  /// survive it (the Arabic word paints the same number of connected ink bands
+  /// at `1.1` as at `0`) — what it changes is the white *inside* the word. Every
+  /// interior gap opened by roughly one tracking unit, and «مثال» went from
+  /// **75.7 dp to 87.0 dp wide — 15 % wider for the same letters**. Tracking on
+  /// Arabic is a typographic error, not a preference: the script is cursive,
+  /// and the gaps inside a word are not decorative. It is a legible way of
+  /// setting a Latin monospace or an all-caps overline, which is exactly why it
+  /// kept surviving review: nobody asked which of the two call sites was
+  /// digits.
+  ///
+  /// So the hint drops it entirely, and the digits keep it under a name. One
+  /// number, one owner, and the reason it exists is written down where the
+  /// next person will actually read it.
+  ///
+  /// Named by role, on the same rule as the rest of the scale: this is
+  /// tracking **for a run of digits**, not "tracking, 1.1 dp".
+  static const double lsDigits = 1.1;
+
   /// The ladder in order — for tests, and for the next person who needs a size.
   static const List<double> scale = <double>[
     fsBadge,
