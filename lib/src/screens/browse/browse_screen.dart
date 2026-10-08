@@ -719,7 +719,7 @@ class _StaleDirectoryBanner extends StatelessWidget {
               style: AppTheme.body.copyWith(
                 color: AppTheme.accentDeep,
                 height: AppTheme.lhProse,
-                fontWeight: FontWeight.w600,
+                fontWeight: AppTheme.wControl,
               ),
             ),
           ),

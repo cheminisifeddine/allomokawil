@@ -776,7 +776,7 @@ class InitialAvatar extends StatelessWidget {
         style: TextStyle(
           fontFamily: 'Cairo',
           fontSize: AppTheme.monogram(size),
-          fontWeight: FontWeight.w700,
+          fontWeight: AppTheme.wStrong,
           color: AppTheme.onNavy,
         ),
       ),

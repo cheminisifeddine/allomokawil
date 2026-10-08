@@ -228,7 +228,7 @@ class AppTabBar extends StatelessWidget {
                     style: const TextStyle(
                       fontFamily: 'Cairo',
                       fontSize: AppTheme.fsBadge,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: AppTheme.wStrong,
                       height: AppTheme.lhTightest,
                       color: AppTheme.accentDeep,
                     ),
@@ -387,7 +387,7 @@ class AppTabBar extends StatelessWidget {
             style: AppTheme.caption.copyWith(
               fontSize: AppTheme.fsBadge,
               height: AppTheme.lhBadge,
-              fontWeight: FontWeight.w700,
+              fontWeight: AppTheme.wStrong,
               color: AppTheme.navy,
             ),
           ),

@@ -1365,7 +1365,7 @@ class _QuoteCard extends StatelessWidget {
                   color: quote.status == QuoteStatus.accepted
                       ? AppTheme.success
                       : AppTheme.textSecondary,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: AppTheme.wControl,
                 ),
               ),
           ],

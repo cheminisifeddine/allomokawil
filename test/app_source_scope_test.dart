@@ -210,6 +210,8 @@ const _appRuleGuards = <String, String>{
       'the instrument seam: the Python tools that read the clock',
   'test/layering_test.dart': 'the import layering rule',
   'test/type_scale_test.dart': 'the type-scale rule',
+  'test/font_weight_token_test.dart': 'the weight rule: no text style types '
+      'a raw font weight',
   'test/card_recipe_test.dart': 'the card recipe rule',
   // R4 is the counter half of the card recipe rule and it is blind to a
   // component agreeing on the WRONG number: this guard carries the other
@@ -372,6 +374,11 @@ const _ruleEvidence = <String, List<String>>{
   'test/tool_clock_seam_test.dart': ['time.time_ns'],
   'test/layering_test.dart': ["['data', 'screens', 'widgets']"],
   'test/type_scale_test.dart': [r'fontSize:\s*'],
+  // The weight half of the type scale. `fontWeight` rather than `FontWeight`
+  // on purpose: the rule is about the named ARGUMENT the census turns on, and
+  // citing the constant it forbids would credit the guard with a rule it only
+  // reaches second-hand.
+  'test/font_weight_token_test.dart': ['fontWeight'],
   'test/card_recipe_test.dart': [r'BorderRadius\.circular'],
   // `EdgeInsets.symmetric` alone would also match the trade pill and the
   // tile, both of which are allowed to carry their own inset, so the token

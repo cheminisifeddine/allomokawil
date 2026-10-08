@@ -318,7 +318,7 @@ class _NotificationsBellState extends State<NotificationsBell>
               style: AppTheme.caption.copyWith(
                 fontSize: AppTheme.fsBadge,
                 color: AppTheme.onNavy,
-                fontWeight: FontWeight.w700,
+                fontWeight: AppTheme.wStrong,
               ),
             ),
           ),

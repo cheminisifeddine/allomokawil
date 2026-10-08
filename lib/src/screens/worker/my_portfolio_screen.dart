@@ -888,7 +888,7 @@ class _StaleGalleryBanner extends StatelessWidget {
               style: AppTheme.body.copyWith(
                 color: AppTheme.accentDeep,
                 height: AppTheme.lhProse,
-                fontWeight: FontWeight.w600,
+                fontWeight: AppTheme.wControl,
               ),
             ),
           ),
@@ -970,7 +970,7 @@ class _AddTile extends StatelessWidget {
                               style: TextStyle(
                                   fontFamily: 'Cairo',
                                   fontSize: AppTheme.fsCaption,
-                                  fontWeight: FontWeight.w700,
+                                  fontWeight: AppTheme.wStrong,
                                   color: AppTheme.accentDeep)),
                         ],
                       ),

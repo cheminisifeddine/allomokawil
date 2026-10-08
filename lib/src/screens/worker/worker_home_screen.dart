@@ -1279,7 +1279,7 @@ class _StaleMarketBand extends StatelessWidget {
               style: AppTheme.body.copyWith(
                 color: AppTheme.accentDeep,
                 height: AppTheme.lhProse,
-                fontWeight: FontWeight.w600,
+                fontWeight: AppTheme.wControl,
               ),
             ),
           ),
@@ -2065,7 +2065,7 @@ class _GettingStarted extends StatelessWidget {
                         style: const TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: AppTheme.fsBody,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: AppTheme.wLoud,
                           color: AppTheme.navy,
                         ),
                       ),
@@ -2108,7 +2108,7 @@ class _GettingStarted extends StatelessWidget {
                   style: const TextStyle(
                     fontFamily: 'Cairo',
                     fontSize: AppTheme.fsCaption,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: AppTheme.wStrong,
                     color: AppTheme.textSecondary,
                   ),
                 ),
@@ -2464,7 +2464,7 @@ class _ToolBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final style = AppTheme.caption.copyWith(
         fontSize: AppTheme.fsBadge,
-        fontWeight: FontWeight.w700,
+        fontWeight: AppTheme.wStrong,
         color: color);
     if (onTap == null) {
       return Text(

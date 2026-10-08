@@ -1748,7 +1748,7 @@ class _ImageViewer extends StatelessWidget {
           style: TextStyle(
             fontFamily: 'Cairo',
             fontSize: AppTheme.fsH2,
-            fontWeight: FontWeight.w700,
+            fontWeight: AppTheme.wStrong,
             color: AppTheme.onNavy,
           ),
         ),

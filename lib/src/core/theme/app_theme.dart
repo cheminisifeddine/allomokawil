@@ -487,6 +487,41 @@ class AppTheme {
   static const double lhList = 1.2; // single-line rows, chat bubbles
   static const double lhSubtle = 1.45; // muted one-liners under a caption
 
+  /// The weight ladder — the third leg of the type scale, and the leg that was
+  /// invisible because it reads as data rather than as type.
+  ///
+  /// Sizes got a ladder ([fsBody] and its ten siblings), then line spacing got
+  /// one ([lhProse] and its six), and **weight got none**: 48 raw
+  /// `FontWeight.wNNN` writers sat across 18 files. Measured by AST on this
+  /// tree, not by grep — grep counts 56, and the difference is the seven
+  /// *conditional* weights (`stale ? FontWeight.w800 : null`) plus mentions in
+  /// comments, neither of which is a bare literal.
+  ///
+  /// These carry **exactly** the numbers that were already on screen, so this is
+  /// a rename with no visual delta. What it buys is that "how loud is this
+  /// label?" becomes a one-line decision: `w600` for a control label was typed
+  /// by hand in 14 places while the theme's own `label` style said `w600` in a
+  /// fifteenth — one decision, written fifteen times, owned by nobody.
+  ///
+  /// Named by role, not by digit, on the same rule as the size ladder
+  /// (`fsBadge`, not `fs11`): a weight is picked by what the line has to do on
+  /// an Arabic page, and a digit invites the reader to treat it as just
+  /// another number that could be nudged.
+  static const FontWeight wBody = FontWeight.w400; // running text
+  static const FontWeight wQuiet = FontWeight.w500; // captions, muted metadata
+  static const FontWeight wControl = FontWeight.w600; // control labels, field text
+  static const FontWeight wStrong = FontWeight.w700; // titles, buttons, section heads
+  static const FontWeight wLoud = FontWeight.w800; // the one figure that must shout
+
+  /// The ladder in order, weakest first — for tests, and for the next step.
+  static const List<FontWeight> weights = <FontWeight>[
+    wBody,
+    wQuiet,
+    wControl,
+    wStrong,
+    wLoud,
+  ];
+
   /// The ladder in order — for tests, and for the next person who needs a size.
   static const List<double> scale = <double>[
     fsBadge,
@@ -528,56 +563,56 @@ class AppTheme {
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
       fontSize: fsDisplay,
-      fontWeight: FontWeight.w800,
+      fontWeight: wLoud,
       height: 1.35,
       color: textPrimary);
   static const TextStyle h1 = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
       fontSize: fsH1,
-      fontWeight: FontWeight.w700,
+      fontWeight: wStrong,
       height: 1.4,
       color: textPrimary);
   static const TextStyle h2 = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
       fontSize: fsH2,
-      fontWeight: FontWeight.w700,
+      fontWeight: wStrong,
       height: 1.45,
       color: textPrimary);
   static const TextStyle body = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
       fontSize: fsBody,
-      fontWeight: FontWeight.w400,
+      fontWeight: wBody,
       height: 1.65,
       color: textPrimary);
   static const TextStyle bodySoft = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
       fontSize: fsSmall,
-      fontWeight: FontWeight.w400,
+      fontWeight: wBody,
       height: 1.65,
       color: textSecondary);
   static const TextStyle label = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
       fontSize: fsSmall,
-      fontWeight: FontWeight.w600,
+      fontWeight: wControl,
       height: 1.4,
       color: textPrimary);
   static const TextStyle caption = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
       fontSize: fsCaption,
-      fontWeight: FontWeight.w500,
+      fontWeight: wQuiet,
       height: 1.4,
       color: textMuted);
   static const TextStyle button = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
       fontSize: fsH2,
-      fontWeight: FontWeight.w700,
+      fontWeight: wStrong,
       height: 1.2,
       color: navy);
 
@@ -587,7 +622,7 @@ class AppTheme {
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
       fontSize: fsBar,
-      fontWeight: FontWeight.w700,
+      fontWeight: wStrong,
       height: 1.4,
       color: textPrimary);
 
@@ -675,7 +710,7 @@ class AppTheme {
         iconTheme: IconThemeData(color: navy, size: 24),
         titleTextStyle: TextStyle(
           fontFamily: 'Cairo',
-          fontWeight: FontWeight.w700,
+          fontWeight: wStrong,
           fontSize: fsBar,
           color: textPrimary,
         ),
@@ -750,17 +785,17 @@ class AppTheme {
             fontFamily: 'Cairo',
             fontSize: fsSmall,
             color: textMuted,
-            fontWeight: FontWeight.w400),
+            fontWeight: AppTheme.wBody),
         labelStyle: const TextStyle(
             fontFamily: 'Cairo',
             fontSize: fsSmall,
             color: textSecondary,
-            fontWeight: FontWeight.w500),
+            fontWeight: AppTheme.wQuiet),
         floatingLabelStyle: const TextStyle(
             fontFamily: 'Cairo',
             fontSize: fsSmall,
             color: navy,
-            fontWeight: FontWeight.w700),
+            fontWeight: AppTheme.wStrong),
         errorStyle: const TextStyle(
             fontFamily: 'Cairo', fontSize: fsMeta, color: danger),
         border: OutlineInputBorder(
@@ -832,7 +867,7 @@ class AppTheme {
         titleTextStyle: TextStyle(
             fontFamily: 'Cairo',
             fontSize: fsBody,
-            fontWeight: FontWeight.w600,
+            fontWeight: wControl,
             color: textPrimary),
         subtitleTextStyle: TextStyle(
             fontFamily: 'Cairo', fontSize: fsMeta, color: textSecondary),
@@ -865,9 +900,9 @@ class AppTheme {
         selectedItemColor: navy,
         unselectedItemColor: textMuted,
         selectedLabelStyle: TextStyle(
-            fontFamily: 'Cairo', fontSize: fsCaption, fontWeight: FontWeight.w700),
+            fontFamily: 'Cairo', fontSize: fsCaption, fontWeight: AppTheme.wStrong),
         unselectedLabelStyle: TextStyle(
-            fontFamily: 'Cairo', fontSize: fsCaption, fontWeight: FontWeight.w500),
+            fontFamily: 'Cairo', fontSize: fsCaption, fontWeight: AppTheme.wQuiet),
         type: BottomNavigationBarType.fixed,
         elevation: 0,
       ),
@@ -899,7 +934,7 @@ class AppTheme {
             fontFamily: 'Cairo',
             fontSize: fsSmall,
             color: onNavy,
-            fontWeight: FontWeight.w600),
+            fontWeight: AppTheme.wControl),
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(rSm)),
         insetPadding: const EdgeInsets.all(s16),
@@ -930,9 +965,9 @@ class AppTheme {
         labelColor: navy,
         unselectedLabelColor: textMuted,
         labelStyle: TextStyle(
-            fontFamily: 'Cairo', fontSize: fsBody, fontWeight: FontWeight.w700),
+            fontFamily: 'Cairo', fontSize: fsBody, fontWeight: AppTheme.wStrong),
         unselectedLabelStyle: TextStyle(
-            fontFamily: 'Cairo', fontSize: fsBody, fontWeight: FontWeight.w500),
+            fontFamily: 'Cairo', fontSize: fsBody, fontWeight: AppTheme.wQuiet),
         indicatorColor: accent,
         indicatorSize: TabBarIndicatorSize.tab,
         dividerColor: lineSoft,

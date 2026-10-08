@@ -161,7 +161,7 @@ class _SessionExpiredBar extends StatelessWidget {
                     fontSize: AppTheme.fsMeta,
                     height: 1.5,
                     color: AppTheme.textPrimary,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: AppTheme.wControl,
                   ),
                 ),
               ),

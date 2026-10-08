@@ -788,7 +788,7 @@ class _PrepaidBadge extends StatelessWidget {
             style: AppTheme.body.copyWith(
               color: AppTheme.textSecondary,
               height: AppTheme.lhRoomy,
-              fontWeight: FontWeight.w500,
+              fontWeight: AppTheme.wQuiet,
             ),
           ),
         ),
@@ -840,7 +840,7 @@ class _PeriodToggle extends StatelessWidget {
                         textAlign: TextAlign.center,
                         style: AppTheme.label.copyWith(
                           color: p == period ? AppTheme.surface : AppTheme.textPrimary,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppTheme.wStrong,
                         ),
                       ),
                       // No discount claim here. The hint that used to sit under
@@ -1034,7 +1034,7 @@ class _PlanCard extends StatelessWidget {
                       key: Key(planDisputedAmountKey(plan.id, period.wire)),
                       style: AppTheme.caption.copyWith(
                         color: AppTheme.danger,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: AppTheme.wStrong,
                       ),
                     ),
                   ],
@@ -1047,7 +1047,7 @@ class _PlanCard extends StatelessWidget {
             const SizedBox(height: AppTheme.s8),
             Text('توفّر ${Money.dzd(saving)} في السنة',
                 style: AppTheme.caption.copyWith(
-                    color: AppTheme.success, fontWeight: FontWeight.w700)),
+                    color: AppTheme.success, fontWeight: AppTheme.wStrong)),
           ],
           // «سنة كاملة بسعر عشرة أشهر» — computed from this plan's two prices,
           // and only when the yearly figure really is a whole number of months
@@ -1275,7 +1275,7 @@ class _PendingCard extends StatelessWidget {
                     key: const Key('pendingFacts'),
                     style: AppTheme.caption.copyWith(
                       color: AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: AppTheme.wControl,
                     ),
                   ),
                 ],
@@ -1348,7 +1348,7 @@ class _StaleBanner extends StatelessWidget {
               style: AppTheme.body.copyWith(
                 color: AppTheme.accentDeep,
                 height: AppTheme.lhProse,
-                fontWeight: FontWeight.w600,
+                fontWeight: AppTheme.wControl,
               ),
             ),
           ),

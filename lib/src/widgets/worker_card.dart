@@ -316,7 +316,7 @@ class _Avatar extends StatelessWidget {
         style: TextStyle(
           fontFamily: 'Cairo',
           fontSize: AppTheme.monogram(size, ratio: 0.4),
-          fontWeight: FontWeight.w700,
+          fontWeight: AppTheme.wStrong,
           color: AppTheme.onNavy,
         ),
       ),

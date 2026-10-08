@@ -404,7 +404,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontFamily: 'Cairo',
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppTheme.wStrong,
                           color: AppTheme.navy,
                         ),
                       ),
@@ -422,7 +422,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                       'متاح لاستقبال مشاريع جديدة',
                       style: TextStyle(
                         fontFamily: 'Cairo',
-                        fontWeight: FontWeight.w700,
+                        fontWeight: AppTheme.wStrong,
                         color: AppTheme.navy,
                       ),
                     ),
@@ -500,7 +500,7 @@ class _FieldLabel extends StatelessWidget {
       style: const TextStyle(
         fontFamily: 'Cairo',
         fontSize: AppTheme.fsCaption,
-        fontWeight: FontWeight.w700,
+        fontWeight: AppTheme.wStrong,
         color: AppTheme.navy,
       ),
     );

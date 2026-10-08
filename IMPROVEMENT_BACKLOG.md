@@ -28518,3 +28518,102 @@ not fire" on shard 8). It did not fire again: **13/13 green, slowest shard
 2:10 against a 300 s cap**, nothing retried. Note the deadline is now the only
 thing between this loop and a 20-minute tick, and the suite overran the 420 s
 foreground tool limit again — it had to be launched detached and polled.
+
+---
+
+## Tick 8 Oct 2026 (5th, 5th cycle) — the weight ladder, the third leg of the type scale
+
+**Item (queued as a phantom, replaced by measurement): the sixth `1.5`
+border-width writer. NOT SHIPPED, because it does not exist.**
+`quote_worker_trust.dart:82` is `EdgeInsets.all(1.5)` -- a **padding**, not a
+border width -- and `lib/src/widgets/`, not `screens/worker/`. Backlog line 634
+already recorded this correction; the queue carried the wrong item anyway, for
+the second time. No guard was ever blocked on it.
+
+**Before opening new work, queued item 1 was closed out:**
+`python3 test/build_gate_test.py` -> **32/32 ALL PASS** on a free box
+(`build_gate.py` answered CLEAR at 1907 MB of 7936 MB), zero FAIL. That suite's
+own defects have twice been what made it fail, so a green run on a quiet box is
+worth having on the record.
+
+**The item shipped instead: the type scale had three legs and only two had a
+ladder.** Sizes got 11 tokens (`fsBody`...), then line spacing got 7
+(`lhProse`...), and **weight got none** -- 48 raw `FontWeight.wNNN` writers
+across **18 files**. Measured by AST: 55 `fontWeight:` sites, of which 48 are
+bare literals (w700 x23, w600 x14, w500 x5, w400 x3, w800 x3) and 7 are
+conditional (`stale ? FontWeight.w800 : null`). The theme's own `label` style
+said `w600` while 14 widgets typed it by hand beside it: **one decision,
+written fifteen times, owned by nobody.**
+
+**Why grep could not be trusted here, twice over.** `grep -rE
+"FontWeight\.w[0-9]+" lib/` counts **56**, against 48 real writers -- the extra
+eight are seven conditionals plus mentions in prose. And the shape
+`FontWeight.w700` is a **`PrefixedIdentifier`** whose prefix is `FontWeight` and
+whose identifier is `w700`, so the first version of this guard, which matched the
+expression against `FontWeight\.(w\d+)`, returned **zero** on a tree with 48.
+The same class of error as the font ladder's `fontSize: 11.5`.
+
+**And a second, sharper one.** On analyzer **14.4.0** a `TextStyle(...)` without
+`const` is a **`MethodInvocation`**, not an `InstanceCreationExpression`. The
+first census visited only the latter and saw **9 of the 33** theme-table sites,
+reporting a tree clean while a third of the subject stood in it. A guard that
+visits one AST shape and calls the tree clean is reporting on the shape.
+
+**A rewrite was reverted before it shipped.** The first conversion pass was a
+global regex over `lib/`, and it replaced **65** occurrences across **104
+files** -- including doc comments and non-text weights the census never counted.
+That is 17 replacements of something the rule does not govern, applied by a tool
+that could not tell the difference. Reverted with `git checkout -- lib/` and
+redone with an AST rewriter that patches source spans **back to front** so
+earlier offsets stay valid: exactly **48**, matching the census.
+
+**Losslessness is proven, not asserted.** Replaying the deterministic map over
+the HEAD version of every changed file and requiring an exact match with the
+working tree: **13 of 18 byte-identical**, and the 5 that differ are exactly the
+files carrying *conditional* weights, which the AST correctly left alone. Every
+token declaration was checked against the digit it replaced
+(`wBody = FontWeight.w400` ... `wLoud = FontWeight.w800`). No visual delta: the
+numbers on screen are the numbers that were there.
+
+**Ships `test/font_weight_token_test.dart`** (4 tests), the census that would
+have caught it, plus the registration `app_source_scope_test.dart` requires --
+it does not see a guard it does not know by name.
+
+**Three defects in the guard, all caught by running it rather than reading it:**
+1. **`FontWeight` undefined** -- the file imported `flutter_test` but not
+   `flutter/material`, so the tree would not even load.
+2. **The guard's own cleanup failed the build it protects.** The negative
+   control removed its temp dir *and* an `addTearDown` removed it again, so a
+   green suite died on `PathNotFoundException`. A cleanup written "to make sure"
+   is a second owner of the same resource.
+3. **The plants made the suite fail for the wrong reason.** Spelling
+   `fontWeight:` inside a plant made `app_source_scope_test.dart` demand the
+   constructor be declared a token *applier* -- and a plant is not enforcement.
+   The plants now spell the argument through the file's own `$_kName`, the same
+   trick the line-height guard uses.
+
+**The negative control has four plants**, and the fourth is the one that makes
+the other three mean something: a style that **already names a token** must not
+be reported, or a scanner that flagged everything would pass the same control.
+The `MethodInvocation` plant is in the set specifically because that was the bug
+this file shipped once already.
+
+**Evidence.**
+- `flutter analyze` -> **No issues found!** (2.4s), after fixing a
+  `FontWeight.index` deprecation in my own assertion (`value` instead).
+- `tool/run_tests.py` -> see the line below; baseline **2531**.
+- Not visual -- no rendering, no screenshot. The change is a rename whose
+  losslessness was proven by replay over HEAD, not by pixels, and there is no
+  golden that covers weight.
+- **No APK, no release, no tag.**
+
+**Next:** queued item `quote_worker_trust.dart:82` is a **phantom** and is
+struck; do not spend a third tick on it. Open work:
+1. `letterSpacing` is the last unwritten leg of the type scale -- **2 raw
+   writers**, `phone_field.dart:145` and `:156`, both `1.1`, both next to the
+   digits of a phone number. A two-site token, and unlike the others it is
+   worth asking whether the digits *should* be spaced at all.
+2. The seven **conditional** weights are still raw inside their expressions
+   (`stale ? FontWeight.w800 : null`). The guard reports conditionals only in a
+   comment today; `subscription_screen.dart:688` picks between w700 and w500 on
+   `status.isQuotaSpent`.

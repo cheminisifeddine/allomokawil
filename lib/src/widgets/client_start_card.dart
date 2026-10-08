@@ -163,7 +163,7 @@ class _StepRow extends StatelessWidget {
                 '$index',
                 style: AppTheme.caption.copyWith(
                   fontSize: AppTheme.fsCaption,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: AppTheme.wLoud,
                   color: first ? AppTheme.navy : AppTheme.textSecondary,
                 ),
               ),
