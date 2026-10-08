@@ -490,6 +490,48 @@ remote tree, read off the git-data API rather than trusted from the push line.
       remaining lead is `quote_status_shot_test.dart`, the only file that
       writes a shot *and reads its bytes back* to assert the two differ. It is
       also **now safe by construction**: uniqueness is enforced.
+    * **DONE 8 Oct (3rd tick) — `9e61c8f` -> remote `acdcf97`. The lead was
+      not a shard failure; it was a guard that could not fail.** The file's
+      header promises *"they must differ, and **the difference must be where
+      the verdict is**, not anywhere else in the frame"*, and the assertion
+      under it checked the first clause only — `a.length == b.length &&
+      _sameBytes(a,b), isFalse`. **Global** inequality passes on any change
+      anywhere in a 784x4800 frame, so the sentence above it was never being
+      enforced.
+      *Proven vacuous by mutation, not argued.* Flattening the verdict line to
+      a constant one-character `Text` — deleting the sentence that tells a
+      losing bidder he lost — moved the live/decided difference from
+      **10.210%** to **12.223%** of pixels (**384,233 -> 459,979**, i.e.
+      **+75,746**) and the test stayed **GREEN**, because the vanishing
+      «قبول العرض» button alone made the two files differ. The file whose
+      entire purpose is proving the verdict reached the pixels was
+      indifferent to whether it did.
+      *Shipped:* three localised arms, with each band measured from the
+      **widget tree before the bytes are written** — deriving the band from
+      the diff it polices would make the assertion true by construction.
+      (1) both verdict strings painted in the decided capture and >50% of the
+      rows each occupies differ from the live one; (2) the live capture paints
+      **no** verdict band, since `quoteStatusNoteAr` returns `''` for pending
+      so a row there is a placeholder rather than a message; (3) two
+      «قبول العرض» buttons live, none decided.
+      *Two defects in the fix itself, caught before commit and recorded here
+      because both are traps the next reader of this file will meet.*
+      **The band was first compared over *compressed* PNG bytes.** A PNG is
+      deflated, so `a[i] != b[i]` answers "does the compressor emit a
+      different stream", not "is this pixel different" — it reported **0.0%**
+      for a band it had itself just proven to be the verdict. The capture now
+      takes `rawRgba` alongside the PNG, which is the pattern 10 other shot
+      tests in this repo already use. **And `_rowsFor` double-counted the
+      boundary's own offset**, shifting every band by **704 px**; it now reads
+      the boundary rect rather than the view.
+      *Red before green, all three arms isolated:* verdict flattened -> arm 1
+      fails naming `Widgets found: 0`; decided card given a live accept
+      button -> arm 3 fails naming both bands
+      (`[(1987, 2029), (2765, 2807)]`); `lib/` restored -> green.
+      `flutter analyze` -> **No issues found!**; `tool/run_tests.py` ->
+      **SUITE PASS 2528 tests, 13/13 green, 2520 passed, 8 skipped**, 19:47.
+      **Not a product defect — `lib/` is untouched by this commit.** The
+      verdict really is painted; what shipped is the proof that it is.
   * *Why this is filed rather than fixed here:* the tick that shipped
     `512cc0a` had already spent its budget, and per step 4 a red build is never
     shipped **on the back of someone else's red**. `type_scale_test` is a
@@ -28263,3 +28305,123 @@ The Dart gate is the binding constraint, not the backlog. When
 wait for memory** — sample it three times first (it went 810 -> 767 -> 730 MB
 while idle, i.e. it is drifting the wrong way) and then take a Python or
 read-only item. That is what this tick did, and it still shipped something.
+
+## Tick 8 Oct 2026 (3rd) — the shot guard that asserted "the verdict reached
+the pixels" without ever looking at the pixels
+
+**Dart tick.** `tool/build_gate.py` answered **CLEAR** at **2985 MB available
+against the 900 MB floor** — the first tick in three where the hypervisor
+balloon let go, so the whole Dart gate ran for the first time since the
+hairline slice. That cleared the Phase 6 lead the previous tick named.
+
+### The item: `test/quote_status_shot_test.dart`, the shard-6 remainder
+
+The 2nd tick left it as *"the only file that writes a shot **and reads its
+bytes back** to assert the two differ"*. It turned out not to be a shard
+failure at all. It was a guard that **could not fail**, and it was guarding
+the single most consequential visual in the product.
+
+The file opens with:
+
+> They must differ, and **the difference must be where the verdict is**, not
+> anywhere else in the frame.
+
+and asserted:
+
+```dart
+expect(a.length == b.length && _sameBytes(a, b), isFalse,
+    reason: '...the verdict is not reaching the pixels');
+```
+
+**Global** inequality. Any pixel anywhere in a 784x4800 frame satisfies it. The
+second clause of the sentence — the one this file exists for — was never
+checked by anything.
+
+### Vacuous, measured rather than argued
+
+Flatten the verdict line to a constant one-character `Text`
+(`project_detail_screen.dart:1362`, `quoteStatusNoteAr(quote.status)` ->
+`'خ'`) — deleting the sentence that tells a losing bidder he lost — and:
+
+| tree | differing px | share | differing rows |
+| --- | --- | --- | --- |
+| real | 384,233 | 10.210% | 1364 / 4800 (28.4%) |
+| verdict deleted | 459,979 | 12.223% | 1497 / 4800 (31.2%) |
+
+**Test result in both trees: GREEN.** The vanishing «قبول العرض» button alone
+made the files differ, so the check could not tell the correct screen from a
+card that says nothing at all. Two thirds of the real difference is *not* the
+verdict — it is the button row the mutation also disturbed.
+
+### Shipped: three localised arms, band measured before the bytes
+
+The band comes from the **widget rect**, read *before* the capture is written.
+This is the whole design of the fix: a band derived from the diff it polices
+would be true by construction, which is the bug being fixed.
+
+1. both `quoteStatusNoteAr` strings painted in the decided capture, and
+   **>50% of the rows each occupies differ** from the live capture;
+2. the live capture paints **no** verdict band — pending returns `''`, so a
+   row there is a placeholder, not a message;
+3. exactly two «قبول العرض» buttons in the live capture, **none** in the
+   decided one — the offer is not still takeable after the owner committed.
+
+### Two defects in my own fix, both caught before commit
+
+Worth recording because both are traps for whoever reads this file next.
+
+* **The band was first compared over compressed PNG bytes.** A PNG is deflated,
+  so `a[i] != b[i]` answers *"does the compressor emit a different stream"*,
+  not *"is this pixel different"*. It reported **0.0%** for a band it had just
+  proven was the verdict — a broken probe reading as a failure at least, which
+  is the one direction that is safe. The capture now takes `rawRgba`
+  alongside the PNG; 10 other shot tests here already do this.
+* **`_rowsFor` double-counted the boundary's own offset**, shifting every band
+  by **704 px**. It now reads the boundary rect, not the view.
+
+### Evidence
+
+* **Red before green, each arm isolated by mutation:**
+  * verdict flattened -> arm 1 fails: `Expected: <2> Actual: <0> — Widgets found: 0`;
+  * decided card given a live accept button -> arm 3 fails naming both bands:
+    `[(1987, 2029), (2765, 2807)]`;
+  * `lib/` restored -> green.
+* `flutter analyze` -> **No issues found!** (10.7 s).
+* `tool/run_tests.py` -> **SUITE PASS — 2528 tests across 13 shard(s), every
+  shard green; 2520 passed, 8 skipped**, 19:47. Baseline **held at 2528**.
+* `tool/remote_state.py --files test/quote_status_shot_test.dart` ->
+  **IN SYNC**, identical tree `af88886…`, per-file **MATCH**.
+* Not visual in the screenshot sense: the pixels were produced and read by the
+  test itself. `/tmp/shots/quote/quote_cards_{live,decided}.png` are on disk
+  from this run; the row-band map above was produced from them with the
+  in-repo `tool/png_read.py` decoder.
+
+### Not claimed
+
+**No product defect was fixed, because there is not one.** The verdict really
+is painted on both decided cards and the button really is gone; this tick
+shipped the *proof*, which did not exist before.
+
+Shard 6's original cause is still **unidentified** — the `/tmp/shots`
+collision theory was killed statically last tick and this tick found no second
+theory. If it fires again, this file is no longer the suspect.
+
+### Next
+
+The backlog has **no unchecked boxes**; the open work is the item text of the
+harness phase. In order:
+
+1. `test/build_gate_test.py` — last full run reported **32/32**; worth a
+   re-run now that the box is free, because that suite's own defects have
+   twice been what made it fail.
+2. **The dead `OutlineButton`** (`lib/src/widgets/big_button.dart:108`) —
+   zero callers since the initial commit `a40b812`, byte-identical to the live
+   `SecondaryButton` at `ui.dart:303` apart from indentation. A deletion, so
+   it ships without a golden re-baseline, and a build is available now.
+3. `quote_worker_trust.dart:82` — the sixth `1.5` border-width writer; needs
+   `AppTheme.hairline`, already shipped, so this may now be a one-liner.
+
+**And the protocol's own KNOWN BUG stands, unverified since 6 Oct:** "the
+deadline did not fire" on shard 8. It did not fire again this run — 13/13
+shards green, max 2:10 against a 300 s cap, so the caps have plenty of headroom
+and nothing was retried.
