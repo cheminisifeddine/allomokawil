@@ -28425,3 +28425,96 @@ harness phase. In order:
 deadline did not fire" on shard 8. It did not fire again this run — 13/13
 shards green, max 2:10 against a 300 s cap, so the caps have plenty of headroom
 and nothing was retried.
+
+---
+
+## Tick 8 Oct 2026 (4th, 20:27) — the dead-declaration sweep, and the five orphans it found
+
+**Item:** the queued **dead `OutlineButton`** (`big_button.dart:108`, zero
+callers since `a40b812`). **SHIPPED.** `8e1ee8d` -> remote `38bfde1`.
+
+**The tree was dirty on arrival and the first job was deciding whose it was.**
+Seven files, four of them `lib/`, all untouched for **34 minutes**, no `.git/
+index.lock`, no `dart`/`flutter`/editor process, `lsof` showing only my own
+shell's cwd, sizes byte-stable across a 45 s re-stat, and the last commit
+**50 min** older than the newest edit — so the previous tick crashed mid-item
+rather than a live session being in flight. Protocol step 1's exception does not
+apply, so per step 2 this cycle **finished that item** instead of opening a new
+one. Recorded because the exception is written for exactly this ambiguity and
+"34 minutes stale" versus "34 minutes slow" is not something you can read off
+`git status`.
+
+**What it deleted** — five public declarations, none reachable:
+
+| type | where | lines | why it was dead |
+| --- | --- | --- | --- |
+| `OutlineButton` | `big_button.dart` | 51 | a second outlined button beside the live `SecondaryButton` (`ui.dart:282`) |
+| `OutlineButtonOnly` | `project_detail_screen.dart` | 11 | a name with no behaviour — hands label to `SecondaryButton` |
+| `EmptyState` | `empty_state.dart` | 55 | `EmptyView` minus `actionLabel`/`onAction`, i.e. the copy that could **not** carry a retry button |
+| `appThemeNavy` | `big_button.dart` | 1 | a top-level const that existed only to re-export `AppTheme.navy` |
+| `CategoryGridTiles` | `category_grid.dart` | 41 | the dead single-select twin of the live multi-select grid |
+
+**Why nothing had caught any of them.** An unreferenced **public** type is not a
+symbol Dart can resolve, so `flutter analyze` has no warning for it (unused
+*private* members are warnings). No other sweep in the tree counted
+declarations against references. `lib/src/widgets/` was, in effect, an
+unreviewed second copy of the kit.
+
+**Ships the guard** — `test/orphan_decl_test.dart` (new), an AST sweep on
+`analyzer`, **169 public types, 142 app sources, 455 files**. Regex was tried
+first and rejected on measurement, not taste: a text scan cannot tell
+`class OutlineButton {` from `OutlineButton(label: ...)` — the same eight
+letters — so it reported **123** orphans on a tree with 4, including `main`,
+`Spacer` and `Flexible`. A guard with that false-positive rate gets deleted, and
+deleting it is how the four real ones come back.
+
+**Two defects in the guard itself, both caught by measuring, not reading.**
+1. **A constructor declaration counted as a use of its own class.** A planted
+   orphan with `const Orphan({super.key});` tallied **1** and the suite printed
+   *All tests passed!* — a guard for dead declarations blind to a dead
+   declaration. `visitConstructorDeclaration` now drops a constructor name equal
+   to the type it belongs to. Every one of the five orphans had exactly that
+   line, so all five were being counted live by their own constructor.
+2. **Identifier-only counting read a type reference as a use of nothing.**
+   `CrashStore`, `OutboxStore`, `RenderableRow`, `UnreadCountOnResume`,
+   `StatusCopyError` were all named as orphans with **12/18/5/5/5** real
+   references — each named in an `is` check, a field type or a `with` clause,
+   and a `NamedType`'s name is a `Token`, not a `SimpleIdentifier`. Same class as
+   everything else this repository keeps meeting: a rule enforced at a
+   granularity that cannot see its own subject.
+
+**A third, in the consumer.** `category_strip_fit_test.dart` scoped its block
+with `RegExp(r'class _CategoryStripTile[\s\S]*?class CategoryGridTiles')` — it
+silently depended on a class **nothing called**, and would have scanned into
+the next class after this deletion. Now stops at the tile's own closing brace.
+
+**And one in the census.** The interrupted edit had glued *"The census itself:
+`_namedArg.allMatches` is the call that pulls every `name: value` pair…"* onto
+the end of the new `orphan_decl_test.dart` line. That comment describes
+**`hairline_token_test.dart`'s** applier, not this entry's — a comment moved to
+the wrong subject is a rule explained next to the wrong rule. Restored to its
+owner.
+
+**Evidence.**
+- `flutter analyze` -> **No issues found!** (9.3 s), exit 0.
+- `tool/run_tests.py` -> **SUITE PASS — 2529 tests across 13 shard(s),
+  13/13 green, 2521 passed / 8 skipped, 20:27**, zero FAIL/HUNG. Baseline
+  **2528** held, **+1** (the new guard).
+- **Negative control, run before committing:** a planted public class in
+  `lib/` made the guard fail, naming it `lib/src/widgets/_planted_probe.dart
+  PlantedProbeWidget (uses: 0)`. Probe removed. A guard that cannot fail is
+  the failure mode of the previous cycle's item, so it was checked first.
+- `tool/remote_state.py` -> **IN SYNC**, `local tree = remote tree =
+  f3984b2f…`.
+
+**Next:** the backlog has **0 unchecked boxes**. Open work, in order:
+1. `test/build_gate_test.py` — last full run **32/32**, worth re-running on a
+   free box; that suite's own defects have twice been what made it fail.
+2. `quote_worker_trust.dart:82` — the sixth `1.5` border-width writer;
+   `AppTheme.hairline` is shipped, so likely a one-liner.
+
+**The protocol's KNOWN BUG is still unverified since 6 Oct** ("the deadline did
+not fire" on shard 8). It did not fire again: **13/13 green, slowest shard
+2:10 against a 300 s cap**, nothing retried. Note the deadline is now the only
+thing between this loop and a 20-minute tick, and the suite overran the 420 s
+foreground tool limit again — it had to be launched detached and polled.
