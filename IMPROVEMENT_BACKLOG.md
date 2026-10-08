@@ -29729,3 +29729,97 @@ neither, and it is the one theme family left that is neither a type-scale
 ladder nor a spacing ladder: four of the five are *aliases of each other by
 value*, which is a shape none of the four readers above can express, since each
 of them assumes the rung values are distinct.
+
+
+---
+
+## Tick 8 Oct (3rd) — the outline family is not a ladder, and the first draft
+## of its guard passed the exact defect it was written for
+
+`bf8c278` (remote `6056be6`). Finishes the item the previous cycle left
+**uncommitted in the working tree** — the tree was dirty on arrival with the
+hairline reader half-written and the Dart test half-written; it was this job's
+own in-flight work, not another writer's, so it was finished rather than
+stashed. No other writer's files were touched.
+
+**The finding, and it is the fourth family in a row that was unguarded.**
+`hairline`, `hairlineResting`, `hairlineSelected`, `hairlineFocus` and `ring`
+are **not a ladder**, which is exactly why four readers could not see them:
+
+- `hairlineSelected` and `hairlineFocus` are **both 2** — deliberate, and the
+  theme's own doc comment says so;
+- `hairlineResting` is an **ALIAS** (`= hairline`), not its own number — and the
+  spacing/radius readers regex a NUMBER off the right-hand side, so they read
+  that as "no value" and would fail green-until-reverted on a clean tree;
+- `ring` is **off the 4 dp grid by design**, with `worker_profile_column_test`
+  asserting `ring % 4 != 0`, so the spacing reader's grid rule fires on a token
+  its own guard calls correct.
+
+A distinctness claim would fire on correct code — the "net that closes behind
+itself" failure the radius reader refused. So grid/order/distinctness are
+**deliberately absent**, and that absence is the finding rather than a gap.
+
+**Measured, and the third plant is why this tick exists.** Four plants, each
+reverted and re-measured serially:
+
+1. `hairlineWild = 1.2` declared, nothing else → orphan fires. ✅
+2. …and named by a test → **unapplied** fires on its own. ✅
+3. …**and applied for real from `lib/`** (`ui.dart`, over the outline on the
+   app's primary button) → census **12 passed, 0 failed**, `hairline_token_test`
+   **green**, `card_recipe_test` **green**. ❌ **A 1.2 dp control outline — a
+   quarter dp under the token it replaced — and every hairline guard in the
+   tree called it clean.**
+4. Re-value `hairlineSelected` 2 → 1.5 → both layers red (Dart `-2`, census
+   11/1). ✅
+
+**The first draft's docstring claimed resolution would catch a sixth name.
+Measurement says it does not.** `orphan`, `ghost`, `unapplied` and `resolution`
+are *all* satisfied by a token that arrives complete; every one of them asks "is
+this token well-formed and used", never "is this token **permitted**". The
+correction is in the code, not hidden here: resolution is kept for what it
+genuinely protects (a member whose value cannot be resolved has no meaning) and
+the sixth-name case is owned by the new **membership** claim — `known` is a
+**constant**, never derived from the theme, so the guard cannot accept itself
+and cannot be widened by the very edit it exists to catch. Re-planted, the
+same tree now fails the census naming `hairlineWild=1.2`.
+
+**Shipped, in two layers, because each has a blind spot the other does not.**
+`outline_width_reader()` reads the family from `app_theme.dart` and owns
+membership (a sixth name); `hairline_token_test.dart` pins the five reviewed
+values **as a pair** and owns a **re-value** — invisible to five per-token
+`expect`s, because each asks about a different name. The Dart guard **cannot**
+see a sixth name (it enumerates five by hand, so a new token falls outside both
+sets); measured, and stated in the test, rather than left as an implied claim.
+
+**Two bugs of mine, recorded in the code, not buried.**
+`const known = <double>{...}` **does not compile** — doubles have no primitive
+equality — and the set form additionally tripped `equal_elements_in_set` four
+times over while silently collapsing the very duplicates the family is built
+on (`hairlineFocus`/`hairlineSelected`, `hairlineResting`/`hairline`). Now a
+sorted list. Found by running against a planted tree, not by reading it.
+
+**Evidence**
+- census → **12 passed, 0 failed**, exit 0 (was 11)
+- `flutter analyze` → **No issues found!** (2.8 s)
+- `tool/run_tests.py` → **SUITE PASS — 2546 tests across 14 shards, every shard
+  green**, 2538 passed / 8 skipped, **19:05**, 0 never started (baseline 2544,
+  **+2**, no drop)
+- `tool/build_gate.py` → **CLEAR** at 2347 MB
+- `lib/` **byte-identical** to HEAD (`git diff --stat lib/` empty) — no token
+  value changed, so the pixel delta is zero and **no screenshot is claimed**.
+
+**Process note.** `pgrep -fc "[f]lutter"` again returned **2** on an idle box:
+it counts this job's own shell wrapper, whose command line contains the pattern.
+`ps -eo args | grep [f]lutter` shows no such process, and `build_gate.py` — which
+inspects the process table rather than wrapping a pattern in a shell — answered
+CLEAR on both ticks. Worth fixing in the gate's helper rather than in every
+tick.
+
+**Next.** Every theme family now has a reader — weight, size, line-height,
+tracking, radius, spacing, outline. The untested assumption left is the
+*census's own exemption list*: it exempts files from being read and asserts a
+compensating reader exists for each, which is a claim about *existence*, not
+about the reader being **correct**. A reader that exists and always returns
+None would satisfy it. That is the next thing worth measuring, and it is a
+harness item, not an app item.
+
