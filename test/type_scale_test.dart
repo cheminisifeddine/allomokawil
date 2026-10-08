@@ -43,14 +43,111 @@ String _code(String text) => text
     .join('\n');
 
 /// `fontSize:` followed by whatever comes after it, per line.
+///
+/// The capture runs to the next `,` `;` `)` or newline and **not** to the next
+/// space. That distinction is the whole reason this guard can be trusted: with
+/// `[^\s,);]+` a line reading `fontSize: AppTheme.pipNumeral * 2` yields the
+/// bare token `AppTheme.pipNumeral`, which is on the ladder, so a hand-picked
+/// 22 dp passed the ladder test while never once being a ladder step. Capturing
+/// the full expression hands the guard something it can actually judge.
 Iterable<String> _sizes(String text) sync* {
-  final re = RegExp(r'fontSize:\s*([^\s,);]+)');
+  final re = RegExp(r'fontSize:\s*([^,;)\n]+)');
   for (final m in re.allMatches(text)) {
     final line =
         text.substring(0, m.start).split('\n').length; // 1-based, for messages
     yield 'line $line: ${m.group(1)}';
   }
 }
+
+/// Every `static const double` in the theme, name -> right-hand side text.
+///
+/// A size token is allowed to be spelled as a *derived* name rather than a bare
+/// `fsX`, and the ladder guard below has to know about those too — see
+/// [ladderSizeNames] for why the answer is read from the theme instead of
+/// hardcoded here.
+final RegExp _tokenDecl =
+    RegExp(r'static\s+const\s+double\s+(\w+)\s*=\s*([^;]+);');
+
+/// The names in [app_theme.dart] whose value **is** a step of [AppTheme.scale].
+///
+/// This is the guard's real question. The old rule asked a different one —
+/// "does the name start with `fs`?" — and that is a *spelling* test wearing the
+/// costume of a design rule: it rejected [AppTheme.pipNumeral], which is a real
+/// token defined as `static const double pipNumeral = fsBadge`, on no grounds
+/// except that its name is spelled differently from the ladder step it aliases.
+///
+/// Deriving the set from the theme means a token qualifies **because it lands on
+/// a ladder step**, and a non-type token (`AppTheme.gutter`, `AppTheme.ring`,
+/// `AppTheme.s16`) stays rejected because 18.0 and 3.0 are not type sizes.
+/// Those two are the whole point: a rule that accepted every theme token would
+/// pass a border width straight into a `fontSize`, which is the defect this file
+/// exists to catch.
+Set<String> ladderSizeNames() {
+  final source = _code(File(_themePath).readAsStringSync());
+  final raw = <String, String>{
+    for (final m in _tokenDecl.allMatches(source))
+      m.group(1)!: m.group(2)!.trim(),
+  };
+
+  // Resolve `= fsBadge`, `= 11`, and `= stripH - 34` to a number, iterating
+  // until nothing new resolves (declarations are not in dependency order).
+  final values = <String, double>{};
+  var progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (final entry in raw.entries) {
+      if (values.containsKey(entry.key)) continue;
+      final double? resolved = _resolveSizeExpr(entry.value, values);
+      if (resolved != null) {
+        values[entry.key] = resolved;
+        progressed = true;
+      }
+    }
+  }
+
+  final missing = raw.keys.toSet().difference(values.keys.toSet());
+  expect(missing, isEmpty,
+      reason: 'could not read the value of these theme tokens, so the ladder '
+          'guard would be judging on a partial theme:\n${missing.join('\n')}');
+
+  final ladder = AppTheme.scale.toSet();
+  return <String>{
+    for (final e in values.entries)
+      if (ladder.contains(e.value)) e.key,
+  };
+}
+
+/// One right-hand side of a size declaration, resolved against [known].
+double? _resolveSizeExpr(String expr, Map<String, double> known) {
+  final asNumber = double.tryParse(expr);
+  if (asNumber != null) return asNumber;
+  final bare = RegExp(r'^(\w+)$').firstMatch(expr);
+  if (bare != null) return known[bare.group(1)];
+  final derived = RegExp(r'^(\w+)\s*([+-])\s*([\d.]+)$').firstMatch(expr);
+  if (derived != null) {
+    final base = known[derived.group(1)];
+    if (base == null) return null;
+    final delta = double.tryParse(derived.group(3)!);
+    if (delta == null) return null;
+    return derived.group(2) == '+' ? base + delta : base - delta;
+  }
+  return null;
+}
+
+/// `AppTheme.x`, returning the bare member name — or null if it is not that.
+String? _memberName(String value) {
+  // Anchored at the end on purpose. Without it `AppTheme.pipNumeral * 2` reads
+  // as `pipNumeral`, and a hand-picked 22 dp "badge" sails through the guard on
+  // the strength of a name that is merely spelled right. A token is a token
+  // only when it is the whole expression.
+  final m = RegExp(r'^AppTheme\.(\w+)$').firstMatch(value);
+  return m?.group(1);
+}
+
+/// The size *functions*, which compute a ladder step from an argument and so
+/// cannot be checked by value at read time.
+bool _isSizeFunction(String value) =>
+    RegExp(r'^AppTheme\.(monogram\(|nearest\(|rating\w+\()').hasMatch(value);
 
 void main() {
   group('the size ladder', () {
@@ -117,20 +214,22 @@ void main() {
   });
 
   test('no file outside the theme types a font size', () {
+    final allowed = ladderSizeNames();
     final offenders = <String>[];
     for (final f in _sources()) {
       if (f.path.endsWith('core/theme/app_theme.dart')) continue;
       for (final s in _sizes(_code(f.readAsStringSync()))) {
         final value = s.split(': ').last;
-        if (!RegExp(r'^AppTheme\.(fs\w+|monogram\(|nearest\(|rating\w+\()')
-            .hasMatch(value)) {
-          offenders.add('${f.path} $s');
-        }
+        final member = _memberName(value);
+        if (_isSizeFunction(value)) continue;
+        if (member != null && allowed.contains(member)) continue;
+        offenders.add('${f.path} $s');
       }
     }
     expect(offenders, isEmpty,
         reason: 'a screen is choosing its own type size again. Pick a step '
-            'from AppTheme.scale (or AppTheme.fsX) instead:\n'
+            'from AppTheme.scale (or an AppTheme token that lands on one) '
+            'instead:\n'
             '${offenders.join('\n')}');
   });
 
