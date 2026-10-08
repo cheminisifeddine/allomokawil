@@ -744,6 +744,252 @@ def tracking_token_reader():
             "read nothing" % len(declared))
 
 
+def outline_width_reader():
+    """The outline leg -- `hairline`, `hairlineSelected`, `hairlineFocus`,
+    `hairlineResting`, `ring` -- and the shape the previous tick predicted as
+    the last one left: **a family that is mostly aliases of each other**.
+
+    The other four readers all assume a ladder: named rungs, distinct values,
+    strictly ordered. This family is the opposite. At HEAD:
+
+        hairline         = 1.5
+        hairlineSelected = 2
+        hairlineFocus    = 2
+        hairlineResting  = hairline     <- an IDENTIFIER, not a literal
+        ring             = 3
+
+    Four facts, each of which a strict-ordering reader gets wrong:
+
+      * **Two of the five collide on a value** (`hairlineSelected` and
+        `hairlineFocus` are both 2) -- and that is *deliberate*, documented in
+        `app_theme.dart` and now asserted in `hairline_token_test.dart`. A
+        distinctness claim would fire on correct code.
+      * **One resolves to another token** (`hairlineResting = hairline`). The
+        spacing/radius readers regex a NUMBER off the right-hand side and
+        would read that as "could not read a value", failing green-until-
+        reverted on the real tree -- the same bug this file already records
+        twice.
+      * **The family is not ascending.** `ring` (3) is thicker than
+        `hairlineSelected` (2), but `ring` is not "more hairline than
+        selected" -- it is a different job (framing an avatar inside a box,
+        not marking a control). An ordering claim would assert a relationship
+        the theme explicitly denies.
+      * **`ring` is off the 4 dp grid by design** (`worker_profile_column_test
+        .dart:296` asserts `ring % 4 != 0`), so the spacing reader's grid rule
+        would fire on a token its own guard says is correct.
+
+    So there is no ladder to order, and pretending otherwise is how a reader
+    becomes a guard that fails on the tree it was written for. What IS true,
+    and what this reader claims instead:
+
+      * **orphan** -- an outline token the theme declares that no test names
+        by name. This is not hypothetical: measured at HEAD, `hairlineFocus`
+        had **zero** uses in `test/`, so the theme's "highest-stakes input"
+        focus ring -- the phone field, the number an Algerian customer types
+        first -- was asserted nowhere by name. It is owned now, by a test in
+        `hairline_token_test.dart` that names the whole family.
+      * **ghost** -- a name a test uses that the theme does not declare.
+      * **unapplied** -- a token nothing in `lib/` ever applies. One owner and
+        one user, same as every other family here.
+      * **resolution** -- every token resolves to a concrete double, following
+        an identifier right-hand side to its literal. The other four readers
+        structurally cannot make this one: they regex a NUMBER off the
+        right-hand side, so `hairlineResting = hairline` reads to them as "no
+        value" and they would fail green-until-reverted on a clean tree.
+        *MEASURED, AND IT IS NOT THE CLAIM I EXPECTED.* A sixth token arriving
+        COMPLETE -- declared, named by a test, and applied for real from
+        `lib/` -- satisfies orphan, ghost, unapplied and resolution together.
+        This reader passed it at 12/0 with a 1.2 dp control outline drawn on the
+        app's primary button. So resolution is kept for what it genuinely
+        protects (a family member whose value cannot be resolved is a family
+        member with no meaning) and the sixth-name case is caught by the
+        membership claim below and by `hairline_token_test.dart`, NOT here.
+      * **alias integrity** -- a token defined AS another token must stay equal
+        to it. `hairlineResting` exists precisely so a change to `hairline`
+        moves it; re-typed as the literal `1.5` it becomes a second
+        independent number that agrees today and drifts silently tomorrow, and
+        no other direction here would notice.
+
+    Measured, not argued: `hairlineWild = 1.2` planted beside the real five
+    and applied for real from `lib/` (`ui.dart`, over an outline that was
+    `hairlineResting`) left `hairline_token_test.dart` at **5 green**,
+    `card_recipe_test.dart` at **16 green** and this census at **11 passed,
+    0 failed**. A 1.2 dp control outline, a quarter dp under the token it
+    replaced, and every hairline guard in the tree called it clean -- because
+    `_classify` judges a width by its DIGITS, which constrains the shape of a
+    value and never which token holds it.
+
+    The grid/order/distinctness claims are deliberately ABSENT, and that is
+    the finding rather than an omission: `ring` breaks the grid, the family
+    breaks the order, and two tokens break distinctness, each with a test
+    saying so. A reader that added them would have to allowlist the whole
+    family -- the "net that closes behind itself" the radius reader refused.
+    """
+    theme = os.path.join(REPO, "lib", "src", "core", "theme", "app_theme.dart")
+    with open(theme, encoding="utf-8") as fh:
+        code = _strip_comments(fh.read())
+
+    # The family is the `hairline*` prefix plus the one named ring. `ring` is
+    # listed explicitly rather than matched by a bare `ring` pattern, because
+    # a future `ringGap` would be a gap and not an outline -- and what makes
+    # this family different from the spacing ladder is precisely that these
+    # widths are NOT on the spacing grid.
+    declared = re.findall(r"static const double (hairline\w*|ring)\s*=", code)
+    _assert(declared,
+            "outline_width_reader read zero tokens -- this reader is broken, "
+            "not the tree")
+
+    raw = dict(re.findall(
+        r"static const double (hairline\w*|ring)\s*=\s*([^;]+);", code))
+    _assert(all(d in raw for d in declared),
+            "could not read a right-hand side for every outline token (%s) -- "
+            "the family cannot be resolved from a token this reader cannot see"
+            % ", ".join(d for d in declared if d not in raw))
+
+    # A right-hand side is either a literal or ANOTHER outline token
+    # (`hairlineResting = hairline`). Insisting the alias target is in the
+    # family is what lets this reader say something the other four cannot: at
+    # HEAD one of the five is not a number at all, and the spacing/radius
+    # readers regex a NUMBER out of the right-hand side, so they would read
+    # that as "no value" and fail green-until-reverted on a clean tree.
+    for name in declared:
+        rhs = raw[name].strip()
+        _assert(re.fullmatch(r"[0-9.]+", rhs) or rhs in declared,
+                "%s = %s, which is neither a literal nor another outline "
+                "token -- the value cannot be resolved, so every claim this "
+                "reader makes about it would be vacuous" % (name, rhs))
+
+    # Literals first, then chase aliases (`a = b; b = c; c = 2`) with a
+    # visited set so a cycle is reported rather than hung on.
+    values = {}
+    for name in declared:
+        rhs = raw[name].strip()
+        if re.fullmatch(r"[0-9.]+", rhs):
+            values[name] = float(rhs)
+    for name in declared:
+        if name in values:
+            continue
+        seen, cur = {name}, raw[name].strip()
+        while not re.fullmatch(r"[0-9.]+", cur):
+            _assert(cur not in seen,
+                    "the outline aliases form a cycle (%s) -- no token in it "
+                    "has a value" % " -> ".join(sorted(seen)))
+            seen.add(cur)
+            cur = raw[cur].strip()
+        values[name] = float(cur)
+
+    _assert(len(values) >= 5,
+            "read %d outline tokens; HEAD has 5 (hairline, hairlineSelected, "
+            "hairlineFocus, hairlineResting, ring), so fewer means the reader "
+            "read nothing" % len(values))
+    bad = ["%s=%g" % (k, v) for k, v in values.items() if v <= 0]
+    _assert(not bad,
+            "an outline token is zero or negative -- a border that draws "
+            "nothing: %s" % ", ".join(bad))
+
+    named = set()
+    for fname in os.listdir(TESTS):
+        if not fname.endswith(".dart"):
+            continue
+        with open(os.path.join(TESTS, fname), encoding="utf-8") as fh:
+            named |= set(re.findall(r"AppTheme\.(hairline\w*|ring)\b",
+                                    fh.read()))
+
+    orphans = [d for d in declared if d not in named]
+    _assert(not orphans,
+            "app_theme.dart declares an outline token no test names by name -- "
+            "hairline_token_test.dart judges a width by its DIGITS, which "
+            "constrains the shape of a width and never which token holds it, "
+            "so a sixth name walks in the same door tracking walked through: %s"
+            % ", ".join(orphans))
+    ghosts = [g for g in sorted(named) if g not in declared]
+    _assert(not ghosts,
+            "a test names an outline token app_theme.dart does not declare -- "
+            "its expect() is pinning a value that does not exist: %s"
+            % ", ".join(ghosts))
+
+    applied = set()
+    for root, _dirs, files in os.walk(os.path.join(REPO, "lib")):
+        for fname in files:
+            if not fname.endswith(".dart") or fname == "app_theme.dart":
+                continue
+            with open(os.path.join(root, fname), encoding="utf-8") as fh:
+                applied |= set(re.findall(r"AppTheme\.(hairline\w*|ring)\b",
+                                         fh.read()))
+    unapplied = [d for d in declared if d not in applied]
+    _assert(not unapplied,
+            "app_theme.dart declares an outline token nothing in lib/ ever "
+            "applies -- an outline weight that exists only in the theme is the "
+            "one the next caller will find and assume was measured: %s"
+            % ", ".join(unapplied))
+
+    # MEMBERSHIP -- the claim the four relations above cannot make, and the one
+    # this reader was rewritten around after the plant below proved they could
+    # not. A sixth name arriving COMPLETE (declared, named by a test, applied
+    # from `lib/`) satisfies orphan, ghost, unapplied AND resolution together,
+    # so every relation this reader had passed it: `hairlineWild = 1.2` drew a
+    # 1.2 dp outline on the app's primary button and this reader said the tree
+    # was clean. Nothing above can see it, because each asks "is this token
+    # well-formed and used", never "is this token PERMITTED".
+    #
+    # So the reviewed set is pinned here, and a token outside it is reported.
+    # This is the opposite of the "net that closes behind itself" the radius
+    # reader refused: `known` is a constant, never derived from the theme, so it
+    # cannot accept itself and cannot be widened by the very edit it catches.
+    # Editing `known` is a deliberate act -- a new outline weight is a design
+    # decision and belongs in the backlog, not in a guard that shrugs.
+    known = {"hairline": 1.5, "hairlineSelected": 2, "hairlineFocus": 2,
+             "hairlineResting": 1.5, "ring": 3}
+    extra = ["%s=%g (not in the reviewed set)" % (k, v)
+             for k, v in values.items() if k not in known]
+    _assert(not extra,
+            "app_theme.dart exposes an outline width that was never reviewed -- "
+            "a sixth name arrived complete (declared, named by a test, applied "
+            "from lib/) and every other relation in this reader passed it: %s. "
+            "A new outline weight is a design decision: add it to `known` here "
+            "and to hairline_token_test.dart deliberately, with the reason."
+            % ", ".join(extra))
+    missing = [k for k in known if k not in values]
+    _assert(not missing,
+            "an outline width that was reviewed no longer exists in the theme: "
+            "%s -- callers name it, or a token was dropped and its callers are "
+            "now reading a different one" % ", ".join(missing))
+    _assert(all(abs(values[k] - v) < 1e-9 for k, v in known.items()
+                if k in values),
+            "an outline width the theme declares is NOT the value this reader "
+            "reviewed -- a re-value (hairlineSelected 2 -> 1.5, say) satisfies "
+            "every shape relation here while quietly thinning the app's "
+            "outlines: %s"
+            % ", ".join("%s=%g (reviewed %g)" % (k, values[k], v)
+                        for k, v in known.items()
+                        if k in values and abs(values[k] - v) >= 1e-9))
+
+    # The alias claim, in two halves, and the split is load-bearing.
+    #
+    # HALF 1 -- the alias structure must still EXIST. A token whose
+    # right-hand side names another token is what makes this family a family
+    # of aliases instead of five unrelated numbers, and the equality below can
+    # only check the edges that are still there: re-typing `hairlineResting =
+    # hairline` as `= 1.5` leaves a plain literal, so the alias branch simply
+    # never runs and the re-type is invisible. Measured, not reasoned -- this
+    # reader passed a tree carrying exactly that edit, which is why the claim
+    # is that the edge is present rather than only that it agrees.
+    aliases = [n for n in declared if raw[n].strip() in declared]
+    _assert(aliases,
+            "no outline token is defined AS another outline token -- the "
+            "family has lost its alias structure. At HEAD hairlineResting is "
+            "defined as hairline, and the point of that is that moving "
+            "`hairline` moves it; re-typed as a literal it becomes a second "
+            "independent number that agrees today and drifts silently "
+            "tomorrow, and nothing else in the tree would notice.")
+    for name in aliases:
+        rhs = raw[name].strip()
+        _assert(values[name] == values[rhs],
+                "%s is defined as %s but resolves to %g against %s's %g -- the "
+                "alias no longer agrees with the token it points at"
+                % (name, rhs, values[name], rhs, values[rhs]))
+
+
 def _strip_comments(text):
     """Dart text with `//` and block comments removed, newlines kept."""
     out = []
@@ -840,6 +1086,15 @@ def _results():
     #     See spacing_ladder_reader() for the plant that proved it.
     yield ("app_theme.dart's spacing ladder is derived, not transcribed",
            spacing_ladder_reader)
+    # 4e. the outline leg -- `hairline*` plus `ring`. The LAST family that is
+    #     neither a type scale nor a spacing ladder: four of the five are
+    #     ALIASES of each other by value, a shape none of the four readers
+    #     above can express, since each assumes rungs are distinct and ordered.
+    #     `ring` is off the 4 dp grid by design and a test asserts it, so the
+    #     spacing reader's grid rule would fire on correct code. See
+    #     outline_width_reader() for the plant that proved the gap.
+    yield ("app_theme.dart's outline widths have one owner and one user",
+           outline_width_reader)
 
     # 5. the control for THIS reader: the planted sixth rung the tree does not
     #    have. A reader that cannot fail on a known-bad input is not a reader,
@@ -853,6 +1108,10 @@ def _results():
             (["lsDigits", "lsWild"], ["lsDigits"], "tracking"),
             (["rXs", "rWild"], ["rXs"], "radius"),
             (["s4", "sWild"], ["s4"], "spacing"),
+            # The outline family is NOT a ladder, so this control covers the
+            # orphan relation only -- the shared part. Its distinctness is
+            # measured by the membership claim inside outline_width_reader().
+            (["hairline", "hairlineWild"], ["hairline"], "outline"),
         ):
             orphans = [d for d in declared if d not in listed]
             _assert(orphans,

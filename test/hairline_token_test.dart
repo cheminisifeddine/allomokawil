@@ -276,6 +276,91 @@ void main() {
       );
     });
 
+    test('every outline width has a name, and each name is owned', () {
+      // The guard above judges a width by its DIGITS -- `_classify` calls an
+      // expression raw exactly when it contains a number. That is the right
+      // rule for "did the author spell out a value here", and it constrains the
+      // SHAPE of a width while saying nothing about WHICH token holds it, so a
+      // sixth outline name walked in the same door tracking walked through.
+      //
+      // These are NOT a ladder and deliberately are not asserted as one:
+      // `hairlineSelected` and `hairlineFocus` are both 2 on purpose,
+      // `hairlineResting` is an ALIAS of `hairline` rather than its own
+      // number, and `ring` sits off the 4 dp grid by design. A strict-ordering
+      // or distinctness claim here would fail on correct code -- the "net that
+      // closes behind itself" failure this guard's own header already refuses.
+      expect(AppTheme.hairlineSelected, 2,
+          reason: 'a selected control must read thicker than a resting one, or '
+              'picking one changes nothing');
+      expect(AppTheme.hairlineFocus, 2,
+          reason: 'the focus ring on the phone field is the first thing a '
+              'customer sees when they type; it is deliberately equal to the '
+              'selected width, and this line exists so that stays a decision');
+      expect(AppTheme.hairlineResting, AppTheme.hairline,
+          reason: 'the resting outline IS the hairline; re-typed as 1.5 it '
+              'becomes a second independent number that agrees today and drifts '
+              'silently tomorrow');
+      expect(AppTheme.ring, 3,
+          reason: 'the ring frames an icon inside a box; at 4 it eats 1 dp of '
+              'the icon it is supposed to frame, at 2 it does not separate a '
+              'navy avatar from a navy header');
+    });
+
+    test('the outline family is CLOSED -- no width may be added without '
+        'deliberation', () {
+      // What the five value checks cannot see: a RE-VALUE. Each of the checks
+      // above pins one token to one number, so together they look like they
+      // cover the family -- but a value that moves off its reviewed number
+      // while another token moves onto it is invisible to all five, because
+      // each is asking about a different name. `hairlineSelected` 2 -> 1.5
+      // against `hairlineFocus` staying 2 leaves every assertion above green
+      // while the selected outline quietly equals the resting one.
+      //
+      // This is the opposite of the "net that closes behind itself" the header
+      // refuses: `known` is pinned to the five reviewed widths and `live` is
+      // read from the theme on every run, so the expected set cannot rot into a
+      // copy of the values.
+      //
+      // WHAT IT DOES NOT CATCH, measured rather than assumed: a sixth NAME.
+      // This file enumerates five tokens by hand, so a token the theme gains
+      // (`hairlineWild = 1.2`) is outside both sets here and the test stays
+      // green -- confirmed by running this file against exactly that planted
+      // tree, declared, named by this file, and applied for real from `lib/`
+      // (`ui.dart`), all at once. THAT case belongs to the membership claim in
+      // `exemption_census_test.py`, which reads the theme instead of listing
+      // it. Two guards, two different blind spots, and each names the other's.
+      // A sorted LIST, not a set, and that is not a style choice. The five
+      // widths contain two duplicates by design -- `hairlineSelected` and
+      // `hairlineFocus` are both 2, `hairlineResting` is an alias of
+      // `hairline` -- so a set literal would both trip the analyzer's
+      // `equal_elements_in_set` four times over and, worse, silently collapse
+      // those duplicates away, hiding the one relationship the family is
+      // built on. Sorted so a difference still reads as a one-line diff.
+      //
+      // (`final`, not `const`: a const set of doubles cannot exist at all --
+      // doubles have no primitive equality and the compiler rejects it. Found
+      // by running this against a planted tree, not by reading it.)
+      final known = <double>[
+        1.5, // hairline
+        1.5, // hairlineResting (an ALIAS of hairline, not a fourth value)
+        2, // hairlineSelected
+        2, // hairlineFocus  (equal to hairlineSelected ON PURPOSE)
+        3, // ring
+      ]..sort();
+      final live = <double>[
+        AppTheme.hairline,
+        AppTheme.hairlineSelected,
+        AppTheme.hairlineFocus,
+        AppTheme.hairlineResting,
+        AppTheme.ring,
+      ]..sort();
+      expect(live, known,
+          reason: 'an outline width was added, removed or re-valued without a '
+              'decision recorded here. These five are the reviewed set: a new '
+              'outline weight is a design change and belongs in this list '
+              'deliberately, not silently. live=$live known=$known');
+    });
+
     test('the outline button theme draws its side at the token', () {
       // The one place the whole app inherits its outline from. If the theme
       // and the widgets disagree, every bare OutlinedButton is off-token while
