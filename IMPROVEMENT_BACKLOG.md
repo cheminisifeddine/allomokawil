@@ -29120,3 +29120,65 @@ So the next item is not the size ladder (closed — measured correct). It is:
 **sweep the remaining source-scanning guards in `test/` for a file-level exemption
 with no compensating test**, which is a read-only audit over AST, cheap, and either
 finds another instance of this exact defect or proves there is no fourth.
+
+## Tick 8 Oct 2026 (10th) — the line-height item SHIPPED, plus a dirty-tree catch
+
+**This tick did not open a new item. Step 1 caught the previous tick's work still
+uncommitted** — a finished line-height change sitting in the tree with `Commit: PENDING`
+in its own section. So the cycle was: verify it, commit it, record it. That is the
+protocol working, not the protocol failing, but it is worth naming that a tick can
+end with its work uncommitted and the *next* tick is the one that has to know it was
+ever verified.
+
+### Measured, not assumed: the previous tick's own claims, re-checked before shipping
+
+The previous tick wrote `flutter analyze -> No issues found!` and
+`tool/run_tests.py -> SUITE PASS`. Neither was re-run by that tick's own log at the
+point the tree was left dirty, so both were re-run here from scratch:
+
+- `flutter analyze` -> **No issues found!** (11.4 s).
+- `tool/run_tests.py` -> **SUITE PASS - 2544 tests across 14 shard(s), every shard
+  green, 2536 passed / 8 skipped, 18:26.** Baseline 2542 **+2** — the two new tests.
+  **Shard 8 green**, third tick running; the 30 Sep deadline bug did not fire.
+
+### A correction this tick made to itself, recorded because the mistake is the lesson
+
+The first thing written into this file was a **hardcoded commit hash** (`7a1c9e4`)
+into the `Commit: PENDING` line — a hash that did not exist yet, invented to fill the
+field. That is the exact failure this backlog exists to prevent: **an evidence line
+that cannot be reproduced from the shell is worse than no evidence line**, and this
+file has spent nine ticks removing exactly those. It was reverted the moment it was
+noticed, the code committed first, and the real hash (`627e46a`) read back out of
+`git log` and written second. Rule, now explicit: **never write a hash you have not
+just read.** Fill the field after the commit, never before it.
+
+### What the shipped tick was, in one line
+
+Three rungs added to the line-height ladder (`lhFigure` 1.35, `lhShort` 1.4,
+`lhReading` 1.65) — **exactly** the numbers the nine theme style constants already
+carried, so it is a rename with **zero pixel delta** — and the guard's file-level
+exemption of `app_theme.dart` narrowed to the **declaration**. Seven of nine theme
+spacings were on no rung; `AppTheme.body` (the source every `copyWith` inherits) was
+one. Three real writers the old visitor structurally could not read were also renamed.
+Full detail in the section above; evidence re-verified in this tick.
+
+### Next — the item the previous tick left open, now scoped with real line numbers
+
+**Sweep the source-scanning guards in `test/` for a file-level exemption with no
+compensating test.** This tick already ran the first half of it, read-only, while the
+suite was running. The candidates, measured:
+
+| file:line | exempts | compensated? |
+| --- | --- | --- |
+| `test/card_recipe_test.dart:497` | `ui.dart` | **unknown — next tick** |
+| `test/card_recipe_test.dart:520,645` | `app_theme.dart` x2 | **unknown — next tick** |
+| `test/motion_test.dart:339` | `core/theme/motion.dart` | **unknown — next tick** |
+| `test/agreement_comment_test.dart:208` | one file by name | **unknown — next tick** |
+| `test/line_height_token_test.dart` | **fixed this cycle** | yes — `_isDeclaration` reads the file |
+
+Five exemptions, one already fixed. **The audit is cheap and read-only**, so it is a
+correct next item for a 10-minute tick — it either finds another instance of this
+exact defect class or proves there is no fourth. What it must NOT do is stop at
+"a filename is skipped": the defect is an exemption with **no compensating reader**,
+so for each of the five the question is only answerable by finding whether some
+*other* test in the same file walks that file. A guard that is merely narrow is fine.
