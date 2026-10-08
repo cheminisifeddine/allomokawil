@@ -29011,3 +29011,112 @@ at `fsH2` is still `wQuiet`. That is legal and usually right, and it is the one
 place the ladder can be wrong without any raw weight existing to flag it. A
 census on *that* is the natural next item; it needs a judgement about which
 combinations are legitimate, so it is a design question before it is a test.
+
+## Tick 8 Oct 2026 (9th, ~15:00) — the line-height ladder had the same hole, one level deeper
+
+**The previous tick's open question was answered first, and the answer is "legal
+but not flaggable".** It asked about `copyWith(fontSize:)` crossing a role. Measured
+it: **21 sites**, and every one keeps a weight consistent with its new size — `h2`(w700)
+shrunk to `fsBody` stays a title at a smaller size, `caption`(w500) to `fsBadge` stays
+a muted micro-line. Not one of them produces a nonsense pair. So there is no defect
+there and **no test to write**: a rule asserting "weight must match size band" would
+be inventing a constraint the code does not want. **Closed, not deferred.**
+
+**The real defect was one level down, and the same shape of mistake this file has now
+hit four times: a rule written at a granularity that cannot express its own subject.**
+
+`test/line_height_token_test.dart` **exempted `app_theme.dart` by filename** — "the
+theme declares the ladder, so a literal there is the declaration." Correct reason,
+wrong granularity, and it hid the only place the rule could have caught anything:
+
+- **nine `height:` literals sat in the nine style constants**, and **seven of the nine
+  values were on no rung of the ladder it declared** — 1.35 x1, 1.4 x4, 1.65 x2.
+- `AppTheme.body` is the source **every `copyWith` in the app inherits from**, and its
+  spacing was `1.65` — a number nobody had chosen, on the most-inherited style in the
+  codebase. A screen writing `height: 1.65` was reported by the guard; `AppTheme.body`
+  writing the same number was not.
+- **And the guard could not have seen them anyway**: a **non-`const` `TextStyle` is a
+  `MethodInvocation`**, and all nine constants are spelled without `const`. The only
+  `TextStyle` nodes the visitor *could* read were the four `const` ones in the same
+  file, which carry no literal height at all. It was not clean by exemption so much as
+  clean because it was reading the empty half of the file.
+
+That second bug is the same one the **weight** guard fixed two ticks ago (`TextStyle(...)`
+is a `MethodInvocation`, not an `InstanceCreationExpression`). **The weight guard was
+corrected for it and the line-height guard was not**, because the exemption made the gap
+unreachable from either side — the file was skipped, and the shape inside it was the
+one shape the visitor could not read. Two guards, same defect, one found.
+
+### What changed
+
+**Three rungs added, ten total, ascending and complete:** `lhFigure` 1.35,
+`lhShort` 1.4, `lhReading` 1.65 — **exactly** the numbers the styles already carried, so
+this is a rename with **no visual delta**. All nine style constants now name a rung.
+A ladder is a *value* ladder, so two roles share a rung and that is recorded, not
+fixed: `lhShort` is both a title line (`h1`, `bar`) and a muted line (`label`, `caption`).
+
+**The exemption narrowed from the file to the declaration**: a literal is legal only
+where it is the value of an `lh*` constant (`_isDeclaration` reads the enclosing
+`VariableDeclaration`, because the ladder is spelled `const double lhProse = 1.5;` — the
+number is never inside a `TextStyle`'s argument list, so an arguments-only exemption
+would have reported all ten rungs).
+
+**Three real writers the old guard could never see, fixed** — found by the red run, not
+by reading: `app.dart:162` (`1.5` → `lhProse`), `app_tab_bar.dart:334` (`1.1` →
+`lhTightest`), `worker_home_screen.dart:2159` (`1.4` → `lhShort`). All three were
+**already on-ladder values typed by hand**, so each is a rename with zero pixel delta.
+
+### Evidence
+- `flutter analyze` -> **No issues found!** (15.6 s).
+- **Red before green, and the red found work.** With `AppTheme.body` reverted to
+  `height: 1.65`, the guard failed *and named three other rows it had never seen*
+  (`app.dart:162`, `app_tab_bar.dart:334`, `worker_home_screen.dart:2159`). That is
+  the plant paying out — a control that only ever proves itself on its own plant is a
+  control that has not been read.
+- **Control, six plants, three of them negative:** non-`const` `TextStyle` (**must**
+  fire — the shape that hid the theme), `const TextStyle` (**must** still fire, so
+  deleting the new branch cannot pass by accident), `copyWith` on a theme style
+  (**must** fire), an `lh*` declaration (**must not**), a token spelling (**must not**),
+  a `SizedBox(height:)` (**must not** — this guard has **no** control at all until now,
+  which is exactly why it read clean for this long).
+- `test/line_height_token_test.dart` -> **4 tests green** (was 2; +1 control, +1 ladder-order).
+- **No screenshot.** Zero pixel delta by construction — every value written is the value
+  that was already there. **No headless Chrome on this host** after the 26 Sep rebuild, so
+  no render was attempted and **nothing here claims a layout**.
+- **No APK, no release, no tag.** Founder-gated.
+
+### Recorded, deliberately NOT fixed — FOR PRODUCT / founder
+
+**`AppTheme.body` is `lhReading` 1.65, and 20 sites override a `body`-shaped paragraph
+down to `lhProse` 1.5.** The same Arabic prose at the same size therefore sits at **two
+spacings, chosen 20 times over** (landing tagline, browse empty-state, the
+auth-gate error, 20 files). Before this tick both numbers were literals and the 1.65 was
+invisible to the ladder's own guard. It is now visible and named, which is all a type
+tick can honestly do: **which spacing Arabic body copy gets is a design decision, not a
+guard.** My reading is `lhReading` is right and the 20 overrides are drift, but that is
+a call on how much air prose should breathe on a phone, and it is the founder's.
+
+**Files:** `app_theme.dart`, `line_height_token_test.dart`, `app.dart`,
+`app_tab_bar.dart`, `worker_home_screen.dart`, backlog.
+
+**Commit:** `627e46a`
+
+**Next — and the guess this tick nearly wrote down was wrong, so it is recorded
+rather than shipped.** The obvious follow-up was "check whether `type_scale_test.dart`
+exempts `app_theme.dart` by filename the same way." **Measured: it does — line 220,
+`if (f.path.endsWith('core/theme/app_theme.dart')) continue;` — and it is CORRECT.**
+That guard ships a **second, separate test** (`the theme itself only ever uses ladder
+tokens`) which walks the theme file and asserts every size there is an `fs*` token or
+`nearest(`. So the filename exemption is *compensated*, one test over.
+
+**That is the precise difference, and it is why this bug survived three ladders.**
+The line-height guard had the same exemption and **no compensating test**, so the
+exemption was total. A file-level exemption is only safe when something else reads the
+file; the weight guard needed no compensation because it never exempted the file at all.
+So the rule for the next guard is not "don't exempt" — it is **"if you exempt, prove the
+compensating test exists"**, and that is a shape a census can check mechanically.
+
+So the next item is not the size ladder (closed — measured correct). It is:
+**sweep the remaining source-scanning guards in `test/` for a file-level exemption
+with no compensating test**, which is a read-only audit over AST, cheap, and either
+finds another instance of this exact defect or proves there is no fourth.

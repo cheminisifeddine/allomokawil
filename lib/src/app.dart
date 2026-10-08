@@ -159,7 +159,7 @@ class _SessionExpiredBar extends StatelessWidget {
                   S.errUnauthorized,
                   style: TextStyle(
                     fontSize: AppTheme.fsMeta,
-                    height: 1.5,
+                    height: AppTheme.lhProse,
                     color: AppTheme.textPrimary,
                     fontWeight: AppTheme.wControl,
                   ),

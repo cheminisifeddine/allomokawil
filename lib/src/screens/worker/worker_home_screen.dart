@@ -2156,7 +2156,7 @@ class _SetupRow extends StatelessWidget {
               style: TextStyle(
                 fontFamily: 'Cairo',
                 fontSize: AppTheme.fsMeta,
-                height: 1.4,
+                height: AppTheme.lhShort,
                 color: step.done ? AppTheme.textSecondary : AppTheme.navy,
                 fontWeight: step.done ? AppTheme.wControl : AppTheme.wStrong,
               ),

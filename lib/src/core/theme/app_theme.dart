@@ -481,12 +481,51 @@ class AppTheme {
   /// decision instead of a sweep across 21 files.
   static const double lhTightest = 1.1; // a number pip on the tab bar
   static const double lhBadge = 1.15; // the tab bar's own count
-  static const double lhTile = 1.25; // a category tile label, capped at 2 lines
-  static const double lhProse = 1.5; // the default for running Arabic prose
-  static const double lhRoomy = 1.6; // dense metadata that must breathe
   static const double lhList = 1.2; // single-line rows, chat bubbles
+  static const double lhTile = 1.25; // a category tile label, capped at 2 lines
+  static const double lhFigure = 1.35; // the hero figure, set large and tight
+  static const double lhShort = 1.4; // a line of short text on its own line
   static const double lhSubtle = 1.45; // muted one-liners under a caption
+  /// The default spacing for running Arabic prose -- and the one rung with a
+  /// **recorded inconsistency**, deliberately not fixed on this tick:
+  /// [lhReading] is 1.65, and 20 sites override a [body]-shaped paragraph down
+  /// to this 1.5. So the same prose at the same size sits at two spacings,
+  /// chosen 20 times over, and no test can say which is right -- that is a
+  /// design decision about how much air Arabic body copy gets, and it belongs
+  /// to the founder, not to a type-scale tick.
+  ///
+  /// What this tick does is make the choice **visible**: before it, both numbers
+  /// were literals and the second one (`1.65`, inside `AppTheme.body`) was
+  /// invisible to the ladder's own guard. The override is now spelled as a
+  /// decision against a named default rather than typed at 20 sites.
+  static const double lhProse = 1.5;
+  static const double lhRoomy = 1.6; // dense metadata that must breathe
+  static const double lhReading = 1.65; // running body text, the loosest step
 
+  /// **The last three rungs were missing, and nothing could see that.** The
+  /// guard that keeps this ladder honest (`test/line_height_token_test.dart`)
+  /// skipped `app_theme.dart` entirely -- the one file where the styles that
+  /// *are* the ladder are written. So nine `height:` literals sat in the nine
+  /// style constants, and **seven of the nine values were not on any rung**:
+  /// 1.35 x1, 1.4 x4, 1.65 x2. A screen writing `height: 1.65` would have been
+  /// reported by the guard; `AppTheme.body` writing the same number was not,
+  /// because the file was exempt.
+  ///
+  /// That exemption is what made the hole permanent: `AppTheme.body` is the
+  /// source for every `copyWith` in the app, so its spacing is the value most
+  /// screens actually inherit, and it was a number nobody had chosen. The guard
+  /// is now narrowed to exempt **the `lh*` declarations themselves** -- the one
+  /// place a literal is legal -- rather than the file that contains them.
+  ///
+  /// These three are **exactly** the numbers the styles already carried, so
+  /// this is a rename with no visual delta. A ladder is a value ladder, so two
+  /// roles can share a rung and that is a fact to write down rather than a
+  /// defect: [lhShort] is both a title line (`h1`, `bar`) and a control or
+  /// muted line (`label`, `caption`).
+  ///
+  /// **One inconsistency is recorded, not fixed** -- see the note on
+  /// [lhProse]. Same paragraph, two spacings.
+  ///
   /// The weight ladder — the third leg of the type scale, and the leg that was
   /// invisible because it reads as data rather than as type.
   ///
@@ -614,56 +653,56 @@ class AppTheme {
       decoration: TextDecoration.none,
       fontSize: fsDisplay,
       fontWeight: wLoud,
-      height: 1.35,
+      height: lhFigure,
       color: textPrimary);
   static const TextStyle h1 = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
       fontSize: fsH1,
       fontWeight: wStrong,
-      height: 1.4,
+      height: lhShort,
       color: textPrimary);
   static const TextStyle h2 = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
       fontSize: fsH2,
       fontWeight: wStrong,
-      height: 1.45,
+      height: lhSubtle,
       color: textPrimary);
   static const TextStyle body = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
       fontSize: fsBody,
       fontWeight: wBody,
-      height: 1.65,
+      height: lhReading,
       color: textPrimary);
   static const TextStyle bodySoft = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
       fontSize: fsSmall,
       fontWeight: wBody,
-      height: 1.65,
+      height: lhReading,
       color: textSecondary);
   static const TextStyle label = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
       fontSize: fsSmall,
       fontWeight: wControl,
-      height: 1.4,
+      height: lhShort,
       color: textPrimary);
   static const TextStyle caption = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
       fontSize: fsCaption,
       fontWeight: wQuiet,
-      height: 1.4,
+      height: lhShort,
       color: textMuted);
   static const TextStyle button = TextStyle(
       fontFamily: 'Cairo',
       decoration: TextDecoration.none,
       fontSize: fsH2,
       fontWeight: wStrong,
-      height: 1.2,
+      height: lhList,
       color: navy);
 
   /// An app-bar title: a role, not a size. Screens that put a title in the bar
@@ -673,7 +712,7 @@ class AppTheme {
       decoration: TextDecoration.none,
       fontSize: fsBar,
       fontWeight: wStrong,
-      height: 1.4,
+      height: lhShort,
       color: textPrimary);
 
   // ── ThemeData ──────────────────────────────────────────────────────────

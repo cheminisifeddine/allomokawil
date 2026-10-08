@@ -331,7 +331,7 @@ class AppTabBar extends StatelessWidget {
                     fontFamily: 'Cairo',
                     fontSize: AppTheme.fsBadge,
                     fontWeight: selected ? AppTheme.wStrong : AppTheme.wQuiet,
-                    height: 1.1,
+                    height: AppTheme.lhTightest,
                     color: selected ? AppTheme.navy : AppTheme.textMuted,
                   ),
                 ),
