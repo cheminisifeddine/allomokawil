@@ -150,47 +150,6 @@ class _CategoryStripTile extends StatelessWidget {
   }
 }
 
-/// A grid version used by pickers. Fixed child aspect ratio keeps rows even
-/// (the old `Wrap` produced a ragged 2-column layout that looked broken).
-class CategoryGridTiles extends StatelessWidget {
-  final String? selected;
-  final void Function(String slug) onSelect;
-
-  const CategoryGridTiles({
-    super.key,
-    this.selected,
-    required this.onSelect,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: EdgeInsets.zero,
-      itemCount: Taxonomy.categories.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: 10,
-        crossAxisSpacing: 10,
-        childAspectRatio: 0.92,
-      ),
-      itemBuilder: (context, i) {
-        final c = Taxonomy.categories[i];
-        return SelectableTile(
-          icon: c.icon,
-          label: c.name,
-          tint: c.tint,
-          wash: c.wash,
-          height: double.infinity,
-          selected: selected == c.slug,
-          onTap: () => onSelect(c.slug),
-        );
-      },
-    );
-  }
-}
-
 /// Same grid, but a contractor can tick several trades.
 ///
 /// Tapping a selected tile removes it, which is the behaviour people expect

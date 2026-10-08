@@ -3,63 +3,6 @@ import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
 import 'skeletons.dart';
 
-/// Friendly empty state for lists with no content yet.
-class EmptyState extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String? subtitle;
-  final Widget? action;
-
-  const EmptyState({
-    super.key,
-    required this.icon,
-    required this.title,
-    this.subtitle,
-    this.action,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 96,
-              height: 96,
-              decoration: const BoxDecoration(
-                color: AppTheme.lineSoft,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 44, color: AppTheme.textMuted),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: AppTheme.h2,
-            ),
-            if (subtitle != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                subtitle!,
-                textAlign: TextAlign.center,
-                style: AppTheme.bodySoft,
-              ),
-            ],
-            if (action != null) ...[
-              const SizedBox(height: 22),
-              action!,
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 /// Loading skeleton for list screens — calm grey blocks rather than spinners,
 /// which read as "the app is thinking" instead of "the app is broken".
 class LoadingList extends StatelessWidget {

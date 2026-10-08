@@ -225,6 +225,16 @@ const _appRuleGuards = <String, String>{
   // `appWide` list and nowhere else, which is the whole defect: a rule enforced
   // in every build and described in no by-name list.
   'test/motion_test.dart': 'the motion rule: no screen types its own duration',
+  // The dead-declaration rule: no public type in `lib/` may be declared and
+  // referenced by nothing. Added 8 Oct with the orphans it found
+  // (`OutlineButton`, `OutlineButtonOnly`, `EmptyState`, `appThemeNavy`) and
+  // the fifth the first version of it missed (`CategoryGridTiles`). Named here
+  // because it enforces one of the app's own rules over every shipped file --
+  // `flutter analyze` cannot, since an unreferenced *public* type is not a
+  // symbol Dart resolves, so this sweep is the only thing standing between the
+  // tree and another widget-library duplicate nobody calls.
+  'test/orphan_decl_test.dart':
+      'the dead-declaration rule: no public type in lib/ has zero references',
   // Named for what they hold, not for where they point: these are the guards
   // whose root was invisible to this census until the reader was taught the
   // shapes below. Before this tick `contrast_tokens`, `failure_reported`,
@@ -359,9 +369,29 @@ const _ruleEvidence = <String, List<String>>{
   // is the pair the rule is actually about: the wash fill it must sit
   // beside.
   'test/wash_callout_pad_test.dart': ['AppTheme.accentWash'],
-  'test/motion_test.dart': [r'\w*[Dd]uration\s*:\s*(?:const\s+)?Duration\('],
   'test/contrast_tokens_test.dart': [r'wash: Color\(0xFF'],
-  // The census itself: `_namedArg.allMatches` is the call that pulls every
+  'test/motion_test.dart': [r'\w*[Dd]uration\s*:\s*(?:const\s+)?Duration\('],
+  // The dead-declaration rule turns on ONE pattern: `\.dart$` is how every
+  // shipped file is recognised, and it is the whole rule's reach. Drop it and
+  // the sweep enumerates no file, declares nothing and reports an empty orphan
+  // list -- a guard for dead declarations reporting a clean tree while dead
+  // declarations stand in it.
+  //
+  // The token is the pattern as the guard spells it, and each shape tried was
+  // measured rather than guessed, because this map is scored by three readers
+  // that want three different things. A bare `parseString` or bare `.dart` is
+  // identifier-shaped, so it survives the sweep reader and cannot be required
+  // to be erased. The whole `endsWith('.dart')` is a call, not a literal, so
+  // the applier case finds nothing to classify. And the applier set is
+  // `RegExp`/`contains`, so a literal handed to `endsWith` is applied by no
+  // reader here at all. The guard now matches its own recogniser with
+  // `RegExp(r'\.dart$')`, which is the shape all three readers score -- and
+  // is the more honest statement anyway: the rule turns on a match, not a
+  // string equality. (The AST calls the rule then makes -- `parseString` --
+  // and the node types it reads, `ClassDeclaration` for the declaration side and
+  // `NamedType` for the `is`-check and field-type side, are live code rather
+  // than strings, and are documented in the guard itself.)
+  'test/orphan_decl_test.dart': [r'\.dart$'],
   // `name: value` pair out of a border constructor's argument list, which is
   // the ONLY way this guard sees the app's source at all -- drop it and the
   // rule cannot be applied, only described.
@@ -390,6 +420,10 @@ const _ruleEvidence = <String, List<String>>{
   // the raw-string DELIMITER, not of its value, so the forward-only
   // containment check could never match it. This suite scores
   // `literal.contains(token)`, so the token has to be inside the value.
+  // The census itself: `_namedArg.allMatches` is the call that pulls every
+  // `name: value` pair out of a border constructor's argument list, which is
+  // the ONLY way this guard sees the app's source at all -- drop it and the
+  // rule cannot be applied, only described.
   'test/hairline_token_test.dart': [r"(\w+)\s*:\s*([^,]*)"],
   'test/failure_reported_test.dart': [r'\bcatch\b'],
   'test/header_trust_wiring_test.dart': [r'NotificationCountTrust\s*\('],

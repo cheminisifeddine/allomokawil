@@ -272,7 +272,13 @@ void main() {
     // the two numbers the sweep removed cannot be reintroduced here without a
     // comment that says what they were for.
     final src = File('lib/src/widgets/category_grid.dart').readAsStringSync();
-    final block = RegExp(r'class _CategoryStripTile[\s\S]*?class CategoryGridTiles')
+    // The block is the tile class and nothing after it. The sentinel used to
+    // be `class CategoryGridTiles` -- the dead single-select twin that this
+    // tick deleted -- so the regex silently depended on a class nothing called
+    // and would have kept scanning into the next one after that deletion. It
+    // now stops at the tile class's own closing brace, which is the thing the
+    // test actually means by "the strip tile".
+    final block = RegExp(r'class _CategoryStripTile[\s\S]*?\n}')
         .firstMatch(src)!
         .group(0)!;
     final offenders = <String>[];

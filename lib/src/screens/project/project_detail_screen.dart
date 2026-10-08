@@ -1422,15 +1422,3 @@ class _OwnerActions extends StatelessWidget {
     );
   }
 }
-
-class OutlineButtonOnly extends StatelessWidget {
-  final String label;
-  final VoidCallback onPressed;
-  const OutlineButtonOnly(
-      {super.key, required this.label, required this.onPressed});
-
-  @override
-  Widget build(BuildContext context) {
-    return SecondaryButton(label: label, onPressed: onPressed);
-  }
-}
