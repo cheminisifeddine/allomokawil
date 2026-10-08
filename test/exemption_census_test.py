@@ -380,6 +380,106 @@ def line_height_ladder_reader():
             "test is reading a stale copy: %s" % ", ".join(sorted(ghosts)))
 
 
+def tracking_token_reader():
+    """The tracking leg -- the one type-scale family with a **single** rung,
+    and the question the last tick left open: is a single-value family guarded
+    at all, or merely absent from the census because there is nothing to
+    derive from?
+
+    Answer, measured before this reader existed: **not guarded at all.**
+
+    Planted `lsWild = 0.4` beside the real `lsDigits`, declared with no
+    measurement behind it, and used for real by a widget in `lib/` --
+    `const p = TextStyle(letterSpacing: AppTheme.lsWild)`. That is precisely
+    the defect `letter_spacing_token_test.dart` was written to prevent: the
+    file's own header says tracking "was the last unwritten leg of the type
+    scale" and that tracking on Arabic widened a word 15 % for the same
+    letters, and the rule it enforces is "every `letterSpacing:` names an
+    `AppTheme.ls*` token". A second token satisfies that rule perfectly --
+    it *is* an `ls*` token. The rule constrains the **shape** of the value,
+    never **which** token, so a new tracking value arrives with no
+    measurement, no owner and no guard.
+
+    Measured: `letter_spacing_token_test.dart` + `type_scale_test.dart` ->
+    **all green, 21 tests**, and this census -> **8 passed, 0 failed**. Same
+    blind spot as the weight and line-height ladders, one level along: not a
+    transcription but a **missing collection**. `scale` and `weights` have
+    lists; `lsDigits` never got one, so there was nothing for a completeness
+    claim to be written against, and no claim was made.
+
+    So the check is derived from `app_theme.dart` instead of copied, and it
+    runs in all three directions that can actually fail:
+
+      * **orphan** -- a tracking token declared in the theme that
+        `letter_spacing_token_test.dart` never names. This is the plant above:
+        a value in the tree with no owner and no measurement.
+      * **ghost** -- a token the guard names that the theme does not declare,
+        i.e. the guard pinned a value that no longer exists and its
+        `expect(AppTheme.<token>, 1.1)` is pinning nothing.
+      * **unapplied** -- a token nothing in `lib/` ever applies, which is the
+        other half of "one owner": a tracking value that exists purely in the
+        theme is a letter-spacing decision nobody has made yet, and the next
+        person to find it will use it and assume it was measured.
+
+    No `ls*` ladder exists to be ordered or checked for distinctness, so
+    unlike the other three readers this one asserts no ordering -- there is
+    nothing to order. The floor is `>= 1`, deliberately the weakest of the
+    four, because this family is deliberately one value wide; the floor
+    exists only so the reader cannot pass on a theme it failed to read.
+    """
+    theme = os.path.join(REPO, "lib", "src", "core", "theme", "app_theme.dart")
+    with open(theme, encoding="utf-8") as fh:
+        code = _strip_comments(fh.read())
+    declared = re.findall(r"static const double (ls\w+)\s*=", code)
+    _assert(declared,
+            "tracking_token_reader read zero tokens -- this reader is broken, "
+            "not the tree")
+
+    guard_path = os.path.join(REPO, "test", "letter_spacing_token_test.dart")
+    with open(guard_path, encoding="utf-8") as fh:
+        guard_src = fh.read()
+    # the guard's own `_kToken` constant is its subject; naming it in prose or
+    # in a plant counts, exactly as the line-height reader unions its two
+    # lists -- either place is a place the next token has to be added.
+    named = set(re.findall(r"AppTheme\.(ls\w+)", guard_src))
+
+    applied = set()
+    for root, _dirs, files in os.walk(os.path.join(REPO, "lib")):
+        for fname in files:
+            if not fname.endswith(".dart"):
+                continue
+            if fname == "app_theme.dart":
+                continue  # the declaration is not a use
+            with open(os.path.join(root, fname), encoding="utf-8") as fh:
+                applied |= set(re.findall(r"AppTheme\.(ls\w+)", fh.read()))
+
+    orphans = [d for d in declared if d not in named]
+    ghosts = [g for g in sorted(named) if g not in declared]
+    unapplied = [d for d in declared if d not in applied]
+
+    _assert(not orphans,
+            "app_theme.dart declares a tracking token that "
+            "letter_spacing_token_test.dart never names -- a second tracking "
+            "value the rule 'every letterSpacing names an ls* token' cannot "
+            "refuse, because the invented token satisfies it perfectly, so it "
+            "arrives with no measurement and no owner: %s"
+            % ", ".join(orphans))
+    _assert(not ghosts,
+            "letter_spacing_token_test.dart names a tracking token "
+            "app_theme.dart does not declare -- the guard is pinning a value "
+            "that does not exist, so its expect() asserts nothing: %s"
+            % ", ".join(ghosts))
+    _assert(not unapplied,
+            "app_theme.dart declares a tracking token nothing in lib/ ever "
+            "applies -- a letter-spacing decision that exists only in the "
+            "theme, which is the shape the next caller will find and assume "
+            "was measured: %s" % ", ".join(unapplied))
+    _assert(len(declared) >= 1,
+            "read %d tracking tokens; this family is deliberately one value "
+            "wide, so 1 is the floor and anything below it means the reader "
+            "read nothing" % len(declared))
+
+
 def _strip_comments(text):
     """Dart text with `//` and block comments removed, newlines kept."""
     out = []
@@ -456,6 +556,12 @@ def _results():
     yield ("app_theme.dart's size ladder stays complete", size_ladder_reader)
     yield ("app_theme.dart's line-height ladder is not a stale copy",
            line_height_ladder_reader)
+    # 4b. the tracking leg. Deliberately ONE value wide, so unlike the three
+    #     ladders there is no collection to derive completeness from -- which
+    #     is why it was unguarded rather than misguarded. See
+    #     tracking_token_reader() for the plant that proved it.
+    yield ("app_theme.dart's tracking token has one owner and one user",
+           tracking_token_reader)
 
     # 5. the control for THIS reader: the planted sixth rung the tree does not
     #    have. A reader that cannot fail on a known-bad input is not a reader,
@@ -465,6 +571,8 @@ def _results():
         for declared, listed, label in (
             (["wBody", "wThunder"], ["wBody"], "weight"),
             (["fsBody", "fsGhost"], ["fsBody"], "size"),
+            (["lhBody", "lhThunder"], ["lhBody"], "line-height"),
+            (["lsDigits", "lsWild"], ["lsDigits"], "tracking"),
         ):
             orphans = [d for d in declared if d not in listed]
             _assert(orphans,
