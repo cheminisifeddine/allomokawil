@@ -316,6 +316,70 @@ def size_ladder_reader():
             % len(declared))
 
 
+def line_height_ladder_reader():
+    """The third type-scale leg, and the one the census predicted worst.
+
+    `test/line_height_token_test.dart:353` asserts the ladder is "ordered,
+    tightest first, and **complete**" -- and then builds its `ascending` list
+    out of a **hand-transcription of the same ten rungs**:
+
+        final ascending = <double>[
+          AppTheme.lhTightest, ... AppTheme.lhReading,
+        ];
+
+    That is the weight ladder's shape one level down, and the census's guess
+    that this file would be the copy rather than the derive was right. The
+    difference from the weight leg is that there is **no `AppTheme.lhHeights`
+    list to derive from at all** -- `app_theme.dart` has `scale` for sizes and
+    `weights`, but the line-height ladder has no collection, so the test had
+    nowhere to read from and transcribed the declarations instead.
+
+    Measured, not argued: planting `lhThunder = 0.93` next to the real ten
+    left `line_height_token_test.dart` and `type_scale_test.dart` **all green,
+    12 tests** -- including the assertion that claims completeness -- and the
+    Python census green too (7 passed). An off-ladder line-height the app may
+    inherit through `copyWith`, that no guard could name.
+
+    So the transcription is checked against the declarations from here, both
+    directions: every `static const double lh*` declared in the theme must
+    appear in the test's ladder, and every rung the test lists must be
+    declared. Ordering is deliberately NOT re-checked -- that leg already
+    works and it is the test's job to keep owning; this reader only refuses to
+    let the list become a closed copy that drifts from the source of truth.
+    """
+    theme = os.path.join(REPO, "lib", "src", "core", "theme", "app_theme.dart")
+    with open(theme, encoding="utf-8") as fh:
+        code = _strip_comments(fh.read())
+    declared = re.findall(r"static const double (lh\w+)\s*=", code)
+
+    test_path = os.path.join(REPO, "test", "line_height_token_test.dart")
+    with open(test_path, encoding="utf-8") as fh:
+        test_src = fh.read()
+    listed = re.findall(r"AppTheme\.(lh\w+)", test_src)
+    # The value-pinning test above the ordering test names every rung too, so
+    # the listing is the union of both -- either place is a place the next rung
+    # has to be added, and a rung in neither is exactly the orphan we hunt.
+    _assert(declared,
+            "line_height_ladder_reader read zero rungs -- this reader is "
+            "broken, not the tree")
+    _assert(len(declared) >= 10,
+            "read %d `lh*` tokens, expected at least 10 -- if the theme was "
+            "genuinely trimmed, raise this floor deliberately rather than "
+            "letting the reader quietly shrink with it" % len(declared))
+
+    orphans = [d for d in declared if d not in listed]
+    ghosts = [l for l in set(listed) if l not in declared]
+    _assert(not orphans,
+            "app_theme.dart declares a line-height token the ladder test "
+            "never names -- an off-ladder `height:` the tree may inherit "
+            "through copyWith and that no guard can name: %s"
+            % ", ".join(sorted(orphans)))
+    _assert(not ghosts,
+            "line_height_token_test.dart walks line-heights app_theme.dart "
+            "does not declare -- a rung that cannot exist, which means the "
+            "test is reading a stale copy: %s" % ", ".join(sorted(ghosts)))
+
+
 def _strip_comments(text):
     """Dart text with `//` and block comments removed, newlines kept."""
     out = []
@@ -390,6 +454,8 @@ def _results():
     yield ("app_theme.dart's weight ladder is derived, not transcribed",
            weight_ladder_reader)
     yield ("app_theme.dart's size ladder stays complete", size_ladder_reader)
+    yield ("app_theme.dart's line-height ladder is not a stale copy",
+           line_height_ladder_reader)
 
     # 5. the control for THIS reader: the planted sixth rung the tree does not
     #    have. A reader that cannot fail on a known-bad input is not a reader,

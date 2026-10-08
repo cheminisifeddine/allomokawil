@@ -29405,3 +29405,77 @@ line-height leg and check whether `line_height_token_test.dart` has the weight
 ladder's shape (hand-copy) or the size ladder's shape (derived) — the census
 suggests the former, since that file is the one that exempted `app_theme.dart`
 by filename in the first place. Read-only, one tick.
+
+---
+
+- [x] **The `lh*` line-height leg was the weight ladder's shape, one level
+      down — `line_height_token_test.dart:353` claimed its ladder was
+      "complete" while hand-transcribing the same ten rungs.** *Shipped. The
+      census's prediction held: this file is the copy, not the derive.*
+
+  **The finding.** Last tick closed the `w*` weight leg and the `fs*` size
+  leg, then predicted that `line_height_token_test.dart` — the file that
+  exempted `app_theme.dart` by *filename* in the first place — would turn out
+  to be the hand-copy. It is. The assertion reads:
+
+      test('the ladder is ordered, tightest first, and complete', () {
+        final ascending = <double>[
+          AppTheme.lhTightest, ... AppTheme.lhReading,
+        ];
+
+  and "complete" is proved by that list, which is a transcription of the ten
+  declarations it is supposed to check. Worse: **there is no
+  `AppTheme.lineHeights` collection to derive from at all** — the theme has
+  `scale` for sizes and `weights`, but the line-height ladder never got a
+  list, so the test had nowhere to read from and copied instead. The census
+  cannot help from inside `lib/` either, because the `lh*` right-hand sides
+  *are* raw doubles — an eleventh rung declared the same way is invisible to
+  the raw-height scan by construction.
+
+  **Proved, not argued.** Planted `lhThunder = 0.93` beside the real ten.
+  `line_height_token_test.dart` + `type_scale_test.dart` → **all green, 12
+  tests**, *including the assertion that claims completeness*; the Python
+  census → **7 passed, 0 failed**. Three guards, one blind spot, a token the
+  app may inherit through every `copyWith`.
+
+  **Shipped.** `line_height_ladder_reader()` in
+  `test/exemption_census_test.py`, registered as test 7 — same instrument as
+  `motion_reader()` / `weight_ladder_reader()` / `size_ladder_reader()`, for
+  the same reason: the defect is in `app_theme.dart`, the file the other two
+  exempt by name. **Both directions** against the theme's declarations — a
+  declared `lh*` the test never names, and a rung the test walks that is not
+  declared. The listing is the union of both tests' references, because either
+  place is a place the next rung has to be added. Ordering is deliberately left
+  to `line_height_token_test.dart`; this reader only refuses to let the list
+  become a closed copy that drifts from source of truth. `>= 10` floor, and a
+  separate zero-read assert, so the reader cannot pass on a partial theme.
+
+  **Red before green, both directions**
+
+  | plant | result |
+  | --- | --- |
+  | `lhThunder` declared, never named by the test | **FAIL** — *"an off-ladder `height:` the tree may inherit through copyWith and that no guard can name: lhThunder"*, 7/1, exit 1 |
+  | `AppTheme.lhGhost` listed, never declared | **FAIL** — the other direction, exit 1 |
+  | clean tree | **8 passed, 0 failed**, exit 0 |
+
+  The first plant is the one that was green on **every existing guard** before
+  this tick, so it is the proof the reader is not decoration.
+
+  **Evidence**
+
+  - `python3 test/exemption_census_test.py` → **8 passed, 0 failed**, exit 0.
+  - `flutter analyze` → **No issues found!** (9.6 s).
+  - `tool/run_tests.py` → see the run note below.
+  - **No screenshot** — no token value touched, `lib/` byte-identical; the only
+    changed file is `test/exemption_census_test.py`, so there is no pixel delta.
+
+  **One process note.** The first attempt at the red run passed the Python
+  census to `flutter test` alongside the Dart files, and `flutter test` tried to
+  parse the census as Dart — 30-odd spurious syntax errors. The suite runner is
+  for Dart; the census is invoked directly. Noted so the next tick does not
+  spend a cycle rediscovering it.
+
+  **Next.** `lsDigits` — tracking, deliberately a single value, so there is no
+  ladder to check completeness against. The question worth asking is whether
+  a *single-value* token family is guarded at all, or merely absent from the
+  census because there is nothing to derive. Read-only, one tick.
