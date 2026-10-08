@@ -29286,3 +29286,122 @@ claims to check.** `motion_test.dart:30` was one instance; `card_recipe_test`'s
 `tok()` reads the ladder by regex and is fine, but the census has not yet been
 pointed at the *other* hand-copied constants in the tree. Read-only, one tick.
 
+
+## Tick 10 Oct 2026 (12th) — the weight ladder, the same defect as motion.dart
+
+**The item.** The previous tick queued the general form of its own defect
+class: *a test asserting against a hand-copy of the thing it claims to check.*
+`motion_test.dart:30` was one instance. This tick swept `test/` for the shape
+and found the next one on the **weight ladder** — the third of the four legs of
+the type scale (size, line-height, weight, tracking), and the leg that has no
+source-scanning guard at all.
+
+**The sweep was narrow and mechanical**, so that the finding is a measurement
+rather than a hunch: `expect(X, <literal>)` where `X` is a `lib/` constant
+collection, and `.toSet(), {...}` against an enum. Two sites, one correct.
+
+| site | verdict |
+| --- | --- |
+| `font_weight_token_test.dart:356` | **DEFECT — below** |
+| `type_scale_test.dart` `ladderSizeNames()` | correct — derives `AppTheme.scale` from the theme's own declarations |
+| `project_status_filter_wire_test.dart:75` | correct — `_stored` is the *server's* column values, an external fact no source file holds |
+
+**The finding.** `font_weight_token_test.dart:353` asserts the ladder is
+*"ordered, weakest first, and complete"* and proves completeness against a
+hand-copy of the same five rungs:
+
+```dart
+expect(AppTheme.weights, <FontWeight>[
+  FontWeight.w400, FontWeight.w500, FontWeight.w600,
+  FontWeight.w700, FontWeight.w800,
+]);
+```
+
+The file comparing its ladder to a transcription of itself — and this one is
+worse than motion's, because **the scan it leans on cannot help**:
+
+- `_rawWeights` walks all of `lib/` and exempts nothing by filename — so unlike
+  `motion.dart` this is not an exemption hole;
+- but the `w*` declarations *are* raw `FontWeight.wNNN` right-hand sides. They
+  are the five literals the conversion deliberately put there. A sixth rung
+  declared the same way is **invisible to the census by construction**.
+
+So a guard that turned 48 raw weights into tokens never gained the ability to
+see the tokens themselves.
+
+**Proved, not argued.** Planted `wThunder = FontWeight.w900` beside the real
+five, then ran `font_weight_token_test.dart`, `type_scale_test.dart` and
+`motion_test.dart` together: **all green, 32 tests.** An off-ladder weight the
+tree is allowed to use, that no guard could name, declared in the one file the
+weight contract is written about.
+
+**Shipped.** Commit `596d0dd` → remote `d82f9bc`. Hashes read back out of
+`git log` and the push helper after the fact, never written before.
+
+*Fixed:* `weight_ladder_reader()` and `size_ladder_reader()` in
+`test/exemption_census_test.py` — the same instrument as last tick's
+`motion_reader()`, because the defect is identical and it lives in
+`app_theme.dart`, which `type_scale_test.dart:220` exempts by name. Both derive
+**both directions**: every declared `static const FontWeight w*` /
+`static const double fs*` is listed in the ladder, and every listed entry is
+declared. Duplicates rejected.
+
+`size_ladder_reader()` is not decoration — it pins the size leg that is
+*currently* guarded properly, so it cannot silently become the weight leg's
+shape, and it carries the `>= 8` floor from `type_scale_test.dart` so the
+reader cannot pass by reading a partial theme.
+
+### Red before green, both directions, plus a control
+
+| plant | result |
+| --- | --- |
+| `wThunder` declared, not listed | **FAIL** — *"an off-ladder weight the app may use and no guard can name: wThunder"*, 6/1, exit 1 |
+| `fsGhost = 13.37` declared, not listed | **FAIL** — *"a font size outside the ladder … declared in the one file it exempts: fsGhost"*, 6/1, exit 1 |
+| `wMissing` listed, not declared | **FAIL** — the other direction, 6/1, exit 1 |
+| control: a declared rung missing from a fake ladder | **ok** — proves the readers *can* fail |
+
+**A second false proof, and this one ate a cycle.** The size plant's first two
+attempts reported success and **changed nothing**: `git diff --stat` was empty.
+The regex was `static const double fs\w+\s*=[^;]+;\n` — and `[^;]+` runs past
+the `;` into the trailing comment, so it consumed the newline the anchor needed
+and the match failed. The assertion caught it (`no fs token found`) rather than
+letting a no-op be reported as a pass, but only because the plant asserted it
+landed. Same lesson as last tick's 6-vs-10-space `str.replace`: **a green
+result from a command that changed nothing is not evidence.**
+
+Related, and worth writing down once: a `cd` that fails in a fresh shell leaves
+the *next* commands running in the wrong directory, so a `cp` restore silently
+did not happen and a stale plant survived into the next run. Absolute paths in
+the plant scripts, from here.
+
+### Evidence
+
+- `python3 test/exemption_census_test.py` → **7 passed, 0 failed**, exit 0.
+- `flutter analyze` → **No issues found!** (10.3 s).
+- `tool/run_tests.py` → **SUITE PASS — 2544 tests across 14 shard(s), every shard
+  green**, `2536 passed / 8 skipped`, **18:32**. Baseline **2544 held exactly** —
+  a Python guard adds no Dart test, so a drop would mean a Dart file was
+  touched. It was not: `lib/` is byte-identical this tick and the only changed
+  file is `test/exemption_census_test.py`. **Shard 8 green**, fifth tick running.
+- Blob check against the remote tree: **MATCH** on
+  `test/exemption_census_test.py`, `lib/src/core/theme/app_theme.dart`,
+  `lib/src/core/theme/motion.dart`, `test/font_weight_token_test.dart`; remote
+  tip `d82f9bc`.
+- **No screenshot** — nothing visual changed; no token value was touched, so
+  there is no pixel delta to measure.
+
+### Next
+
+The sweep found **two more ladders the census cannot currently see**, both in
+`app_theme.dart` and both the same shape, and both *named by role* rather than
+digit — which is exactly what makes them hard to derive mechanically:
+
+- `lh*` — the line-height ladder (`line_height_token_test.dart`), and
+- `lsDigits` — tracking, deliberately a single value, so there is no ladder to
+  check completeness against yet.
+
+The obvious next tick is to point the same derived-reader instrument at the
+line-height leg and check whether `line_height_token_test.dart` has the weight
+ladder's shape (hand-copy) or the size ladder's shape (derived) — the census
+suggests the former, since that file is the one that exempted `app_theme.dart`
+by filename in the first place. Read-only, one tick.
