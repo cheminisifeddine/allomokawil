@@ -494,8 +494,24 @@ class AppTheme {
   /// one ([lhProse] and its six), and **weight got none**: 48 raw
   /// `FontWeight.wNNN` writers sat across 18 files. Measured by AST on this
   /// tree, not by grep — grep counts 56, and the difference is the seven
-  /// *conditional* weights (`stale ? FontWeight.w800 : null`) plus mentions in
-  /// comments, neither of which is a bare literal.
+  /// *conditional* weights plus mentions in comments, neither of which is a
+  /// bare literal.
+  ///
+  /// **The seven conditional ones are on the ladder too, and the ternary is the
+  /// interesting part of the question.** Whether a weight chosen by a predicate
+  /// is a ladder decision or a local one is settled by who else wrote the same
+  /// predicate: the tab bar's w700/w500 was written twice (here and
+  /// `app_tab_bar.dart`), the stale-stamp w800 twice (`worker_home_screen.dart`
+  /// header and plan card), and the quota-spent w700/w500 twice (this screen's
+  /// own row). Those are decisions, scattered. The two that were not duplicated
+  /// — a step de-emphasising itself, and the first step of a list reading as
+  /// the one you are on — are local, and they now name tokens too, so the
+  /// ladder is the only way to spell a weight at all.
+  ///
+  /// One of them also decided two things from two reads of one clock, and that
+  /// is a defect rather than a style question: the plan card's age line asked
+  /// `statsAreStale` once for its colour and again for its weight, and the two
+  /// answers were not obliged to agree. It is bound to a local now.
   ///
   /// These carry **exactly** the numbers that were already on screen, so this is
   /// a rename with no visual delta. What it buys is that "how loud is this
@@ -951,8 +967,8 @@ class AppTheme {
               fontFamily: 'Cairo',
               fontSize: fsCaption,
               fontWeight: states.contains(WidgetState.selected)
-                  ? FontWeight.w700
-                  : FontWeight.w500,
+                  ? wStrong
+                  : wQuiet,
               color: states.contains(WidgetState.selected) ? navy : textMuted,
             )),
         iconTheme: WidgetStateProperty.resolveWith((states) => IconThemeData(

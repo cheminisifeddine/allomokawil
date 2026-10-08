@@ -28751,3 +28751,90 @@ left in the tree — `stale ? FontWeight.w800 : null`, and
 `status.isQuotaSpent`. They sit inside an expression, so the sweep that shipped
 last tick deliberately left them; the question is whether a ternary on a boolean
 is a *ladder decision* or a local one.
+
+---
+
+## Tick 8 Oct 2026 (13:10) — the 7 conditional weights, and the clock they asked twice
+
+**Recovered a dirty tree, not a foreign one.** Step 1 requires a clean tree, and
+this one was dirty in exactly the files this tick was queued for — 6 modified,
+edits 12:48-12:50, `.git/index` last written 12:31, i.e. a tick interrupted
+between the edit and the gate. Before adopting the work I checked the two things
+that could have made it a *live* session: `pgrep -c java` = **0** and
+`pgrep -af '[f]lutter'` = **empty** (the first reading of "2" was my own shell
+wrapper matching the pattern inside its own command line), and
+`/home/hatch/workspace/repos/allomokawil` — the path this session starts in —
+is a **26 Sep non-git snapshot with no `.git` at all**, not a second checkout.
+So there was one writer, and it was the previous tick of this same loop. Adopted
+rather than stashed, and the gate below is the adopted work's, not mine.
+
+**Item: the 7 conditional weights — SHIPPED, and it carried a real defect.**
+
+All 7 now name tokens, which is the tail of the raw-`FontWeight` sweep. The
+question the last tick left open — *is a ternary on a boolean a ladder decision
+or a local one* — is answered by **who else wrote the same predicate**, and the
+tree already knew the answer in three places and contradicted it in two:
+
+| predicate | writers | verdict |
+| --- | --- | --- |
+| tab selected -> w700/w500 | `app_theme.dart` + `app_tab_bar.dart` | ladder (written twice) |
+| stale stamp -> w800 | header + plan card | ladder (written twice) |
+| `isQuotaSpent` -> w700/w500 | `subscription_screen.dart` own row | ladder (written twice) |
+| `step.done` -> w600/w700 | setup step | local (one site) |
+| `first` -> w700/w600 | first step of a list | local (one site) |
+
+So the ladder became **the only way to spell a weight at all** — the two local
+ones name tokens too, because a token is not a promise of shared *intent*, only
+of a shared *name*, and these two needed a name the ladder can answer.
+
+**The defect: one decision, read off the clock twice.** `_PlanEntryState`
+(line 2662ff) asked `widget.now()` **twice** on the same build — once for
+`statsFreshnessAr`'s colour, once for `statsAreStale`'s weight — and `now` is a
+**caller-supplied `DateTime Function()`** (line 2585; `_Clock` in tests,
+`DateTime.now` in the app). The two answers were not obliged to agree: across a
+threshold boundary between the two calls the line could be **recoloured as a
+warning while its weight stayed at the non-warning value** — dressed as a fresh
+fact in warning colours. The sibling at line 1727-1729 already binds both to one
+`final clock = now?.call()` local; this one did not. Now bound to `stalePlan`,
+so colour and weight come off one decision. This is a rename plus one local, so
+**the weight numbers on screen are unchanged** — but the state that could put a
+fresh-fact colour on a stale weight is gone.
+
+**The guard was blind to the shape it was written for** — same failure as the
+letter-spacing guard's, one level in. All 7 leftovers were
+`ConditionalExpression`s, and `_bareWeight` only inspected the argument's own
+shape, so it returned **null** on every one of them and called `lib/` clean
+while `lib/` was exactly as unconverted as before. `_rawWeightsIn` now descends
+into both arms; the report labels the shape (`conditional `) because *which
+number* and *written how* are different findings. Plants 4 and 5 were added: a
+ternary carrying a raw weight **must** be reported, and a ternary already naming
+tokens **must not** be — the second is what makes the first mean something.
+
+### Evidence
+
+- `flutter analyze` -> **No issues found!** (12.2 s).
+- `tool/run_tests.py` -> **SUITE PASS — 2540 tests across 14 shard(s), every
+  shard green, 2532 passed / 8 skipped, 21:53.** Baseline **2540 held, +0** —
+  expected, and worth saying why: the previous tick's 5 were the
+  letter-spacing guard, and this tick **adds tests without adding a count** only
+  if it did not; it did not. The two new plants run inside
+  `font_weight_token_test.dart`'s existing cases, so the census is unchanged in
+  size while its *blind spot* is closed. **No retries, deadline never fired,
+  and shard 8 — the one the KNOWN BUG names — passed in 2:14.**
+- **Not a screenshot, for the same reason as last tick:** `build_web.sh` and
+  `pngscan.py` do not exist on this host after the 26 Sep rebuild, and there is
+  no headless Chrome. Nothing here claims a layout.
+- **No APK, no release, no tag.**
+
+**Files:** `app_theme.dart`, `subscription_screen.dart`, `worker_home_screen.dart`,
+`app_tab_bar.dart`, `client_start_card.dart`, `test/font_weight_token_test.dart`.
+
+**Next:** the type scale's four legs are closed (size, line-height, weight,
+tracking). The raw-literal sweep is finished — **`lib/` has no
+`FontWeight.wNNN` outside the five token definitions themselves.** The next
+open question is whether the *token definitions* themselves should be the only
+place a weight exists, or whether `AppTheme` should stop exporting five
+constants and the callers should read them from a single ladder object with
+semantic names (`wTitle`, `wCaption`) rather than intensity names (`wStrong`,
+`wQuiet`) — the names are the last place the ladder encodes *how loud* instead
+of *what role*, and that is a naming question, not a rendering one.

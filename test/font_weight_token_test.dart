@@ -24,6 +24,12 @@
 //     guard visited only the latter and saw **9 of 33** theme-table sites — a
 //     third of the file, reported as clean. Any guard that visits one AST shape
 //     and calls the tree clean is reporting on the shape, not the subject.
+//   * **A weight behind a ternary is a ConditionalExpression, and the reader
+//     descends into it.** The first conversion left **7** raw weights behind
+//     (`stale ? FontWeight.w800 : null`) — every one of them invisible to this
+//     rule for the same reason as the shape above, one level in. They were also
+//     the only remaining writers in `lib/`, so a guard blind to that shape was
+//     blind to exactly the tail of the thing it was written for.
 //
 // The negative control is in the test bodies below: each plant is removed again
 // inside the same run, so the suite is red when the rule breaks and green when
@@ -72,6 +78,28 @@ class _Raw {
 /// **identifier** is `wNNN`. Matching the whole expression against
 /// `FontWeight\.(w\d+)` — the shape the source reads like — is the mistake the
 /// first version of this guard made, and it returned **zero** on a tree with 48.
+///
+/// **It descends into a conditional**, which is why this is a list and not a
+/// `String?`. The 7 weights the bare sweep left behind were all written
+/// `stale ? FontWeight.w800 : null`: a [ConditionalExpression], so a reader that
+/// only inspects the argument's own shape reports nothing and calls the tree
+/// clean. Same defect as the `MethodInvocation` one, one level in — the rule
+/// was written at a granularity that cannot see its own subject, and the
+/// control had no plant for this shape until now.
+List<String> _rawWeightsIn(Expression v) {
+  final top = _bareWeight(v);
+  if (top != null) return <String>[top];
+  if (v is ConditionalExpression) {
+    return <String>[
+      ..._rawWeightsIn(v.thenExpression),
+      ..._rawWeightsIn(v.elseExpression),
+    ];
+  }
+  return const <String>[];
+}
+
+/// The raw weight at the top of [v], or null for anything else — kept separate
+/// because the report distinguishes a bare site from a conditional one.
 String? _bareWeight(Expression v) {
   if (v is! PrefixedIdentifier) return null;
   if (v.prefix.name != 'FontWeight') return null;
@@ -104,11 +132,17 @@ class _WeightFinder extends RecursiveAstVisitor<void> {
     for (final a in args.arguments) {
       if (a is! NamedArgument || a.name.lexeme != _kName) continue;
       final value = a.argumentExpression;
-      if (_bareWeight(value) == null) continue;
+      final raw = _rawWeightsIn(value);
+      if (raw.isEmpty) continue;
       // The label is built from the argument's own name at runtime, so this
       // reporting call's source text never carries the literal the rule turns
       // on -- otherwise the census counts the guard as an applier of its rule.
-      report(path, _lineOf(value.offset), '$_kName: ${_bareWeight(value)}');
+      //
+      // The shape is in the row because *which number* and *written how* are
+      // different questions, and the duplicated decisions this file exists for
+      // were all conditionals.
+      final shape = value is ConditionalExpression ? 'conditional ' : '';
+      report(path, _lineOf(value.offset), '$_kName: $shape${raw.join(' + ')}');
     }
   }
 
@@ -149,8 +183,6 @@ List<_Raw> _rawWeights({Set<String> extraFiles = const <String>{}}) {
       .listSync(recursive: true)
       .whereType<File>()
       .where((f) => f.path.endsWith('.dart'))
-      // The theme declares the ladder; a reference there is not a raw writer.
-      .where((f) => !f.path.endsWith('app_theme.dart'))
       .toList();
 
   for (final path in extraFiles) {
@@ -276,7 +308,37 @@ void main() {
       reason: 'copyWith on a theme style must be scanned too',
     );
 
-    // 4. A weight that ALREADY names a token must NOT be reported, or the
+    // 4. A weight behind a **ternary** — the shape the 7 leftovers all had,
+    //    and the shape this guard was blind to until this plant existed.
+    final condPlant = _Plant(
+      File('${dir.path}/plant_cond.dart'),
+      'final t = TextStyle($_kName: stale ? FontWeight.w800 : null);\n',
+    )..write();
+    expect(
+      _rawWeights(extraFiles: <String>{condPlant.path}),
+      isNotEmpty,
+      reason: 'a conditional raw weight is the shape the last 7 writers all '
+          'had; a reader that only checks the argument shape calls it clean',
+    );
+
+    // 5. A **clean** conditional -- one that already names tokens on both
+    //    arms. This is what makes plant 4 mean something: if any conditional
+    //    were reported, this one would be too, and plant 4 would pass for the
+    //    wrong reason.
+    final condCleanPlant = _Plant(
+      File('${dir.path}/plant_cond_clean.dart'),
+      "import 'package:allomokawil/src/core/theme/app_theme.dart';\n"
+      'final t = TextStyle(\n'
+      '  $_kName: stale ? AppTheme.wLoud : AppTheme.wStrong,\n'
+      ');\n',
+    )..write();
+    expect(
+      _rawWeights(extraFiles: <String>{condCleanPlant.path}),
+      isEmpty,
+      reason: 'a conditional that already names tokens is not a raw weight',
+    );
+
+    // 6. A weight that ALREADY names a token must NOT be reported, or the
     //    control above passes for the wrong reason: a scanner that flags
     //    everything flags a planted file and a correct file identically.
     final cleanPlant = _Plant(

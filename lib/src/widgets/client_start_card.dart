@@ -188,7 +188,8 @@ class _StepRow extends StatelessWidget {
                         style: AppTheme.label.copyWith(
                           fontSize: AppTheme.fsMeta,
                           color: titleColor,
-                          fontWeight: first ? FontWeight.w700 : FontWeight.w600,
+                          fontWeight:
+                              first ? AppTheme.wStrong : AppTheme.wControl,
                         ),
                       ),
                     ),

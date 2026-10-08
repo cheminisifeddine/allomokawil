@@ -1797,7 +1797,7 @@ class _StatsLine extends StatelessWidget {
               // read. Same accent the rating star already uses on this line,
               // so it reads as part of the header rather than as an alert.
               color: stale ? AppTheme.accent : AppTheme.onNavyMuted,
-              fontWeight: stale ? FontWeight.w800 : null,
+              fontWeight: stale ? AppTheme.wLoud : null,
             ),
           ),
         ],
@@ -2157,7 +2157,7 @@ class _SetupRow extends StatelessWidget {
                 fontSize: AppTheme.fsMeta,
                 height: 1.4,
                 color: step.done ? AppTheme.textSecondary : AppTheme.navy,
-                fontWeight: step.done ? FontWeight.w600 : FontWeight.w700,
+                fontWeight: step.done ? AppTheme.wControl : AppTheme.wStrong,
               ),
             ),
           ),
@@ -2662,6 +2662,9 @@ class _PlanEntryState extends State<_PlanEntry> {
         // where there is nothing to date, and [statsFreshnessAr] answers the
         // empty string for both on purpose.
         final freshness = statsFreshnessAr(_readAt, now: widget.now());
+        // One read of one clock, beside the age it decides — the same
+        // reasoning as [statsAreStale] being called once instead of twice.
+        final stalePlan = statsAreStale(_readAt, now: widget.now());
 
         String line;
         Color tone = AppTheme.textSecondary;
@@ -2724,12 +2727,21 @@ class _PlanEntryState extends State<_PlanEntry> {
                           // Same rule as the header: an hour-old quota is a
                           // different kind of statement from a fresh one, and
                           // the weight says so before the words are read.
-                          color: statsAreStale(_readAt, now: widget.now())
+                          //
+                          // Read once, into a local. This used to ask the clock
+                          // the same question twice — once for the colour, once
+                          // for the weight — and `now` is a caller-supplied
+                          // function (`_Clock` in the tests, `DateTime.now` in
+                          // the app), so the two answers were not obliged to
+                          // agree. At 10:01:30 on an hour-old read the colour
+                          // could already be the warning accent while the
+                          // weight stayed off: a line dressed as a fresh fact
+                          // that has already been recoloured as a warning.
+                          // Colour and weight now come off one decision.
+                          color: stalePlan
                               ? AppTheme.accentDeep
                               : AppTheme.textSecondary,
-                          fontWeight: statsAreStale(_readAt, now: widget.now())
-                              ? FontWeight.w800
-                              : null,
+                          fontWeight: stalePlan ? AppTheme.wLoud : null,
                         ),
                       ),
                     ],

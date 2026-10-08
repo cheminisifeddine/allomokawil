@@ -685,7 +685,8 @@ class _UsageLine extends StatelessWidget {
       text,
       style: AppTheme.body.copyWith(
         color: status.isQuotaSpent ? AppTheme.danger : AppTheme.textPrimary,
-        fontWeight: status.isQuotaSpent ? FontWeight.w700 : FontWeight.w500,
+        fontWeight:
+            status.isQuotaSpent ? AppTheme.wStrong : AppTheme.wQuiet,
       ),
     );
   }
