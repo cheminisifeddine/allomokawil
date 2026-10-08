@@ -22,6 +22,7 @@
 // Run with:  flutter test test/quote_status_shot_test.dart
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -36,7 +37,9 @@ import 'package:allomokawil/src/core/app_scope.dart';
 import 'package:allomokawil/src/core/network/api_client.dart';
 import 'package:allomokawil/src/core/security/auth_state.dart';
 import 'package:allomokawil/src/core/theme/app_theme.dart';
+import 'package:allomokawil/src/data/quote_status_copy.dart';
 import 'package:allomokawil/src/data/repository.dart';
+import 'package:allomokawil/src/models/enums.dart';
 import 'package:allomokawil/src/screens/project/project_detail_screen.dart';
 
 const _out = '/tmp/shots/quote';
@@ -122,19 +125,86 @@ Future<({ApiClient api, AuthState auth})> _boot(
   return (api: api, auth: auth);
 }
 
-Future<String> _capture(WidgetTester tester, String name) async {
+/// Where a shot went, and which bands of it are the *verdict*.
+///
+/// [verdictBands] is measured from the widget tree — the rect of the widget
+/// carrying the verdict line — and converted into the pixel rows the PNG will
+/// hold. It is captured *before* the bytes, so a band can never be derived
+/// from the diff it is supposed to police.
+class _Shot {
+  final String path;
+
+  /// The same capture as **uncompressed RGBA**, because a PNG is deflated and
+  /// `a[i] != b[i]` over its bytes answers "does the compressor emit a
+  /// different stream", not "is this pixel different". Comparing compressed
+  /// bytes cannot localise a difference to a row, which is the entire question
+  /// here — the first version of this check did exactly that and reported 0.0%
+  /// for a band it had itself just proven to be the verdict.
+  final Uint8List rgba;
+  final int width;
+  final int height;
+  final List<(int, int)> verdictBands;
+  final List<(int, int)> acceptButtonBands;
+  const _Shot(this.path, this.rgba, this.width, this.height,
+      this.verdictBands, this.acceptButtonBands);
+}
+
+Rect _px(Rect r, double dpr) =>
+    Rect.fromLTRB(r.left * dpr, r.top * dpr, r.right * dpr, r.bottom * dpr);
+
+/// The pixel rows [r] occupies in a capture taken at [pixelRatio].
+///
+/// The capture is `boundary.toImage(pixelRatio: 2.0)` of a repaint boundary
+/// whose own logical top is not the frame's — the boundary is inset by
+/// [MediaQuery.padding] in a test harness — so the offset is not guessed. It
+/// is read off the boundary's own rect, which is the same object `toImage`
+/// rasterises.
+(int, int) _rowsFor(Rect r, Rect boundaryLogical, double pixelRatio) {
+  final b = _px(boundaryLogical, pixelRatio);
+  final y0 = (_px(r, pixelRatio).top - b.top).round().clamp(0, 1 << 30);
+  final y1 = (y0 + (r.height * pixelRatio).round()).clamp(0, 1 << 30);
+  return (y0, y1);
+}
+
+Future<_Shot> _capture(
+    WidgetTester tester, String name, List<String> verdictTexts) async {
   final boundary = tester.renderObject<RenderRepaintBoundary>(
     find.byKey(const ValueKey('shot')),
   );
+  const pixelRatio = 2.0;
+  final m = boundary.getTransformTo(null);
+  final boundaryLogical = MatrixUtils.transformRect(m, Offset.zero & boundary.size);
+
+  final verdictBands = <(int, int)>[];
+  for (final t in verdictTexts) {
+    final f = find.text(t);
+    if (f.evaluate().isEmpty) continue;
+    verdictBands.add(_rowsFor(
+        tester.getRect(f.first), boundaryLogical, pixelRatio));
+  }
+  final acceptBands = <(int, int)>[];
+  final accept = find.text('قبول العرض');
+  for (final e in accept.evaluate()) {
+    acceptBands.add(_rowsFor(
+        tester.getRect(find.byWidget(e.widget).first), boundaryLogical, pixelRatio));
+  }
+
   late String path;
+  late Uint8List raw;
+  late int w;
+  late int h;
   await tester.runAsync(() async {
-    final image = await boundary.toImage(pixelRatio: 2.0);
+    final image = await boundary.toImage(pixelRatio: pixelRatio);
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
     Directory(_out).createSync(recursive: true);
     path = '$_out/$name.png';
     File(path).writeAsBytesSync(bytes!.buffer.asUint8List());
+    w = image.width;
+    h = image.height;
+    final rgba = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    raw = rgba!.buffer.asUint8List();
   });
-  return path;
+  return _Shot(path, raw, w, h, verdictBands, acceptBands);
 }
 
 void main() {
@@ -155,8 +225,13 @@ void main() {
       _row(49, status: 'rejected'),
     ];
 
-    String livePath = '';
-    String decidedPath = '';
+    _Shot? liveShot;
+    _Shot? decidedShot;
+
+    final verdicts = <String>[
+      quoteStatusNoteAr(QuoteStatus.accepted),
+      quoteStatusNoteAr(QuoteStatus.rejected),
+    ];
 
     for (final shot in <(String, List<Map<String, dynamic>>)>[
       ('live', live),
@@ -198,28 +273,108 @@ void main() {
       for (var i = 0; i < 12; i++) {
         await tester.pump(const Duration(milliseconds: 80));
       }
-      final p = await _capture(tester, 'quote_cards_${shot.$1}');
+      final shotOut =
+          await _capture(tester, 'quote_cards_${shot.$1}', verdicts);
       if (shot.$1 == 'live') {
-        livePath = p;
+        liveShot = shotOut;
       } else {
-        decidedPath = p;
+        decidedShot = shotOut;
       }
     }
+    final l = liveShot!;
+    final d = decidedShot!;
 
-    // The two captures must differ, and differ *only* by the verdict. A helper
-    // that returned two byte-identical PNGs while every assertion passed is the
-    // failure this project already paid for once (`accept_quote_failure_test`
-    // records it), so the check is here rather than assumed.
-    final a = File(livePath).readAsBytesSync();
-    final b = File(decidedPath).readAsBytesSync();
+    // ---- The two captures must differ *in the verdict*, not merely differ.
+    //
+    // The original check here was global: "the two files are not byte-equal".
+    // That is a much weaker claim than the sentence above it, and it was
+    // vacuous. Measured on this tree before the fix: flattening the verdict
+    // line to a constant one-character `Text` — deleting the sentence that
+    // tells a losing bidder he lost — changed the live/decided difference by
+    // 75,746 pixels and the test stayed green, because the vanishing
+    // «قبول العرض» button alone was enough to make the two files differ. A
+    // global inequality cannot tell "the verdict reached the pixels" from
+    // "something, somewhere, changed", and this file's whole purpose is the
+    // first.
+    //
+    // So the check is localised, and the band is measured from the widget tree
+    // rather than derived from the diff it polices (deriving it from the diff
+    // would make the assertion true by construction).
+    final a = File(l.path).readAsBytesSync();
+    final b = File(d.path).readAsBytesSync();
     expect(a.length, greaterThan(1000));
     expect(b.length, greaterThan(1000));
+    // Kept: identical files are still a failure, and this is the cheap check.
     expect(a.length == b.length && _sameBytes(a, b), isFalse,
         reason: 'the live and decided lists rendered identically — the verdict '
             'is not reaching the pixels');
+
+    /// Fraction of pixel rows in [y0]..[y1] whose pixels differ between the
+    /// two captures. Read from raw RGBA, so it is a fact about pixels.
+    double rowDiffIn(int y0, int y1) {
+      if (d.width != l.width || d.height != l.height) {
+        fail('the two captures are different sizes (${l.width}x${l.height} vs '
+            '${d.width}x${d.height}) — a row band means nothing');
+      }
+      var rows = 0, differing = 0;
+      final stride = d.width * 4;
+      for (var y = y0; y < y1; y++) {
+        if (y < 0 || y >= d.height) continue;
+        rows++;
+        final row = y * stride;
+        var different = false;
+        for (var x = 0; x < d.width; x++) {
+          final o = row + x * 4;
+          if (l.rgba[o] != d.rgba[o] ||
+              l.rgba[o + 1] != d.rgba[o + 1] ||
+              l.rgba[o + 2] != d.rgba[o + 2]) {
+            different = true;
+            break;
+          }
+        }
+        if (different) differing++;
+      }
+      return rows == 0 ? 0 : differing / rows;
+    }
+
+    // 1. Every verdict string must be *painted* in the decided capture, at the
+    //    band its widget occupies. Two of them, one per card.
+    expect(d.verdictBands.length, verdicts.length,
+        reason: 'the decided capture is not showing a verdict line per card — '
+            'the losing bidder is told nothing. Widgets found: '
+            '${d.verdictBands.length}, verdict strings: ${verdicts.length}');
+
+    for (final band in d.verdictBands) {
+      final f = rowDiffIn(band.$1, band.$2);
+      expect(f, greaterThan(0.5),
+          reason: 'rows ${band.$1}..${band.$2} are the verdict line in the '
+              'decided capture and only ${(f * 100).toStringAsFixed(1)}% of '
+              'them differ from the live capture — the card changed around the '
+              'verdict, not in it');
+    }
+
+    // 2. The live capture must carry NO verdict band at all. `pending` returns
+    //    '' from `quoteStatusNoteAr`, so a live card that grew a verdict line
+    //    would be showing the empty string, i.e. a row drawn for nothing.
+    expect(l.verdictBands, isEmpty,
+        reason: 'a live bid is painting a verdict line at rows '
+            '${l.verdictBands} — `quoteStatusNoteAr` returns '' for pending, '
+            'so this is a placeholder row, not a message');
+
+    // 3. And the buttons themselves must move, which is the other half of the
+    //    defect: a decided card with no button and a live card with two.
+    expect(l.acceptButtonBands.length, 2,
+        reason: 'the live capture should carry two «قبول العرض» buttons, found '
+            '${l.acceptButtonBands.length}');
+    expect(d.acceptButtonBands, isEmpty,
+        reason: 'a decided card still carries «قبول العرض» at rows '
+            '${d.acceptButtonBands} — the offer can still be taken after the '
+            'owner committed to somebody else');
+
     // ignore: avoid_print
-    print('SHOT live=$livePath decided=$decidedPath '
-        'liveBytes=${a.length} decidedBytes=${b.length}');
+    print('SHOT live=${l.path} decided=${d.path} '
+        'liveBytes=${a.length} decidedBytes=${b.length} '
+        'verdictBands=${d.verdictBands} acceptButtons=${l.acceptButtonBands}');
   });
 }
 
