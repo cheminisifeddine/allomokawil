@@ -185,7 +185,42 @@ _TEST_PATH = re.compile(r"(test/\S*?\.dart)")
 #: consequences, both paid for on 4 Oct: the summary line crashed on the `"?"`
 #: fallback (see the `%s` note below) and a failing shard reported no size at
 #: all. `+169 -6:` now yields 169, which is the count that actually ran.
-_PROGRESS = re.compile(r"\+(\d+)(?: -\d+)?:")
+#: The expanded reporter's progress line, as the reporter actually builds it.
+#:
+#: `test_core/lib/src/runner/reporter/compact.dart::_progressLine` writes, in
+#: this exact order: `\r` + `MM:SS` + ` ` + `+` + passed, then -- each
+#: **optionally**, only when non-empty -- ` ~` + skipped and ` -` + failed,
+#: then `:` and the message. Captured from this box on 8 Oct rather than
+#: assumed, because the order is a property of the reporter and the whole
+#: defect below is about a shape that was never looked at:
+#:
+#:     00:00 +3: All tests passed!            (green, nothing skipped)
+#:     00:00 +2 ~3: All tests passed!         (green, 3 skipped)
+#:     00:00 +3 -1: Some tests failed.        (red, nothing skipped)
+#:     00:00 +2 ~1 -1: Some tests failed.     (red, both)
+#:
+#: **The skip group is the fix, and it is the group this file was missing.**
+#: The previous pattern taught the regex the *failure* form (` -N`), which is
+#: the one run the loop most needs a number from, and left the skip form
+#: (` ~N`) unreadable -- because the optional group covered only ` -N`.
+#: Measured here, on the two captured shapes:
+#:
+#:     '+2 ~3: All tests passed!'  -> None
+#:     '+3 -1: Some tests failed.' -> 3
+#:
+#: Two things were wrong with that, and the second is the worse one. The
+#: backlog recorded the symptom as `0`/`None` per shard; what the function
+#: actually returns is the last progress line written **before** the first
+#: skip -- a partial, plausible-looking count. A 5-test file reported 1.
+#: A shard whose skips begin early returns `None`; a shard whose skips begin
+#: late returns a number that is confidently wrong. A gate that reads a
+#: confident number is harder to distrust than one that reads a zero.
+#:
+#: All three groups are captured, not just skipped, because the runner
+#: reports a shard that ran tests regardless of how they came out, and a
+#: number that silently dropped the failures would under-report a red shard
+#: by exactly the number the loop most needs to see.
+_PROGRESS = re.compile(r"\+(\d+)(?: ~(\d+))?(?: -(\d+))?:")
 
 
 def culprit(tail):
@@ -202,10 +237,14 @@ def culprit(tail):
     return None
 
 
-def passed_count(tail):
-    """The shard's own test count, or None if the reporter never wrote one.
+def progress_counts(tail):
+    """The last progress line's `(passed, skipped, failed)`, or None.
 
-    None is kept distinct from 0 on purpose: a green shard whose count cannot
+    The counts are monotonic within a run, so the last line the reporter wrote
+    is the shard's own tally -- on any of the four real shapes above.
+
+    None means the reporter never wrote a progress line this reader could
+    parse, which is kept distinct from `(0, 0, 0)`: a shard whose count cannot
     be read must not contribute a silent 0 to a total that is about to be
     presented as the suite's number.
     """
@@ -213,8 +252,30 @@ def passed_count(tail):
     for line in tail:
         m = _PROGRESS.search(line)
         if m:
-            best = int(m.group(1))
+            best = (int(m.group(1)),
+                    int(m.group(2) or 0),
+                    int(m.group(3) or 0))
     return best
+
+
+def passed_count(tail):
+    """The shard's own **passed** count, or None if the reporter wrote none."""
+    counts = progress_counts(tail)
+    return None if counts is None else counts[0]
+
+
+def ran_count(tail):
+    """Every test the shard accounted for: passed + skipped + failed.
+
+    This is the number the suite summary is built from, and it is deliberately
+    not `passed_count`. A shard that lost 163 tests and a shard that ran
+    nothing are both invisible to a passed-only total once skips and failures
+    are dropped: the first reports fewer passes, the second reports zero, and
+    a suite total cannot tell "smaller" from "did not run". Summing what each
+    shard *ran* is the only figure that falls when guards stop running.
+    """
+    counts = progress_counts(tail)
+    return None if counts is None else sum(counts)
 
 
 def discover_tests(root=REPO):
@@ -615,7 +676,9 @@ def main(argv=None):
         sys.stdout.flush()
         results.append({"shard": i, "status": status, "tail": tail,
                         "secs": secs, "attempts": attempts,
-                        "count": passed_count(tail), "files": len(shard)})
+                        "count": passed_count(tail), "ran": ran_count(tail),
+                        "skipped": (progress_counts(tail) or (0, 0, 0))[1],
+                        "files": len(shard)})
 
     total_secs = sum(r["secs"] for r in results)
     green = [r for r in results if r["status"] == PASS]
@@ -645,9 +708,18 @@ def main(argv=None):
         return HUNG if (not_run or any(r["status"] == HUNG for r in bad)) else FAIL
 
     counts = [r["count"] for r in green]
-    if all(c is not None for c in counts):
+    ran = [r["ran"] for r in green]
+    if all(c is not None for c in counts) and all(v is not None for v in ran):
+        # The total is what the shards RAN, and the split is printed whenever
+        # anything was skipped -- so the number can never be read as "every
+        # test in here passed" when it did not. This is the line the loop
+        # gates on, and it is the line that used to omit whole shards.
+        skipped = sum(r["skipped"] for r in green)
         print("\nSUITE PASS — %d tests across %d shard(s), every shard green."
-              % (sum(counts), len(green)))
+              % (sum(ran), len(green)))
+        if skipped:
+            print("  %d passed, %d skipped (skipped tests are inside the "
+                  "total and are not claimed as passing)." % (sum(counts), skipped))
     else:
         print("\nSUITE PASS — %d shard(s) green, but at least one shard's "
               "reporter wrote no count, so no total is claimed."
