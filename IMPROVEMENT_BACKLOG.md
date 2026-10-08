@@ -29922,3 +29922,102 @@ exemptions served by tests that walk all of `lib/src` and read files they never
 assert anything about. The next measurement worth making is whether a credited
 reader is *silent*: a reader that opens the file and asserts nothing about it
 satisfies this census exactly as well as the phantom did. Harness again.
+
+## Tick 8 Oct (5th) — the self-claim reader OPENED its own file and graded
+## nothing, so it was a guard that could not fail
+
+**Dirty-tree catch.** This tick opened on a tree that was *not* clean:
+`test/agreement_comment_test.dart` carried ~190 uncommitted lines from the
+previous tick. Per the loop protocol the leftover is finished first, and it
+turned out to be the more interesting work than anything unchecked -- the
+backlog has **zero** unchecked items.
+
+**The item.** `agreement_comment_test.dart` grades comments that state the
+Arabic agreement rule against the real `arabicCount`, and it *skips itself*
+(`entity.path.endsWith(self)` in `scan`) because its own comments quote the
+sentence shapes it hunts. The leftover added a `_selfClaims()` to close that
+gap: read this file's own doc comments and grade the sentences it ASSERTS,
+skipping the ones it merely EXHIBITS.
+
+**The defect, measured before it was fixed.** `_selfClaims()` returns
+**zero**, so the loop over it adds no tests and cannot fail. Confirmed by
+instrumenting the real code rather than by reading it:
+
+    DIAG selfClaims=0
+    00:00 +10: All tests passed!      <- 10 before, 10 after
+
+That is the exact shape this loop has been hunting since 3 Oct: a guard that
+opens the file and asserts nothing about it, satisfying the census precisely
+as well as the phantom readers did.
+
+**The zero is CORRECT, and that is the interesting part.** All eight
+claim-shaped comment runs in this file are quotations or counter-examples.
+`dart format` wraps at 80 columns and "110 takes the singular" is 24
+characters, so this file's prose is saturated with *exhibits*. A reader that
+finds nothing here is right — but right and broken are indistinguishable
+from outside, so the reader is now measured on prose planted to fail it.
+
+**Shipped.**
+
+* `_scanClaims(List<String> lines, String name)` takes **lines, not a path**,
+  so it can be handed text it cannot otherwise reach.
+* **Exhibit-vs-assertion is decided on the JOINED RUN, not per line.**
+  Measured: deciding per line made a *wrapped* claim unreadable — `110 takes`
+  carries no form word, so the line was discarded as an exhibit and
+  `the singular.` arrived with no number attached. A claim is a sentence and
+  `dart format` wraps sentences, so the unit has to be the paragraph.
+* **Quotes are blanked TWICE**, and the order is not redundant: per line (a
+  markdown fence is a single line) and then again on the join (a quotation
+  can *wrap* — line 571's own sentence opens on one line and closes on the
+  next, which a per-line scan cannot balance). Without the second pass the
+  scanner graded **two of this file's own explanatory sentences** as claims
+  and went red on comments that were correct.
+* `_isExhibit` split into `_blankQuotedSpans` (stage 1, keeps offsets) and
+  `_isExhibitText` (stage 2, does a run hold a claim at all).
+
+**Every stage proven load-bearing by mutation**, because a planted test that
+cannot fail is the whole subject of this tick:
+
+| mutation | result |
+| --- | --- |
+| per-line scan (drop the run/join) | **RED** — `a claim whose paragraph wraps was invisible to the scan` |
+| drop the joined-quote pass | **RED** |
+| drop quote blanking entirely | **RED — 10 failures** |
+| `_isExhibitText` always false (grade everything) | RED |
+
+**Two of my own plants were wrong before the code was.** The first
+"wrapped" case was self-contained (`3-10 take the plural` on one line) and
+so survived the per-line mutant — the mutation proved the *test* was not
+testing the thing. The second, genuinely split plant (`110 takes` /
+`the singular.`) failed the GOOD scanner, which is what exposed the real
+defect and led to moving the exhibit decision onto the run. Both were caught
+by re-running the baseline instead of trusting the first green.
+
+**Census taught, not relaxed.** `app_source_scope_test.dart` failed twice on
+the new root and both failures were legitimate: it opens its OWN source with
+`File('test/agreement_comment_test.dart').readAsLinesSync()`, which *is* a
+shape `_rootsOf` models, so the root is registered in `_knownRoots` and
+exempted in `_rootsWithoutShippedDart` **with the reason stated** — the same
+treatment `'test'` and `'test/*.dart'` already get, because this guard's
+subject is a test file and it reaches no app Dart. The rule was not lowered
+to fit the change; the census was told the truth.
+
+**Evidence** (real output)
+
+- `flutter analyze` -> **No issues found!** (11.7 s)
+- `tool/run_tests.py` -> **SUITE PASS — 2551 tests across 14 shard(s), every
+  shard green**, 2543 passed / 8 skipped, 18:59. Baseline **2546 held**,
+  +5 from the planted reader tests
+- shard 1 on the FIRST attempt failed and was diagnosed, not retried away:
+  the two failures were in `app_source_scope_test.dart`, not the new guard
+- `lib/` **byte-identical** — nothing in the app moved, pixel delta zero, so
+  **no screenshot is claimed**
+- commit `17d832d` -> remote `859af56`
+
+**Next.** `_scanClaims` grades this file's *own* comments, and the list of
+rules it knows is six regexes in one file — a claim phrased in a shape none
+of the six recognises is read by nothing and reported as agreement. The same
+defect as every tick since 3 Oct, one grammar deeper: the census now asks
+whether a *reader* is silent, and the next question worth asking is whether
+the reader's **vocabulary is complete** — a shape it cannot parse is
+indistinguishable from a file that makes no claim. Harness again.
