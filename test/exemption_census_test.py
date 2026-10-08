@@ -103,15 +103,66 @@ def _source_texts():
     return out
 
 
+def _resolves_to_path(basename, expr, code):
+    '''True when `expr` (a `File(...)` argument) names `basename`.
+
+    Two shapes are resolvable and both appear in this tree: a string literal
+    path, and an identifier bound to one. Anything else -- a computed path, a
+    loop variable -- is NOT claimed, because a reader that cannot be shown to
+    open the file is not a reader of it.
+    '''
+    expr = expr.strip()
+    if re.match(r'''^['"][^'"]*['"]$''', expr):
+        return os.path.basename(expr[1:-1]) == basename
+    if re.match(r'^\w+$', expr):
+        for lit in re.findall(r'''=\s*['"]([^'"]+)['"]\s*;''', code):
+            if os.path.basename(lit) == basename:
+                return True
+    return False
+
+
+def opens(basename, code):
+    '''True when `code` can actually OPEN `basename` from disk.
+
+    This is the question the census was always asking and, before this tick,
+    was not asking: the old rule asked whether a test NAMES the exempted file
+    and reads *something* off disk, and naming is free. The plant that
+    separates the two rules is recorded on the CONTROL in `_results()` --
+    short version, every real read of `ui.dart` removed left the old census
+    at 12 passed / 0 failed and this one reports 11 / 1.
+    '''
+    # (1) a direct read: File('lib/src/widgets/ui.dart').readAsStringSync()
+    for arg in re.findall(r'File\(\s*([^)]*?)\s*\)', code):
+        if _resolves_to_path(basename, arg, code):
+            return True
+
+    # (2) a recursive walk of a directory that CONTAINS the file. At HEAD 18
+    # of this tree's 20 real readers of ui.dart reach it exactly this way --
+    # `Directory('lib/src').listSync(recursive: true)` -- and none of them
+    # names the path, so a rule that understood only (1) would declare the
+    # file unwatched. That is the false negative this half prevents, and the
+    # control below pins both halves against a rule that claims either.
+    if re.search(r'listSync\(\s*recursive:\s*true', code) is None:
+        return False
+    for arg in re.findall(r'''Directory\(\s*['"]([^'"]+)['"]\s*\)''', code):
+        base = os.path.join(REPO, arg)
+        if not os.path.isdir(base):
+            continue
+        for root, _dirs, files in os.walk(base):
+            if basename in files:
+                return True
+    return False
+
+
 def readers(basename):
-    """Tests that READ `basename`'s text off disk. Imports do not count.
+    """Tests that OPEN `basename` off disk. Imports and mentions do not count.
 
     An import proves the file compiles. Forty-one Dart tests import
     `app_theme.dart`, which is why the first draft of this census reported it
     as watched and was wrong.
 
-    Two things had to be tightened after the planted proof, and both were
-    found by planting rather than by reading this function:
+    Four things had to be tightened, and every one of them was found by
+    planting rather than by reading this function:
 
       * a **comment** is not a read. `app_source_scope_test.dart` names all
         three theme files in prose (lines 149-161) and in a backtick on 615,
@@ -121,6 +172,10 @@ def readers(basename):
         `category_strip_fit_test.dart` as a reader of a file named
         `category_str.dart`, which does not exist. The match is now on the
         full basename or on a `lib/`-rooted path.
+      * **naming a file is not opening it** -- this tick's finding, and the
+        reason `opens()` exists. The rule used to ask only whether the
+        exempted file appeared anywhere in a test that also read *something*
+        off disk. See the plant recorded on `_results()` below.
     """
     stem = basename[:-5]
     # the one file whose compensating reader is a derived source check rather
@@ -130,19 +185,11 @@ def readers(basename):
     found = []
     for name, text in _source_texts():
         self_exempt = (name == basename)
-        if re.search(r"""import\s+['"][^'"]*%s['"]""" % re.escape(stem), text):
-            continue
-        reads = ("readAsStringSync" in text or "readAsLinesSync" in text
-                 or "readAsString()" in text)
-        if not reads:
-            continue
-        # strip comments before asking whether the file is named: a guard
-        # quoted inside `//` is not reading anything.
+        # Comments are stripped FIRST. A guard quoted inside `//` is not
+        # reading anything, and since the question below is what the code can
+        # DO, a name that survives only in prose cannot open a file.
         code = _strip_comments(text)
-        named = re.search(r"""%s""" % re.escape(basename), code) is not None
-        lib_rooted = re.search(
-            r"""['"][^'"]*/%s""" % re.escape(stem), code) is not None
-        if not (named or lib_rooted):
+        if not opens(basename, code):
             continue
         # The self-exemption is the one legal case a skip can take, and it is
         # legal only when the guard PINS something: `agreement_comment_test`
@@ -157,7 +204,6 @@ def readers(basename):
             if not any(f in code for f in floors):
                 continue
             found.append(name)
-            continue
             continue
         # ...and never by the guard that skips it. A test cannot compensate for
         # its own blind spot -- it is the thing that dropped the file.
@@ -1050,6 +1096,100 @@ def _results():
                 "the control file is 'watched'; the census cannot fail")
     yield ("CONTROL -- an exempt file nobody reads is reported",
            control_fails)
+
+    # 2b. THE PLANT THIS RULE EXISTS FOR. A control is only worth what it can
+    #     fail on, and the one above (a file nobody mentions) was passable by a
+    #     much weaker rule than the one now in force.
+    #
+    #     The defect. The old `readers()` asked two questions -- does this test
+    #     name the exempted file, and does it read *something* off disk -- and
+    #     never "does it open THAT file". Naming is free: a path in a string
+    #     literal and an unrelated `readAsStringSync` elsewhere in the same
+    #     test earn the credit on their own.
+    #     Measured: neutering every real read of `ui.dart` -- the direct
+    #     `File('lib/src/widgets/ui.dart')` in tile_label_fit_test.dart AND the
+    #     19 recursive `Directory('lib/src')` walks -- left the old census at
+    #     **12 passed / 0 failed** with `layering_test.dart` still credited,
+    #     because it names `ui.dart` inside a string and reads four other
+    #     files. Two guards exempt `ui.dart`; on that tree nothing in the repo
+    #     opened it and the census said every file had a reader.
+    #     The new rule reports the same tree **11 passed / 1 failed**.
+    #
+    #     The cases below are each a test SOURCE that the old rule credits and
+    #     this rule must not, so a regression cannot come back quietly.
+    def phantom_reader_control():
+        cases = {
+            # names the file in a literal, reads an unrelated file, walks a
+            # directory that does not contain it -- old rule: credited
+            "mentions-only": (
+                "const _p = 'lib/src/widgets/ui.dart';\\n"
+                "  void go() {\\n"
+                "    File('lib/src/models/plan.dart').readAsStringSync();\\n"
+                "    File('lib/src/data/chat_time.dart').readAsLinesSync();\\n"
+                "  }\\n"),
+            # names it only inside a path MAP, never reads anything
+            "map-entry-only": (
+                "const _edges = <String, String>{\\n"
+                "    'core/auth_gate.dart -> ../widgets/ui.dart': 'x',\\n"
+                "  };\\n"
+                "  void go() {\\n"
+                "    File('lib/src/models/plan.dart').readAsStringSync();\\n"
+                "  }\\n"),
+            # opens the file's SIBLING but not the file
+            "sibling-only": (
+                "  void go() {\\n"
+                "    File('lib/src/widgets/ui_button.dart').readAsStringSync();\\n"
+                "  }\\n"),
+        }
+        for label, body in cases.items():
+            _assert(not opens("ui.dart", body),
+                    "the %s phantom reader is being credited as a reader of "
+                    "ui.dart -- the rule has regressed to 'names the file and "
+                    "reads something', which is the defect this control was "
+                    "written for" % label)
+        # ...and the positive case, so a rule that rejects everything is caught
+        # in the other direction. A control that can only fail one way is half
+        # a guard.
+        _assert(opens("ui.dart",
+                      "  void go() {\\n"
+                      "    File('lib/src/widgets/ui.dart')"
+                      ".readAsStringSync();\\n  }\\n"),
+                "a test that plainly opens ui.dart is NOT counted as a reader "
+                "-- the rule is now too strict and would report a watched file "
+                "as unwatched")
+        # the recursive-walk shape, which is how 19 of the 20 real readers of
+        # ui.dart reach it: a walk must be RECURSIVE to reach a nested file.
+        _assert(opens("app_theme.dart",
+                      "  void go() {\\n"
+                      "    Directory('lib').listSync(recursive: true)\\n"
+                      "        .whereType<File>()\\n"
+                      "        .forEach((f) => f.readAsStringSync());\\n"
+                      "  }\\n"),
+                "a recursive Directory('lib') walk is not counted as opening "
+                "app_theme.dart -- 19 of this file's real readers reach the "
+                "theme only this way, so failing them all would turn every "
+                "app_theme.dart exemption into a false alarm")
+        _assert(not opens("app_theme.dart",
+                          "  void go() {\\n"
+                          "    Directory('lib').listSync()\\n"
+                          "        .forEach((f) => f.readAsStringSync());\\n"
+                          "  }\\n"),
+                "a NON-recursive Directory('lib') walk was counted as opening "
+                "app_theme.dart -- it cannot reach a file three directories "
+                "down, so the exemption would look watched from a reader that "
+                "has never seen it")
+        # the const-bound path: real in this tree, and used by
+        # contrast_tokens_test.dart:20
+        _assert(opens("app_theme.dart",
+                      "const _themePath = "
+                      "'lib/src/core/theme/app_theme.dart';\\n"
+                      "  void go() {\\n"
+                      "    File(_themePath).readAsStringSync();\\n  }\\n"),
+                "a path bound to a const and opened as File(const) is not "
+                "counted -- contrast_tokens_test.dart reads the theme exactly "
+                "that way, so failing it would be a false alarm")
+    yield ("CONTROL -- a test that NAMES a file it never opens is not a reader",
+           phantom_reader_control)
 
     # 3. the derived reader for `motion.dart` runs on every pass. A census
     #    that reports a compensating reader which then silently fails to
