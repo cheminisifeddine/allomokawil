@@ -29479,3 +29479,87 @@ by filename in the first place. Read-only, one tick.
   ladder to check completeness against. The question worth asking is whether
   a *single-value* token family is guarded at all, or merely absent from the
   census because there is nothing to derive. Read-only, one tick.
+
+---
+
+- [x] **`lsDigits` — the tracking leg was not guarded *at all*, and the reason
+      is that it is one value wide. `tracking_token_reader()` shipped.**
+
+  **The question the last tick left open, answered by measurement instead of
+  by reading.** `lsDigits` is a **single** value, so there is no ladder and
+  therefore no completeness claim anyone could write — which is not the same
+  as "too small to guard". So: plant a second tracking token with no
+  measurement behind it and use it for real.
+
+      static const double lsWild = 0.4;          // app_theme.dart
+      const p = TextStyle(letterSpacing: AppTheme.lsWild);   // in lib/
+
+  That is precisely the shape `letter_spacing_token_test.dart` exists to
+  prevent. **All green: 21 tests** across that file and `type_scale_test.dart`,
+  and the Python census **8 passed, 0 failed**. Three guards, one blind spot.
+
+  **Why it was green is the finding.** The guard's rule is *"every
+  `letterSpacing:` names an `AppTheme.ls*` token"*. That constrains the
+  **shape** of the value and never **which** token — and an invented token
+  satisfies it perfectly. So the rule that was built after measuring
+  **15 % extra width on an Arabic word** cannot refuse a tracking value that
+  carries no measurement at all. The file's own header names the route: the
+  original defect "kept surviving review because nobody asked which of the
+  two call sites was digits". A new token walks in the same door.
+
+  **Shipped** `tracking_token_reader()` — the fourth derived reader and the
+  first that is **not a ladder**. Three directions, each of which can fail on
+  its own:
+
+  | direction | what it refuses |
+  | --- | --- |
+  | **orphan** | a token declared in the theme that `letter_spacing_token_test.dart` never names — the plant above |
+  | **ghost** | a token the guard names that the theme does not declare, so `expect(AppTheme.<token>, 1.1)` pins nothing and the assertion asserts nothing |
+  | **unapplied** | a token nothing in `lib/` ever applies: a letter-spacing decision that exists only in the theme, which the next caller finds and assumes was measured |
+
+  No ordering and no distinctness check, unlike the other three readers —
+  one value has nothing to order. Floor `>= 1`, the weakest of the four and
+  deliberately so; it exists only so the reader cannot pass on a theme it
+  failed to read. Registered as test 8, and the existing ladder control
+  extended with the **line-height and tracking** cases so one control covers
+  all four readers instead of two.
+
+  **Red before green, all three directions**, exit 1 on each:
+
+  | plant | result |
+  | --- | --- |
+  | `lsWild` declared, used by a real widget, guard silent | **FAIL** — *"a second tracking value the rule … cannot refuse, because the invented token satisfies it perfectly, so it arrives with no measurement and no owner: lsWild"*, 8/1 |
+  | `AppTheme.lsGhost` named by the guard, never declared | **FAIL** — the second direction, 8/1 |
+  | `lsLoose` declared and named, never applied by `lib/` | **FAIL** — the third direction, 8/1 |
+  | clean tree | **9 passed, 0 failed**, exit 0 |
+
+  **Evidence**
+  - census → **9 passed, 0 failed**, exit 0.
+  - `flutter analyze` → **No issues found!** (10.1 s).
+  - `tool/run_tests.py` → **SUITE PASS 2544 tests across 14 shard(s), every
+    shard green**, `2536 passed / 8 skipped`. Baseline **2544 held exactly** —
+    a Python guard adds no Dart test, and `lib/` is byte-identical this tick,
+    the only changed file being `test/exemption_census_test.py`.
+    **Shard 8 green, sixth consecutive tick** — the 6 Oct hang did not fire.
+  - Blob check against the remote tree: **MATCH** on
+    `test/exemption_census_test.dart`, `lib/src/core/theme/app_theme.dart`,
+    `test/letter_spacing_token_test.dart`, `lib/src/widgets/phone_field.dart`;
+    remote tip `d255941`.
+  - **No screenshot** — no token value touched, no pixel delta.
+
+  **One note on the evidence itself.** The first orphan run printed `EXIT=0`
+  under a `… | tail -2` pipeline: that is `tail`'s status, not the census's.
+  Same trap as the 5 Oct push note, hit in the same place. Every exit code
+  above was re-measured unpiped, and the census is **exit 1** on each plant.
+
+  **That closes the four type-scale legs** — size (`fs*`, derived), weight
+  (`w*`, was a copy, fixed), line-height (`lh*`, was a copy, fixed) and
+  tracking (`ls*`, was unguarded, fixed). The remaining ladders in
+  `app_theme.dart` are the **spacing/radius** family (`rXs…rXl`, `s4…s32`)
+  and the **hairline** family (`hairline`, `hairlineSelected`, `hairlineFocus`,
+  `hairlineResting`), neither of which the census has looked at.
+
+  **Next.** `r*` — the radius ladder. Read-only one tick: does `card_radius_test`
+  or any guard derive it, or is it another hand-copy with no collection behind
+  it? Same shape as the four just closed, and `rPill = 999` is a deliberate
+  outlier that any ordering check has to account for.
