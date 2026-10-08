@@ -29823,3 +29823,102 @@ about the reader being **correct**. A reader that exists and always returns
 None would satisfy it. That is the next thing worth measuring, and it is a
 harness item, not an app item.
 
+
+## Tick 8 Oct (4th) — the census scored a test that NAMES a file as a test
+## that OPENS it
+
+`b71e654` (remote `f5f01f3`). Took the item the previous tick left as "Next",
+and it was the right one: the backlog had **zero unchecked items**, so the only
+honest work left was the untested assumption at the foot of the last tick —
+*"the census asserts a compensating reader exists, not that it is correct. A
+reader that always returned None would satisfy it."* A harness item.
+
+**The finding. The census's own rule had the defect it exists to hunt.** The
+rule it enforces is
+
+> an exemption is fine; an exemption with no compensating reader is not.
+
+and the check behind it asked two questions — does this test **name** the
+exempted file, and does it read **something** off disk — and never "does it
+open **that** file". Naming is free: a path inside a string literal and an
+unrelated `readAsStringSync` elsewhere in the same file earn the credit on
+their own. So the rule answered "is this file spoken of" when it was written
+to answer "does anything open it". Same shape as every other tick in this
+phase: a claim about **existence** where the file was written to make a claim
+about **correctness**.
+
+**The plant.** Two guards exempt `ui.dart` (`card_recipe_test.dart:465` and
+`:497`). Every real read of it was removed — the direct
+`File('lib/src/widgets/ui.dart').readAsStringSync()` at
+`tile_label_fit_test.dart:265`, and the 19 recursive `Directory('lib/src')`
+walks that reach it — and the old census reported
+
+- `readers('ui.dart')` -> `['layering_test.dart', 'tile_label_fit_test.dart']`
+- **12 passed, 0 failed**
+
+`layering_test.dart` stayed credited on line 163, where it names
+`../widgets/ui.dart` inside a **path map**, while opening four unrelated
+files. On that tree **nothing in the repository opened `ui.dart`**, every
+guard in the tree was blind to it, and the census said every exempted file had
+a reader.
+
+**Shipped `opens()`.** A test is a reader only if its code can actually open
+the file, by one of two shapes:
+
+1. a **resolvable `File(...)` argument** — a string literal, or an identifier
+   bound to one, which is the shape `contrast_tokens_test.dart:20` uses;
+2. a **recursive directory walk** of a directory that *contains* the file.
+
+Half 2 is not optional and was measured before the fix was written: **20 of
+this tree's readers of `ui.dart` reach it that way** and not one of them names
+the path, so a rule understanding only direct reads would have inverted this
+file's own failure mode and reported a watched file as unwatched. The walk must
+also be **recursive** — a bare `Directory('lib').listSync()` cannot reach a
+file three directories down, and counting it would restore the same blindness.
+
+**The control, in both directions.** Four phantom shapes the old rule credited
+(a literal const plus unrelated reads; a path-map entry; a **sibling** file; a
+non-recursive walk) and four positives (a direct open, the recursive walk, the
+const-bound path, and the sibling that must *not* count). A rule that cannot
+fail is not a rule, and one that can only fail one way is half a guard.
+
+| tree | old rule | new rule |
+| --- | --- | --- |
+| planted (no reader opens `ui.dart`) | **12 / 0** | **11 / 1** |
+| clean HEAD | 12 / 0 | **13 / 0** |
+| old rule re-planted as `opens()` | — | **12 / 1** (CONTROL fails) |
+
+**A correction, recorded because it nearly shipped as a finding.** The first
+probe called `layering_test.dart` a **phantom** reader, and that was wrong: it
+walks `Directory('lib/src')` recursively and reads each file it finds, so it is
+a genuine reader. The phantom was the census's *rule*, not that file. Caught by
+re-measuring before the fix was written rather than after.
+
+**Evidence** (real output)
+
+- `python3 test/exemption_census_test.py` -> **13 passed, 0 failed** (was 12)
+- `flutter analyze` -> **No issues found!** (12.1 s)
+- `tool/run_tests.py` -> **SUITE PASS — 2546 tests across 14 shard(s), every
+  shard green**, 2538 passed / 8 skipped, 19:03. Baseline **2546 held**, no drop
+- `lib/` **byte-identical** (`git diff --name-only -- lib/` empty) — nothing in
+  the app moved, so the pixel delta is zero and **no screenshot is claimed**
+
+**Also measured: the KNOWN BUG did not reproduce.** Shard 8 — the shard the
+6 Oct note flags as the one worth watching, after a run that sat past its 300 s
+deadline for ~10 minutes — completed **PASS in 1:2x**. Still open; one clean
+run is not a diagnosis.
+
+**Push note.** The first two `gh_push.py` invocations failed on argument order
+(`BRANCH ROOT` is four positional tokens: `OWNER REPO BRANCH ROOT`, and the
+script reads `args[3]` as ROOT). Neither created a commit or touched the
+remote. The third push uploaded **1 changed file** and nothing else, confirmed
+by the diff stat.
+
+**Next.** The census now asks a real question of its readers. What it still
+does not ask is whether the *reader it accepted* is itself a guard with a
+plant — every one of the 20 `ui.dart` readers and 15 `app_theme.dart` readers
+is credited on the strength of opening the file, and `ui.dart` has **two**
+exemptions served by tests that walk all of `lib/src` and read files they never
+assert anything about. The next measurement worth making is whether a credited
+reader is *silent*: a reader that opens the file and asserts nothing about it
+satisfies this census exactly as well as the phantom did. Harness again.
