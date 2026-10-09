@@ -31947,3 +31947,91 @@ costs one call the screen does not make yet. Then the 100-id write: it is a
 200 at 99), so it belongs to BACKEND-API and is worth filing as such rather
 than working around in the app — though the client can stop sending the shape
 by chunking, which is worth doing either way since the cap is the server's.
+
+- [x] **The sweep the 2 Oct tick left as an instruction was aimed at a column the
+      server does not send — the portfolio has no "identical structure".**
+      A non-build tick: `tool/build_gate.py` answered NO ROOM at **411 MB
+      available against a 900 MB floor** (599 MB on a re-check), with the
+      hypervisor holding **5.1–5.3 GB** that nothing in this PID namespace owns,
+      so the gate denied `flutter analyze` and `tool/run_tests.py` and this cycle
+      is Python-only. Zero Dart changed.
+
+      The item taken is the **explicit next instruction** left at line 14296 by
+      the tick that shipped the reviews contradiction:
+
+          "the portfolio grid has the identical structure
+           (`/workers/:id` totals vs the `/portfolio` list) and the same
+           not-guessing rule applies."
+
+      **That instruction is false, and it is the reason nothing was swept here.**
+      Measured live on both hosts, `/api/mobile/workers/5` sends:
+
+          cover_image_url, total_completed_jobs, total_reviews
+
+      and **no photo count at all** — not a drifted one, not a wrong one, and
+      absent from all **100** rows of `/api/mobile/workers/search` too. The only
+      image-bearing key on the profile is `cover_image_url`, and every one of
+      those 100 rows carries it as `null`. So the half that would print a count
+      does not exist, the reviews contradiction **cannot occur** on the gallery,
+      and an audit reporting "0 disagreements" there would have read as coverage
+      while measuring a column nobody sends. Three ticks of phantom blocker, in
+      the same shape as the `quote_worker_trust.dart` 1.5 note at line 631.
+
+      **The real shape on this screen is the id asymmetry, and it is worse than
+      on reviews.** One contractor has two ids (profile 661, user 1039), and:
+
+      | call | correct profile id | user id | bogus id |
+      | --- | --- | --- | --- |
+      | `GET /workers/:id` | **200** | **404** | 404 |
+      | `GET /workers/:id/portfolio` | 200 (n rows) | **200 []** | 200 [] |
+      | `POST /workers/:id/portfolio` | **200 stored** | **500** | 500 |
+
+      The read is **silent** for an id the profile route refuses, and the write
+      is loud. So a contractor whose code passed `userId` where `id` was meant
+      sees «لم يضف صوراً بعد» on his own gallery forever, with every upload
+      failing — and nothing on the screen can name the wrong id, because the
+      gallery route answers `200 []` for it. The wrong-id write did **not** land
+      on another profile (counted either side of a second wrong-id write, not
+      inferred), and it does **not** report success.
+
+      **The app is on the correct id today, pinned not hoped:** all three
+      production call sites resolve the profile id — `browse_screen:504` and
+      `customer_home_screen:574` pass `w.id`, `worker_home_screen:2295` passes
+      `worker.id` from `myProfile()`, and `MyPortfolioScreen` takes no id at all
+      and resolves its own. Recorded as a measured fact, because the failure
+      mode would be silent.
+
+      **Evidence.** `python3 tool/portfolio_gallery_audit.py` -> both hosts,
+      `carries_photo_total: False`, `ids_disagree: True`,
+      `wrong id claims success: False`, `wrong id landed somewhere: False`,
+      **`AUDIT_EXIT=1`**.
+      `python3 test/portfolio_gallery_audit_test.py` -> **14 passed, 0 failed**.
+
+      *Mutation, honestly.* 15 mutations, **11 killed outright**. The other 4
+      were re-run as their real selves: **3 of them were no-ops I wrote**
+      (`any(0 or X)`, `False or X` twice are all identical logic) and the fourth
+      was killed when re-run as a hard `False`. Every mutation is therefore
+      accounted for, and none is a survivor.
+
+      *Three cases this tick's own mutations wrote,* because they were missing
+      rather than broken: a 2xx carrying **no body** (the difference between
+      `ok` and `status == 200`), a **non-list gallery body**, the second
+      conjunct of `ids_disagree`, a **transport fault** on the profile route, and
+      a 403 whose text merely *contains* a number starting `10`. Each was found
+      by a mutation that survived, and each is now pinned.
+
+      **Not claimed:** no `flutter analyze`, no `tool/run_tests.py` — the gate
+      refused, twice. **Zero Dart files changed**, so the banked **2609** cannot
+      move and is untouched by this tick.
+
+      **Next.** The instruction's *method* is right and its *target* was wrong:
+      the sweep worth running is "a screen holding two independent reads of one
+      fact, with nothing comparing them". On this screen there is no such pair —
+      there is one. The one genuinely un-audited pair left is the **plan
+      allowance against the gallery list**: `MyPortfolioScreen._load` reads
+      `/my/profile` for `portfolio_limit` and `/workers/:id/portfolio` for the
+      rows, and `portfolio_allowance.dart` computes `left` from `used` alone.
+      BACKEND-API still owes the **100-id `500`** on notifications mark-read and
+      now a second one: `POST /api/upload` answered **500** with an empty JSON
+      body on a fresh account, so the portfolio *upload* path — the one call the
+      gallery screen exists for — is worth checking before anything else ships.
