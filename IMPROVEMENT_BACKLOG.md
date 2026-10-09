@@ -30021,3 +30021,98 @@ defect as every tick since 3 Oct, one grammar deeper: the census now asks
 whether a *reader* is silent, and the next question worth asking is whether
 the reader's **vocabulary is complete** — a shape it cannot parse is
 indistinguishable from a file that makes no claim. Harness again.
+
+## Tick 8 Oct (6th) — the reader's VOCABULARY was six regexes and every one
+## of them needed the word *takes*
+
+**Another writer was live in this checkout.** The tree was clean at the start
+of this tick and `lib/src/core/theme/app_theme.dart` arrived mid-tick carrying
+a duplicated `static const double hairline = 1.5;` -- a red analyzer error in a
+file this tick never opened. Per step 1 that dirt is another session's work and
+must not be committed over. So the gate ran in an isolated `git archive` copy
+of HEAD (`scratch/iso`, 606 files, its own git repo), and only this tick's two
+test files were staged. **The red `app_theme.dart` is still in the working
+tree, uncommitted, and belongs to whoever is editing it.**
+
+**The item.** The backlog has zero unchecked items. The previous tick's `Next`
+line named the target: the reader knows six sentence shapes, and a claim
+phrased in a shape none of the six recognises is read by nothing and reported
+as agreement.
+
+**The hole, measured before any code.** A probe over `lib/` and `test/`
+counted **53** paragraphs carrying a number and a form word that no pattern
+matches. Narrowed to the honest reading of the defect -- a number joined to a
+form by a copula rather than by *takes* -- there are **eleven** such sentences,
+and **not one** was graded. The first ten are correct. The eleventh is not.
+
+**What it found.** `test/reviews_section_contradiction_test.dart:280` read
+"103 is plural exactly as 3 is, and 110 is singular exactly as 10 is". 110 takes
+the **plural** -- `110 % 100` is 10, which is inside the broken-plural window.
+That is the precise error `agreement_comment_test.dart` was written after, and
+it sat **ten lines under a comment in the same file** saying the opposite
+("110 is plural, not singular"), written by the tick that fixed the original
+typo. Both were unverifiable, because a claim stated with a copula is read by
+nothing. Corrected at the site, with the reason recorded there.
+
+**The second defect, exposed by the first.** `_claims` is the per-line scan
+that reads the tree, and it never blanked a quoted span -- only `_scanClaims`
+ever did. Every earlier pattern got away with it because every one of them
+requires the literal word *takes*, and this tree writes its counter-examples as
+"110 takes the singular exactly as 10 does". **The copula form is the first
+pattern that matches inside ordinary prose.** So the moment it was added, it
+graded the quote in the very correction paragraph describing the bug as a live
+claim about the app -- caught by running the baseline instead of trusting the
+first green. `_blankQuotedSpans` now runs in `_claims` too: two scanners of one
+vocabulary must not disagree about whether a quotation is a statement.
+
+**The third defect, and the one this tick is actually about.** Mutation
+testing found the first two versions of this change shipped **unguarded**:
+
+| mutation | first attempt | after the floor + plants |
+| --- | --- | --- |
+| drop quote-blanking in `_claims` | **RED** | RED |
+| drop copula branch from `_claims` | **GREEN** (14 tests) | **RED** |
+| revert the exhibit gate | **GREEN** (22) | **RED** |
+| drop copula branch from `_scanClaims` | **GREEN** (23) | **RED** |
+| weaken the copula pattern itself | -- | **RED** (3 failures) |
+
+The reason is structural and it is the same defect the loop has been chasing
+since 3 Oct, one shape further in: **the copula claims were checked only by
+the loop over `_claims()`, so deleting the branch that produces them deleted
+the tests that would have noticed.** A loop-generated test cannot witness its
+own generator. Shipped a floor test pinning the pattern's reach at **8**
+claims in `lib/` and `test/`, plus four planted copula tests for the two stages
+the real file cannot exercise -- `_selfClaims()` on this file is correctly
+empty, so a plant is the only thing that can see those stages go.
+
+**One mutation is GREEN and is left standing, deliberately.** Dropping stage-1
+quote blanking (per-line) in `_scanClaims` does not fail: stage 1 only feeds
+the joined pass, which the new quoted-plant already exercises through stage 2.
+Recorded rather than retested, because a mutation that cannot fail is a fact
+about the code, not a failure of this tick.
+
+**Evidence (real output)**
+
+- `flutter analyze` -> **No issues found!** (22.3 s) -- on the isolated copy,
+  whose `lib/` is HEAD's, so the other writer's red `app_theme.dart` is not
+  in this number
+- `tool/run_tests.py` -> **SUITE PASS — 2563 tests across 14 shard(s), every
+  shard green**, 2555 passed / 8 skipped, 19:16, exit 0. Baseline **2551
+  held**, +12 from the floor test and the four plants
+- the shard-1 FAIL in the first isolated run was **diagnosed, not retried
+  away**: `app_source_scope_test.dart` runs `git ls-files` and a `git archive`
+  copy has no `.git`. After `git init` in the copy, shard 1 PASSes at 215
+  tests, both in a targeted re-run and in the full 14/14 run
+- `lib/` **byte-identical** -- nothing in the app moved, so **no screenshot is
+  claimed**
+- commit `59bd6dd` -> remote `3013dfd`
+
+**Next.** The reader now knows seven shapes and still cannot see a claim
+written about a **range boundary in prose** -- "everything from 11 to 102 is
+counted singular" is a two-number sentence none of the seven reads, and the
+11-102 window is exactly where this rule is most often misstated. Same shape
+of hole, one grammar deeper again: a vocabulary is only ever as good as the
+shapes its author thought of. The question worth asking next is not another
+word list but **how a reader learns that its vocabulary is incomplete** --
+the floor test pins the count, so the count moving is the signal, and no
+automated thing in this tree watches a shape nobody wrote yet.
