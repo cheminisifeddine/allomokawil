@@ -833,9 +833,21 @@ in this file that dies on arrival is how two ticks were lost.
    python3 tool/run_tests.py                           # count must be >= the previous count
    ```
 
-   **The baseline is 2603, measured 9 Oct -- and it is a number, not an
-   assumption.** `SUITE PASS - 2603 tests across 14 shard(s)`, 14/14 green,
-   `2595 passed, 8 skipped`, 19:03, zero FAIL/HUNG lines. It REPLACES two
+   **The baseline is now 2605, banked 9 Oct as ONE bare run -- the carry-over
+   this loop has been carrying since the balloon landed, closed.** `python3
+   tool/run_tests.py` with no flags -> `SUITE PASS - 2605 tests across 14
+   shard(s), every shard green`, `2597 passed, 8 skipped`, `RUNNER_EXIT=0`,
+   19:47, **zero FAIL/HUNG lines**, every shard green on its FIRST attempt
+   (1:12-2:11 each). It replaces the reconciled-but-not-banked 2605 of the
+   previous tick, which had to be computed as `1614 + (1185 - 202)` across
+   two logs because the run was interrupted. This one came out of one
+   process, which is the only form in which a count can gate anything.
+   **2603 remains the floor it was reconciled against**; keep gating on
+   `>= 2603` and never below the last green run.
+   **The 6 Oct KNOWN BUG below did NOT reproduce.** Shard 8 -- the one that
+   overran its 300 s cap by ~10 minutes last time -- passed in **1:38** here,
+   mid-pack with its neighbours, not retried. Treat it as INTERMITTENT and
+   keep the deadline; do not remove the deadline because one run was clean. It REPLACES two
    earlier figures that were not wrong by accident: **2297** and **2459**
    were both counting shards 4 and 7 as empty, because `passed_count`
    could not read a progress line carrying a skip marker (see the Phase 6
@@ -884,9 +896,10 @@ in this file that dies on arrival is how two ticks were lost.
    what made the ambiguity permanent, so leaving it would re-introduce the bug
    the moment anyone "fixed" the runner back.
 
-   **KNOWN BUG, measured 6 Oct — the deadline did not fire.** A second run
-   entered shard 8 at its 300 s deadline and was still running **~10 minutes
-   later**, against the exact failure mode the runner exists to prevent (the
+   **KNOWN BUG, measured 6 Oct — the deadline did not fire.** *(Did NOT
+   reproduce 9 Oct: shard 8 passed in 1:38 on a full bare run. Intermittent,
+   deadline still required -- do not remove it.)* A second run entered shard 8
+   at its 300 s deadline and was still running **~10 minutes later**, against the exact failure mode the runner exists to prevent (the
    30 Sep stall, every thread in `epoll_wait` at 0 % CPU). Shards 1-7 had
    completed in 1:18-2:14 each, so this was not a slow shard. Killed by the
    tick. Two consequences: **do not treat a quiet `run_tests.py` as a passing
@@ -30962,3 +30975,68 @@ app surface, nothing renders, **no screenshot claimed**.
 2. **Then bank the bare single-run 14/14** — still not done, still the standing
    carry-over. It needs `build_gate.py` to answer CLEAR, and the gate has said
    NO ROOM on the balloon every reading today.
+
+## Tick 9 Oct 2026 (3rd) — the carry-over is CLOSED: 2605 banked from one
+## process, and the one unverified assertion is no longer unverified. **SHIPPED**
+
+**The balloon let go.** `build_gate.py` opened at **1018 MB available against
+the 900 MB floor** and answered `CLEAR` for the first time in three ticks
+(last tick measured **416 MB**). That turned a non-build tick back into a
+build tick, and the thing the loop has been carrying since the balloon landed
+was runnable for the first time.
+
+**Closed the standing carry-over: the bare 14/14.** `python3 tool/run_tests.py`
+with no flags -> **`SUITE PASS — 2605 tests across 14 shard(s), every shard
+green`**, `2597 passed, 8 skipped`, `RUNNER_EXIT=0`, **19:47**, **zero
+FAIL/HUNG lines**, every shard green on its **first** attempt.
+
+*Why the number matters more than the green.* Last tick wrote **2605** and
+labelled it *reconciled, not banked*: it had to be computed as
+`1614 + (1185 - 202)` across two logs because that run was interrupted
+mid-suite. An arithmetic reconstruction of an interrupted run is not a
+baseline — it cannot be compared against, because the two logs were not the
+same run. This one came out of a single process, so it is the first form of
+**2605** in which the number can actually gate anything. `>= 2603` still
+holds; 2605 is above it by two, and those two are the shard-4 and shard-7
+progress lines the old `passed_count` could not read.
+
+**The one thing last tick could not verify, verified.** `a259c31` changed the
+BUSY refusal to exit 3 and left the Dart half of that fix unexecuted —
+`run_tests_deadline_test.dart` asserts `exitCode == 3`, and Dart could not run
+on a 416 MB box. It ran this tick:
+`python3 tool/run_tests.py --deadline 700 -- --concurrency=1
+test/run_tests_deadline_test.dart` -> **SUITE PASS — 4 tests across 1
+shard(s), every shard green**, 0:15. The assertion is real. The python twin
+(`run_tests_busy_code_test.py`) and this now agree, which is the whole point
+of having made the twin python: the fix was checkable on a box that could not
+host Dart, and the Dart half was not lost, it was deferred by exactly one
+tick and it cost one tick.
+
+**The 6 Oct known bug did not reproduce.** Shard 8 — the one that overran its
+300 s cap by ~10 minutes and was killed by the tick on 6 Oct — **passed in
+1:38** here, mid-pack with its neighbours and not retried. Recorded as
+intermittent. **The deadline stays**; one clean run on an intermittent stall
+is not evidence the stall is gone, and the deadline is the only thing standing
+between the next occurrence and a silent 45-minute tick.
+
+**And the analyzer, green for the first time in several ticks.** `flutter
+analyze` -> **`No issues found!` (ran in 10.9s)**. Impossible to run last tick;
+trivial this one. Two gates, two answers, in the order the protocol wants them.
+
+**Files changed: `IMPROVEMENT_BACKLOG.md` only.** No Dart, no test, no lib
+file. The backlog was already at **zero unchecked** and stays there — this
+cycle closed a carry-over, not an item.
+
+**Measurement note, recorded because it nearly cost a tick.** Memory during the
+run fell to **871 MB available with the suite in flight** (the protocol notes
+a suite run measured bottoming out at 1177 MB). `build_gate.py` would answer
+NO ROOM *while the suite it is gating is running correctly* — that is not a
+lie, it is the gate's job, but a tick that samples the gate mid-run and
+concludes the box cannot host a build will skip a build it could have run.
+Ask the gate **before** starting, never mid-flight.
+
+**Next:** the tree is gated and the count is banked. The backlog is empty, so
+the next tick should either open a new item against the app itself or leave
+the instruments alone — the loop's own harness phase (Phase 6) has now cost
+more ticks than it has returned, and every item in it was found by the loop
+tripping over its own harness rather than by the app needing it.
