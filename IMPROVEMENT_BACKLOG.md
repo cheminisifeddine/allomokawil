@@ -725,6 +725,72 @@ future tick can *see*.
       Unmeasured. Do not assume it caps; measure it the way this one was
       measured before writing a word of copy.
 
+- [x] **The carry-over lead was WRONG: `conversations()` does not cap, and the
+      server already sorts the inbox by activity.**  No Dart change; a tool and
+      its refutation.
+      The previous tick left this as the next candidate, in exactly the right
+      words: *"`conversations()` — the inbox list is a single uncursored read
+      and a capped inbox would silently hide threads. Unmeasured. Do not assume
+      it caps; measure it the way this one was measured before writing a word of
+      copy."* It was measured. **It does not cap.**
+      *Production, 10 Oct, both hosts.* One throwaway customer, **120**
+      conversations created (past any round number a cap would use): the inbox
+      answered **120 rows**. A second run at 110 answered 110. On
+      `https://allomokawil.com` a 40-thread run answered **39 made, 39 rows** —
+      one signup lost a race, and that is a *creation* shortfall, not a read
+      loss. `?limit=500`, `?page=2`, `?offset=30` are all **silently ignored**:
+      the route has no paging at all, so there is no lost page for a band to
+      describe. Shipping the `partial_thread_copy` band here would have been a
+      band about a truncation that does not exist — which is why the lead said
+      measure first.
+      *The order is the server's, and it is right.* Rows come back by
+      `last_message_at` **descending**, proven by the decisive case rather than
+      by inspection: messaging an **older** thread (id 200) after newer ones
+      exist (201, 202) returned `[200, 202, 201]` — activity order, **not** id
+      order — and the order was byte-identical across four consecutive reads.
+      Empty threads fall back to id-descending. So the app has nothing to sort
+      and nothing to warn about, and the seven `conversations()` call sites are
+      correct as written.
+      *Shipped the measurement, not a defect:* `tool/inbox_read_audit.py`
+      (stdlib only, no package to install) and `test/inbox_read_audit_test.py`.
+      **Python because the Dart gate refused this box** (335 MB available
+      against a 900 MB floor; a suite run is measured to bottom out at 1177 MB).
+      A measurement is exactly the work that must not be dropped for that
+      reason, and it does not need a Dart VM. Same reasoning as
+      `test/run_tests_busy_code_test.py`.
+      *Exit codes, kept apart because the 69th tick lost one to this exact
+      confusion:* **0** nothing lost, **1** rows lost, **2** host unreachable,
+      **3** refused. Measured, not asserted — an `.invalid` host returns 2, a
+      clean production run returns 0.
+      *Two things the run caught in my own work:*
+      (1) The refusal read `build_gate.py`'s **exit code** alone, and that gate
+      folds BUSY and NO ROOM into one code *on purpose*. So the tool printed
+      `BUSY` and refused while the gate was simultaneously reporting **nothing
+      was building**. A refusal that invents its reason is worse than no
+      refusal — it abandons the measurement on a box that holds a few hundred KB
+      of HTTP perfectly well. The gate's own sentence is now the discriminator,
+      and the test pins both halves.
+      (2) Cloudflare answers **403 with body `error code: 1010`** to urllib's
+      default agent — a WAF signature match on a healthy API, which read naively
+      is «the API is down». `ApiClient` sends no User-Agent of its own, so the
+      tool's is all that stands between a clean run and that false alarm.
+
+      **Evidence:** 11/11 python cases green. **10 mutations, all killed** — cap
+      by row count, always-activity-ok, failed read as a clean bill, refuse on
+      any non-zero gate, faked membership, always-stable, undated-not-counted,
+      faked paging flag, header removed, header swapped to `Python-urllib`.
+      Two survived the first sweep and both were **vacuous tests, not tool
+      bugs**: `order_stable` had no case at all, and the User-Agent was
+      unpinned. Live re-run after patching: `110 made, 110 rows, UNCAPPED`,
+      order stable, paging ignored. `push_helper`, `loop_protocol`,
+      `stash_verdict`, `shot_namespace`, `remote_state`: all pass.
+      **Not claimed:** no `flutter analyze` and no `flutter test` this tick —
+      the gate refused, and this change touches **zero Dart files**, so it
+      cannot move the banked **2605** count. Banked whole-suite number stands.
+
+      *Files:* `tool/inbox_read_audit.py` (new),
+      `test/inbox_read_audit_test.py` (new), `IMPROVEMENT_BACKLOG.md`.
+
 - [x] **Step 6's blob check could not see a mode difference — so a tick
       reported MATCH on a tree the tree gate called DIVERGED, and both were
       right.**  `589a9ba`.
