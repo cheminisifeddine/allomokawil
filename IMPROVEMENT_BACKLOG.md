@@ -31382,3 +31382,86 @@ the next tick should either open a new item against the app itself or leave
 the instruments alone — the loop's own harness phase (Phase 6) has now cost
 more ticks than it has returned, and every item in it was found by the loop
 tripping over its own harness rather than by the app needing it.
+
+## Tick 10 Oct 2026 — `Money.amountOnly` throws on a non-finite amount, and the
+## negative test beside it was why nobody saw it. **SHIPPED**
+
+**The gate was CLEAR, so this was the first Dart tick in days.** `build_gate.py`
+opened at **2382 MB available** against the 900 MB floor — the balloon that
+pinned the last four ticks at 446 / 416 / 1018 MB has let go. With zero unchecked
+items left in the backlog, the item was opened against `lib/` itself rather than
+against the harness, per the last tick's own note that Phase 6 had cost more than
+it returned.
+
+**The defect.** `Money.amountOnly(num n)` calls `n.round()`, which is `toInt()`
+and **throws** `UnsupportedError: Unsupported operation: Infinity or NaN toInt` on
+anything not finite. Measured, not assumed:
+
+    nan literal   -> THROWS UnsupportedError
+    inf literal   -> THROWS UnsupportedError
+    neg inf       -> THROWS UnsupportedError
+    0.0/0.0       -> THROWS UnsupportedError
+    1.0/0         -> THROWS UnsupportedError
+    finite ok     -> 6000
+    negative ok   -> 0
+
+**Why it survived a test that was sitting right next to it.** The negative fold
+(`v < 0` -> `'0'`) was already in the function and already pinned by
+`expect(Money.amountOnly(-5), '0')`. A negative **is** finite, so that test passed
+while the entire non-finite half of the signature's contract threw. The guard was
+on the value the old test happened to hold, not the value the type accepts — which
+is the same defect shape as the stored-`0` folds this loop has fixed in four other
+copy files (`photosAr`, `durationDaysAr`, `wilayaSpanAr`, `project.budgetLabel`),
+one layer down. A guard placed by test-coverage rather than by the type is a
+guard with a hole exactly the size of everything the test did not hold.
+
+**It lands in a widget build, and nothing catches it.** `UnsupportedError` is an
+`Error`, not an `Exception`. Every arm in `error_copy` is an `is SomeException`
+test, so the one mapper that exists to turn any failure into Arabic cannot see
+this one — a NaN reaching `Project.budgetLabel` takes the project card down
+rather than dropping the row, which is the opposite of what the negative fold two
+lines below does.
+
+**Shipped:** `if (!n.isFinite) return '0';` ahead of the existing fold. The
+negative arm is untouched.
+
+**The second half of the fix was wrong on the first attempt, and the test caught
+it before commit.** I wrote `n.isNaN`, which is the obvious name and is wrong:
+**Infinity is not NaN** (`inf.isNaN == false`, `1.0/0.isNaN == false`), so it
+would have caught `nan` and `0.0/0.0` and left three of the four non-finite values
+still throwing — including `1.0/0`, which is exactly what a division by a zero
+quota limit produces on this app's own subscription bar. The run printed
+`+42 -2` with `double.round` in the stack, `money.dart 48:17`, which is the
+signature of the guard not being reached at all. `isFinite` answers the question
+the signature actually asks — *is this a number at all* — in one test.
+
+**Evidence:**
+
+- `flutter analyze` -> **`No issues found!`** (ran in 12.0s).
+- `test/taxonomy_money_test.dart` -> **44 PASS / 0 FAIL**, up from 39 (+5).
+- **Mutation-proven:** deleting the one guard line gives **2 FAIL** with the real
+  `UnsupportedError` stack, so the five new cases are not vacuous.
+- All 8 test files that reference `Money` -> **90 PASS / 0 FAIL**, including
+  `layering_test` and `project_card_budget_strip_test`.
+- Live `GET /api/mobile/plans` read this tick to confirm the real plan catalogue
+  the money paths print (`free_trial` 0/0, `basic` 1500/15000, `pro` 3000/30000,
+  `gold` 6000/60000).
+
+**Not claimed:** the full 14-shard suite was **not** run — it measured **19:47**
+on 9 Oct and cannot fit a 10-minute tick. The gate here is every consumer of the
+changed function, which is the honest proportional answer, not a quiet skip. The
+last banked whole-suite number stands at **2605** and this change cannot lower it
+(additive, and every file that touches `Money` is green).
+
+**Files:** `lib/src/core/format/money.dart`, `test/taxonomy_money_test.dart`,
+`IMPROVEMENT_BACKLOG.md`. No `screens/`, nothing renders, **no screenshot
+claimed**.
+
+**Commit** `1d81c15` -> remote `5f486f5`. Blobs verified **MATCH** over the API,
+trees identical (`10d4387`).
+
+**Next.** The audit this tick ran is the honest answer to "what is left": the
+copy/format layer is now clean end to end — every count noun, every star rating,
+every money path and every error arm was read and each already carried its guard.
+The next item should be a **different layer** (the screen/state layer, or
+`data/repository.dart`'s paging), not another pass over `data/*_copy.dart`.
