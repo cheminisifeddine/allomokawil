@@ -321,8 +321,18 @@ def measure(root: str) -> dict:
 
     surface = loose_surface(root, probe, negated)
 
+    # The membership assertion, read out of the same file the pins come from.
+    membership = read_membership(src)
+    prose_only = prose_only_files(root, calls)
+
     return {
         "pins": pins,
+        "membership": membership,
+        "membership_present": membership["present"],
+        "membership_guarded": membership["guarded"],
+        "membership_exempt": membership["exempt"],
+        "prose_only": sorted(prose_only),
+        "prose_only_count": len(prose_only),
         "direct": len(direct),
         "direct_files": sorted(direct),
         # Can the pin on the COUNT see a census that reads prose as calls?
@@ -335,6 +345,65 @@ def measure(root: str) -> dict:
         "surface": surface,
         "surface_count": len(surface),
     }
+
+
+# The membership assertion the count pin was ordered to become. Extracted,
+# like the patterns -- never copied -- so this tool reports on the assertion
+# the tree ACTUALLY holds rather than the one a previous tick proposed.
+#
+# Its shape, as written in the Dart:
+#
+#     final directClaimFiles =
+#         census.direct.intersection(claimFiles).difference({
+#       'arabic_agreement.dart',
+#       'arabic_agreement_test.dart',
+#       'quote_duration_copy.dart'
+#     });
+#     expect(directClaimFiles, isEmpty,
+#
+# Three literals, one intersection, one difference, one `isEmpty`. All four
+# have to be found or this reports the assertion as ABSENT rather than as
+# vacuous -- and "absent" and "present but cannot fail" are different faults
+# with different fixes.
+MEMBERSHIP_RE = re.compile(
+    r"census\.direct\s*\.intersection\(claimFiles\)\s*\.difference\(\{"
+    r"(?P<exempt>[^}]*)\}\)")
+MEMBERSHIP_EMPTY_RE = re.compile(
+    r"expect\(\s*directClaimFiles\s*,\s*isEmpty\s*[,;]")
+
+
+def read_membership(src: str) -> dict:
+    """The membership assertion as written, or `present: False`.
+
+    Returns `{"present", "exempt", "guarded"}` -- `guarded` says the collected
+    set is actually asserted empty, which is the half that makes it a guard
+    rather than a computation nobody checks.
+    """
+    m = MEMBERSHIP_RE.search(src)
+    if not m:
+        return {"present": False, "exempt": [], "guarded": False}
+    exempt = re.findall(r"'([^']+)'", m.group("exempt"))
+    return {"present": True, "exempt": exempt,
+            "guarded": bool(MEMBERSHIP_EMPTY_RE.search(src))}
+
+
+def prose_only_files(root: str, calls: "re.Pattern[str]") -> dict:
+    """`{basename: path}` for files that MENTION the helper but never CALL it.
+
+    This is the negative shape the plant in the Dart file writes to disk: a file
+    whose only `arabicCounted(` sits inside a comment. The count pin cannot see
+    it because the set it counts is unchanged; a membership assertion CAN,
+    because the file lands in `direct` -- so whether the real tree can supply
+    the case decides which guard is load-bearing here, and that is a fact about
+    the tree rather than about either assertion.
+    """
+    out = {}
+    for path in dart_files(root):
+        with open(path, encoding="utf-8") as fh:
+            body = fh.read()
+        if calls.search(body) and not calls.search(code_of(path)):
+            out[os.path.basename(path)] = path
+    return out
 
 
 # The Dart field a pin names, and the key its measurement lands under here.
@@ -370,6 +439,26 @@ def verdict(m: dict) -> dict:
             m["comment_filter_delta"] != 0,
         "direct_pin_falsifiable_for_bare_name":
             m["bare_name_delta"] != 0,
+        # ...and the membership assertion the last tick ordered INSTEAD of it.
+        # It is the stronger guard only if the real tree can supply the case it
+        # is sensitive to. Zero prose-only files means the tree cannot, so on
+        # THIS tree it is vacuous in exactly the way the count pin is -- and
+        # swapping one for the other would trade a pin that sees drift for one
+        # that cannot see the defect, without adding a second thing that can.
+        "membership_present": m.get("membership_present", False),
+        # An absent assertion is never guarded: reporting `guarded: True`
+        # beside `present: False` is how a deleted guard reads as a working
+        # one. The battery caught exactly this on its first run.
+        "membership_guarded": (m.get("membership_present", False)
+                              and m.get("membership_guarded", False)),
+        "membership_falsifiable_here": m.get("prose_only_count", 0) != 0,
+        # The plant is the answer, and it is not a suggestion: the Dart file
+        # already writes the case to disk and deletes it, which is the only
+        # reason the shape is exercised at all on a tree that has no instance.
+        "plant_is_the_only_coverage": (m.get("prose_only_count", 0) == 0
+                                       and m.get("membership_present", False)),
+        "prose_only": m.get("prose_only", []),
+        "prose_only_count": m.get("prose_only_count", 0),
     }
 
 
@@ -415,6 +504,33 @@ def render(m: dict, v: dict) -> "list[str]":
     if m["bare_name_files"]:
         out.append("      files only the bare name adds: %s"
                    % ", ".join(m["bare_name_files"]))
+    out.append("")
+    out.append("  The membership assertion the count pin was ordered to become.")
+    if not v["membership_present"]:
+        out.append("    ABSENT -- no `direct.intersection(claimFiles)"
+                   ".difference({...})` in the Dart file.")
+    else:
+        out.append("    present, exempting %d file(s): %s"
+                   % (len(m["membership_exempt"]),
+                      ", ".join(m["membership_exempt"]) or "none"))
+        out.append("    asserted empty        : %s"
+                   % ("yes" if v["membership_guarded"] else
+                      "NO -- collected and never checked"))
+        out.append("    files in this tree that are prose-only : %d"
+                   % m["prose_only_count"])
+        if v["membership_falsifiable_here"]:
+            out.append("    -> it IS falsifiable here: those %d file(s) would "
+                       "enter the set:" % m["prose_only_count"])
+            for f in v["prose_only"]:
+                out.append("         %s" % f)
+        else:
+            out.append("    -> VACUOUS HERE, exactly like the count pin. The "
+                       "real tree has no prose-only file, so nothing enters "
+                       "the set and nothing can make it non-empty.")
+        if v["plant_is_the_only_coverage"]:
+            out.append("    -> the ONLY thing exercising the shape is the "
+                       "plant in the Dart file, which writes the case to disk "
+                       "and deletes it again.")
     return out
 
 

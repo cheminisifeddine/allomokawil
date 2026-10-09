@@ -510,5 +510,175 @@ class CliTests(unittest.TestCase):
         self.assertFalse(v["direct_pin_falsifiable_for_bare_name"])
         self.assertFalse(v["direct_pin_falsifiable_for_comment_filter"])
 
+class MembershipTests(unittest.TestCase):
+    """The prescription the 9 Oct tick left for the next tick.
+
+    That tick ordered: «replace the count pin with a membership assertion --
+    "the set of claim-bearing files whose only mention of the helper is prose
+    is EMPTY"». Two facts measured here make that prescription wrong as
+    written, and both are facts about the TREE rather than about the argument:
+
+      * **the assertion already exists.** It is the `directClaimFiles` /
+        `isEmpty` pair in the same test, six lines above the count pin. A tick
+        that follows the prescription literally writes a second copy of a
+        guard that is already there.
+      * **and the existing copy is vacuous on this tree too.** Zero files
+        mention the helper in prose without calling it, so the set it asserts
+        empty is empty for want of input, not because a filter works. Deleting
+        the count pin -- which DOES see drift, +2 today -- for that leaves the
+        tree with one guard that can fail and one that cannot, where it had
+        two that can.
+
+    So the assertions here pin the *measurement* that refutes the
+    prescription, and the plant case pins that a membership assertion WOULD
+    catch the shape if the tree ever supplied it.
+    """
+
+    def _membership_in(self, body: str) -> dict:
+        return aca.read_membership(body)
+
+    def test_the_assertion_is_read_from_the_dart_file(self):
+        m = self._membership_in(
+            "census.direct.intersection(claimFiles).difference({"
+            "'a.dart', 'b.dart'});")
+        self.assertTrue(m["present"])
+        self.assertEqual(m["exempt"], ["a.dart", "b.dart"])
+
+    def test_a_tree_with_no_membership_assertion_reports_it_absent(self):
+        # Absent and vacuous are different faults with different fixes, so the
+        # reader must be able to tell them apart.
+        m = self._membership_in("final directClaimFiles = <String>{};")
+        self.assertFalse(m["present"])
+        self.assertEqual(m["exempt"], [])
+
+    def test_a_collected_set_that_is_never_asserted_empty_is_not_a_guard(self):
+        # The computation without the `isEmpty` is the half that looks like
+        # coverage in a diff and catches nothing.
+        body = ("census.direct.intersection(claimFiles).difference({'a.dart'});"
+                " expect(directClaimFiles, isNotEmpty);")
+        m = self._membership_in(body)
+        self.assertTrue(m["present"])
+        self.assertFalse(m["guarded"])
+
+    def test_the_dart_tree_already_holds_the_assertion_the_tick_would_add(self):
+        # The load-bearing one: it is what makes the prescription a duplicate
+        # rather than a repair. Reads the REAL file, so it fails the moment the
+        # assertion is deleted -- which is the day the prescription becomes
+        # correct.
+        with open(os.path.join(ROOT, aca.DART), encoding="utf-8") as fh:
+            src = fh.read()
+        m = aca.read_membership(src)
+        self.assertTrue(m["present"],
+                        "the membership assertion is GONE -- so replacing the "
+                        "count pin with it is now a repair, not a duplicate")
+        self.assertTrue(m["guarded"])
+        self.assertIn("quote_duration_copy.dart", m["exempt"])
+
+    def test_the_real_tree_supplies_no_prose_only_file_so_it_cannot_fail(self):
+        # The finding that refuses the prescription. Counted from the real
+        # tree, but NOT asserted as a count -- it is read and reported, because
+        # pinning `0` here would be the same stale-number mistake this file
+        # exists to correct. The assertion is about the SHAPE: if the tree ever
+        # gains such a file, this goes red and the prescription becomes sound.
+        calls = aca.extract_regex(
+            open(os.path.join(ROOT, aca.DART), encoding="utf-8").read(), "calls")
+        prose_only = aca.prose_only_files(ROOT, calls)
+        self.assertEqual(
+            sorted(prose_only), [],
+            "the tree now has prose-only file(s) %s -- a membership assertion "
+            "is falsifiable here, so the count pin may be replaced by it"
+            % sorted(prose_only))
+
+    def test_a_prose_only_file_is_what_makes_membership_falsifiable(self):
+        # The other half: the shape DOES work, on a tree that has the case.
+        # Without this the finding above would be read as "membership cannot
+        # catch prose" -- the opposite of what it says.
+        with tempfile.TemporaryDirectory() as tmp:
+            write_tree(tmp, {"lib/caller.dart": CALLER,
+                             "lib/prose.dart": PROSE_ONLY})
+            calls = aca.extract_regex(
+                open(os.path.join(ROOT, aca.DART), encoding="utf-8").read(),
+                "calls")
+            prose_only = aca.prose_only_files(tmp, calls)
+            self.assertEqual(sorted(prose_only), ["prose.dart"])
+
+    def test_the_plant_shape_is_exactly_what_prose_only_looks_for(self):
+        # The plant in the Dart file has to carry the parenthesis, and this is
+        # why: the call-site pattern requires `(`, so a plant writing a bare
+        # name could not tell the two apart however the filter behaved. Same
+        # reason, pinned on this side so the fixture cannot quietly change.
+        with tempfile.TemporaryDirectory() as tmp:
+            write_tree(tmp, {"lib/bare.dart":
+                             "// see arabicCounted here\nString f() => 'x';\n"})
+            calls = aca.extract_regex(
+                open(os.path.join(ROOT, aca.DART), encoding="utf-8").read(),
+                "calls")
+            self.assertEqual(sorted(aca.prose_only_files(tmp, calls)), [],
+                             "a bare-name mention does not match `calls` at "
+                             "all -- it is not a case this can ever supply")
+
+
+class MembershipCliTests(CliTests):
+    """The render path, which is where a reader is actually convinced.
+
+    Both cases here exist because the first mutation battery found them
+    SURVIVING: `prose_only_count` hardcoded and the VACUOUS sentence softened
+    both left the suite green, because every other case drives `verdict()`
+    directly and never renders. A judgement that is right in a dict and
+    absent from the output has not told anybody anything.
+    """
+
+    def test_a_tree_with_no_prose_only_file_says_vacuous(self):
+        self._dart(open(os.path.join(ROOT, aca.DART), encoding="utf-8").read())
+        write_tree(self.tmp, {"lib/caller.dart": CALLER,
+                              "lib/prose.dart": PROSE_ONLY})
+        # PROSE_ONLY is the negative shape, so this tree HAS one -- measure it.
+        code, out = self._capture(self.tmp)
+        self.assertIn("prose-only", out)
+        self.assertIn("IS falsifiable here", out)
+        self.assertNotIn("VACUOUS HERE", out)
+
+    def test_a_tree_whose_only_caller_has_no_prose_says_vacuous(self):
+        self._dart(open(os.path.join(ROOT, aca.DART), encoding="utf-8").read())
+        write_tree(self.tmp, {"lib/caller.dart": CALLER})
+        code, out = self._capture(self.tmp)
+        self.assertIn("VACUOUS HERE", out)
+        self.assertIn("prose-only", out)
+        # The count that decides it, spelled out -- so a hardcoded `1` cannot
+        # render as agreement here.
+        self.assertIn("files in this tree that are prose-only : 0", out)
+
+
+class MembershipVerdictTests(unittest.TestCase):
+    """`verdict()` must answer the prescription question, not just count."""
+
+    def _v(self, **over):
+        base = {"membership_present": True, "membership_guarded": True,
+                "prose_only": [], "prose_only_count": 0}
+        base.update(over)
+        m = {"pins": {"direct": 22}, "direct": 22, "direct_files": [],
+             "comment_filter_delta": 0, "comment_filter_files": [],
+             "bare_name_delta": 0, "bare_name_files": [],
+             "surface_count": 27, "surface": []}
+        m.update(base)
+        return aca.verdict(m)
+
+    def test_zero_prose_only_files_means_membership_is_not_falsifiable(self):
+        v = self._v()
+        self.assertFalse(v["membership_falsifiable_here"])
+        self.assertTrue(v["plant_is_the_only_coverage"])
+
+    def test_a_prose_only_file_makes_membership_falsifiable(self):
+        v = self._v(prose_only=["prose.dart"], prose_only_count=1)
+        self.assertTrue(v["membership_falsifiable_here"])
+        self.assertFalse(v["plant_is_the_only_coverage"])
+
+    def test_an_absent_assertion_is_not_reported_as_the_only_coverage(self):
+        # Otherwise a deleted guard reads as "the plant covers it".
+        v = self._v(membership_present=False)
+        self.assertFalse(v["plant_is_the_only_coverage"])
+        self.assertFalse(v["membership_guarded"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
