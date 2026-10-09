@@ -30454,3 +30454,74 @@ is about, and a sentence about the hour arm says so. The cost is known and
 should be measured first: it changes what a claim IS, and every existing
 sentence in the tree is currently rule-less, so the first honest step is a
 census of how many would need annotating — not an annotation pass.
+
+---
+
+## The rule on the claim itself: the census, measured — and the count pinned
+
+**Item: carry the rule on the claim → counted before built. SHIPPED as a
+measurement.** `95bf7f4` -> remote `27a973b8`.
+
+**The census.** `_articleCensus()` counts every claim-shaped sentence in `lib/`
+and `test/` with a probe **deliberately looser than `_copula`** — a census built
+from the reader's own pattern would report the reader's current reach as if it
+were the problem's size, and the question would be answered with the number it
+already knows. The loose probe adds a bare article or none to the seven shapes.
+
+**Measured: 25 claim-shaped sentences, 2 of them unread.** One of the two is this
+file's own doc comment (a worked example, correctly skipped); **the other is the
+false positive** — `relative_time_hour_floor_test.dart:97`, «120 is a dual».
+
+So there is **no annotation backlog**. The defect is ONE sentence. A
+two-line edit, not an annotation scheme over the tree — and the remaining
+candidate is the cheapest of the three that have been measured.
+
+**The article is not the fix, and that was measured too.** Patching `_copula` to
+accept `a`/`an`: 62 tests, **2 red**. Red #1 is the false positive — correctly
+red, on a file testing a different rule, so fixing the comment is impossible
+without deleting a true statement about the hour floor, which leaves the file
+permanently unmergeable. Red #2 is this file's own reader guard, which pins the
+reader's content and so goes red whenever the reader is widened. Widening buys a
+correct diagnosis on a sentence that must not be graded, and costs a claim about
+the reader to get it. **Decision: fix the sentence, leave the reader alone.**
+
+**A stale number was inherited and caught.** The doc comment claimed **24** while
+the tree held **25**. Replicated the probe twice — once in Dart, once in Python —
+and both said 25. The uncounted sentence was this file's own
+`agreement_comment_test.dart:198`, «3-10 is a broken plural» (the `_labelForm`
+doc comment), unread for the *same* reason the false positive is unread: it
+carries an article the vocabulary does not accept.
+
+**So the count is now pinned** — `expect(census.surface.length, 25)`. A measured
+number that lives only in prose drifts the moment the file holding the prose gains
+a sentence, which is exactly what happened. A drift is now a red test somebody
+has to look at, not a wrong claim in a comment.
+
+**Mutation-tested**, because the previous tick's lesson was that a guard can be
+green for a mechanical reason unrelated to what it claims:
+- Planted one extra claim-shaped sentence in `portfolio_badge_copy_test.dart` →
+  surface **25 → 26** → **RED**, `Expected: <25> Actual: <26>`. The pin is
+  load-bearing. Plant reverted, blob verified clean against `HEAD`.
+
+**Evidence** (real output)
+
+- `flutter analyze` -> **No issues found!**
+- `tool/run_tests.py` -> **SUITE PASS — 2603 tests across 14 shard(s), every
+  shard green**, 2595 passed / 8 skipped, **19:03**, exit 0. Baseline **2598
+  held, +5** (the five tests this item adds). No hang
+- `agreement_comment_test.dart` **67/67**, up from 62
+- Census instrumented and re-measured: `surface=25 unread=2 unreadInLib=1`
+- **No app code changed** — one test file. Nothing renders, **no screenshot
+  claimed**
+- `95bf7f4` -> remote `27a973b8`. **1/1 blob verified byte-identical**
+  (`8160611c`) against the real remote tree, read off `raw.githubusercontent.com`
+
+**Next.** The false positive is now *isolated* — one sentence, one file, one
+line, and the fix is known to be at the site rather than in the reader. The open
+decision is a one-word comment edit in `relative_time_hour_floor_test.dart:97`
+that preserves the true statement about the hour floor while removing the false
+claim about pluralisation. It is a comment-only change and it will be graded by
+this very reader, so the first step is to write it and let the loop judge it —
+that is the point of the loop. Note the constraint measured here: a comment that
+says «120 is a dual» cannot be made true, so the fix is to say what the sentence
+is actually about, not to make the shape gradeable.
