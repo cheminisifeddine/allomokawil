@@ -9,6 +9,7 @@ import '../models/plan.dart';
 import '../models/project.dart';
 import '../models/quote_review.dart';
 import '../models/worker.dart';
+import 'partial_market_copy.dart';
 import 'project_trade_exact.dart';
 import '../models/row_identity.dart';
 import 'trade_exact.dart';
@@ -228,9 +229,37 @@ class Repository {
     int page = 1,
     int pages = 1,
   }) async {
+    final result = await browseProjectsPaged(
+      category: category,
+      wilaya: wilaya,
+      status: status,
+      page: page,
+      pages: pages,
+    );
+    return result.rows;
+  }
+
+  /// [browseProjects], plus the pages of the widen that never answered.
+  ///
+  /// **A second entry point, and the reason for it is the loss.** A row list
+  /// answers «what did you find»; it cannot also answer «what did you not look
+  /// at», so a caller that renders a verdict about the market — «لا نتائج
+  /// مطابقة» — cannot tell a complete search from a partial one. Threading the
+  /// count through the existing method's return type would have made every
+  /// ordinary caller read `.rows` to get at rows it already had, and this is a
+  /// repository used by six screens that do not widen at all. So the loss is an
+  /// opt-in: the plain method keeps its contract, and the caller that prints a
+  /// verdict asks for the one that can refuse to print it.
+  Future<MarketPageResult> browseProjectsPaged({
+    String? category,
+    String? wilaya,
+    ProjectStatus? status,
+    int page = 1,
+    int pages = 1,
+  }) async {
     if (pages <= 1) {
-      return _browseProjectsPage(
-          category: category, wilaya: wilaya, status: status, page: page);
+      return MarketPageResult(await _browseProjectsPage(
+          category: category, wilaya: wilaya, status: status, page: page));
     }
     final batches = await Future.wait<_PageBatch>([
       for (var i = 0; i < pages; i++)
@@ -279,7 +308,15 @@ class Repository {
         if (seen.add(p.id)) merged.add(p);
       }
     }
-    return merged;
+    // **The loss travels with the rows, not only to the log.** This count used
+    // to stop at `CrashReporter`, which support reads the morning after and
+    // the contractor never sees: the screen merged the union, set
+    // `_widened = true`, and let the in-memory filter declare «لا نتائج
+    // مطابقة» over a market it had read three pages of five. The row list is
+    // an answer to «what did you find»; it cannot also carry «what did you not
+    // look at», so the second has to be a separate value or it is lost.
+    return MarketPageResult(merged,
+        lostPages: lost.length, requestedPages: pages);
   }
 
   /// One page, or a record holding the error that stopped it answering.
@@ -688,6 +725,46 @@ class _PageBatch {
 
   /// What the page threw, kept so the record can say *why* it is missing.
   final Object? failure;
+}
+
+/// What a widened market read returned: the rows it reached, and the pages it
+/// did not.
+///
+/// **This type exists because the loss was being told to the wrong reader.**
+/// `browseProjects` records every page it could not read on the diagnostics
+/// channel, which is a place only support can look, and returns a bare
+/// `List<Project>` — so the count had no path to the widget that prints the
+/// answer. A contractor searching «دهان» while three of five pages were down
+/// was told «لا نتائج مطابقة» — *nothing matches* — and that sentence is a
+/// verdict about a market he had not been allowed to read. See
+/// `data/partial_market_copy.dart`.
+///
+/// The count is carried rather than logged because the two are not the same
+/// audience: the log is read after a support message arrives, and the line on
+/// screen is read by the man who is about to decide whether to bid.
+class MarketPageResult {
+  const MarketPageResult(this.rows, {this.lostPages = 0, this.requestedPages = 1});
+
+  /// The union of every page that answered, de-duplicated by id.
+  final List<Project> rows;
+
+  /// How many of the pages asked for never answered.
+  ///
+  /// A page that answered **empty** is not counted: an empty market is an
+  /// answer, and a wilaya with no open projects must keep rendering «لا مشاريع
+  /// مفتوحة» rather than a band about a network.
+  final int lostPages;
+
+  /// How many pages the caller asked for, so the sentence can name the gap
+  /// («3 من 5») instead of an absolute the reader cannot judge.
+  final int requestedPages;
+
+  /// True when the search may print «لا نتائج مطابقة».
+  ///
+  /// Delegated to the copy layer so the rule has one owner: a verdict about
+  /// the market may only be printed by a read that covered the market.
+  bool get mayClaimNoResults => partialMarketMayClaimNoResults(
+      lost: lostPages, total: requestedPages);
 }
 
 /// Why a page could not be read, in the terms a support reply can act on.

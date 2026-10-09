@@ -9,10 +9,11 @@ import '../../core/location/place_state.dart';
 import '../../core/auth_gate.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/motion.dart';
+import '../../data/partial_market_copy.dart';
 import '../../data/photo_count_copy.dart';
-import '../../data/stale_market_copy.dart';
 import '../../data/project_search.dart';
 import '../../data/repository.dart';
+import '../../data/stale_market_copy.dart';
 import '../../data/unread_message_trust.dart';
 import '../../data/taxonomy.dart';
 import '../../data/specialty_label.dart';
@@ -360,6 +361,17 @@ class _MarketplaceViewState extends State<MarketplaceView> {
   /// never blinks back to a skeleton on the first keystroke.
   List<Project>? _wideRows;
 
+  /// How many of the widened search's pages never answered, and how many it
+  /// asked for.
+  ///
+  /// **Set by the same arm that installs [_wideRows], and that is the point:**
+  /// the two are one answer and were arriving separately, so the screen could
+  /// print a verdict about a market it had read a third of. Zero while no
+  /// widened read has happened, which is also what makes an ordinary search
+  /// exempt from the band — see `data/partial_market_copy.dart`.
+  int _wideLoss = 0;
+  int _wideRequested = 1;
+
   /// The last rows that actually landed, so a *re-read* that is slow or that
   /// failed can be annotated instead of replacing the market.
   ///
@@ -539,6 +551,8 @@ class _MarketplaceViewState extends State<MarketplaceView> {
     // Drop the read: the next build asks for the wilaya instead, once.
     _projects = null;
     _wideRows = null;
+    _wideLoss = 0;
+    _wideRequested = 1;
     _widened = false;
     // **The cache stays** — that is the whole point of the family: a late
     // location fix must not take the market away on a slow connection. So its
@@ -718,6 +732,40 @@ class _MarketplaceViewState extends State<MarketplaceView> {
     ];
   }
 
+  /// The band for a search that read **part** of the market.
+  ///
+  /// **Both** branches ask for it, and that is the correction this tick made:
+  /// it used to be drawn only where the filtered list came back empty, which
+  /// is the half that reads as a dramatic "I found nothing". The other half is
+  /// the one that ships bids: a search that reached three pages of five, found
+  /// two matching rows and printed them as though the market held nothing
+  /// else. A partial result set is partial whether or not it happens to be
+  /// non-empty, and the contractor about to quote on one of those two cards is
+  /// exactly the man who needs to know it is a third of the answer.
+  ///
+  /// Nothing when no widened search has lost anything — which is every
+  /// ordinary read, including a wilaya whose tail pages legitimately answer
+  /// `[]`.
+  List<Widget> _partialMarketSlivers() {
+    if (partialMarketMayClaimNoResults(
+        lost: _wideLoss, total: _wideRequested)) {
+      return const <Widget>[];
+    }
+    return [
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+              AppTheme.s16, 0, AppTheme.s16, AppTheme.s12),
+          child: _StaleMarketBand(
+            key: const Key('partial-market'),
+            line: partialMarketLineAr(
+                lost: _wideLoss, total: _wideRequested),
+          ),
+        ),
+      ),
+    ];
+  }
+
   /// The rows a waiting or failed read may honestly keep on screen.
   ///
   /// `null` is the honest answer for a *first* read, and for a read whose
@@ -739,6 +787,8 @@ class _MarketplaceViewState extends State<MarketplaceView> {
       // A different filter means a different market: drop the widened rows and
       // let the next keystroke widen again.
       _wideRows = null;
+      _wideLoss = 0;
+      _wideRequested = 1;
       _widened = false;
       // **A reload has to stand the widen down, and this is the line that does
       // it.** `_searchToken` is bumped above, so the in-flight `_widenForSearch`
@@ -899,9 +949,9 @@ class _MarketplaceViewState extends State<MarketplaceView> {
     if (_widened || _widening) return;
     setState(() => _widening = true);
     final token = _searchToken;
-    final List<Project> wide;
+    final MarketPageResult wide;
     try {
-      wide = await widget.repo.browseProjects(
+      wide = await widget.repo.browseProjectsPaged(
         category: _category,
         wilaya: _wilaya,
         status: ProjectStatus.open,
@@ -923,7 +973,15 @@ class _MarketplaceViewState extends State<MarketplaceView> {
     setState(() {
       _widening = false;
       _widened = true;
-      if (wide.isNotEmpty) _wideRows = wide;
+      // **The loss is recorded here, where the verdict is printed.** The rows
+      // alone are not an answer: `isNotEmpty` is the *only* test this arm made,
+      // so a search that read three pages of five and matched nothing in them
+      // took the empty branch and printed «لا نتائج مطابقة» — a statement
+      // about the whole market, made by a read of three fifths of it. The gap
+      // is kept beside the rows so the builder can refuse that verdict.
+      if (wide.rows.isNotEmpty) _wideRows = wide.rows;
+      _wideLoss = wide.lostPages;
+      _wideRequested = wide.requestedPages;
     });
   }
 
@@ -1130,15 +1188,37 @@ class _MarketplaceViewState extends State<MarketplaceView> {
                         child: Shimmer(child: _ProjectsSkeleton()));
                   }
                   if (_query.trim().isNotEmpty) {
+                    // **A search that lost pages may not print a verdict.**
+                    // «لا نتائج مطابقة» is a statement about the market, and the
+                    // app is only entitled to make it about a market it read in
+                    // full. When the widen lost pages, the rows on screen are a
+                    // *partial* answer and the empty branch below was asserting
+                    // «nothing matches» over the pages that never arrived — the
+                    // same lie `browseProjects` was taught to record in the log
+                    // and had no way to say on the screen.
+                    //
+                    // So the band goes on top and the verdict goes underneath,
+                    // which keeps the honest action («مسح البحث») reachable while
+                    // the rows are empty. It is not an error page: nothing here
+                    // failed that the reader can fix, and the contractor's next
+                    // move — pull to refresh — is still the right one.
+                    final partial = !partialMarketMayClaimNoResults(
+                        lost: _wideLoss, total: _wideRequested);
                     return SliverMainAxisGroup(
                       slivers: [
                         ..._staleMarketSlivers(stale ? _staleReason : null),
+                        ..._partialMarketSlivers(),
                         SliverToBoxAdapter(
                           child: EmptyView(
-                            icon: Icons.search_off_rounded,
-                            title: 'لا نتائج مطابقة',
-                            message:
-                                'لا يوجد مشروع مفتوح يطابق «$_query».\nجرّب كلمة أقصر، أو امسح البحث',
+                            icon: partial
+                                ? Icons.cloud_off_rounded
+                                : Icons.search_off_rounded,
+                            title: partial
+                                ? 'لم نتمكن قراءة كل النتائج'
+                                : 'لا نتائج مطابقة',
+                            message: partial
+                                ? 'تعذّر الوصول إلى كل صفحات البحث.\nجرّب تحديث الصفحة، أو امسح البحث'
+                                : 'لا يوجد مشروع مفتوح يطابق «$_query».\nجرّب كلمة أقصر، أو امسح البحث',
                             actionLabel: 'مسح البحث',
                             actionIcon: Icons.close_rounded,
                             onAction: _clearSearch,
@@ -1181,6 +1261,7 @@ class _MarketplaceViewState extends State<MarketplaceView> {
                 return SliverMainAxisGroup(
                   slivers: [
                     ..._staleMarketSlivers(stale ? _staleReason : null),
+                    ..._partialMarketSlivers(),
                     SliverPadding(
                       padding: const EdgeInsets.fromLTRB(
                           AppTheme.s16, 0, AppTheme.s16, AppTheme.s4),
