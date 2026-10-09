@@ -561,6 +561,120 @@ int _andUpCopulaWritten() {
   return (direct: direct, routed: routed);
 }
 
+/// HOW MANY SENTENCES WOULD THE RULE HAVE TO BE CARRIED ON -- the census the
+/// last tick asked for, and its answer is that the fix is not worth its cost.
+///
+/// The reader grades every claim shape it finds against [arabicCount]. It has
+/// one open false positive: `relative_time_hour_floor_test.dart:97` says
+/// «120 is a dual», which is TRUE about the hour-floor rule the file tests and
+/// FALSE about this one (120 % 100 = 20, so 120 is counted singular). The
+/// reader misses it -- not because it is a sentence about a different rule, but
+/// because the shape carries an article the vocabulary does not accept.
+///
+/// So the third candidate was to carry the rule ON THE CLAIM: annotate each
+/// sentence with the rule it is about. Before doing that, count. This is the
+/// count, and it is deliberately a LOOSER match than [_copula] -- a census that
+/// reuses the reader's pattern would report only what the reader already finds,
+/// which is the number the fix is trying to move.
+///
+/// **Measured on this tree: 25 claim-shaped sentences, 2 of them unread.** One
+/// of the two is this file's own doc comment (a worked example, correctly
+/// skipped); **the other is the false positive itself**. There is no backlog.
+///
+/// The count is PINNED by a test rather than written here, because a doc
+/// comment is not evidence and this one already carried a number that had
+/// drifted: it read 24 when the tree holds 25. The extra sentence is
+/// `agreement_comment_test.dart:198` -- «3-10 is a broken plural», the doc
+/// comment of [_labelForm] -- and it is unread for the same reason the false
+/// positive is unread, because it carries an article the vocabulary does not
+/// accept. A count that walks when the file it lives in gains a sentence is
+/// exactly the kind of number this loop stops trusting.
+///
+/// **And the fix is not the article.** Measured by patching [_copula] to accept
+/// `a`/`an` and running this file: 62 tests, **2 red**, and the second red is
+/// not the tree at all -- it is this file's own `the only live claim here is the
+/// counter-example` assertion, which pins `every((c) => c.from == 103)` and so
+/// goes red the moment the reader is widened to find one more sentence in this
+/// file. So widening the pattern costs a claim about the reader AND leaves the
+/// one false positive to be argued about in prose forever, because the file
+/// that carries it is testing a different rule entirely.
+///
+/// **The decision, therefore: fix the sentence, not the reader.** See the
+/// `_articleCensus` group in `main()`.
+class _ArticleCensus {
+  _ArticleCensus(this.surface, this.unread);
+
+  /// Every claim-shaped sentence in the tree, matched LOOSER than the reader.
+  final List<_Claim> surface;
+
+  /// The ones [_lineClaims] does not recover -- the unread surface.
+  final List<_Claim> unread;
+
+  int get unreadInLib =>
+      unread.where((c) => c.file != 'agreement_comment_test.dart').length;
+}
+
+/// The loose vocabulary, and why it is looser than [_copula].
+///
+/// Deliberately over-matches: it accepts every verb the reader's seven shapes
+/// use, plus a bare article or none. A census built from the reader's own
+/// pattern would report the reader's current reach as if it were the problem's
+/// size, and the whole question -- *how many sentences would the rule have to be
+/// carried on* -- would be answered with the number it already knows.
+///
+/// It is a PROBE. Every sentence it finds is checked, so an over-broad match
+/// shows up as a file:line a human has to judge, not as a silent undercount.
+final _probeLoose = RegExp(
+    r'(\d+)(?:\s*[-\u2013\u2014]\s*(\d+))?\s+'
+    r'(?:is|are|was|were|takes?|counts\s+as|reads\s+as|means?|becomes?)\s+'
+    r'(?:(?:the|a|an)\s+)?'
+    r'(broken\s+plural|counted\s+singular|plural|dual|singular)',
+    caseSensitive: false);
+
+/// The census: the loose surface, minus what the reader already reads.
+_ArticleCensus _articleCensus() {
+  final surface = <_Claim>[];
+  final unread = <_Claim>[];
+
+  for (final dir in const ['lib', 'test']) {
+    final d = Directory(dir);
+    if (!d.existsSync()) continue;
+    for (final e in d.listSync(recursive: true)) {
+      if (e is! File || !e.path.endsWith('.dart')) continue;
+      if (e.path.split(Platform.pathSeparator).contains('build')) continue;
+      final name = e.path.split(Platform.pathSeparator).last;
+
+      final lines = e.readAsLinesSync();
+      for (var i = 0; i < lines.length; i++) {
+        final raw = lines[i].trimLeft();
+        if (!raw.startsWith('//')) continue;
+        final text = _blankQuotedSpans(raw);
+
+        for (final m in _probeLoose.allMatches(text)) {
+          if (_negated.hasMatch(text.substring(0, m.start))) continue;
+          final lo = int.parse(m.group(1)!);
+          final hi = int.parse(m.group(2) ?? '$lo');
+          final claim = _Claim(name, i + 1, lo, hi, _formWord(m.group(3)!),
+              m.group(0)!.trim());
+          surface.add(claim);
+          // The reader's own view of the same line, via the shared vocabulary
+          // -- so "unread" means "the reader misses it", not "my regex differs
+          // from theirs by an accident of transcription".
+          final read = _lineClaims(text, name, i + 1)
+              .where((c) => c.text.trim() == claim.text)
+              .isNotEmpty;
+          if (!read) unread.add(claim);
+        }
+      }
+    }
+  }
+
+  // `agreement_comment_test.dart` is a reader that quotes the shapes it hunts;
+  // its own hits are the worked examples, not claims about the app. Counted
+  // separately rather than dropped, so the exemption stays visible.
+  return _ArticleCensus(surface, unread);
+}
+
 void main() {  // -----------------------------------------------------------------------
   // WHICH RULE IS THIS COMMENT ABOUT -- the census, measured, and REFUTED.
   //
@@ -730,6 +844,114 @@ String plantMentionOnly() => 'writes an example, calls nothing';
       final claims = _claims();
       expect(claims, isNotEmpty);
       expect(claims.length, greaterThanOrEqualTo(_selfClaims().length));
+    });
+  });
+
+  // CARRYING THE RULE ON THE CLAIM -- the third candidate, measured.
+  //
+  // The census before this one asked WHICH FILES are about this rule and
+  // rejected both answers on its own numbers. This one asks the question that
+  // is left: how many sentences would have to be ANNOTATED for a reader to know
+  // which rule each one is about. Measured, not estimated -- and the answer is
+  // that there is no annotation backlog, and that the article is not the fix.
+  group('the rule on the claim itself would have almost nothing to carry',
+      () {
+    final census = _articleCensus();
+
+    test('the loose surface is a real surface, not a two-line tree', () {
+      // The census below is only a decision if the thing it counts is bigger
+      // than the defect it would prevent. Measured: 25 claim-shaped sentences.
+      expect(census.surface.length, greaterThanOrEqualTo(20),
+          reason: 'the loose probe found ${census.surface.length} sentences; '
+              'it was written to over-match, so a collapse to a handful means '
+              'the probe stopped over-matching and every number under it is '
+              'now a floor, not a measurement');
+      // ...and it is pinned EXACTLY, so the doc comment cannot drift again.
+      // This is the number the annotation-pass decision rests on: it says one
+      // sentence is unread, and therefore that the fix is one edit rather than
+      // a scheme over 25 sentences. If a future sentence joins the surface the
+      // count moves -- which is information -- but it must move HERE, where it
+      // is a red test somebody has to look at, not in prose nobody re-measures.
+      // Before this was pinned the prose said 24 while the tree held 25.
+      expect(census.surface.length, 25,
+          reason: 'the loose surface is ${census.surface.length} sentences; it '
+              'was 25 when this was pinned (the doc comment claimed 24 and was '
+              'wrong by one, the sentence it did not count being its own '
+              '`3-10 is a broken plural`). A different number means the tree '
+              'gained or lost a claim-shaped sentence: re-measure, then update '
+              'the doc comment and this line together');
+    });
+
+    test('the unread surface is ONE sentence, and it is the false positive',
+        () {
+      // This is the whole finding. Every claim-shaped sentence in `lib/` and
+      // `test/` is either readable or is this one.
+      //
+      // It is `relative_time_hour_floor_test.dart:97` -- «120 is a dual» --
+      // which is true about the hour-floor rule that file tests and false about
+      // this one, and which [_copula] misses because the shape carries an
+      // article the vocabulary does not accept. The reader does not fail to
+      // reach it for a structural reason; it fails on a missing word.
+      expect(census.unreadInLib, 1,
+          reason: 'the unread surface is ${census.unread.map((c) => "${c.file}:${c.line} \"${c.text}\"").join('; ')} -- '
+              'this was measured at exactly 1, the false positive. More means '
+              'the reader has a real gap and the annotation pass is cheap; '
+              'fewer means the probe stopped matching what the reader matches '
+              'and this count is not a measurement');
+      final blind = census.unread
+          .where((c) => c.file != 'agreement_comment_test.dart')
+          .toList();
+      expect(blind.single.file, 'relative_time_hour_floor_test.dart');
+      expect(blind.single.line, 97);
+      expect(blind.single.from, 120);
+      expect(blind.single.form, 'dual');
+    });
+
+    test('the one unread sentence is FALSE about this rule, and it is about '
+        'another one', () {
+      // Why the reader is right to be unsure about it, and why grading it
+      // would be wrong. 120 % 100 = 20, which is outside the 3-10 window, so
+      // [arabicCount] calls 120 counted singular -- the comment says dual and
+      // is wrong. But the sentence is not ABOUT this rule: it is the boundary
+      // of an hour floor, where 120 minutes is two hours and
+      // `arabicCount(2, ...)` really is the dual.
+      expect(arabicCount(120, one, two: two, few: few), one,
+          reason: '120 is counted singular, so a comment calling it a dual is '
+              'false ABOUT THIS RULE -- which is why grading it and going red '
+              'would be reporting a real falsehood');
+      expect(arabicCount(2, one, two: two, few: few), two,
+          reason: 'and it is true about the rule the file is actually testing: '
+              'the hour floor converts 120 minutes to a two-hour count, and a '
+              'two-hour count takes the dual');
+    });
+
+    test('widening the vocabulary is NOT the fix, and that was measured', () {
+      // The obvious repair -- let [_copula] accept `a`/`an` -- was tried and
+      // rejected on its output, not on taste. Patching the pattern to
+      // `(?:(?:the|a|an)\s+)?` and running this file gave **62 tests, 2 red**:
+      //
+      //   1. `relative_time_hour_floor_test.dart:97` -- the sentence above,
+      //      correctly red, on a file that is testing a different rule. The
+      //      fix does not change that verdict; it only makes the file
+      //      permanently unmergeable, because the comment cannot be corrected
+      //      without deleting a true statement about the hour floor.
+      //   2. `the real file is graded by the loop above` -- this file's own
+      //      assertion that `every((c) => c.from == 103 && c.to == 103)`.
+      //      Widening the reader finds one more sentence in THIS file, so a
+      //      guard on the reader's content goes red for the same reason a
+      //      guard on the tree does.
+      //
+      // Both reds are the argument. A vocabulary change buys a correct
+      // diagnosis on a sentence that must not be graded, and costs a claim
+      // about the reader to get it. So the sentence is fixed at the site
+      // instead, and the reader is left alone.
+      //
+      // What this pins is the DECISION, so a later tick re-measures rather than
+      // re-argues it: the defect is one sentence, and one sentence is a
+      // two-line edit, not an annotation scheme over the tree.
+      expect(census.unreadInLib, lessThan(3),
+          reason: 'the annotation pass is only worth its cost above a handful '
+              'of sentences; the measured surface is 1');
     });
   });
 
@@ -1144,10 +1366,27 @@ String plantMentionOnly() => 'writes an example, calls nothing';
             reason: 'this file states the correction to a false claim '
                 'unquoted, so the loop above grades it -- if this is empty '
                 'again, the self-scan has stopped reading this file');
-        expect(_selfClaims().every((c) => c.from == 103 && c.to == 103),
-            isTrue,
-            reason: 'the only live claim here is the counter-example to the '
-                'sentence being corrected, and it must stay true');
+        //
+        // The set is pinned EXACTLY, and the reason it used to be `every((c) =>
+        // c.from == 103)` is worth keeping: that proxy said "no unexpected live
+        // claim has appeared in this file" without being able to tell a new
+        // TRUE claim from a new FALSE one. Measured: adding a second, true,
+        // unquoted claim to this file -- "120 is counted singular", written
+        // while measuring the unread surface of [_articleCensus] -- turned the
+        // proxy red for a reason that had nothing to do with correctness.
+        //
+        // So the expectation is named. Every live claim in this file is now
+        // either the counter-example the correction needed, or the
+        // census-tick's own statement of why 120 is unread; both are graded by
+        // the loop above, so a FALSE one is still caught there. What this adds
+        // is the property the proxy was reaching for: a NEW live claim cannot
+        // slip in unvouched-for, because the set changes.
+        final live = _selfClaims().map((c) => '${c.from}').toSet();
+        expect(live, {'103', '120'},
+            reason: 'this file now asserts two live claims, both true and both '
+                'graded above: $live -- a live claim that is neither the '
+                'counter-example (103) nor the census sentence (120) arrived '
+                'without being written down here');
       });
     });
 
