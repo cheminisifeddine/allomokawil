@@ -676,7 +676,7 @@ future tick can *see*.
 
 - [x] **The notification centre drew the newest hundred, counted its own unread
       from them, and left the rest of the server's unread stranded where no
-      gesture could reach it.**  `PENDING_HASH`.
+      gesture could reach it.**  `e02e8b3`.
       The screen pass the 9 Oct tick named as its next item, on the one
       `repository.dart` read surface neither the market nor the thread had
       covered. Found by **measuring the live API**, for the same reason the
