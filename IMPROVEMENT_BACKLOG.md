@@ -30704,3 +30704,71 @@ still open and still Dart-gated — it is one sentence, the fix is known
 (replace the false pluralisation claim with what the sentence is actually
 about), and it needs a live gate to land. It is first up the moment the box
 is above 900 MB at the start of a tick. Nothing behind it.
+
+---
+
+## Tick 9 Oct 2026 (06:05) — the false positive, fixed at the site. SHIPPED
+**UNGATED — the Dart gates did not run this cycle. Read that first.**
+
+**Item: `relative_time_hour_floor_test.dart:97` — "120 is a dual". SHIPPED,
+`7711ec3` -> remote `89ade66`.** Three consecutive ticks named this as the one
+open item and all three named the same fix: change the **sentence**, not the
+reader. Widening `_copula` to accept `a`/`an` was measured at 62 tests / 2 red,
+one of the two a guard on the reader's own content — so the reader stays alone
+and the sentence gets corrected. It now reads **"2 takes the dual"**: the number
+the form is actually decided on, and true about this rule, so the reader grades
+it and it passes.
+
+**The constraint that ruled out the cheap fixes.** The sentence had to stay
+**claim-shaped**. Dropping it entirely also removes the falsehood, and measured
+on a replica that drops the surface from **25 to 24** — a guard that quietly
+covers less, reported as if it covered as much. Keeping a false claim-shaped
+sentence instead puts it in front of the grader and goes red on a file testing
+a different rule. Only the third survives: same shape, true content, so the
+census still measures the sentence AND the reader now grades it.
+
+**Measured with a replica of `_articleCensus`, because Dart could not run.**
+`surface=25` (held), `unreadInLib 1 -> 0`. The replica was **reconciled against
+the real pin before it was trusted**: it read **33** until it was taught
+`_blankQuotedSpans`' rule that blanks straight-double-quoted spans as exhibits.
+That one missing rule was the entire 33-vs-25 gap, and it is the same reason
+the Dart probe reads 25 — so the instrument now agrees with the pin on both
+numbers it will be used to move.
+
+**The census caught a regression this tick introduced.** Rewriting the fix's
+own explanation, I wrote "120 takes the counted singular" — claim-shaped and
+unreadable, i.e. I reproduced the exact defect I was fixing. The replica measured
+it immediately: **surface 25 -> 26, unread 1 -> 2**. Reworded to state the
+mod-100 fact without the shape (`20 is outside the 3-10 window`); back to
+25/1. **A prose-only tick can now be checked without spending a Dart gate**, and
+this tick is the first evidence that instrument is load-bearing rather than
+decorative.
+
+**Two pins asserted the old state and were updated with it.** `unreadInLib == 1`
+and the four `blind.single.*` assertions became `unreadInLib == 0` plus a new
+test pinning **all three** properties at once — read, true, and *still on the
+surface* — because each cheap wrong answer breaks exactly one of them. The
+second test's finding (120 is counted singular) is **kept, not deleted**: it is a
+fact about the rule, and it is the assertion that goes red if anyone bends the
+rule to suit a comment instead of correcting the comment.
+
+**Evidence (real output)**
+- Replica census, before and after: `surface=25 unread=2` -> `surface=25 unread=1`,
+  `unreadInLib` **1 -> 0**; the fixed claim still at **line 97**, `from=2`,
+  `form='dual'`
+- **`flutter analyze` NOT RUN. `tool/run_tests.py` NOT RUN.** `build_gate.py`
+  held **NO ROOM for the entire cycle**: MemAvailable oscillated **333-543 MB**
+  across **40+ samples** against the **900 MB** floor, never once open. The 2603
+  baseline is therefore **unchanged and unverified on this tree** — this commit
+  has never been through a Dart gate.
+- No other writer: `pgrep -c java` = 0 and zero real `flutter`/`dart` processes.
+  (The gate's own `flutter` match that briefly read 2 was `pgrep` matching the
+  pipeline in this tick's own command line — no process to wait for.)
+- Remote: **2/2 blobs byte-identical** (`MATCH`, `d6fb14e` / `d43e86f`), remote
+  `89ade66`. **No Dart, no `lib/`.** Nothing renders, **no screenshot claimed**
+
+**Next.** Gate this tree first — `flutter analyze` then `tool/run_tests.py`,
+expecting **>= 2603**. Two things could go red and neither is a mystery: the new
+test's `found.single.line == 97` (holds only if the comment edit stayed on its
+own line, which it did) and the `surface == 25` pin. After the gate is green,
+the backlog is empty again and the next item is a fresh one, not a carry-over.
