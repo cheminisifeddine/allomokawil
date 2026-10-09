@@ -674,6 +674,57 @@ The backlog is empty and the gate was lying, so this phase is about the
 harness rather than the app. Items here are only real if they change what a
 future tick can *see*.
 
+- [x] **A chat thread that lost its newest messages drew the oldest hundred and
+      said nothing — and the "did my message arrive?" re-check read from that
+      same blind spot.**  `45dd762`.
+      The item named by the previous tick. Found by **measuring the live API**,
+      not by reading the client, which is the only reason it was found at all:
+      `GET /api/messages/:id` caps at **100 rows and answers the OLDEST
+      hundred**. A throwaway 150-message conversation returned ids 45..144 while
+      the thread held up to 174, and `?limit=200` changed nothing.
+      *The rows are real. The defect is the silence.* The screen had no way to
+      say «this is not the whole thread», so a contractor re-opening the chat
+      finds the last thing he said is four days old, with no error anywhere.
+      *The re-check was the sharper edge.* `resolveWriteOutcome` decided
+      «arrived or not» from that same capped read, so a message posted seconds
+      ago was never in the answer — the app marked a **delivered** bubble
+      failed and offered a retry, and pressing it sends the same message
+      twice. That duplicate is precisely what `_markUnconfirmed` exists to
+      prevent, so the paging bug was quietly disarming it.
+      *Shipped:* `messagesPaged` -> `ThreadReadResult` (rows + undrawn);
+      `messages()` untouched. `data/partial_thread_copy.dart` with
+      `partialThreadMayClaimComplete`. The band **promises no gesture** — there
+      is no load-older in this screen, so «اسحب للأعلى» was fiction.
+      *Three things the run caught that I had wrong:*
+      (1) The first draft said the walk pages **backward from the newest** and
+      reasoned forward paging could never reach the tail. Live check: `after`
+      walks *forward* and ends on a short page (`0`->45..144, `144`->145..194,
+      `194`->0), and `?before=` answers the same oldest hundred — there is no
+      backward cursor. The method was rewritten against the measurement.
+      (2) My off-by-one made a 100-message thread read as truncated: it used
+      «the last page came back full» as the signal, but a full page is what a
+      walk that *reached* the end looks like on the way out. The signal is the
+      **budget**, and a 100-message chat would have been announced as cut.
+      (3) Recording a read failure and carrying on **deleted the error page** —
+      it returned an empty row list for an unreadable thread, so
+      «تعذّر جلب الرسائل» and the offline strip stopped rendering and a dead
+      network drew «لا رسائل بعد» over a full conversation. **Six existing
+      tests caught this one**, which is the clearest argument in this loop for
+      gating on the whole consumer family rather than the new file.
+      Also: a test of mine asserted «103 رسالة» on the English reading of
+      Arabic counting; the plural window repeats every hundred, so «103 رسائل»
+      is correct. The error was in the test.
+      *Evidence:* `flutter analyze` -> `No issues found!`; **154 PASS / 0 FAIL**
+      across the full chat family (116 before). Mutation-proven: putting
+      `_load` back on the capped single read kills both band tests and the walk
+      invariant. Shot `/tmp/shots/24_thread_older_band.png` — band y180..572,
+      52,935 ink px, `accentDeep` (155,100,21) on `accentWash` (253,243,227)
+      = **4.52:1** (AA). Remote: all 5 blobs MATCH on blob *and* mode.
+      *Next candidate, same shape:* `conversations()` — the inbox list is a
+      single uncursored read and a capped inbox would silently hide threads.
+      Unmeasured. Do not assume it caps; measure it the way this one was
+      measured before writing a word of copy.
+
 - [x] **Step 6's blob check could not see a mode difference — so a tick
       reported MATCH on a tree the tree gate called DIVERGED, and both were
       right.**  `589a9ba`.
