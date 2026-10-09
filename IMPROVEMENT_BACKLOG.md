@@ -1513,6 +1513,94 @@ understand that is the single biggest "this app is foreign" signal.
       the project call fails the quotes future errors unobserved. That belongs to
       the Phase 4 "every API call wrapped" item.
 
+- [ ] **The bid sheet validates AFTER it closes — a contractor who types a
+      price under 1000 DZD loses all three fields and has to start again.**
+      OPENED 9 Oct, UNGATED (`build_gate.py` denied: balloon held 4.6 GB,
+      487 MB available, floor 900 MB — no analyze, no test, no screenshot
+      this tick). Found by a read-only audit of the write paths; the fix and
+      its tests are specified here so the next tick can build without
+      re-deriving them.
+
+      **The defect.** `_showBidSheet` (`project_detail_screen.dart:663`)
+      pops `_BidSheet`, which hands back `_BidDraft` of **three plain
+      strings**, and *then* the validation runs:
+
+      ```dart
+      final amt = DzNumber.tryParse(submitted.amount, min: 1000);
+      final dayCount = DzNumber.tryParse(submitted.days, min: 1);
+      if (amt == null) {
+        showNote(context, 'المبلغ يجب أن يكون 1000 دج على الأقل');
+      } else if (rawDays.isNotEmpty && dayCount == null) { ... }
+      ```
+
+      So the sentence «المبلغ يجب أن يكون 1000 دج على الأقل» is printed on
+      the **project page**, one screen above where the form was — after the
+      sheet has already been dismissed and its three `TextEditingController`s
+      disposed. The contractor taps «إرسال العرض», the sheet vanishes, a
+      snackbar appears on the screen behind it, and the amount, the duration
+      **and the message he wrote** are all gone. Reopening the bid sheet
+      gives him three empty fields.
+
+      **Why it is the app's worst kind of bug, not a cosmetic one.** Every
+      other form in this app validates **live, inside the form, with the
+      text still on screen**:
+
+      * the project budget (`project_new_screen.dart:486`) is an `_budgetError`
+        getter re-read on every keystroke (`onChanged: (_) => setState(...)`),
+        drawn in the card *below* the two fields at `:703`;
+      * the review picker refuses 0 before submit (`review_screen.dart:44`);
+      * the phone field refuses a bad number before submit (`auth_screen.dart:163`).
+
+      The bid sheet is the **only** form in the app that validates behind a
+      closed sheet, and it is the only one where the validation loses the
+      user's typing. The two numbers it can refuse are both reachable by
+      ordinary typing: `min: 1000` is one digit away from any real bid
+      (a contractor who means 500 DZD, or types `250` for `2500`), and
+      `min: 1` on the duration refuses `0` — which is what the field's own
+      keyboard shows the moment he clears it to type a fresh number.
+
+      **The message field is the worst of the three.** «رسالتك (اختياري)»
+      holds the prose a contractor writes to win a job — «جاهز للبدء غداً،
+      precio 包括..." — and the `min: 1000` check is on a *different* field.
+      One under-typed amount destroys a paragraph of persuasive copy with no
+      way back but retyping from memory. That copy is the reason he wins the
+      bid, and this app deletes it without telling him it was deleted.
+
+      **The fix (specified, not yet built).** Validate **inside**
+      `_BidSheetState`, where the controllers live:
+
+      1. Add an `_error` getter mirroring `project_new_screen._budgetError` —
+         same fold (`DzNumber.digits` empty on a non-empty field → «not a
+         number»; `amt < 1000` → «المبلغ يجب أن يكون 1000 دج على الأقل»;
+         non-empty days that do not parse → «مدة الإنجاز يجب أن يكون عدداً
+         من الأيام»), and the same zero-count treatment: **an empty amount is
+         an error** here, not silence, because `submitQuote` requires one.
+      2. Wire `onChanged: (_) => setState(() {})` on both `NumberField`s so
+         the error clears live as he corrects the digit — the budget row's
+         exact idiom.
+      3. Draw it through `NumberField`'s existing `errorText`, so the message
+         sits **under the field that is wrong**, not in a snackbar over a
+         closed sheet. The widget already takes the parameter and no call
+         site uses it.
+      4. `_send` becomes: `if (_error != null) return;` before the `pop`.
+         The parent keeps its existing guard as a **belt**, not the only
+         check — defence in depth is right when the alternative is deleting
+         a paragraph.
+
+      **The test to write first, and it must be red against the current
+      code.** In `test/bid_neighbour_amount_test.dart`'s existing harness
+      (worker session, `p-1`, taps «قدّم عرضك»): enter `500`, tap
+      «إرسال العرض», and assert **the sheet is still open** — `expect(find.text('إرسال العرض'), findsOneWidget)` —
+      plus the Arabic error is on screen **and inside the sheet**, not behind
+      it. Then enter `70000`, tap again, and assert the POST happened. That
+      last half is the part that matters: a fix which blocks the send and
+        never sends is not a fix.
+
+      **Screenshots:** this is a form-state change, so it IS visual. When the
+      gate opens, capture the sheet with the error live and check the error
+      band with `pngscan.py`, per step 5 of the Loop protocol.
+
+
 ## Phase 2 — Elite visual pass
 
 - [x] **Skeleton loaders instead of spinners.** Cards that fade to their real
