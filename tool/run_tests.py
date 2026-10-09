@@ -6,7 +6,16 @@
     python3 tool/run_tests.py --shard-size 0         # disable sharding (one run)
     python3 tool/run_tests.py -- test/a_test.dart    # extra args go to flutter test
 
-Exit codes: 0 pass, 1 fail, 2 hung/incomplete (the deadline fired).
+Exit codes: 0 pass, 1 fail, 2 hung/incomplete (the deadline fired),
+3 BUSY (the build gate refused, so NOT ONE TEST RAN).
+
+**Exit 2 and exit 3 are different facts and must not share a code.** Measured
+9 Oct: a bare `run_tests.py` printed `BUSY — not starting a second suite on this
+box` and exited 2. Two ticks read that as a hang, and one of them wrote it up as
+a HUNG shard 9 that it had never run. "A shard I started stopped answering" and
+"I refused to start because the box is full" are opposites to whoever reads the
+exit code: the first is a tree to investigate, the second is a tick to re-run
+later. 3 is now the refusal, and nothing else returns it.
 
 **Why this file exists.** `flutter test` runs all 201 files in one process with
 no deadline, so a whole-suite deadlock cannot be interrupted and cannot be
@@ -170,6 +179,13 @@ GREEN_TAIL_LINES = 3
 BAD_TAIL_LINES = 40
 
 PASS, FAIL, HUNG = 0, 1, 2
+#: **Refused to start** — the build gate said no, so zero tests ran. This is
+#: deliberately NOT 2: "a shard I started stopped answering" and "I would not
+#: begin" are opposite facts, and a tick that reads 2 as a hang hunts a stall
+#: that never existed. 9 Oct, bare run: BUSY printed, exit 2, and the write-up
+#: described a HUNG shard. Three, because 0/1/2 are taken and this is a refusal
+#: rather than a verdict on the tree.
+BUSY = 3
 
 _TEST_PATH = re.compile(r"(test/\S*?\.dart)")
 #: The expanded reporter's progress line: `00:04 +25: All tests passed!`.
@@ -539,9 +555,15 @@ def main(argv=None):
 
     clear, why = _gate_clear()
     if not clear:
-        print("BUSY — not starting a second suite on this box.\n" + why,
+        # 9 Oct: this returned HUNG (2), which is the code for "a shard I started
+        # stopped answering". Two consecutive ticks read the refusal as a hang.
+        # BUSY is its own code; see BUSY above.
+        print("BUSY (exit %d) — NOT ONE TEST RAN: not starting a second suite"
+              " on this box.\n%s\nThis is not a hang and not a verdict on the"
+              " tree: re-run when build_gate.py answers CLEAR."
+              % (BUSY, why),
               file=sys.stderr)
-        return HUNG
+        return BUSY
 
     rest = a.rest[1:] if a.rest and a.rest[0] == "--" else list(a.rest)
     flags = [x for x in rest if x.startswith("-")]

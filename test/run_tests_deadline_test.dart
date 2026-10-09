@@ -151,6 +151,11 @@ sleep 600
     expect(File('${dir.path}/SPAWNED').existsSync(), isFalse,
         reason: 'a second suite on this 7.8 GB no-swap box is how one gets OOM-killed.');
     expect('${r.stdout}${r.stderr}', contains('BUSY'));
-    expect(r.exitCode, 2, reason: 'refusing is not passing, and not failing either.');
+    // 3, not 2. 2 is HUNG -- "a shard I started stopped answering" -- and a
+    // refusal is the opposite fact. On 9 Oct the refusal exited 2 and two
+    // consecutive ticks wrote it up as a hang in a shard that never ran.
+    // Refusing is not passing, not failing, and not hanging.
+    expect(r.exitCode, 3,
+        reason: 'refusing is not passing, not failing, and not a hang.');
   });
 }

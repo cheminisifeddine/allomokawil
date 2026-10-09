@@ -861,7 +861,28 @@ in this file that dies on arrival is how two ticks were lost.
    It is not slower and it is not a different suite: `run_tests.py` runs the
    same `flutter test --reporter expanded` under a wall-clock deadline and adds
    exactly two things — a **bound** and a **name** for the file in flight when
-   the deadline fires. Exit codes: 0 pass, 1 fail, **2 hung**.
+   the deadline fires. Exit codes: 0 pass, 1 fail, **2 hung**, **3 BUSY** (the
+   build gate refused, so *not one test ran*).
+
+   **3 exists because 2 was doing two jobs and a tick believed it — measured
+   9 Oct, fixed this cycle.** A bare `run_tests.py` on a ballooned box printed
+   `BUSY — not starting a second suite on this box` and exited **2**. Nothing had
+   hung, because nothing had started: the gate refused before a single test
+   process was spawned. But 2 is the code this section defines as "a shard I
+   started stopped answering", and the exit code is the part of the runner that
+   survives a scrolled log and a cron wrapper. So one tick spent its report on
+   a `HUNG` shard 9 carrying 208 tests **for a run that launched zero test
+   processes**, and the tick after it read the same 2 and went hunting for a
+   stall in a tree whose shards were all green. A refusal is *re-run me later*;
+   a hang is *the tree is suspect*. They are opposites, and collapsing them turns
+   the cheap safe answer into an expensive phantom one.
+
+   Pinned by `test/run_tests_busy_code_test.py` — **python**, so it stays checkable
+   on exactly the box whose memory is too full to run Dart, which is the one
+   place this matters. The Dart case in `run_tests_deadline_test.dart` that
+   asserted `exitCode == 2` for the refusal now asserts **3**; that assertion is
+   what made the ambiguity permanent, so leaving it would re-introduce the bug
+   the moment anyone "fixed" the runner back.
 
    **KNOWN BUG, measured 6 Oct — the deadline did not fire.** A second run
    entered shard 8 at its 300 s deadline and was still running **~10 minutes
