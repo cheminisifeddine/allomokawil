@@ -7,6 +7,82 @@ the **top unchecked item in phase order**, ships it, and ticks it.
 Rules for what belongs here: a real user-visible improvement or a real
 correctness gap — never a refactor for its own sake. One item per loop.
 
+- [x] **The prescribed fix for the pair above is REFUTED: the membership
+      assertion it orders ALREADY EXISTS, and on this tree it is equally
+      vacuous.**  `2268f64` (remote `62c2c85`).
+      The carry-over the 9 Oct tick left: *"replace the count pin with a
+      membership assertion -- the set of claim-bearing files whose only mention
+      of the helper is prose is EMPTY."* A gated tick following that literally
+      would have **deleted a working pin and added a guard that cannot fire**.
+      No build again: `tool/build_gate.py` answered **NO ROOM** at **665 MB
+      against the 900 MB floor** (580-665 MB across four samples this tick), so
+      **no Dart was edited and none could be verified**. What shipped is the
+      measurement that settles the prescription, not the edit.
+
+      **Two measured facts refuse it.**
+      **(1) The assertion is already there.**
+      `test/agreement_comment_test.dart:758` is
+      `census.direct.intersection(claimFiles).difference({...})` asserted
+      `isEmpty`, **six lines above the count pin**, exempting the same three
+      files. The prescription is a **duplicate, not a repair** — and a tick
+      obeying it would not know it had written a second copy of the guard
+      three lines above the one it was replacing.
+      **(2) The existing copy is vacuous here too.** `prose_only_files()` counts
+      files that mention `arabicCounted(` without calling it: **ZERO on this
+      tree**. So the set asserted empty is empty **for want of input**, not
+      because the comment filter works — the same blindness the count pin has,
+      and the same `+0` delta under both mutations the pin's own comment names.
+
+      **So the trade the prescription makes is bad, and the asymmetry is the
+      finding.** The count pin **DOES** see drift — **+2 today**, which is the
+      only reason these two tests are red — and the membership pin does **not**.
+      Swapping them trades a guard that fails for one that cannot, where the
+      tree has two that can. *Delete it and the red goes away without anything
+      being wrong*, which is the worst outcome available: a green test that
+      stopped guarding.
+
+      **Shipped, so the refutation is mechanical rather than a claim.**
+      `read_membership()` **extracts** the assertion from the Dart file rather
+      than carrying a copy — and reports **ABSENT** as distinct from **vacuous**,
+      because those are different faults with different fixes and a reader that
+      conflates them is how a deleted guard reads as a working one.
+      `prose_only_files()` counts the case that decides it;
+      `verdict()` answers `membership_falsifiable_here` and
+      `plant_is_the_only_coverage`. The plant in the Dart file — which writes
+      the file to disk and deletes it — is **the only thing exercising the
+      shape at all**, and that is now a reported fact instead of a paragraph.
+
+      *Evidence.* `python3 tool/agreement_census_audit.py` -> both pins still
+      drift (**direct 20 -> 22, surface 25 -> 27**), `AUDIT_EXIT=1` **taken
+      unpiped** (a pipe returns `tail`'s code, which is how an evidence line
+      loses its meaning), membership reported **present / asserted empty /
+      0 prose-only / VACUOUS HERE / plant-only**.
+      `python3 test/agreement_census_audit_test.py` -> **54 passed, 0 failed**.
+      **11 mutants, 11 killed, 0 survived.**
+
+      **One real defect the battery caught in this tick's own work:**
+      `verdict()` returned `membership_guarded: True` beside
+      `membership_present: False` — so **a deleted assertion would have read as
+      a working one**, which is precisely the failure this item is about.
+      And **the first battery run left 2 survivors** (a `prose_only_count`
+      hardcoded to `1`, and the VACUOUS sentence softened to «fine»): both live
+      in the **render** path, which every pre-existing case bypasses by driving
+      `verdict()` directly. A judgement that is right in a dict and absent from
+      the output has told nobody anything — two CLI cases kill both now.
+
+      *Not claimed:* no `flutter analyze`, no `run_tests.py` — gate refused.
+      **Zero Dart changed.** No APK, no release, no tag. Remote verified with
+      `tool/remote_state.py --files` (blob **and** mode): **IN SYNC**, both
+      MATCH.
+
+      **Next tick, WITH a gate — and it is bookkeeping, not a redesign:**
+      re-measure both pins (**direct 20 -> 22**, **surface 25 -> 27**) in one
+      commit. That unblocks the two red tests. **Do NOT delete the count pin for
+      the membership one** — see (1) and (2) above; the pair is complementary,
+      and the honest note for whoever owns this next is that the count pin's
+      job is drift, and the plant's job is the defect, and **no single
+      assertion does both**.
+
 - [x] **The `agreement_comment_test.dart` pair, red for four ticks: BOTH pins
       are stale, and the one that guards the reader CANNOT FAIL.**  `99e239e`
       (remote `dba6212`).
