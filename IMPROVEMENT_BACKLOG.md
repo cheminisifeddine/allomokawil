@@ -1513,13 +1513,15 @@ understand that is the single biggest "this app is foreign" signal.
       the project call fails the quotes future errors unobserved. That belongs to
       the Phase 4 "every API call wrapped" item.
 
-- [ ] **The bid sheet validates AFTER it closes — a contractor who types a
+- [x] **The bid sheet validates AFTER it closes — a contractor who types a
       price under 1000 DZD loses all three fields and has to start again.**
-      OPENED 9 Oct, UNGATED (`build_gate.py` denied: balloon held 4.6 GB,
-      487 MB available, floor 900 MB — no analyze, no test, no screenshot
-      this tick). Found by a read-only audit of the write paths; the fix and
-      its tests are specified here so the next tick can build without
-      re-deriving them.
+      **DONE `0f70dbd` local / `4868fc5` remote — 9 Oct, GATED.** The gate
+      opened on the rebuilt host (3580 MB available, floor 900 MB), so this
+      tick built it. Evidence: `flutter analyze` → **No issues found!**;
+      `tool/run_tests.py` → **SUITE PASS — 2609 tests, 14/14 shards green**
+      (was 2605, **+4** new), `RUNNER_EXIT=0`, 19:19, every shard green on its
+      first attempt. The count that gates is now **2609**; the floor stays
+      **2603**.
 
       **The defect.** `_showBidSheet` (`project_detail_screen.dart:663`)
       pops `_BidSheet`, which hands back `_BidDraft` of **three plain
@@ -1599,6 +1601,43 @@ understand that is the single biggest "this app is foreign" signal.
       **Screenshots:** this is a form-state change, so it IS visual. When the
       gate opens, capture the sheet with the error live and check the error
       band with `pngscan.py`, per step 5 of the Loop protocol.
+
+      **What shipped.** The fold lives in `_BidSheetState._error`, beside the
+      three controllers, exactly as specified: empty amount is an error here
+      (`submitQuote` requires one, where the budget is genuinely optional), the
+      same fold as `_budgetError` otherwise, `onChanged: (_) => setState(() {})`
+      on both `NumberField`s, and the message drawn through `errorText` — the
+      parameter `NumberField` already took and **no call site in the app used**.
+      `_send` returns early on `_error != null` before the pop. The parent's
+      guard stayed, as a belt rather than the only check: a guard that never
+      fires costs nothing, while a bid that pops unvalidated costs the
+      contractor the paragraph he wrote to win the job. Four new strings in
+      `strings.dart` (`bidAmountRequired`, `bidAmountMin`, `bidAmountNotNumber`,
+      `bidDaysNotNumber`), so the two call sites of each rule cannot drift.
+
+      **The test was verified RED before the fix was restored** — not asserted
+      to be. With `project_detail_screen.dart` stashed and the new tests left
+      in place, it failed with `Found 0 widgets with text "إرسال العرض"`: the
+      sheet had closed, which is the defect stated as a test failure. Then 7/7
+      green on the same file.
+
+      **Screenshots — and a harness defect found while making them.** The
+      first capture wrapped a `RepaintBoundary` around an arbitrary internal
+      node and produced **two byte-identical PNGs of the project page behind the
+      sheet, with zero danger pixels** — a plausible-looking screenshot that
+      proved nothing. Two causes, both worth writing down:
+        * a bottom sheet lives in the Navigator's **Overlay**, a sibling of
+          `home:`, so a boundary drawn around `home` cannot see it. The
+          boundary has to wrap the whole `MaterialApp`;
+        * the key must be attached on the **first** `pumpWidget`. Handing a
+          `GlobalKey` to a second `pumpWidget` for the same subtree leaves
+          `currentContext` null (the first tree is already unmounted).
+      The md5s now differ, and `pngscan` on the danger colour `#C33F39` finds
+      **25 regions in `/tmp/shots/bid_sheet_error_light.png`** (the error
+      glyphs at y1427, inside the 1080x1336 white sheet that starts at y944)
+      and **0 in `/tmp/shots/bid_sheet_clear_light.png`**. The clear shot is
+      the second half of the claim: the band goes away the moment he corrects
+      the digit, without a second tap.
 
 
 ## Phase 2 — Elite visual pass
