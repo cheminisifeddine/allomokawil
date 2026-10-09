@@ -670,6 +670,102 @@ remote tree, read off the git-data API rather than trusted from the push line.
       replayed against the real runner: **11/11**. No Dart changed.
       Full detail in the Tick 8 Oct (2nd) section at the foot of this file.
 
+- [x] **The ceiling sentence the gallery prints is blind to the count it sits
+      above -- and the audit that found it could not tell a full gallery from an
+      overfull one.**  `e38a88c`.
+      The pending half of the portfolio-allowance item. No unchecked item
+      existed, and `build_gate.py` again answered **NO ROOM** at **343 MB
+      against the 900 MB floor**, so no Dart was touched and this is a
+      Python-only cycle, same as the last four.
+
+      *Two questions, one answered, one refuted.* Ordered by the 9 Oct tick.
+      **Refuted:** the "second copy" shape two earlier items found. Read
+      `worker_profile_screen.dart::_PortfolioGrid` -- the customer's view of the
+      same gallery -- and it draws a **bare grid**: no count line, no ceiling
+      line, `portfolioFullLineAr` appears in **zero** places in that file
+      (grep over `lib/`: the only 3 call sites are all in
+      `my_portfolio_screen.dart`). So the contradiction is **not** duplicated to
+      a second surface; it exists on exactly one screen, which narrows the Dart
+      fix rather than doubling it. Worth recording because two earlier items in
+      this file were the same shape, and this one is not.
+
+      **Answered:** the ordered `over_ceiling_line` check, now shipped in
+      `tool/portfolio_allowance_audit.py`. The 9 Oct tick asked for it
+      explicitly, because the audit could report *that* two sentences disagree
+      but not *why the ceiling sentence is the wrong half*: `portfolioFullLineAr`
+      takes **one** argument, so the string it builds is byte-identical whether
+      the gallery holds 5 photographs or 130. Three fields, one predicate:
+      `over_ceiling_line` (the boolean the copy fix must drive False),
+      `over_ceiling_by` (the size of the gap, so a report can say *by how much*
+      and not merely *that it happened*), and `check_ceiling_line()`, which is
+      what makes the fix **falsifiable** -- see below.
+
+      *It is deliberately NOT wired into the exit code*, and that is the one
+      design decision here. Exit 1 stays reserved for the **server-side**
+      contradiction a tick can act on today. A ceiling-blind sentence is a **copy**
+      defect fixed in Dart; letting it drive the exit would make this tool
+      permanently red from the day it was written until that fix lands, and a
+      permanently red tool stops being read. It is reported and pinned instead.
+
+      *The falsifiability is the point.* A cheap fix re-words the sentence
+      printed **around** the ceiling line (`_Header._subLine`, `_FullNotice`) and
+      leaves `portfolioFullLineAr` untouched -- the screen reads better and the
+      defect stays exactly where it was. A test that a re-word could satisfy
+      would pin the wrong thing and the Dart tick would land a half-fix that
+      reads green. So the suite **refuses that fix by name**: the subline moves,
+      the ceiling function does not, and `check_ceiling_line` must still report
+      the defect. Only `subline_takes_count` -- the count reaching the ceiling
+      line -- clears it.
+
+      **Evidence.** Live, both hosts, unchanged from 9 Oct: `portfolio_limit 5`,
+      `photo usage fields: []`, `posted 130/130` all 200, list complete, 0 rows
+      dropped by the app parse, `header_contradicts: True`,
+      **`over_ceiling_line: True (over by 125)`**, **`AUDIT_EXIT=1`**. The new
+      line is printed on its own row so it survives the fix.
+      Tests **28 passed, 0 failed** (was 18; +10). Sibling gallery audit still
+      **14 passed**. Mutations **16 run, 15 killed, 1 survived, 0 skipped** --
+      the harness refuses to report a patch that did not apply, which is the
+      9 Oct lesson.
+
+      **The one survivor is provably EQUIVALENT, not a gap.** The mutant drops
+      `is_full` from `over_ceiling_line = is_full and used > limit`. Under the
+      mirror's own definition `is_full` is `limit - used <= 0`, and for any
+      integer `used`, `used > limit` **implies** `limit - used < 0`, hence
+      `is_full`. The two expressions cannot differ on any input. Stated rather
+      than hidden, because a survivor that is quietly dropped is how a
+      15-killed-of-16 becomes "all killed" in a later tick's summary.
+
+      **Five survivors the first mutation run produced were real gaps, and they
+      were closed by three new cases** (shape tolerance on `check_ceiling_line`,
+      the `subline_takes_count` flag being honoured, and `over_ceiling_by`
+      staying absent when no ceiling is stated). The suite caught one failure in
+      my own new case first -- `_verdict` walks `(report, error)` pairs and my
+      case passed a bare dict, so it raised instead of passing a one-sided
+      verdict. Fixed in the case, not in the helper.
+
+      **Not claimed:** no `flutter analyze`, no `tool/run_tests.py` -- the gate
+      refused, twice. Banked **2609** untouched. No APK, no release, no tag.
+      One **pre-existing flake** was measured, not inherited: the full Python
+      set is green on my tree except `build_gate_test.py`, which gave
+      **32/32 ALL PASS** (exit 0), then **30/31 SOME FAILED** (exit 1) on the
+      next run. The failing case is *"after reaping -> verdict recomputed, box
+      CLEAR"*, and it is **memory, not logic**: that case kills a leaked
+      `flutter_tester` and then asserts the gate answers exit 0, which is only
+      true when the box is genuinely above the 900 MB floor. This host is
+      ballooned, so the assertion is racing real memory. **Proved not mine** by
+      stashing all three changed files and re-running on a clean tree: **30/31,
+      the same case**, exit 1. Restored after. Left alone deliberately -- it is
+      a real defect in that test (it asserts an outcome it does not control)
+      but fixing it belongs to a tick that can re-validate the whole suite, not
+      to a memory-denied one that cannot run the gate.
+
+      **Next (the Dart half, still gate-blocked):** give `portfolioFullLineAr`
+      the count as a second argument -- callers are `_Header._subLine` and
+      `_FullNotice`, both in `my_portfolio_screen.dart` -- so the sentence reads
+      «لديك 130 صورة وخطتك تسمح بـ 5» rather than a ceiling alone, and set
+      `subline_takes_count` so this audit reports the fix landed. Needs a gate
+      run; on a ballooned box it waits.
+
 The backlog is empty and the gate was lying, so this phase is about the
 harness rather than the app. Items here are only real if they change what a
 future tick can *see*.

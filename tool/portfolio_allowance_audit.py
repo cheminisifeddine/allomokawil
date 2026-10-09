@@ -289,7 +289,49 @@ def _check_header(wire, acct, rep):
     # one of them can be true of the photographs.
     out["count_exceeds_limit"] = used > limit
     out["header_contradicts"] = bool(out["is_full"] and used > limit)
+    # The claim the Dart fix will be measured against.
+    #
+    # `portfolioFullLineAr(limit)` takes ONE argument, so the sentence it
+    # builds cannot tell "full at five" from "a hundred and thirty against a
+    # ceiling of five" -- it names the ceiling and nothing else. That is the
+    # defect the 9 Oct tick ordered fixed, and this is the check that pins the
+    # fix: while `over_ceiling_line` stays True, the printed ceiling sentence is
+    # the same string in both states, so a fix that only re-words the subline
+    # around it would not move this boolean. Only a `portfolioFullLineAr` that
+    # is told the count can.
+    #
+    # Two claims, kept deliberately separate: `over_ceiling_line` is the
+    # boolean the copy fix must drive False, and `over_ceiling_by` says by how
+    # much the gallery is past, so a report can state the size of the gap
+    # instead of merely that there is one. 0 while inside the ceiling.
+    out["over_ceiling_line"] = bool(out["is_full"] and used > limit)
+    out["over_ceiling_by"] = max(used - limit, 0)
     return out, None
+
+
+def check_ceiling_line(head):
+    """Is the ceiling sentence the screen prints still blind to the count?
+
+    One predicate, so the report, the test and the eventual Dart fix are all
+    judged by the same question. The defect is a property of the *sentence*,
+    not of the numbers: `portfolioFullLineAr(limit)` receives only the ceiling
+    and therefore builds the same string whether the gallery holds five
+    photographs or a hundred and thirty.
+
+    Kept separate from `header_contradicts` on purpose. That one asks whether
+    the two sentences on the card disagree with each other, and a fix that
+    re-words the subline would silence it while leaving the ceiling sentence
+    unable to tell a full gallery from an overfull one -- which is the half-fix
+    `test/portfolio_allowance_audit_test.py` refuses by name.
+
+    A header that took the count into the ceiling line (`subline_takes_count`)
+    is, by construction, not blind to it.
+    """
+    if not isinstance(head, dict):
+        return False
+    if head.get("subline_takes_count"):
+        return False
+    return bool(head.get("over_ceiling_line"))
 
 
 def _another_writer_is_building():
@@ -333,6 +375,14 @@ def _render(reports):
                      % (head.get("header_contradicts"), head.get("used"),
                         head.get("limit"),
                         gal.get("rows_dropped_by_app_parse")))
+        # The line the pending Dart copy fix has to change, and how far past it
+        # the gallery is. Printed on its own row because it is the check that
+        # survives the fix: `header_contradicts` goes False once the two
+        # sentences stop disagreeing, this goes False only when the ceiling
+        # sentence itself can name the count.
+        lines.append("    ceiling sentence is blind to the count: %s "
+                     "(over by %s) -- `portfolioFullLineAr` still takes only a limit"
+                     % (head.get("over_ceiling_line"), head.get("over_ceiling_by")))
     return lines
 
 
@@ -386,6 +436,14 @@ def main():
         if err:
             continue
         head = rep.get("header", {}) or {}
+        # `over_ceiling_line` is deliberately NOT part of this verdict. It is
+        # True on a healthy host today -- the copy is the defect, and the copy
+        # is fixed in Dart, not here -- so letting it drive the exit code would
+        # make this tool permanently red and the founder would stop reading it.
+        # It is reported, and pinned by `test/portfolio_allowance_audit_test.py`,
+        # so the moment the Dart fix lands the boolean flips and the test says
+        # so out loud. Exit 1 stays reserved for a contradiction that is the
+        # SERVER's to fix, which is the one a tick can act on today.
         if head.get("header_contradicts"):
             return 1
     return 0

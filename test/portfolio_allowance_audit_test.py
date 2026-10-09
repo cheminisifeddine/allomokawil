@@ -379,6 +379,204 @@ def t_header_empty():
     _run(body)
 
 
+# --- the ceiling sentence is blind to the count --------------------------
+
+@case("the ceiling sentence cannot tell 12-against-5 from 130-against-5")
+def t_over_ceiling_line():
+    def body(api):
+        wire = audit.Wire(api.HOST)
+        acct = _acct()
+        plan, _ = audit._read_limit(wire, acct)
+        gal, _ = audit._fill_past_the_limit(wire, acct, rows=12)
+        head, _ = audit._check_header(wire, acct, {"plan": plan, "gallery": gal})
+        # True at 12 over a ceiling of 5, and it must be True at 130 over the
+        # SAME ceiling, because that is the point: `portfolioFullLineAr` is
+        # handed `limit` alone, so the string it builds is identical in both
+        # states. If this ever goes False on its own, something changed the
+        # ceiling function -- which is the fix, not a test fix.
+        assert head["over_ceiling_line"] is True, head
+        assert head["over_ceiling_by"] == 7, head
+    _run(body)
+
+
+@case("the same check holds at 130 rows: the ceiling sentence is unchanged")
+def t_over_ceiling_line_far_over():
+    def body(api):
+        wire = audit.Wire(api.HOST)
+        acct = _acct()
+        plan, _ = audit._read_limit(wire, acct)
+        gal, _ = audit._fill_past_the_limit(wire, acct, rows=130)
+        head, _ = audit._check_header(wire, acct, {"plan": plan, "gallery": gal})
+        assert head["used"] == 130 and head["limit"] == 5, head
+        assert head["over_ceiling_line"] is True, head
+        assert head["over_ceiling_by"] == 125, head
+        # And the ceiling the sentence names is the same 5 in both cases --
+        # the number in the string never moved, which is the whole defect.
+        assert head["subline"] == "full at limit: 5", head
+    _run(body)
+
+
+@case("exactly at the ceiling is NOT over the ceiling")
+def t_over_ceiling_line_exact():
+    def body(api):
+        wire = audit.Wire(api.HOST)
+        acct = _acct()
+        plan, _ = audit._read_limit(wire, acct)
+        gal, _ = audit._fill_past_the_limit(wire, acct, rows=5)
+        head, _ = audit._check_header(wire, acct, {"plan": plan, "gallery": gal})
+        assert head["is_full"] is True, head
+        assert head["over_ceiling_line"] is False, head
+        assert head["over_ceiling_by"] == 0, head
+    _run(body)
+
+
+@case("under the ceiling is not over it either")
+def t_over_ceiling_line_under():
+    def body(api):
+        wire = audit.Wire(api.HOST)
+        acct = _acct()
+        plan, _ = audit._read_limit(wire, acct)
+        gal, _ = audit._fill_past_the_limit(wire, acct, rows=2)
+        head, _ = audit._check_header(wire, acct, {"plan": plan, "gallery": gal})
+        assert head["over_ceiling_line"] is False, head
+        assert head["over_ceiling_by"] == 0, head
+    _run(body)
+
+
+@case("no stated limit yields no over-ceiling claim at all")
+def t_over_ceiling_line_no_limit():
+    def body(api):
+        wire = audit.Wire(api.HOST)
+        acct = _acct()
+        api.current = {"plan": "free_trial"}
+        plan, _ = audit._read_limit(wire, acct)
+        gal, _ = audit._fill_past_the_limit(wire, acct, rows=9)
+        head, _ = audit._check_header(wire, acct, {"plan": plan, "gallery": gal})
+        # Nine photos and no ceiling stated is not a contradiction -- there is
+        # no ceiling to be over. Claiming one here would be the false
+        # positive the `verdict` branch exists to prevent.
+        assert head["verdict"] == "NO_LIMIT_STATED", head
+        assert "over_ceiling_line" not in head, head
+    _run(body)
+
+
+@case("the check is NOT what turns the exit code red")
+def t_over_ceiling_line_not_in_exit():
+    """A ceiling-blind sentence is a COPY defect, fixed in Dart.
+
+    If `over_ceiling_line` drove the exit code, this tool would be red on
+    every healthy host from the day it was written until the Dart fix landed,
+    and a permanently red tool stops being read. So it is reported and pinned,
+    and exit 1 stays reserved for the server-side contradiction. This case
+    exists because the opposite wiring is the obvious thing to type.
+    """
+    def body(api):
+        blind = {"header": {"header_contradicts": False,
+                            "over_ceiling_line": True}}
+        contradicts = {"header": {"header_contradicts": True,
+                                  "over_ceiling_line": True}}
+        # `_verdict` walks `reports.values()` as `(report, error)` pairs, which
+        # is what `main` builds; a bare report dict raises here rather than
+        # silently passing a one-sided verdict.
+        assert _verdict({"h": (blind, None)}) == 0
+        assert _verdict({"h": (contradicts, None)}) == 1
+    _run(body)
+
+
+@case("the fix is falsifiable: rewording the SUBLINE alone does not clear it")
+def t_fix_must_touch_the_ceiling_line():
+    """The pending Dart fix has a shape, and this case refuses a cheaper one.
+
+    `portfolioFullLineAr` is the function that cannot see the count. So a fix
+    that only re-words the sentence printed *around* it -- `_Header._subLine`
+    or `_FullNotice` -- would make the screen read better and leave the defect
+    exactly where it was. This case models that cheap fix (subline text moves,
+    ceiling function untouched) and asserts the check still reports the defect.
+    A test that could be satisfied by re-wording would be pinning the wrong
+    thing, and the Dart tick would land a half-fix that reads green here.
+    """
+    def body(api):
+        wire = audit.Wire(api.HOST)
+        acct = _acct()
+        plan, _ = audit._read_limit(wire, acct)
+        gal, _ = audit._fill_past_the_limit(wire, acct, rows=12)
+        head, _ = audit._check_header(wire, acct, {"plan": plan, "gallery": gal})
+        before = head["over_ceiling_line"]
+
+        # The cheap fix: a different subline sentence, same ceiling function.
+        cheap = dict(head)
+        cheap["subline"] = "you are past your plan limit"
+        cheap["subline_takes_count"] = False
+        assert audit.check_ceiling_line(cheap) is before is True, \
+            "re-wording the subline must not clear a ceiling-blind line"
+
+        # The real fix: `portfolioFullLineAr` is handed the count as well, so
+        # the sentence it builds differs between 5-against-5 and 130-against-5.
+        real = dict(head)
+        real["subline_takes_count"] = True
+        real["over_ceiling_line"] = False
+        assert audit.check_ceiling_line(real) is False
+    _run(body)
+
+
+@case("the ceiling check reads a header of any shape without raising")
+def t_check_shape_tolerance():
+    """`check_ceiling_line` is handed whatever `_check_header` produced.
+
+    A caller that passes None, a list or a bare report must get a verdict, not
+    a traceback: the tool prints this check for every host it talked to,
+    including one that answered with nothing at all.
+    """
+    def body(api):
+        for shape in (None, [], "5", 7, {}, {"over_ceiling_line": True}):
+            assert isinstance(audit.check_ceiling_line(shape), bool), shape
+        assert audit.check_ceiling_line({"over_ceiling_line": True}) is True
+        assert audit.check_ceiling_line({}) is False
+    _run(body)
+
+
+@case("a ceiling line that took the count is not reported as blind")
+def t_check_respects_takes_count():
+    """The ONLY thing that can clear this check is the count reaching the line.
+
+    `subline_takes_count` is how the Dart fix will report itself: once
+    `portfolioFullLineAr` is handed the count, the sentence can distinguish a
+    full gallery from an overfull one, so this check must go False. Until then
+    it stays True, and a caller that ignored the flag would report the fixed
+    build as still broken -- which is worse than reporting nothing, because the
+    fix would never look landed.
+    """
+    def body(api):
+        blind = {"over_ceiling_line": True}
+        fixed = {"over_ceiling_line": True, "subline_takes_count": True}
+        assert audit.check_ceiling_line(blind) is True
+        assert audit.check_ceiling_line(fixed) is False
+        # And the flag is honoured even when the raw flag says otherwise, so
+        # it cannot be set by accident on a build that did not fix it.
+        assert audit.check_ceiling_line({"subline_takes_count": True}) is False
+    _run(body)
+
+
+@case("the gap is reported even when no ceiling is stated")
+def t_no_limit_branch_by_zero():
+    """`over_ceiling_by` must be absent, or 0 -- never a number.
+
+    A `_check_header` that answered `NO_LIMIT_STATED` has no ceiling to be over,
+    so there is no gap to measure. Emitting a number there would be the app's
+    own defect re-created in the audit: a figure standing where nothing was
+    measured.
+    """
+    def body(api):
+        wire = audit.Wire(api.HOST)
+        acct = _acct()
+        api.current = {"plan": "free_trial"}
+        plan, _ = audit._read_limit(wire, acct)
+        gal, _ = audit._fill_past_the_limit(wire, acct, rows=9)
+        head, _ = audit._check_header(wire, acct, {"plan": plan, "gallery": gal})
+        assert "over_ceiling_by" not in head or head["over_ceiling_by"] == 0, head
+    _run(body)
+
+
 # --- the exit code -------------------------------------------------------
 
 @case("exit 1 when a host contradicts, and 0 when it does not")
