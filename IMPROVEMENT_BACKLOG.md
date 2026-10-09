@@ -31465,3 +31465,109 @@ copy/format layer is now clean end to end — every count noun, every star ratin
 every money path and every error arm was read and each already carried its guard.
 The next item should be a **different layer** (the screen/state layer, or
 `data/repository.dart`'s paging), not another pass over `data/*_copy.dart`.
+
+## Tick 10 Oct 2026 (14:30) — the loss the log held and the screen could not
+## name: a search that read three pages of five printed «لا نتائج». **SHIPPED**
+
+**This is the second half of a shipped item, and the half nobody could see.**
+`browseProjects` was taught to record every page it could not read — each with
+its number, on the diagnostics channel — so «no results» stopped being a
+*silent* under-search. That is correct and it is green.
+
+**The log is not the screen, and that was the whole defect.** The record goes
+through `CrashReporter.active?.capture(...)` — a place only support reads the
+morning after — and the return type was `List<Project>`. The count of lost
+pages had no path to the widget that prints the answer. Measured on the live
+API first, so the defect was about a real endpoint and not an assumed one:
+
+    GET /api/mobile/projects?status=open&page=1 -> 20 rows
+    GET /api/mobile/projects?status=open&page=2 ->  7 rows
+    GET /api/mobile/projects?status=open&page=3 ->  0 rows
+
+So the widen genuinely widens, which makes the loss genuinely possible. A
+contractor searching «دهان» while pages 2 and 4 were down was told «لا نتائج
+مطابقة» — *nothing matches* — which is a **verdict about the whole market
+made by a read of three fifths of it**. «No results» and «I could not read a
+third of the market» are identical on a 360 px screen and mean opposite things.
+
+**Shipped.** The loss is carried, not only logged:
+
+- `Repository.browseProjectsPaged` returns `MarketPageResult`
+  (`rows` + `lostPages` + `requestedPages`). `browseProjects` keeps its
+  `List<Project>` contract, so the **six screens that do not widen are
+  untouched** — the loss is opt-in for the one caller that renders a verdict.
+  The first draft changed `browseProjects`' own return type and the analyzer
+  answered with **21 errors across 6 test files**; a second entry point was the
+  right seam and the cheaper one.
+- `data/partial_market_copy.dart` owns the wording and the rule, routed
+  through `arabicCounted` so «صفحة واحدة» / «صفحتان» / «3 صفحات» / «11 صفحة»
+  agree — with the same trap `commune_count_copy.dart` documents (never pass
+  «صفحة واحدة» as the singular, it is reused for 11+).
+- `partialMarketMayClaimNoResults(lost:, total:)` — the app may print a verdict
+  about the market only if it read the market. One predicate, because the call
+  site is where the temptation lives: rows in hand, list empty, `isEmpty`
+  reads like a conclusion.
+
+**Pages that answered empty are NOT counted as lost.** A wilaya with no open
+projects is an empty market, and announcing a network failure over one is the
+mirror-image lie — a screen inventing a failure to excuse a result it dislikes.
+
+**The widget test caught the fix being half of a fix.** The band first went
+only on the *empty* branch, which is the half that reads as a dramatic «I found
+nothing». The run failed on the case that ships bids: a search that reached
+three pages of five, found two matching rows and printed them as though the
+market held nothing else. That is the one a contractor quotes from. Both branches
+now ask for it, through one `_partialMarketSlivers()` helper.
+
+**A test of mine was wrong and the run said so.** I first asserted that
+clearing the query drops the band. It does not, and must not: `_clearSearch`
+does not drop `_wideRows`, so the rows on screen are *still* the partial union
+and the sentence must follow the **rows**, not the text box. The test was
+rewritten to pin that contract.
+
+**Evidence (real output):**
+
+- `flutter analyze` -> **`No issues found!`** (11.4s, then 9.7s, then 2.7s).
+- New: **11 copy + 4 seam + 6 widget + 1 shot** = 22 tests, all green.
+- Consumer sweep: **157 PASS / 0 FAIL** across `browse_pages_partial`,
+  `stale_market`, `worker_home_pull_to_refresh`, `project_trade_exact_repository`,
+  `live_wire_contract`, `project_payload_shape`, `stale_market_shot`,
+  `place_seed`, `screen_smoke`, `feed_search`, `stats_freshness`,
+  `worker_header_failure`, `stale_profile_refresh`, `home_hierarchy`.
+- **Mutation-proven both ways**: forcing `partial = false` kills
+  «a search that lost pages refuses the «لا نتائج» verdict»; dropping
+  `_partialMarketSlivers()` from the rows branch kills «clearing the QUERY keeps
+  the band». Neither case is vacuous.
+- **Shot:** `/tmp/shots/23_worker_market_partial.png` — band box **1074x210**,
+  **19,859 px** of Arabic ink inside it across **118 rows**,
+  `accentDeep #9B6415` on `accentWash #FDF3E3` = **4.52:1** (WCAG AA for
+  normal text). The y-ordering assertion holds: the band ends above the first
+  result row, so it annotates the list and does not replace it.
+
+**On the measurement, because it nearly filed a false defect:** the first scan
+reported **0 dark px inside the band** — a band drawn as an empty amber bar,
+the exact failure `stale_market_shot_test.dart` documents. The render was fine;
+the **threshold** was wrong. It looked for `r<140`, and `accentDeep` is
+`r=155`. Re-measured against the theme's own value: 19,859 px. A "the band
+renders nothing" claim would have been a plausible-looking fabrication of a
+defect that does not exist, produced by a scanner rather than by the app.
+
+**Not claimed:** the full 14-shard suite was **not** run — it measured
+**19:47** on 9 Oct and cannot fit a 10-minute tick. The gate here is every
+consumer of both changed files, 157 tests, all green. Banked whole-suite
+number stands at **2605**; the change is additive and cannot lower it.
+
+**Files:** `lib/src/data/partial_market_copy.dart` (new),
+`lib/src/data/repository.dart`, `lib/src/screens/worker/worker_home_screen.dart`,
+`test/partial_market_copy_test.dart`, `test/partial_market_pages_test.dart`,
+`test/partial_market_search_widget_test.dart`,
+`test/partial_market_shot_test.dart`, `IMPROVEMENT_BACKLOG.md`.
+
+**Commit** `7e70c21` -> remote `e96e97d`.
+
+**Next.** The screen/state layer is now audited on the two reads that matter
+here (the stale family and the widened search). The remaining `data/repository.dart`
+surface is the **chat/conversation paging** (`messages(conversationId, {after})`
+and the `_conversationToken` generation at `worker_home_screen.dart:114`) —
+same shape as the bug just fixed: a read that returns rows and no word about
+what it did not read.
