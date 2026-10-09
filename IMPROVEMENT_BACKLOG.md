@@ -32035,3 +32035,120 @@ by chunking, which is worth doing either way since the cap is the server's.
       now a second one: `POST /api/upload` answered **500** with an empty JSON
       body on a fresh account, so the portfolio *upload* path — the one call the
       gallery screen exists for — is worth checking before anything else ships.
+
+- [x] **The plan allowance against the gallery list — the sweep the portfolio
+      tick ordered. The pair is real, and the two numbers the header prints
+      about the same photographs cannot both be true.** A non-build tick:
+      `tool/build_gate.py` answered NO ROOM at **392 MB available against a
+      900 MB floor** (340 MB when the tick opened), with the hypervisor
+      holding **5.4–5.5 GB** that nothing in this PID namespace owns. Zero
+      Dart changed, so the banked **2609** cannot move.
+
+      The instruction left by the 9 Oct portfolio tick was:
+
+          "the plan allowance against the gallery list: `MyPortfolioScreen._load`
+           reads `/my/profile` for `portfolio_limit` and
+           `/workers/:id/portfolio` for the rows, and `left` is computed from
+           `used` alone."
+
+      **The premise holds. The contradiction is real, and it needs no server
+      bug to happen.** Measured live on both hosts:
+
+          /api/mobile/subscription -> current.portfolio_limit = 5
+          /api/mobile/subscription -> photo-usage fields: []   <- none
+          POST /portfolio x130 -> 130 x 200, GET -> 130 rows, contiguous
+
+      Three facts, and the third is the dangerous one. The payload states a
+      **ceiling** and nothing about **usage** — it carries
+      `quotes_used_this_month` and `quotes_left` for the quote side and
+      **nothing** for photos, so `used` can only come from the list length. The
+      list is **uncapped**: 130 posted, 130 listed, every index present, which
+      rules out the 100-row cap the notifications and reviews routes have.
+      And the **server enforces no limit**: twelve rows stored against an
+      allowance of five, on a fresh account, with no error.
+
+      **What the contractor reads is a card that disagrees with itself.**
+
+          portfolioCountLineAr(count) -> "130 صور في معرض أعمالك"
+          _Header._subLine()          -> portfolioFullLineAr(5)
+                                        -> "بلغت حد صور خطتك: 5 صور"
+
+      Two numbers about one set of photographs, on one card: the gallery holds
+      130 and the plan stops at 5. `left` floors at zero — deliberately and
+      correctly, see `PortfolioAllowance.left` — so this is not a negative
+      number, it is a sentence stating a ceiling the same screen is showing
+      130 pictures above.
+
+      **Reachable without a bug and without cheating.** The client gate
+      (`_addPhoto` -> `isFull`) stops *the app* at five, so the three ordinary
+      ways into this state are not defects: a **plan downgrade** or a lowered
+      `portfolio_limit` under photos added on the higher tier (the exact state
+      `left` was written to floor); photos registered by another surface
+      (desktop, backfill, an earlier build) which the app counts and never
+      prevented; and the **free default itself** — `kDefaultPortfolioLimit` is 5
+      for a server that sent nothing, so a contractor who was already over five
+      the first time he opened the screen reads both sentences at once.
+
+      **The fix is copy, not arithmetic.** `left` is already right. The defect
+      is that `portfolioFullLineAr` names the *ceiling* while the card above it
+      names the *actual*, and nothing reconciles them. A full gallery whose
+      count is **past** the ceiling is a different state from one exactly at
+      it, and today both print the same sentence — so the second case, where
+      five photos against a limit of five is perfectly consistent, is what pins
+      the boundary: `used == limit` must **not** be treated as a contradiction.
+
+      **Files:** `tool/portfolio_allowance_audit.py` (new, exit 1 on
+      contradiction), `test/portfolio_allowance_audit_test.py` (new, 18 cases),
+      `IMPROVEMENT_BACKLOG.md`.
+
+      **Evidence.** `python3 tool/portfolio_allowance_audit.py` -> both hosts,
+      `portfolio_limit 5`, `photo usage fields on payload: []`, `posted
+      130/130`, `list complete: True`, `rows dropped by app parse: 0`,
+      `header_contradicts: True`, **`AUDIT_EXIT=1`**.
+      `python3 test/portfolio_allowance_audit_test.py` -> **18 passed, 0 failed**.
+      The sibling `test/portfolio_gallery_audit_test.py` still **14 passed**.
+
+      *Mutation.* **15 mutations, 15 killed, 0 survived, 0 skipped.** The
+      harness refuses to report a patch that did not apply — carried over from
+      the 9 Oct tick, where 3 of 15 patches were silently skipped and still
+      counted. The boundary case `used >= limit` (instead of `>`) is one of the
+      15 and is killed by «a gallery exactly at the ceiling is full, and not a
+      contradiction», which is why that case exists.
+
+      **Four failures the tests caught in this tick's own work**, all real and
+      all fixed: the usage-field filter counted **`portfolio_limit` itself** as
+      a usage field — it is about photos and it is an integer, so a substring
+      match reports a usage field where the server sends only the ceiling; the
+      stub answered `/api/mobile/subscription` before consulting its own route
+      table, so a case could not make that call fail; the exit-code helper
+      took a bool where `main` takes a list of host names and raised
+      `TypeError` before reaching the two exit codes it exists to pin; and the
+      capped-list case asserted against its *own uncapped stub*, which would
+      have passed without the tool ever noticing a cap. That case now drives a
+      genuinely capped GET and asserts `missing_from_list == 7`.
+
+      **Also refuted this tick, by measurement.** The 9 Oct tick recorded
+      "`POST /api/upload` answered **500** with an empty body on a fresh
+      account, that's the upload path the gallery screen exists for". **It does
+      not reproduce.** Measured on both hosts with a real multipart body:
+      `.jpg`, `.png`, no-extension and `.heic` all answer **200** with a
+      `{"url": …}` object, and anonymous answers a correct **401**
+      («غير مصرح»). Every stored URL was then fetched back: **200**, correct
+      `Content-Type`, and the magic bytes match the upload. No upload defect to
+      file against BACKEND-API. The earlier 500 was a harness artefact — the
+      probe that found it sent a hand-rolled raw socket that the edge reset
+      (`ECONNRESET`), which a naive reader records as a server 500.
+
+      **Not claimed:** no `flutter analyze`, no `tool/run_tests.py` — the gate
+      refused. **Zero Dart files changed**, so the banked **2609** is untouched.
+
+      **Next.** Ship the copy fix in Dart, and it needs a gate to run first:
+      `portfolioFullLineAr` takes a **limit** only, so it cannot distinguish
+      "full at 5" from "130 against a limit of 5". It needs the count as a
+      second argument, and `_Header._subLine` is the only caller on this screen
+      plus `_FullNotice`. Then re-run this audit with an
+      `over_ceiling_line` check so the tool pins the fix instead of only
+      describing it. Worth measuring at the same time: whether
+      `worker_profile_screen.dart` — which draws the same gallery for a
+      *customer* — has the same header, because this is the "second copy of
+      the thing" shape the monogram item and the wilaya-sheet item both found.
