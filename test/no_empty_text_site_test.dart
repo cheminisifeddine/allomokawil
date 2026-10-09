@@ -20,6 +20,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:allomokawil/src/data/notification_copy.dart';
+import 'package:allomokawil/src/data/partial_market_copy.dart';
+import 'package:allomokawil/src/data/partial_thread_copy.dart';
 import 'package:allomokawil/src/data/quote_status_copy.dart';
 import 'package:allomokawil/src/models/enums.dart' show QuoteStatus;
 import 'package:allomokawil/src/models/quote_review.dart';
@@ -32,6 +34,11 @@ const _emptyReturning = <String>{
   'addedPhotosLineAr',
   'communeCountAr',
   'durationDaysAr',
+  // The `partial_*` family, added 9 Oct 2026 — the list had gone stale for
+  // weeks and the sweep below was policing 19 functions out of 23.
+  'lostPagesAr',
+  'partialMarketLineAr',
+  'partialThreadLineAr',
   'photosAr',
   'portfolioCountLineAr',
   'queuedCountLabel',
@@ -41,6 +48,7 @@ const _emptyReturning = <String>{
   'quotesAr',
   'readAgeAr',
   'relativeTimeAr',
+  'undrawnMessagesAr',
   'unreadMessagesLabel',
   'uploadedThisSessionAr',
   'wilayaSpanAr',
@@ -88,6 +96,28 @@ bool _isGuarded(List<String> before) => before.any((l) =>
     l.contains('isNotEmpty') ||
     l.contains('isEmpty') ||
     l.contains('CopyLine'));
+
+/// A `return` that produces **no widget at all**, between the start of the
+/// enclosing block and the `Text`, is the other legitimate guard — and the one
+/// the 3-line window could not see.
+///
+/// `chat_screen.dart::_olderStrip` and `worker_home_screen.dart::
+/// _partialMarketSlivers` both branch on a **predicate** (`if
+/// (partialThreadMayClaimComplete(...)) return const SizedBox.shrink();`) and
+/// build the sentence twenty lines further down. Measuring three lines above
+/// the `Text` called that a hole, and adding both files to [_exempt] would have
+/// been the wrong repair: it switches off the *other* two sweeps for the whole
+/// file, so a real hole anywhere else in a 2000-line chat screen would go
+/// unseen. This accepts the shape and leaves the file under test.
+///
+/// The honest cost, recorded rather than hidden: a function that returns early
+/// for an unrelated reason and *also* draws a possibly-empty copy raw would
+/// pass. That is why the predicate's real claim is proved at runtime in
+/// ['a predicate that bails before the draw is a real guard'] rather than
+/// trusted from the text.
+bool _bailsBeforeDraw(String src, int drawStart, int blockStart) =>
+    RegExp(r'return\s+(?:const\s+)?(?:SizedBox\.shrink\(\)|<\s*Widget\s*>\[\s*\])\s*;')
+        .hasMatch(src.substring(blockStart, drawStart));
 
 
 /// The span of the block enclosing [index] — the nearest `{` before it and its
@@ -189,6 +219,39 @@ void main() {
     );
   });
 
+  test('a predicate that bails before the draw is a real guard', () {
+    // The claim [_bailsBeforeDraw] accepts on the *text* of a source file:
+    // that a function returned no widget before it reached the draw. Text is
+    // not a proof, so the underlying claim is proved here instead, from the
+    // copy and the predicate themselves: **the sentence is silent exactly when
+    // the predicate says the read was complete.** Not "silent somewhere" — the
+    // two sides are equal on every input, which is the only way the early
+    // return is entitled to stand in for the missing `isEmpty` test.
+    //
+    // If either half drifts, the band goes blank on the inputs where they
+    // disagree, and this is the assertion that catches it.
+    const counts = [0, 1, 2, 3, 11, 130, 5000];
+    for (final n in counts) {
+      expect(partialThreadLineAr(undrawn: n, drawn: 100).isEmpty,
+          partialThreadMayClaimComplete(undrawn: n),
+          reason: 'thread: the band and the predicate disagree at undrawn=$n');
+      expect(partialMarketLineAr(lost: n, total: 100).isEmpty,
+          partialMarketMayClaimNoResults(lost: n, total: 100),
+          reason: 'market: the band and the predicate disagree at lost=$n');
+    }
+    // Pinned, because the equality above holds for a reason and the reason is
+    // that both spell the threshold the same way: `<= 0`, not `== 0`. Change
+    // one side to `== 0` and a negative count makes exactly one of them lie.
+    expect(partialThreadMayClaimComplete(undrawn: -1), isTrue);
+    expect(partialMarketMayClaimNoResults(lost: -1, total: 5), isTrue);
+    expect(partialThreadLineAr(undrawn: -1, drawn: 100), '');
+    expect(partialMarketLineAr(lost: -1, total: 100), '');
+    // And the count words themselves stay silent at zero — the guard is not
+    // merely hiding an empty string behind a predicate.
+    expect(undrawnMessagesAr(0), '');
+    expect(lostPagesAr(0), '');
+  });
+
   test('no Text() is handed a bare possibly-empty copy call', () {
     final offenders = <String>[];
     for (final f in _sources()) {
@@ -202,6 +265,10 @@ void main() {
             (line - 3).clamp(0, lines.length), line))) {
           continue;
         }
+        // The window above is three lines; the predicate shape is not. See
+        // [_bailsBeforeDraw].
+        final block = _enclosingBlock(src, m.start);
+        if (_bailsBeforeDraw(src, m.start, block[0])) continue;
         offenders.add('${f.path}:$line  ${lines[line - 1].trim()}');
       }
     }
