@@ -277,9 +277,17 @@ void main() {
       expect(counted(110), '110 تقييمات');
     });
 
-    // 103 is plural exactly as 3 is, and 110 is singular exactly as 10 is —
-    // a rule that read `n <= 10` gets both wrong, which is how the 26 Sep
-    // bug looked on a slider capped at 200. Asserted above, in the ladder.
+    // 103 is plural exactly as 3 is, and so is 110 — the window repeats on the
+    // last two digits, so a rule that read `n <= 10` gets both right by luck
+    // and every count from 111 on wrong, which is how the 26 Sep bug looked on
+    // a slider capped at 200. Asserted above, in the ladder.
+    //
+    // This sentence said "110 is singular exactly as 10 is" until 8 Oct, ten
+    // lines under the comment above it that says the opposite, and both were
+    // correct as far as anything could tell: `agreement_comment_test.dart` read
+    // this file with six patterns and all six need the word *takes*, so a rule
+    // stated with a copula was graded by nothing at all. A shape the reader
+    // cannot parse is indistinguishable from a file that makes no claim.
 
     test('the arm one function below never drifted, and now cannot', () {
       // `reviewsSectionPartialAr` counted through the same helper all along

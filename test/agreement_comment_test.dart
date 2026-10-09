@@ -97,6 +97,24 @@ final _ranged = RegExp(
     r'(broken\s+plural|plural|dual|singular)',
     caseSensitive: false);
 
+/// `10 is plural`, `11 is counted singular`, `3-10 is the broken plural`,
+/// `102 is counted singular` — the COPULA form, and the one the vocabulary was
+/// missing.
+///
+/// Measured before it was added: eleven sentences in `lib/` and `test/` state
+/// the agreement rule in this shape and NOT ONE of them was read, because all
+/// six patterns above need the word *takes*. Ten of the eleven are correct;
+/// the eleventh is a real false claim sitting in the very file that documents
+/// this rule, ten lines under a correct comment saying the opposite. A shape
+/// the vocabulary cannot parse is indistinguishable from a file that makes no
+/// claim, which is the same blindness one grammar deeper as a reader that opens
+/// a file and grades nothing.
+final _copula = RegExp(
+    r'(\d+)(?:\s*[-\u2013\u2014]\s*(\d+))?\s+'
+    r'(?:is|are|was|were|counts\s+as|reads\s+as|is\s+counted(?:\s+as)?)\s+'
+    r'(?:the\s+)?(broken\s+plural|plural|dual|singular)',
+    caseSensitive: false);
+
 /// `11 and up means up to 110` — the boundary stated directly. It claims the
 /// upper number is *inside* the open range, so the pair is one span: read as
 /// "11 through 110 are all singular", which is the claim being made.
@@ -203,6 +221,29 @@ void main() {
       });
     }
 
+    // THE VOCABULARY IS PINNED BY A FLOOR, because a loop over claims cannot
+    // witness its own generator.
+    //
+    // Measured: deleting the copula branch from either scanner -- pattern, gate
+    // or loop all together -- left the suite GREEN at 22, 22 and 14 tests. The
+    // eight copula claims in the tree were checked only by the loop over
+    // `_claims()`, so removing the branch removed the tests that would have
+    // noticed. A reader that finds nothing reports a clean tree, which is the
+    // blindness this file exists to catch, one shape deeper.
+    //
+    // So the reach is pinned the same way the takes-family is pinned above, as
+    // a number that moves when a pattern stops recognising. Eight, measured,
+    // across `lib/` and `test/` at this commit.
+    test('the copula vocabulary still reaches the tree', () {
+      final copulaClaims = claims.where((c) => _copula.hasMatch(c.text));
+      expect(copulaClaims.length, greaterThanOrEqualTo(8),
+          reason: 'only ${copulaClaims.length} copula-form claims were read '
+              'out of lib/ and test/ -- "N is plural", "N is counted '
+              'singular" and "3-10 is the broken plural" are stated in the '
+              'tree and nothing read them, so a false one in this shape is '
+              'graded by no one');
+    });
+
     // THE READER, PLANTED. `_selfClaims` returns zero on this file -- correctly,
     // because all eight claim-shaped runs here are quotations or
     // counter-examples -- so the loop above adds no tests and a broken scanner
@@ -238,6 +279,63 @@ void main() {
         // spread over a paragraph, not a line that happens to hold a digit.
         expect(found, hasLength(1),
             reason: 'the same claim was counted once per line it appears on');
+      });
+
+      // The copula form, planted. The floor test above pins the reach of the
+      // pattern against the REAL tree, and the real tree is where the defect
+      // was; these pin the two stages that the real file cannot exercise,
+      // because `_selfClaims()` on it is correctly empty.
+      //
+      // Measured: with the exhibit gate reverted, or with the copula branch
+      // removed from `_scanClaims`, the suite stayed GREEN at 23/23. Both
+      // stages decide what a copula paragraph is and neither is reached by a
+      // single line in this tree, so nothing could see them go.
+      test('a copula claim is read, and a wrapped one is not missed', () {
+        // Not quoted, so this is an ASSERTION about the rule -- the shape this
+        // file's own prose avoided for three ticks by writing *takes*.
+        final found = _scanClaims(const [
+          '// the boundary every count in this app shares:',
+          '// 10 is plural, 11 is',
+          '// counted singular',
+          'void main() {}',
+        ], 'planted.dart');
+        expect(found.map((c) => c.form).toList(),
+            containsAll(<String>['plural', 'singular']),
+            reason: 'a copula claim was invisible to the scan');
+        expect(found.any((c) => c.from == 10 && c.to == 10), isTrue);
+        expect(found.any((c) => c.from == 11 && c.to == 11), isTrue,
+            reason: 'a copula claim whose paragraph wraps lost its number');
+      });
+
+      test('a copula RANGE is ten claims wearing one coat', () {
+        final found = _scanClaims(const [
+          '// 3-10 is the broken plural.',
+          'void main() {}',
+        ], 'planted.dart');
+        expect(found, hasLength(1));
+        expect(found.single.from, 3);
+        expect(found.single.to, 10);
+        expect(found.single.form, 'plural',
+            reason: '"broken plural" is the plural; the reader must not read '
+                'the adjective as a different form');
+      });
+
+      test('a copula claim inside quotes is an EXHIBIT', () {
+        final found = _scanClaims(const [
+          '// it said "110 is singular" and was wrong.',
+          'void main() {}',
+        ], 'planted.dart');
+        expect(found, isEmpty,
+            reason: 'a corrected sentence quoted back is not a live claim');
+      });
+
+      test('a negated copula claim is a counter-example', () {
+        final found = _scanClaims(const [
+          '// never 110 is singular, the mod-100 rule says so.',
+          'void main() {}',
+        ], 'planted.dart');
+        expect(found, isEmpty,
+            reason: '"never" inverts the sentence');
       });
 
       test('a claim inside quotes is an EXHIBIT and is not graded', () {
@@ -414,6 +512,17 @@ List<_Claim> _scanClaims(List<String> lines, String name) {
       out.add(_Claim(name, 0, int.parse(m.group(1)!), int.parse(m.group(2)!),
           'singular', m.group(0)!, uniform: true));
     }
+
+    // The copula form. A range is a range here too: "3-10 is the broken
+    // plural" is ten claims wearing one coat, exactly as "3-10 takes the
+    // broken plural" is above.
+    for (final m in _copula.allMatches(text)) {
+      if (_negated.hasMatch(text.substring(0, m.start))) continue;
+      final lo = int.parse(m.group(1)!);
+      final hi = int.parse(m.group(2) ?? '$lo');
+      out.add(_Claim(name, 0, lo, hi,
+          m.group(3)!.replaceAll('broken ', '').toLowerCase(), m.group(0)!));
+    }
   }
   return out;
 }
@@ -479,7 +588,8 @@ String _blankQuotedSpans(String text) => text
 /// this file's own doc comments are almost entirely about the mechanism, and
 /// a rule has to be present in the text before its truth is a question.
 bool _isExhibitText(String text) =>
-    RegExp(r'(\d+)\s+takes?\s+').hasMatch(text) == false;
+    RegExp(r'(\d+)\s+takes?\s+').hasMatch(text) == false &&
+    _copula.hasMatch(text) == false;
 
 
 List<_Claim> _claims() {
@@ -503,8 +613,25 @@ List<_Claim> _claims() {
 
       final lines = entity.readAsLinesSync();
       for (var i = 0; i < lines.length; i++) {
-        final text = lines[i].trimLeft();
-        if (!text.startsWith('//')) continue;
+        final raw = lines[i].trimLeft();
+        if (!raw.startsWith('//')) continue;
+        // Quoted spans are blanked HERE, in the tree scan, and this line is the
+        // reason the copula pattern could be added at all.
+        //
+        // Measured: this scan ran per line, matching against the raw text, and
+        // never blanked a quoted span. Every pattern above got away with it,
+        // because every one of them requires the literal word *takes* and this
+        // file writes counter-examples as "110 takes the singular exactly as
+        // 10 does" -- which _claims skips for a different reason. The copula
+        // form is the FIRST shape that matches inside ordinary prose, so the
+        // moment it was added it graded a quoted, corrected sentence ten lines
+        // away as a live claim about the app.
+        //
+        // _scanClaims has always blanked them (stage 1, before the join). Two
+        // scanners of the same vocabulary that disagreed about whether a
+        // quotation is a statement about the rule, and only the tree scan
+        // decides whether a real file goes red.
+        final text = _blankQuotedSpans(raw);
 
         for (final m in _englishForm.allMatches(text)) {
           if (_negated.hasMatch(text.substring(0, m.start))) continue;
@@ -552,6 +679,18 @@ List<_Claim> _claims() {
           final lo = int.parse(m.group(1)!);
           out.add(_Claim(relative, i + 1, lo, lo + _window,
               m.group(2)!.replaceAll('broken ', '').toLowerCase(), m.group(0)!));
+        }
+
+        // The copula form, in the tree scan as well. Without this line the
+        // reader reads a paragraph only when it holds the word *takes*, so
+        // "10 is plural, 11 is counted singular" -- eleven true sentences
+        // across the tree, and one false one -- is graded by nothing.
+        for (final m in _copula.allMatches(text)) {
+          if (_negated.hasMatch(text.substring(0, m.start))) continue;
+          final lo = int.parse(m.group(1)!);
+          final hi = int.parse(m.group(2) ?? '$lo');
+          out.add(_Claim(relative, i + 1, lo, hi,
+              m.group(3)!.replaceAll('broken ', '').toLowerCase(), m.group(0)!));
         }
       }
     }
