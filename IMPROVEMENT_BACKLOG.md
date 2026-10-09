@@ -747,6 +747,58 @@ future tick can *see*.
       Full detail in the Tick 10 Oct 2026 (notification centre) section at the
       foot of this file.
 
+- [x] **A contractor has two ids, and the reviews route answers 200 for the one
+      that does not exist.**  `worker_reviews_audit.py`.
+      The third `data/repository.dart` read surface, after the market and the
+      centre, and the last one a contractor looks at as *work* rather than news.
+      Found by **measuring the live API**, the same method as the other two.
+      *The id shape is real and the app is on the correct one.* The worker
+      profile is keyed by profile id (`/api/mobile/workers/652`) while the
+      account is keyed by user id (`/api/mobile/my/profile` -> `user_id: 1030`),
+      and both answer the reviews route:
+      ```
+      /api/mobile/workers/1030/reviews -> 200 []
+      /api/mobile/workers/1030          -> 404 {"error":"المقاول غير موجود"}
+      /api/mobile/workers/652/reviews  -> 200 []
+      /api/mobile/workers/652           -> 200 {the profile}
+      ```
+      So a **404 on the profile and a 200 on the reviews is reachable**, and the
+      reviews route will never tell you which id you passed. `workerReviews`
+      takes the profile id — what `WorkerProfileScreen(workerId: w.id)` is
+      handed, and what `w.id` is on every browse row — so the app is right
+      today. It is pinned as a measured fact rather than a hope, because the
+      failure it would cause is **silent**: a wrong id reads *empty*, never
+      wrong, and «لا تقييمات بعد» would be drawn about a man with 24 ratings.
+      *The aggregate/list gap is already covered, and re-opening it would have
+      been the mistake.* `reviews_section_copy.dart` ships both arms (empty,
+      partial) from the 1 Oct and 5 Oct ticks. What had never been measured is
+      the **third** direction: a list holding **more** cards than the header
+      promises. `rows_longer_than_claim` is the new arm, and on production it
+      is **0** — so it is a guard, not a band.
+      *Shipped:* `tool/worker_reviews_audit.py` (exit 1 on disagreement),
+      `test/worker_reviews_audit_test.py` — **7 cases, python**, because the
+      gate refuses Dart on exactly the box where this tool matters.
+      **Evidence.** Live, both hosts: `reviews 200 on BOTH, profile on the user
+      id -> 404`; directory `36 claiming, 8 checked, 4 empty, 3 short of the
+      header, 0 LONGER than it`, `AUDIT_EXIT=1`. **8 mutations, all killed.**
+      **Two defects the run caught in my own work, the second one the same
+      shape as the 69th tick's:** (1) `_rows_of` took a `Wire` response but was
+      called with a bare body from two places, so the directory path raised
+      `TypeError` — a crash, not an empty result, on the ordinary route; caught
+      by the suite, fixed by accepting both shapes. (2) The stub raised
+      `HTTPError` for **every** table entry, so a stubbed 200 arrived as a
+      failure and `ids_disagree` could never be true — the harness, not the
+      audit, was being measured. Fixed to raise only for non-2xx.
+      **Also cleared, not authored:** the working tree carried a duplicate
+      `static const double hairline = 1.5;` in `app_theme.dart` — a real
+      analyzer error, byte-identical to the declaration above it, left by an
+      orphaned writer already frozen in two stashes (`stash@{0}` names it
+      outright). No `dart` process was running, so it was not a live session;
+      restored the file to its committed state.
+      **Not claimed:** no `flutter analyze`, no `tool/run_tests.py` — the gate
+      refused at **423 MB** against a 900 MB floor. **Zero Dart files changed**,
+      so banked 2609 cannot move.
+
 - [x] **A chat thread that lost its newest messages drew the oldest hundred and
       said nothing — and the "did my message arrive?" re-check read from that
       same blind spot.**  `45dd762`.
