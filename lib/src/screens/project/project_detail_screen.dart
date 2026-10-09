@@ -672,13 +672,21 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
       if (!mounted) return;
       // Folded parse: a contractor who typed `٢٥٠٠٠` on an Arabic keypad, or
       // pasted `25.000 دج` out of a note, means 25000 — not "no amount".
+      //
+      // **Both of these are now a belt, not the only check.** The sheet
+      // validates in `_BidSheetState._error` and refuses to pop while it is
+      // set, so a bid that reaches here has already been accepted by the form
+      // that owns the text. They stay because the cost of being wrong is not
+      // symmetric: a duplicate guard that never fires costs nothing, while a
+      // bid that pops unvalidated costs the contractor the message he wrote to
+      // win the job.
       final amt = DzNumber.tryParse(submitted.amount, min: 1000);
       final rawDays = submitted.days.trim();
       final dayCount = DzNumber.tryParse(rawDays, min: 1);
       if (amt == null) {
-        showNote(context, 'المبلغ يجب أن يكون 1000 دج على الأقل');
+        showNote(context, S.bidAmountMin);
       } else if (rawDays.isNotEmpty && dayCount == null) {
-        showNote(context, 'مدة الإنجاز يجب أن تكون عدداً من الأيام');
+        showNote(context, S.bidDaysNotNumber);
       } else {
         try {
           await widget.repo.submitQuote(
@@ -825,8 +833,59 @@ class _BidSheetState extends State<_BidSheet> {
     super.dispose();
   }
 
+  /// Arabic explanation for a bid that cannot be sent, or null when it can.
+  ///
+  /// This getter is the whole fix. The validation used to run in
+  /// `_showBidSheet`, one screen **outward** from here: the sheet popped, the
+  /// framework disposed these three controllers, and only then did
+  /// `DzNumber.tryParse(amount, min: 1000)` run and print
+  /// «المبلغ يجب أن يكون 1000 دج على الأقل» on the project page behind it. So a
+  /// contractor who typed `500` lost not just the amount but the duration and
+  /// the message he wrote to win the job — a paragraph of persuasive copy with
+  /// no way back but retyping it from memory — and was told about it on a
+  /// screen he was no longer looking at.
+  ///
+  /// It reads exactly like `project_new_screen._budgetError`, on purpose: the
+  /// two are the same shape of problem and the app should have one idiom for
+  /// «this form cannot be sent yet». Two differences are deliberate, and both
+  /// come from what a bid is rather than a budget:
+  ///
+  ///  * **Empty is an error here.** The project budget is optional, so silence
+  ///    is the right answer to an empty one; `submitQuote` requires an amount,
+  ///    so an empty field is a bid that cannot be sent.
+  ///  * **The fold runs on the way in.** `DzNumberInputFormatter` strips
+  ///    separators and unit labels as they are typed, so `digits` coming back
+  ///    empty on a non-empty field means the field really is not a number —
+  ///    the one case the formatter lets through.
+  String? get _error {
+    final rawAmount = _amount.text.trim();
+    if (rawAmount.isEmpty) return S.bidAmountRequired;
+    final amount = DzNumber.tryParse(rawAmount, min: 1000);
+    if (amount == null) {
+      return DzNumber.digits(rawAmount).isEmpty
+          ? S.bidAmountNotNumber
+          : S.bidAmountMin;
+    }
+    // The duration is optional — `submitQuote` takes a null `estimatedDays` —
+    // so only a field he actually filled in is judged. `0` is what the field
+    // shows the moment he clears it to type a fresh number, and a bid cannot
+    // be finished in zero days, so `min: 1` refuses it here rather than
+    // after the sheet has gone.
+    final rawDays = _days.text.trim();
+    if (rawDays.isNotEmpty && DzNumber.tryParse(rawDays, min: 1) == null) {
+      return S.bidDaysNotNumber;
+    }
+    return null;
+  }
+
   /// Hands back the three strings, not the controllers — see [_BidDraft].
+  ///
+  /// Refuses to pop while [_error] is set. That is the difference between a
+  /// bid he can fix and one the app throws away: the sheet stays open with the
+  /// amount, the duration and the message still on screen, so correcting a
+  /// digit is one edit rather than three fields and a paragraph retyped.
   void _send() {
+    if (_error != null) return;
     Navigator.of(context).pop(
       _BidDraft(
         amount: _amount.text,
@@ -838,6 +897,9 @@ class _BidSheetState extends State<_BidSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // Read once per build: [errorText] is compared against it twice below, and
+    // the getter re-parses the amount.
+    final error = _error;
     return Padding(
       padding: EdgeInsets.only(
           left: 20,
@@ -854,11 +916,23 @@ class _BidSheetState extends State<_BidSheet> {
             controller: _amount,
             labelText: 'المبلغ (دج)',
             suffixText: 'دج',
+            // The error is drawn **inside** the sheet, under the field that is
+            // wrong, and re-read on every keystroke so it clears the moment he
+            // corrects the digit. `NumberField` already takes `errorText` and
+            // no call site in the app used it — this is the first.
+            errorText: error == S.bidAmountRequired ||
+                    error == S.bidAmountMin ||
+                    error == S.bidAmountNotNumber
+                ? error
+                : null,
+            onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 12),
           NumberField(
             controller: _days,
             labelText: 'مدة الإنجاز (أيام)',
+            errorText: error == S.bidDaysNotNumber ? error : null,
+            onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 12),
           TextField(

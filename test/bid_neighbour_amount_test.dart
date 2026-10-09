@@ -36,12 +36,15 @@
 // (`لقد قدّمت عرضاً لهذا المشروع بالفعل`, measured) — so the real landing must
 // still come back `landed`.
 import 'dart:convert';
+import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:flutter/rendering.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:allomokawil/src/core/app_scope.dart';
@@ -214,12 +217,12 @@ Future<({ApiClient api, AuthState auth})> _boot({
   return (api: api, auth: auth);
 }
 
-Future<void> _pump(WidgetTester tester, ApiClient api, AuthState auth) async {
+Future<void> _pump(WidgetTester tester, ApiClient api, AuthState auth,
+    {GlobalKey? rootKey}) async {
   tester.view.physicalSize = const Size(1080, 2280);
   tester.view.devicePixelRatio = 2.75;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(
-    MaterialApp(
+  Widget app = MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       locale: const Locale('ar'),
@@ -234,8 +237,20 @@ Future<void> _pump(WidgetTester tester, ApiClient api, AuthState auth) async {
         auth: auth,
         child: ProjectDetailScreen(projectId: 'p-1', repo: Repository(api)),
       ),
-    ),
-  );
+    );
+  // The boundary wraps the **whole** MaterialApp, not its `home:`.
+  //
+  // A bid sheet is a bottom sheet: it lives in the Navigator's Overlay, which
+  // is a sibling of the home route, so a boundary drawn around `home` captures
+  // the project page and misses the sheet entirely. Wrapping the app captures
+  // the overlay too. Getting this wrong is not a silent no-op — it produced two
+  // byte-identical PNGs of the page behind the sheet, which is exactly the
+  // failure the shot exists to rule out.
+  // Wrapped **once**, on the first pump: a GlobalKey handed to a second
+  // `pumpWidget` for the same subtree leaves `currentContext` null, because the
+  // first tree is already unmounted by the time anything reads it.
+  if (rootKey != null) app = RepaintBoundary(key: rootKey, child: app);
+  await tester.pumpWidget(app);
   // Bounded pumps: the loading skeleton animates forever, so `pumpAndSettle`
   // would never return.
   for (var i = 0; i < 8; i++) {
@@ -278,6 +293,84 @@ String? _visibleLine(WidgetTester tester) {
   if (bars.isEmpty) return null;
   final c = bars.first.content;
   return c is Text ? (c.data ?? '') : null;
+}
+
+
+/// Boots a contractor on `p-1` with a Worker that **answers** the POST, so the
+/// send under test is an ordinary successful one.
+///
+/// Deliberately unlike [_boot], whose POST never answers: that fixture exists
+/// to reach the unconfirmed-write branch, and this file's new case is about
+/// what happens *before* any write is attempted.
+Future<({ApiClient api, AuthState auth})> _bootResponsive() async {
+  SharedPreferences.setMockInitialValues(<String, Object>{});
+  var posts = 0;
+  final api = ApiClient(
+    baseUrls: const ['https://x.test'],
+    timeout: const Duration(seconds: 2),
+    httpClient: MockClient((req) async {
+      final p = req.url.path;
+      if (p.endsWith('/api/login') || p.endsWith('/api/register')) {
+        return _json(<String, Object?>{
+          'token': 'tok',
+          'user': <String, Object?>{
+            'id': 16,
+            'phone': '0550000000',
+            'email': null,
+            'full_name': 'مقاول تجربة',
+            'type': 'worker',
+            'avatar_url': null,
+            'wilaya': '16',
+            'commune': null,
+            'created_at': '2026-01-01 00:00:00',
+          },
+        });
+      }
+      if (p.endsWith('/api/unread')) return _json(0);
+      if (p == '/api/mobile/my/profile') return _json(_myProfile());
+      if (p == '/api/mobile/projects/p-1/quotes' && req.method == 'POST') {
+        posts++;
+        return _json(_quote(id: 501, worker: _mine));
+      }
+      if (p == '/api/mobile/projects/p-1/quotes') {
+        return _json(posts > 0 ? <Map<String, Object?>>[_quote(id: 501, worker: _mine)] : <Map<String, Object?>>[]);
+      }
+      if (p == '/api/mobile/projects/p-1') return _json(_project());
+      return _json(<Object>[]);
+    }),
+  );
+  final auth = AuthState(api);
+  await auth.restore();
+  await auth.login(
+      phone: '0550000000', password: 'secret123', rememberMe: true);
+  return (api: api, auth: auth);
+}
+
+/// Opens the bid sheet and leaves it open.
+Future<void> _openSheet(WidgetTester tester) async {
+  await tester.tap(find.text('قدّم عرضك'));
+  await tester.pumpAndSettle();
+  expect(find.text('إرسال العرض'), findsOneWidget,
+      reason: 'the sheet must be on screen for this to measure anything');
+}
+
+/// True when [text] is drawn inside the sheet's own subtree rather than on the
+/// screen behind it.
+///
+/// This is the assertion that makes the test a regression test and not a
+/// description: a snackbar on the project page also satisfies
+/// `find.text(...)`, and that snackbar is exactly the bug — the message
+/// reaches a widget whose controllers have already been disposed.
+bool _drawnInsideSheet(WidgetTester tester, String text) {
+  final sheet = find.ancestor(
+    of: find.text(text),
+    matching: find.byType(Column),
+  );
+  if (sheet.evaluate().isEmpty) return false;
+  return find
+      .descendant(of: find.byType(BottomSheet), matching: find.text(text))
+      .evaluate()
+      .isNotEmpty;
 }
 
 void main() {
@@ -368,5 +461,159 @@ void main() {
         reason: 'the rival holds the same figure, so a widened match would '
             'report a bid that arrived while the identity is unread as proof '
             'it arrived — which is the bug, not the fix.');
+  });
+
+  testWidgets(
+      'a bid under 1000 DZD is refused with the sheet still open and the '
+      'message he wrote still on screen', (tester) async {
+    // The defect this file's new case pins: validation ran in
+    // `_showBidSheet`, one screen outward, *after* the sheet popped and
+    // disposed the three controllers. So «المبلغ يجب أن يكون 1000 دج على
+    // الأقل» appeared on the project page while the amount, the duration and
+    // the persuasive message were already gone.
+    final boot = await _bootResponsive();
+    await _pump(tester, boot.api, boot.auth);
+    await _openSheet(tester);
+
+    const copy = 'جاهز للبدء غداً،materials شاملة';
+    await tester.enterText(find.byType(TextField).at(0), '500');
+    await tester.enterText(find.byType(TextField).at(1), '5');
+    await tester.enterText(find.byType(TextField).at(2), copy);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('إرسال العرض'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('إرسال العرض'), findsOneWidget,
+        reason: 'the sheet must NOT close on an invalid amount. Closing it is '
+            'the bug: it disposes the controllers holding the amount, the '
+            'duration and the message the contractor wrote to win the job, and '
+            'leaves him three empty fields.');
+
+    expect(find.text(S.bidAmountMin), findsOneWidget,
+        reason: 'the rule must be stated, not merely enforced');
+    expect(_drawnInsideSheet(tester, S.bidAmountMin), isTrue,
+        reason: 'the error belongs under the field that is wrong, inside the '
+            'sheet. A snackbar on the project page satisfies find.text and is '
+            'the exact regression this test exists to catch.');
+
+    // The text is still there. This is the half that costs him real work if
+    // it is wrong: a paragraph of persuasive copy, gone with no way back but
+    // retyping from memory.
+    expect(find.text(copy), findsOneWidget,
+        reason: 'the message must survive a refused send');
+
+    // And nothing was sent: a refused bid that already POSTed would leave a
+    // bid the contractor cannot see or withdraw.
+    final noPost = find.text('تم إرسال عرضك');
+    expect(noPost, findsNothing,
+        reason: 'an amount under the minimum must not reach the server');
+  });
+
+  testWidgets(
+      'the error clears live as he corrects the digit, and the bid then sends',
+      (tester) async {
+    // The second half of the fix, and the one that separates it from a form
+    // that simply refuses everything: a fix which blocks the send and never
+    // sends is not a fix. `70000` is one keystroke past the refused `500`.
+    final boot = await _bootResponsive();
+    await _pump(tester, boot.api, boot.auth);
+    await _openSheet(tester);
+
+    await tester.enterText(find.byType(TextField).at(0), '500');
+    await tester.pumpAndSettle();
+    expect(find.text(S.bidAmountMin), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).at(0), '70000');
+    await tester.pumpAndSettle();
+
+    expect(find.text(S.bidAmountMin), findsNothing,
+        reason: 'the error must clear as he types, not wait for a second tap');
+
+    await tester.enterText(find.byType(TextField).at(1), '5');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('إرسال العرض'));
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 60));
+    }
+    await tester.pumpAndSettle();
+
+    expect(find.text('تم إرسال عرضك'), findsOneWidget,
+        reason: 'a valid bid must still reach the server and say so');
+  });
+
+  testWidgets('a zero-day duration is refused while the sheet stays open',
+      (tester) async {
+    // `0` is what the duration field shows the moment he clears it to type a
+    // fresh number, so `min: 1` refusing it is a case ordinary typing reaches
+    // — and it must not cost him the message either.
+    final boot = await _bootResponsive();
+    await _pump(tester, boot.api, boot.auth);
+    await _openSheet(tester);
+
+    const copy = 'أعملMaterial två dagar';
+    await tester.enterText(find.byType(TextField).at(0), '70000');
+    await tester.enterText(find.byType(TextField).at(1), '0');
+    await tester.enterText(find.byType(TextField).at(2), copy);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('إرسال العرض'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('إرسال العرض'), findsOneWidget,
+        reason: 'a bid cannot be finished in zero days, and refusing it must '
+            'not close the sheet');
+    expect(find.text(S.bidDaysNotNumber), findsOneWidget);
+    expect(find.text(copy), findsOneWidget,
+        reason: 'the message survives a refused duration too');
+  });
+
+  testWidgets('SHOT: bid sheet holding the error, typed copy intact',
+      (tester) async {
+    // The visual half of this fix, and the reason a layout claim needs it.
+    // The defect was not "a red line appeared" — it was that the sheet was
+    // GONE and the message with it. A screenshot of the project page after a
+    // refused send is a screenshot of an empty form; this one has to show the
+    // sheet still up, the error band under the amount, and the prose still in
+    // the box.
+    final boot = await _bootResponsive();
+    final rootKey = GlobalKey();
+    await _pump(tester, boot.api, boot.auth, rootKey: rootKey);
+    await _openSheet(tester);
+
+    await tester.enterText(find.byType(TextField).at(0), '500');
+    await tester.enterText(find.byType(TextField).at(1), '5');
+    await tester.enterText(find.byType(TextField).at(2),
+        'جاهز للبدء غداً،materials شاملة وكل الأدوات على نحو');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('إرسال العرض'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('إرسال العرض'), findsOneWidget,
+        reason: 'the shot must be of the HELD sheet, not a closed one');
+
+    final boundary =
+        rootKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+    await tester.runAsync(() async {
+      final image = await boundary.toImage(pixelRatio: 2.75);
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      Directory('/tmp/shots').createSync(recursive: true);
+      File('/tmp/shots/bid_sheet_error_light.png')
+          .writeAsBytesSync(bytes!.buffer.asUint8List());
+    });
+
+    // And the second state, the one that proves the error is live and not
+    // sticky: correct the digit, and the band goes away without a second tap.
+    await tester.enterText(find.byType(TextField).at(0), '70000');
+    await tester.pumpAndSettle();
+    expect(find.text(S.bidAmountMin), findsNothing);
+
+    final b2 = rootKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+    await tester.runAsync(() async {
+      final image = await b2.toImage(pixelRatio: 2.75);
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      File('/tmp/shots/bid_sheet_clear_light.png')
+          .writeAsBytesSync(bytes!.buffer.asUint8List());
+    });
   });
 }

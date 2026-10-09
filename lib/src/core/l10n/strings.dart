@@ -487,4 +487,21 @@ class S {
   static const planQuotaBody =
       'وصلت إلى الحد المجاني في العروض. رقّي اشتراكك لتُرسل عروضاً بلا حد.';
   static const planRetry = 'إعادة المحاولة';
+
+  // ---- The bid sheet's own validation (see _BidSheetState in
+  // screens/project/project_detail_screen.dart) ----------------------------
+  // Three sentences that used to be printed on the *project page*, by a
+  // snackbar, after the sheet had already closed and disposed the three
+  // controllers holding what he typed. `bidAmountMin` is the same rule the API
+  // enforces, and it is now drawn **under the field that is wrong** rather
+  // than on a screen above one he is no longer looking at.
+  //
+  // Empty is an error and not silence, unlike the project budget row
+  // (`project_new_screen._budgetError`, where the budget is genuinely
+  // optional): `submitQuote` requires an amount, so an empty field is a bid
+  // that cannot be sent, not a bid that needs no saying.
+  static const bidAmountRequired = 'المبلغ مطلوب';
+  static const bidAmountMin = 'المبلغ يجب أن يكون 1000 دج على الأقل';
+  static const bidAmountNotNumber = 'المبلغ يجب أن يكون رقماً بالدينار';
+  static const bidDaysNotNumber = 'مدة الإنجاز يجب أن تكون عدداً من الأيام';
 }
