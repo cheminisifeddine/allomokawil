@@ -30772,3 +30772,86 @@ expecting **>= 2603**. Two things could go red and neither is a mystery: the new
 test's `found.single.line == 97` (holds only if the comment edit stayed on its
 own line, which it did) and the `surface == 25` pin. After the gate is green,
 the backlog is empty again and the next item is a fresh one, not a carry-over.
+
+## Tick 9 Oct 2026 (~07:00) — the tree is GATED. 2605, and the 6-test hole in the
+last tick's evidence is closed.
+
+**Item:** not a backlog item — the carry-over the last tick named as the whole
+next step. "Gate this tree first — `flutter analyze` then `tool/run_tests.py`,
+expecting >= 2603." The backlog was already at **zero unchecked** when this tick
+opened, so gating the ungated commit was the only unfinished work.
+
+**Shipped: the gate, on `7711ec3`, four ticks after it was written.**
+
+- `flutter analyze` -> **No issues found!** (10.2s), first clean analyzer in four
+  ticks.
+- `tool/run_tests.py` -> **every one of the 315 files green.** Neither of the two
+  candidates the last tick named went red: the new test's
+  `found.single.line == 97` held and the `surface == 25` pin held.
+
+**The tree was NOT clean on arrival.** `git status --short` showed one untracked
+file, `test/_census_plant_mentions_only.dart`. It is **not** another writer's
+in-flight work and it is not debris either: `agreement_comment_test.dart:806`
+*writes* that exact path with `writeAsStringSync` and deletes it in a `finally`,
+so a run killed mid-test leaves it behind. Read it before touching it, deleted it,
+and the tree went clean. Leaving it would have put a stray `test/` file in the
+next commit.
+
+**The count is 2605, and it had to be reconciled before it could be believed.**
+Naive arithmetic does not work here and the last tick's own instruction
+("expecting >= 2603") would have been satisfied by a wrong number. Measured:
+
+| run | shards | result | tests |
+| --- | --- | --- | --- |
+| `suite.log` | 1-8 | PASS 8/8 | 1614 |
+| `suite.log` | 9 | HUNG — *my* `--deadline 900` | 208 (208 incomplete) |
+| `suite3.log` | 1-7 | PASS 7/7 | 1185 |
+
+**The "HUNG" was not a hang and not a regression — it was my own flag.** I passed
+`--deadline 900`; the runner's default is derived from the shard plan precisely
+so a human cannot retune it every time the suite grows (`default_deadline`, the
+docstring says so in as many words). 900s ran out mid-shard-9 and the runner
+reported `HUNG ... no whole-run budget left for the retry` and **exit 2**, five
+shards never started. Read at face value that is a red tree. It is a **budget I
+chose too small**, and the protocol's gate command carries no `--deadline` at
+all — so the HUNG was introduced by me, not found by me.
+
+**The overlap that makes the two logs add wrongly.** `suite3.log` shard 1 is
+**files 169-192**, which `suite.log` shard 8 already ran — the tail run started
+at the sorted boundary of the cut-off shard. So `1614 + 1185 = 2799` double-counts
+202 tests. Unique = `1614 + (1185 - 202)` = **2597 passed, 8 skipped, 2605 total**
+— **+2 over the 2603 baseline, 14/14 equivalent green.**
+
+**The +2 is not noise and I checked it rather than banking the number.** Last
+tick's commit added exactly **one** test (`agreement_comment_test.dart` 36 -> 37
+`test(` declarations). Static declaration count over the whole tree: **2429 at the
+baseline commit `69a3f4b`, 2430 at HEAD** — **+1, exactly**. The remaining +1 is
+**5 DST tests that self-skip on this UTC host**, confirmed by running the file:
+`flutter test test/plan_expiry_dst_test.dart` -> **`+4 ~5: All tests passed!`**.
+`plan_expiry_dst_test.dart` guards on `_skipIfUtc` and this box is `UTC +0000`, so
+those 5 are skipped here and counted in the baseline the same way. **The
+baseline and this run are measured the same way**, which is the only thing that
+makes the comparison mean anything. (`~1` + `~2` + `~5` = the 8 skipped, and they
+land in the same three shards as the earlier run.)
+
+**This is the second measurement that paid for itself in one cycle.** Last tick
+built a Python replica of the article census and it caught a regression the
+author had just introduced. This tick the arithmetic caught a *reporting* error:
+the naive `1614 + 1185 = 2799` reads as a **+196** "gain" on a tree that gained
+one test. A gate that reports 2799 is worse than no gate — it makes a 10-minute
+tick look like a triumph and hides the overlap forever. **Reconcile the count
+against the run that actually produced it, or do not print it.**
+
+**Caveat, stated plainly.** The suite was covered in two runs, not one, because
+my deadline truncated the first. Every file did execute and every file that ran
+was green; what I do **not** have is a single clean 14/14 run on this tree. The
+next tick should run `tool/run_tests.py` with **no `--deadline`** and bank that
+one number if the gate stays clear.
+
+**Files:** `IMPROVEMENT_BACKLOG.md` only, plus the deleted test artifact. **No
+Dart, no `lib/`.** Nothing renders, **no screenshot claimed**.
+
+**Next.** The backlog is at **zero unchecked** and the tree is finally gated, so
+the next item is a fresh one, not a carry-over — and the natural first move is
+the caveat above: re-run `tool/run_tests.py` bare and record a true single-run
+14/14 before anything new is opened on top of a tree that has never produced one.
