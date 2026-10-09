@@ -3928,6 +3928,95 @@ it is a correctness gap that duplicates a user's data.
 ## Completed
 ## Completed
 
+## Tick 9 Oct 2026 (1st) — the LABEL shape: the rule's own header table was
+## invisible to the guard written to police it. **SHIPPED**
+
+**Item.** `92016ac` -> remote `21133e6`. The follow-on the 8 Oct tick named: a rule stated about a **range
+boundary in prose** that seven patterns could not read.
+
+**Measured before any code.** A scanner over `lib/` and `test/` holding all
+seven patterns reads **49 rule-stating lines across 21 files that it does not
+read at all**. The largest group is one shape: the **parenthetical label**.
+
+    3-10 (plural)                      <- BEFORE, in arabic_agreement.dart
+    (broken plural, 3-10 and 103-110)   <- INSIDE, in reviews_section_copy.dart
+
+Eight lines in three files, and one of those files is
+`lib/src/core/l10n/arabic_agreement.dart` — the file the entire rule lives in.
+**All five rule rows of its header table were unreadable** by a guard written
+to police comments about the rule. That is the defect.
+
+**And reading it found a real false claim in `lib/`, on the tick it was
+shipped.** `reviews_section_copy.dart:85` labelled its counted-singular row
+`(counted singular, 11+ and 110+)`. **110 is plural** — 10 is inside the
+broken-plural window, which is the mod-100 rule stated a few lines below it in
+the same file. The code was right; the comment said the opposite. Corrected at
+the site to the two spans that really are uniform, `11-102 and 111-202`. This
+is the second time this exact sentence-shape has been caught in this file, and
+the first time the sentence was written in `lib/` rather than `test/`.
+
+**Three guards, each written by a plant that failed first.** The plants were
+written BEFORE the reader, and every one of them found a real defect in it:
+
+1. **A bracket's number is not necessarily the row's number.**
+   `قبل 7 دقائق   3-10 (plural)` is a claim about 3-10; the 7 is an example.
+   The run between a number and its bracket must be punctuation and spaces
+   only — that character class is the entire guard, and it is why no Arabic
+   character can appear in it.
+2. **A bracket that says the form carries no number is not a claim** —
+   `(dual, no number, the dual says two)` is about the word.
+3. **`mod-100` is not a count** — the 100 is part of the name of the rule, and
+   a reader that graded it would fail the header's own fifth row.
+
+Two more defects the plants found in the reader itself:
+
+- **The exemption asked about the wrong offset.** `[m.start]` is the *number*,
+  which is normally OUTSIDE the bracket, so `_bracketHolding` returned the
+  previous bracket or nothing — and `(dual, no number)` was graded as a claim
+  about 2. One bracketed exemption, missed by one offset. Fixed to ask about
+  the form word.
+- **The length bound was decoration and was deleted.** An earlier version
+  capped the run at 8 characters. Widening that class to "any non-word
+  character" left the suite **GREEN** — Arabic is not a word character in
+  Dart's regex, so the cap was never what excluded it. Keeping a bound that
+  cannot fail is the exact failure this file exists to catch, so the constant
+  is gone and the reason is recorded at the pattern.
+
+**Mutation table — every mutation now RED, and one recorded rather than kept**
+
+| mutation | result |
+| --- | --- |
+| drop `_labelClaims` from BOTH scanners | **RED** (`0 < 8` on the floor) |
+| drop the no-number exemption | **RED** |
+| exemption offset back to `m.start` | **RED** |
+| drop the lookbehind on `_rangeInLabel` | **RED** (2 failures; the 100 of `mod-100` leaked in) |
+| exhibit gate loses its label clauses | **RED** |
+| drop the 8-character length bound | **GREEN** — therefore the bound was removed |
+
+The first row is the one worth reading twice: dropping the reader from *one*
+scanner is **GREEN**. It is only RED when both are gone, because the claims are
+graded by the loop that generates them. Same blindness the 8 Oct tick found,
+one level down — and the floor test is what catches it.
+
+**Evidence (real output)**
+
+- `flutter analyze` -> **No issues found!** (4.7 s)
+- `tool/agreement_comment_test.dart` -> **45/45**, up from 33
+- `tool/run_tests.py` -> **SUITE PASS - 2581 tests across 14 shard(s), every
+  shard green**, 2573 passed / 8 skipped, 19:21, exit 0. Baseline **2551
+  held**, +30. Both blobs verified `MATCH` against the real remote tree at
+  tip `21133e6`
+- the **false claim is real and the fix is verified against the helper**:
+  `arabicCount(110) == few`, and `11-102` and `111-202` are the only uniform
+  singular spans in that neighbourhood
+
+**Next.** The 49 unread lines are still 49 unread lines minus 8. The next
+largest shapes in that measurement are `11+ is counted singular` written in a
+comment with no bracket at all, and `X and Y take the <form>` in a table
+cell. The general question stands and is now two ticks old: **nothing in this
+tree notices a shape its author did not think of** — the floor pins the count
+that was known, and the 49-line measurement is a snapshot taken by hand, once.
+
 ## Tick 2 Oct 2026 (`a87647e`) — the notification centre dates its rows,
 ## and ages them while it sits open
 
