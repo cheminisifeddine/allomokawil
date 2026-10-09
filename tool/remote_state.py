@@ -701,7 +701,8 @@ def main():
     as_json = "--json" in args
     as_why = "--why" in args
     files = []
-    if "--files" in args:
+    files_asked = "--files" in args
+    if files_asked:
         rest = args[args.index("--files") + 1:]
         files = [a for a in rest if not a.startswith("--")]
 
@@ -755,7 +756,7 @@ def main():
     # always have: 0 IN SYNC, 1 DIVERGED, 2 no answer at all.
     try:
         return render(info, rows, as_json, as_why, truncated, diffs,
-                       drift, blob_drift)
+                       drift, blob_drift, files_asked, files)
     except Exception as exc:
         print("UNREACHABLE: the report could not be PRINTED: %s: %s"
               % (type(exc).__name__, exc), file=sys.stderr)
@@ -768,7 +769,8 @@ def main():
         return 2
 
 
-def render(info, rows, as_json, as_why, truncated, diffs, drift, blob_drift):
+def render(info, rows, as_json, as_why, truncated, diffs, drift, blob_drift,
+           files_asked=False, files=()):
     """Print the answer, and answer 0 (IN SYNC) or 1 (DIVERGED).
 
     Split out of `main()` by the 66th's lead 2, for the reason the 65th had
@@ -822,7 +824,22 @@ def render(info, rows, as_json, as_why, truncated, diffs, drift, blob_drift):
         # clean index from an unexamined one. `null` is the honest value: JSON
         # has a dedicated null for "absent", and an absent measurement is
         # exactly what it is. A list here means the question was asked.
-        print(json.dumps({"info": info, "files": rows,
+        print(json.dumps({"info": info,
+                          # Same lie the 68th killed for the index, in the key
+                          # read first: `--json` with no `--files` published
+                          # "files": [] next to a live IN SYNC, and [] is the
+                          # canonical encoding of "I looked at every path and
+                          # none differs". Nothing looked. null is the honest
+                          # value, and it is the SAME value whether `--files`
+                          # was omitted, or asked with no paths -- two
+                          # different ways of measuring nothing, one encoding.
+                          # `files_asked` alone is not enough: asking is not
+                          # measuring. `file_check([])` returns `[]` by
+                          # construction, so a run that asked and got nothing
+                          # is indistinguishable in the payload from a run that
+                          # checked every path and found them all equal.
+                          "files": rows if (files_asked and list(files))
+                                   else None,
                           "why": [{"path": p, "kind": k, "detail": d}
                                   for p, k, d in diffs]
                                  if as_why else None,
@@ -928,6 +945,24 @@ def render(info, rows, as_json, as_why, truncated, diffs, drift, blob_drift):
                 print("  git restore --staged %s" % p)
             print("Or keep it -- if this content is the work you meant to make,")
             print("just commit it. The row is only wrong when it is a surprise.")
+
+    # The 69th. `--files` is the command step 6 tells a tick to replace its
+    # mode-blind heredoc with, and it had the SAME failure the heredoc had:
+    # name it with no paths (an unset variable, a glob that matched nothing, a
+    # path that was really a flag) and it printed the tree verdict and NOTHING
+    # else -- byte-identical to having checked the files and finding them all
+    # MATCH. Two measurements, one output. The 60th tick's 545/545 blobs MATCH
+    # beside a real mode divergence is the same shape one layer down, and it
+    # cost a manual bisect.
+    if files_asked and not list(files):
+        print("")
+        print("NO PATHS CHECKED: --files was given no path to compare.")
+        print("The verdict above is about the COMMITTED TREES only. It says")
+        print("nothing about any individual file, and this run measured no")
+        print("file -- content, mode and staged index included. Pass them:")
+        print("  python3 tool/remote_state.py --files <path> [<path> ...]")
+        print("A path that starts with '--' is filtered out silently, so a")
+        print("mis-quoted flag lands here rather than being named.")
 
     if rows:
         print("")

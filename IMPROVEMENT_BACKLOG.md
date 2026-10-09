@@ -801,6 +801,89 @@ future tick can *see*.
       simply be deleted in favour of `tool/remote_state.py --files` — one
       command that answers both axes. Until then the hand-run heredoc stays
       mode-blind and a tick must not treat its MATCH as proof of IN SYNC.
+      **CLOSED by the 69th** — see the item below; the heredoc is deleted and
+      `--files` has a guard the recommendation was not aware of.
+
+
+- [x] **The command step 6 ordered a tick to switch to measured NOTHING when
+      it was given no path — and read exactly like a clean check.**  **69th,
+      SHIPPED.**  The carry-over the previous tick left open, and closing it
+      surfaced a second defect the recommendation did not know about.
+
+      A non-build tick, and honestly so: `build_gate.py` reports NO ROOM at
+      **446 MB available of 7935 MB**, a `Balloon:` holding **5374 MB** that
+      nothing in this PID namespace owns, against a 900 MB floor. No Dart
+      changed, so no Dart gate was owed and the `flutter test` count cannot
+      move; every arm below is python and is runnable on exactly the box
+      whose memory is too full to run Dart.
+
+      **What the previous tick recommended.** Replace step 6's mode-blind
+      20-line heredoc with `tool/remote_state.py --files <paths...>`, which
+      compares content AND mode on the axis the verdict uses. Correct, and
+      measured here against the real remote before anything was deleted.
+
+      **What it recommended that was wrong.** `--files` measured nothing when
+      given no paths, and said so in no channel. `main()` computed
+      `files = []`, `rows = file_check([]) if [] else []` → `[]`, and
+      `render()`'s only per-file gate was `if rows:` — so the run printed the
+      tree verdict and stopped, **exit 0**, byte-identical to having compared
+      every path and found them all MATCH. An unset shell variable, an empty
+      glob, a mis-quoted flag — three ordinary ways to name the flag and get
+      the answer to a different question. That is the 60th's shape one layer
+      up: 545/545 blobs MATCH beside a real mode divergence, and a manual
+      bisect to find it.
+
+      **The `--json` half was worse than the text half, and is the part worth
+      remembering.** It published `"files": []` next to a live
+      `in_sync: true` / `IN SYNC` — the canonical encoding of *"I looked at
+      every path and none differs"*, for a run that looked at none. The 68th
+      had killed exactly this lie for `index_mode_drift`,
+      `index_content_drift` and `remote_truncated` four ticks earlier, in the
+      keys read *after* the verdict; this was the same defect in the key read
+      **first**. The lesson is that the rule is not "null the three lists I
+      happened to fix", it is null-any-unmeasured-key, and nothing enforced
+      the general form.
+
+      *Shipped.* `main()` splits `files_asked` (was the flag present) from
+      `files` (did any path survive parsing) and hands both to `render()`.
+      The text channel prints `NO PATHS CHECKED` plus the command that fixes
+      it; `--json` publishes `null`. **Asking is not measuring**, and the guard
+      is on `files_asked and list(files)` — not on the flag alone, which was
+      my own first attempt and is a defect the test caught (see MUT-3).
+
+      *Evidence — the fix is mutation-proven in four directions, and one of
+      the mutations is my own first attempt:* `test/remote_state_test.py`
+      **182 PASS / 0 FAIL**, rc 0.
+        - MUT-1 revert the text notice → **3 FAIL** (cannot be mistaken for
+          MATCH, and the fix is what changed rather than the verdict)
+        - MUT-2 revert the JSON null arm → **2 FAIL**
+        - MUT-3 **the partial fix I shipped first** — `files_asked` only,
+          which passes the text channel and still publishes `[]` on the
+          ask-with-no-paths path → **2 FAIL**, `got=[] want=None`
+        - restored → rc 0, 182 PASS
+
+      *The 66th's render guard caught my own NameError on the first real run*
+      — `render()` read `files` without receiving it, printed half a report
+      and exited **2, UNREACHABLE** with *"the lines above are PART of the
+      report, not all of it"*, refusing to call a fault DIVERGED. That guard
+      is 3 ticks old and this is the first time it has been fired by the
+      author of the bug rather than by a pre-fix blob. Recorded because a
+      guard that has never fired in anger is a guard whose cost is unmeasured.
+
+      *Neighbouring suites green:* `loop_protocol_test.py` **9/9** (fence
+      balance 0 open, stated 2609/14 vs newest green 2609/14),
+      `push_helper_test.py`, `run_tests_busy_code_test.py` (2/2),
+      `stash_verdict_test.py` 7/7, `build_gate_test.py` **32/32** rc 0.
+
+      *Step 6's heredoc is DELETED, not patched.* It is 20 lines of
+      authenticated Python a tick re-types under time pressure, and every
+      reason it existed — *it could not be reproduced by hand* — is a reason
+      it can be mis-transcribed instead. Run once before deleting it, against
+      the real remote, so the replacement is known to answer: it returned
+      `MATCH` on all three files, tip `6a7614f`, 609 entries. A tool that is
+      only *believed* to work is the class of thing this backlog keeps refusing.
+
+      *Not visual.* A CLI's stdout draws nothing; no screenshot is claimed.
 
 - [x] **The gate's own test suite decided its own result by whatever else was
       on the box — and it had been leaving one arm untested entirely.**
@@ -1121,35 +1204,27 @@ in this file that dies on arrival is how two ticks were lost.
    locally against 100644 on the remote and this recipe reported MATCH while
    `tool/remote_state.py` said DIVERGED — both true, different objects.
    Prefer `python3 tool/remote_state.py --files <paths...>`, which compares
-   both axes. Full write-up in Phase 6.
+   both axes — and **now** with a guard, since asking it to compare with no
+   path silently measured nothing (69th; `NO PATHS CHECKED`).
+   Full write-up in Phase 6.
 
-   **The blob check itself, written out**, because it is the one step in step 6
-   that cannot be reproduced from this shell by hand: `dynamic_credentials` is
-   not on `gh_push.py`'s import path unless *its* directory is added, and
-   `read_json_response` takes a **response**, not a request. Verified working
-   27 Sep against tip `bb07127`:
-   ```bash
-   cd /home/hatch/workspace/repos && python3 - <<'PY'
-   import sys, subprocess
-   sys.path.insert(0, "/opt/hatch/skills/skill-creator/bin")
-   from dynamic_credentials import add_surrogate_to_request, read_json_response
-   import urllib.request
-   def api(path):
-       req = urllib.request.Request("https://api.github.com" + path, method="GET")
-       req.add_header("Accept", "application/vnd.github+json")
-       add_surrogate_to_request(req, "custom.github", allowed_hosts=("api.github.com",))
-       with urllib.request.urlopen(req, timeout=60) as resp:
-           return read_json_response(resp)
-   sha = api("/repos/cheminisifeddine/allomokawil/git/ref/heads/main")["object"]["sha"]
-   tree = api("/repos/cheminisifeddine/allomokawil/git/trees/%s?recursive=1" % sha)["tree"]
-   remote = {e["path"]: e["sha"] for e in tree if e["type"] == "blob"}
-   for f in ["lib/src/screens/worker/worker_profile_screen.dart",
-             "test/profile_section_failure_test.dart", "IMPROVEMENT_BACKLOG.md"]:
-       local = subprocess.run(["git","hash-object",f], capture_output=True,
-                              text=True, cwd="/home/hatch/allomokawil").stdout.strip()
-       print(("MATCH  " if local == remote.get(f) else "DIFFER "), f)
-   PY
+   **DELETED 9 Oct (69th) — run this instead, and do not hand-roll it again:**
    ```
+   python3 tool/remote_state.py --files <paths...>   # blob AND mode
+   python3 tool/remote_state.py --why                 # WHICH paths, and why
+   ```
+   The heredoc this replaces compared BLOB shas only, so it was structurally
+   incapable of seeing a mode difference — which is exactly the failure that
+   had it. It is gone rather than patched because it was 20 lines of
+   authenticated Python a tick re-typed under time pressure, and every reason it
+   existed (it could not be reproduced by hand) is a reason it can be
+   mis-transcribed instead. `--files` compares content and mode on the same
+   axis the verdict uses, and reads the staged index for a third.
+   **Its one blind spot, now guarded rather than assumed:** `--files` with **no
+   path** used to print the tree verdict and nothing else, byte-identical to
+   having checked every path and finding them all MATCH — an unset variable,
+   an empty glob, a mis-quoted flag. It now prints `NO PATHS CHECKED`, and
+   `--json` publishes `"files": null` rather than `[]`. Asking is not measuring.
    **A new file is not pushed until it is committed.** `gh_push.py` uploads
    the paths you name, but only the ones git already tracks; on 27 Sep a push
    reported `Pushed 1 changed` for a two-file change, printed a green SHA, and

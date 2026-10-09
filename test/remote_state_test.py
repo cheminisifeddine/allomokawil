@@ -1192,6 +1192,118 @@ def main():
     check("  ...and still says IN SYNC",
           (ok_body or {}).get("info", {}).get("verdict"), "IN SYNC")
 
+    # ---- 69th: `--files` with NO PATHS read exactly like a clean check. ----
+    #
+    # Step 6 of the protocol now says to replace its 15-line mode-blind
+    # heredoc with `tool/remote_state.py --files <paths...>`, on the strength
+    # of `remote_state.py` being mode-aware. The replacement had the SAME
+    # failure as the thing it replaced: name the flag with no paths -- an
+    # unset shell variable, a glob that matched nothing, a path that was
+    # really the next flag -- and it printed the tree verdict and nothing
+    # else. Byte-identical output to having checked every path and found them
+    # all MATCH.
+    #
+    # That is the 60th's shape one layer up: 545/545 blobs MATCH beside a real
+    # mode divergence, and a manual bisect to find it. `rows` was falsy either
+    # way, so `if rows:` printed nothing and the run exited 0 with a verdict
+    # about trees the caller had specifically asked to stop looking at.
+    #
+    # Both channels were wrong and both had to be fixed. The text channel
+    # printed no notice; `--json` published `"files": []`, the canonical
+    # encoding of "every path agrees" -- the identical lie the 68th had just
+    # killed for the index keys, in the key a consumer reads FIRST.
+    def _nopath_driver(mod):
+        head = (
+            "import sys, importlib\n"
+            "sys.path[:0] = [TOOLDIR, TESTDIR]\n"
+            "m = importlib.import_module(MODNAME)\n"
+            "m.classify = lambda: {'in_sync': True, 'local_head': 'h',\n"
+            "        'local_tree': 't', 'remote_tip': 'r', 'remote_tree': 't',\n"
+            "        'verdict': 'IN SYNC', 'ahead_behind': '(clean)',\n"
+            "        'uncommitted': []}\n"
+            # The real defect's shape: called with the empty list, returns
+            # nothing, and the run continues to a clean verdict.
+            "m.file_check = lambda paths: []\n"
+            "assert m.file_check([]) == [], 'the stub must answer an empty list'\n"
+        )
+        head = head.replace("TOOLDIR", repr(os.path.join(ROOT, "tool")))
+        head = head.replace("TESTDIR", repr(HERE))
+        head = head.replace("MODNAME", repr(mod))
+        return head + ("sys.argv = list(%r)\n" % (["remote_state.py",
+                                                    "--files"],) +
+                       "sys.exit(m.main())\n")
+
+    def _nopath_run(mod):
+        path = os.path.join(tempfile.mkdtemp(), "npdrv.py")
+        with open(path, "w") as fh:
+            fh.write(_nopath_driver(mod))
+        return subprocess.run([sys.executable, path], capture_output=True,
+                              text=True, timeout=120)
+
+    # (a) The text channel. Bare `--files`, zero paths.
+    np = _nopath_run("remote_state")
+    check("a bare --files still exits 0 (the tree verdict is real)",
+          np.returncode, 0)
+    check("  ...and does NOT read as a clean per-file check",
+          "NO PATHS CHECKED" in np.stdout, True)
+    # The specific failure: the output a caller would read as "the files I
+    # meant to check are all on the remote", which is what the old run said.
+    check("  ...it cannot be mistaken for MATCH rows",
+          "MATCH " in np.stdout, False)
+    # The reason has to be ACTIONABLE, not a scolding: this is a command a
+    # tick is running under time pressure.
+    check("  ...and prints the command that fixes it",
+          "remote_state.py --files <path>" in np.stdout, True)
+
+    # (b) The json channel, same input.
+    nj_proc, nj_body = _json_run("remote_state",
+                                 "m.file_check = lambda paths: []\n",
+                                 ["remote_state.py", "--json", "--files"])
+    check("a bare --json --files still exits 0", nj_proc.returncode, 0)
+    if nj_body is not None:
+        check("an UNMEASURED per-file list is null, not []",
+              nj_body.get("files"), None)
+        # The guard against regressing: [] is the one value that reads as a
+        # completed check over every path.
+        check("NEGATIVE: no unmeasured key is an empty LIST",
+              any(nj_body.get(k) == [] for k in
+                  ("files", "why", "index_mode_drift", "index_content_drift")),
+              False)
+        check("  ...beside the clean in_sync verdict, which is the harm",
+              nj_body.get("info", {}).get("verdict"), "IN SYNC")
+
+    # (c) NEGATIVE CONTROL against the pre-fix blob, same driver, same stub.
+    #     A re-implementation would prove nothing; the old file ships for
+    #     exactly this and is driven directly.
+    check("the pre-fix blob travels with the test",
+          os.path.exists(os.path.join(HERE, "remote_state_pre_fix.py")), True)
+    old_np = _nopath_run("remote_state_pre_fix")
+    check("NEGATIVE CONTROL: pre-fix DID say nothing about the files",
+          "NO PATHS CHECKED" in old_np.stdout, False)
+    check("  ...it printed the same IN SYNC verdict either way",
+          ("IN SYNC" in np.stdout) and ("IN SYNC" in old_np.stdout), True)
+    check("  ...and the fix is what changed, not the verdict",
+          np.stdout != old_np.stdout, True)
+
+    # (d) NO CRY-WOLF CONTROL. A notice must not cost the healthy path:
+    #     `--files` WITH a path still runs the real comparison, still prints
+    #     the rows, and still says nothing about missing paths -- because a
+    #     guard that also fires on the working case is its own outage.
+    hp_proc, hp_body = _json_run(
+        "remote_state",
+        "m.file_check = lambda paths: [('h.py', 'MATCH', 'disc', 'sha',\n"
+        "                               '100644', '100644', None)]\n",
+        ["remote_state.py", "--json", "--files", "h.py"])
+    check("--files WITH a path still exits 0", hp_proc.returncode, 0)
+    check("  ...and still returns its rows",
+          [r[0] for r in (hp_body or {}).get("files", [])], ["h.py"])
+    check("  ...and a measured list is a list, never null",
+          isinstance((hp_body or {}).get("files"), list), True)
+    check("  ...one row per path asked for, not a placeholder",
+          [r[0] for r in (hp_body or {}).get("files", [])], ["h.py"])
+    check("  ...and the NO PATHS notice does not fire on it",
+          "NO PATHS CHECKED" in hp_proc.stdout, False)
+
 
     print("")
     if FAILED:
