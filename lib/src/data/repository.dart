@@ -10,6 +10,7 @@ import '../models/project.dart';
 import '../models/quote_review.dart';
 import '../models/worker.dart';
 import 'partial_market_copy.dart';
+import 'partial_thread_copy.dart';
 import 'project_trade_exact.dart';
 import '../models/row_identity.dart';
 import 'trade_exact.dart';
@@ -541,6 +542,164 @@ class Repository {
         Message.fromJson);
   }
 
+  /// [messages], plus the newest messages the server will not hand over in one
+  /// read, plus the count of what is still too old to draw.
+  ///
+  /// **A second entry point, for the same reason the market search needed one.**
+  /// `List<Message>` answers «what did you find»; it cannot also answer «what
+  /// did you not look at», and here the gap is not a lost page but a silent
+  /// truncation the server applies to *every* thread read. The rows that come
+  /// back are real and correct — they are simply the **oldest** hundred, not
+  /// the newest, so the messages the user opened the thread to read are the
+  /// ones missing. Measured against production, 10 Oct: a 150-message
+  /// conversation answered 100 rows spanning ids 45..144 while the thread held
+  /// ids up to 174. `?limit=200` did not change it, so the cap is the server's
+  /// and cannot be argued with from here.
+  ///
+  /// Widening the return type of [messages] would have made every ordinary
+  /// caller — including `resolveWriteOutcome`'s one-row re-check, which is a
+  /// question about a single message — read `.rows` to get at rows it already
+  /// had. So the repair is opt-in and the plain method keeps its contract.
+  ///
+  /// Walks **forward** from the head, and a short page ends the walk.
+  ///
+  /// **Measured, because the cursor's direction is the whole fix and it is not
+  /// what the first draft of this comment claimed.** The first version of this
+  /// method said it paged «backward from the newest» and reasoned that walking
+  /// forward from the oldest hundred would never reach the messages the user
+  /// is waiting on. Both halves of that are true and together they say the
+  /// repair is impossible, which is not what the API does. Live, against a
+  /// 194-message thread: `after=0` -> ids 45..144, `after=144` -> ids 145..194,
+  /// `after=194` -> **0 rows**. So the cursor walks forward and the walk
+  /// terminates on the first short page — which means the newest messages are
+  /// reachable, they are simply never fetched by a single read.
+  ///
+  /// `?before=` was tried on the same thread and answered the same oldest
+  /// hundred as an uncursored read, so there is no backward cursor to use.
+  Future<ThreadReadResult> messagesPaged(
+    int conversationId, {
+    int maxPages = 10,
+  }) async {
+    // One page is the floor even if a caller asks for none: a thread read that
+    // returned nothing would render an empty screen over a live conversation,
+    // which is the failure this whole method exists to prevent.
+    final pages = maxPages < 1 ? 1 : maxPages;
+    final batches = <_ThreadBatch>[];
+    var after = 0;
+    for (var page = 0; page < pages; page++) {
+      final batch = await _safeMessagePage(conversationId, after: after);
+      batches.add(batch);
+      final rows = batch.rows;
+      // Stop when the server stops handing back a full page. **A short page is
+      // the end of the thread**, not a failure, and must not be logged as one:
+      // every ordinary thread answers short on its first read.
+      if (rows == null || rows.length < _threadPageSize) break;
+      after = rows.last.id;
+    }
+    // The newest page is the one that stops being returned when a page dies,
+    // and it is the one carrying the messages the user is looking at. Losing it
+    // to a dead socket turns the thread into a silent gap at the bottom of the
+    // screen with nothing to explain it — so a dead page is re-issued once,
+    // exactly as the market search re-issues its head page.
+    //
+    // The re-issue merges rather than returns, for the reason
+    // `browseProjectsPaged` learned the hard way: returning it would discard
+    // every page that had already answered, so a read that exists to reach the
+    // newest messages would hand back only the oldest one.
+    final failedAt = batches.indexWhere((b) => b.failure != null);
+    if (failedAt >= 0) {
+      final batch = batches[failedAt];
+      final retry = await _safeMessagePage(conversationId, after: batch.after);
+      batches[failedAt] = retry;
+      // **A read that got nothing raises, and this is the reason the first
+      // draft of this method broke six tests.** Recording the failure and
+      // carrying on returned an *empty row list* for a thread that could not be
+      // read at all — so «تعذّر جلب الرسائل» and the offline strip stopped
+      // rendering, and a dead network drew «لا رسائل بعد» (*no messages yet*) in
+      // a conversation full of them. The very error page the app had for this
+      // case was deleted by making the paging too careful to fail.
+      //
+      // The rule is the same one `browseProjectsPaged` applies to a lost head
+      // page: a first read that cannot answer is not a partial answer, it is
+      // no answer, and the caller is better placed to say so than to draw an
+      // empty thread.
+      if (retry.failure != null && batches.every((b) => b.rows == null)) {
+        throw retry.failure!;
+      }
+    }
+    for (var i = 0; i < batches.length; i++) {
+      final failure = batches[i].failure;
+      if (failure == null) continue;
+      CrashReporter.active?.capture(
+        'صفحة ${i + 1} من المحادثة لم تصل',
+        null,
+        kind: 'page',
+        context: 'conversation $conversationId could not be read past id '
+            '${batches[i].after} · ${_whyItFailed(failure)}',
+      );
+    }
+    // Deduplicate by id and keep server order: a re-issued page can return rows
+    // the previous page already delivered, and the same message appearing twice
+    // in a thread is a bug the user reads as two people having said it.
+    final seen = <int>{};
+    final merged = <Message>[];
+    for (final batch in batches) {
+      for (final m in batch.rows ?? const <Message>[]) {
+        if (seen.add(m.id)) merged.add(m);
+      }
+    }
+    // **The count of what is still too old to draw travels with the rows.**
+    //
+    // The distinction that matters is *why* the walk stopped, and the first
+    // draft got it backwards: it treated «the last page came back full» as the
+    // signal. But a full page is what a walk that reached the end always looks
+    // like on its way out — thread after thread ends exactly at the cap, and a
+    // 100-message conversation would have been announced as truncated. The
+    // signal is the **budget**: pages are only missed if the walk ran out of
+    // them, and a walk that stopped on a short page has reached the end of the
+    // conversation and is missing nothing.
+    var undrawn = 0;
+    if (batches.length >= pages && batches.every((b) => b.failure == null)) {
+      final lastRows = batches.last.rows;
+      if (lastRows != null && lastRows.length >= _threadPageSize) {
+        // Out of budget with a full page in hand. Ask for the next one *only to
+        // count it* — the rows are discarded, because a phone cannot usefully
+        // hold an unbounded thread and drawing 400 bubbles to be honest about
+        // them would be a worse lie than the band. The number is the point.
+        final probe =
+            await _safeMessagePage(conversationId, after: lastRows.last.id);
+        final more = probe.rows?.length ?? 0;
+        if (more > 0) {
+          undrawn = more + batches.fold<int>(
+              0, (sum, b) => sum + (b.rows?.length ?? 0));
+        }
+      }
+    }
+    return ThreadReadResult(merged, undrawn: undrawn);
+  }
+
+  /// The server's page size for a thread read — measured, not assumed.
+  ///
+  /// Production answers exactly 100 rows for a long conversation and stops
+  /// there (10 Oct, against a 150-message thread), and honours neither `limit`
+  /// nor any other knob the client can pass. Hard-coding the measurement is the
+  /// honest form: this constant is what makes "a short page means the end" true,
+  /// and if the server's cap ever moves, the read that used this will ask one
+  /// page too many and stop one page too late rather than silently truncating.
+  static const int _threadPageSize = 100;
+
+  /// One page of a thread, or a record holding the error that stopped it
+  /// answering.
+  Future<_ThreadBatch> _safeMessagePage(int conversationId,
+      {required int after}) async {
+    try {
+      return _ThreadBatch(
+          await messages(conversationId, after: after), after);
+    } catch (error) {
+      return _ThreadBatch(null, after, error);
+    }
+  }
+
   Future<Message> sendText(int conversationId, String text) async {
     return _row(await _api.post('/api/messages/$conversationId', body: {
       'content': text,
@@ -765,6 +924,50 @@ class MarketPageResult {
   /// the market may only be printed by a read that covered the market.
   bool get mayClaimNoResults => partialMarketMayClaimNoResults(
       lost: lostPages, total: requestedPages);
+}
+
+/// One page of a thread read, or the record of the page that never answered.
+///
+/// [after] is carried because a failure has to say **where** it happened: a
+/// support reply to "the chat is empty" cannot be written from a stack trace
+/// alone, it needs the cursor the read died at — which is the message id of the
+/// last thing the customer did see.
+class _ThreadBatch {
+  const _ThreadBatch(this.rows, this.after, [this.failure]);
+
+  /// The rows, or `null` when the page never answered.
+  final List<Message>? rows;
+
+  /// The cursor this page was asked for — 0 for the head read.
+  final int after;
+
+  /// What the page threw, kept so the record can say *why* it is missing.
+  final Object? failure;
+}
+
+/// What a thread read returned: the messages it drew, and the messages it
+/// knows about and did not.
+///
+/// **The undrawn count is the whole point, and it is measured rather than
+/// assumed.** A read that stops because it ran out of page budget has not
+/// reached the start of the conversation, so there is something older on the
+/// server that this phone did not draw — the app knows the number because it
+/// counted it, rather than inferring a range it never fetched.
+class ThreadReadResult {
+  const ThreadReadResult(this.rows, {this.undrawn = 0});
+
+  /// Every message drawn, de-duplicated by id and in server order.
+  final List<Message> rows;
+
+  /// How many messages the phone knows exist and did not draw.
+  final int undrawn;
+
+  /// True when the read may say the thread is complete.
+  ///
+  /// Delegated to the copy layer so the rule has one owner, exactly as
+  /// `MarketPageResult.mayClaimNoResults` does: a verdict about the
+  /// conversation may only be printed by a read that covered the conversation.
+  bool get mayClaimComplete => partialThreadMayClaimComplete(undrawn: undrawn);
 }
 
 /// Why a page could not be read, in the terms a support reply can act on.

@@ -10,6 +10,7 @@ import '../../core/l10n/strings.dart';
 import '../../core/l10n/write_outcome.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/chat_outbox.dart';
+import '../../data/partial_thread_copy.dart';
 import '../../data/chat_recheck_copy.dart';
 import '../../data/chat_time.dart';
 import '../../data/thread_match.dart';
@@ -98,6 +99,24 @@ class _ChatScreenState extends State<ChatScreen> {
   List<Message> _messages = [];
   bool _loading = true;
   bool _error = false;
+
+  /// How many messages the server holds behind the ones [_messages] draws.
+  ///
+  /// **The screen is where this bug lived, and the number is why.** The thread
+  /// read is capped at 100 rows server-side and answers the *oldest* hundred, so
+  /// a plain `messages()` call returned a thread that was real, correct and
+  /// missing its most recent quarter — measured live at 150 messages: 100 rows,
+  /// ids 45..144, while the thread ran to 174. The customer reads «وصلت» on
+  /// nothing; the contractor re-opens the thread and finds the last thing he
+  /// said is four days old, with no error anywhere to explain it. Silence about
+  /// the newest messages reads as «we are done talking», which is the one
+  /// reading the app must never allow.
+  ///
+  /// So the read walks back from the newest until the server stops handing over
+  /// full pages ([Repository.messagesPaged]), and only what even that cannot
+  /// reach is counted here. Zero on every ordinary thread, which is why the band
+  /// it feeds draws nothing for almost everyone.
+  int _undrawn = 0;
 
   /// A write whose answer never came, kept apart from [_error] on purpose.
   ///
@@ -468,10 +487,14 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _load() async {
     if (_convId == null) return;
-    final msgs = await widget.repo.messages(_convId!);
+    // The paged read, not the single one: a capped read of this thread returns
+    // the oldest hundred and drops the newest, which is the half the user came
+    // to read. See [_undrawn].
+    final read = await widget.repo.messagesPaged(_convId!);
     if (!mounted) return;
     setState(() {
-      _messages = msgs;
+      _messages = read.rows;
+      _undrawn = read.undrawn;
       _loading = false;
       _error = false;
     });
@@ -644,8 +667,22 @@ class _ChatScreenState extends State<ChatScreen> {
         final me = _me;
         final outcome = await resolveWriteOutcome(
           recheck: () async {
-            final fresh = await widget.repo.messages(convId);
-            return fresh.any((m) => threadHolds(m, _identity(local), me: me));
+            // **The paged read, and this one is not a nicety — a plain
+            // `messages()` here decides whether a message the user already
+            // sent arrived.** The server caps a thread read at 100 rows and
+            // answers the OLDEST hundred, so in any thread longer than that
+            // the message just posted is not in the answer. The old code read
+            // it as «it did not arrive», turned a delivered message into a
+            // failed bubble, and offered a retry — so the user pressed it and
+            // sent the same message twice, which is the exact outcome
+            // `_markUnconfirmed` was written to prevent.
+            //
+            // So the re-check walks back to the newest rows, where a message
+            // sent seconds ago must be. It is one call either way; the paged
+            // read is simply the one that looks at the right end of the thread.
+            final fresh = await widget.repo.messagesPaged(convId);
+            return fresh.rows
+                .any((m) => threadHolds(m, _identity(local), me: me));
           },
         );
         if (!mounted) return;
@@ -815,7 +852,13 @@ class _ChatScreenState extends State<ChatScreen> {
       Message? row;
       if (conv != null) {
         final me = _me;
-        for (final m in await widget.repo.messages(conv)) {
+        // Paged, for the same reason as the re-check in `_deliver`: a capped
+        // read answers the OLDEST hundred and the row being adopted was written
+        // seconds ago. Scanning a capped read for it would never find it, so
+        // the optimistic bubble would be kept forever, still keyed by its
+        // negative local id and never reconciled with the server's own row.
+        final thread = await widget.repo.messagesPaged(conv);
+        for (final m in thread.rows) {
           if (threadHolds(m, _identity(local), me: me)) {
             row = m;
             break;
@@ -908,7 +951,10 @@ class _ChatScreenState extends State<ChatScreen> {
     for (final m in _messages
         .where((m) => m.sendState == SendState.unconfirmed)) {
       final fresh = await resolveWriteOutcome(recheck: () async {
-        final rows = await widget.repo.messages(convId);
+        // Paged: this decides «arrived» for a bubble the user is about to send a
+        // second time, so a read that cannot see the newest rows turns a
+        // delivered message into a duplicate. See `_deliver`.
+        final rows = await widget.repo.messagesPaged(convId).then((r) => r.rows);
         return rows.any((r) => threadHolds(r, _identity(m), me: me));
       });
       if (!mounted) return;
@@ -1065,6 +1111,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   : Column(
                   children: [
                     if (_error) _offlineStrip(),
+                    _olderStrip(),
                     Expanded(child: _thread()),
                     if (_unresolved.isNotEmpty) _pendingBanner(),
                     _composer(),
@@ -1153,6 +1200,60 @@ class _ChatScreenState extends State<ChatScreen> {
   // ── Offline banner ──────────────────────────────────────────────────────
   /// Shown above a thread that could not be fetched, so the queued bubbles below
   /// it are never mistaken for the whole conversation.
+  /// The band over a thread older than the phone drew.
+  ///
+  /// **Drawn on both branches, and the rows branch is the one that matters.**
+  /// The empty-thread branch is the obvious case and the near-useless one: a
+  /// thread so long the read found nothing to show is rare, and a user staring
+  /// at «لا رسائل بعد» in a live conversation is already suspicious. The real
+  /// case is the opposite — 400 messages drawn, 340 of them older, and the band
+  /// says so above them. That is the read that looks *successful*: rows are on
+  /// screen, no error fired, and the user has no way to learn the thread above
+  /// them exists except by being told.
+  ///
+  /// Placed **above** the thread rather than below it, because it describes
+  /// what is above, and a strip under the newest bubble is read as a footnote
+  /// about the message he was just looking at.
+  ///
+  /// Nothing when the read drew everything — which is every ordinary thread,
+  /// including the 100-message one that fits exactly.
+  Widget _olderStrip() {
+    if (partialThreadMayClaimComplete(undrawn: _undrawn)) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      key: const Key('partial-thread'),
+      decoration: const BoxDecoration(
+        color: AppTheme.accentWash,
+        border: Border(bottom: BorderSide(color: AppTheme.accent)),
+      ),
+      // `s16`, not a literal: this sits in the same Column as the thread, so
+      // its edge is one of the four that make the chat column — the same reason
+      // `_offlineStrip` documents.
+      padding: const EdgeInsets.fromLTRB(
+          AppTheme.s16, AppTheme.s8, AppTheme.s16, AppTheme.s8),
+      child: Row(
+        children: [
+          const Icon(Icons.history_toggle_off_rounded,
+              size: AppTheme.s20, color: AppTheme.accentDeep),
+          const SizedBox(width: AppTheme.s8),
+          Expanded(
+            child: Text(
+              partialThreadLineAr(
+                  undrawn: _undrawn, drawn: _messages.length),
+              key: const Key('partial-thread-line'),
+              style: AppTheme.body.copyWith(
+                color: AppTheme.accentDeep,
+                height: AppTheme.lhProse,
+                fontWeight: AppTheme.wControl,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _offlineStrip() {
     return Container(
       decoration: const BoxDecoration(
