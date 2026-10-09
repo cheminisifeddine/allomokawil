@@ -30457,6 +30457,99 @@ census of how many would need annotating — not an annotation pass.
 
 ---
 
+## Tick 10 Oct 2026 (~04:45) — THE FROZEN STASHES ARE EMPTY, measured, and the
+## five-tick escalation ends with a verdict instead of a question
+
+**Item: resolve the two stashes frozen for five ticks. SHIPPED as a
+measurement, not a judgement.** `59076ee` -> remote `a886398`.
+
+**The stalemate was structural, not an oversight.** `app_theme.dart` carried
+duplicate `static const double hairline = 1.5;`. Popping a stash makes the
+analyzer red (four declarations under `stash@{0}`, two under `stash@{1}`), the
+protocol forbids committing a red build, and therefore **no tick could legally
+finish them and no tick could legally drop them.** "Finish or discard" had no
+executable branch, which is why it survived five consecutive escalations.
+
+**The question is decidable without an agent, and the decision is content, not
+process.** A stash is a tree; `git diff HEAD <stash>` is exactly what `pop`
+applies. So the whole dilemma collapses to one measurement: does that diff
+contain a line the tree does not already have?
+
+- `stash@{0}` -> +30 lines, **0 new**; removes nothing.
+- `stash@{1}` -> +10 lines, **0 new**; removes nothing.
+
+Both are re-indented copies of a block already committed at
+`app_theme.dart:87-95` (`832905b8`). **There is no unique work to finish.**
+
+**Why the previous four ticks had it backwards.** Each asked *"is there a writer
+process?"* — measured NO every time, and it could never be YES, because the
+writer exited hours before the stash was frozen. **Absence of a writer is not
+evidence a stash is unfinished.** The process question cannot be answered
+differently no matter how long it is asked, which is the signature of a
+question that is not the one that decides anything.
+
+**Shipped:** `test/stash_verdict_test.py` (+220 lines), pinned against the
+**real** `refs/stash`, not a fixture — a suite that cannot fail on the actual
+stashes would be the guard-that-can't-fail this loop keeps finding. A future
+stash that IS real work gets the opposite verdict instead of silently
+inheriting a five-tick-old precedent.
+
+**Mutation-tested in both directions**, because last tick's lesson was a guard
+green for a mechanical reason:
+
+- novel line planted in a **scratch repo** -> cases 1 + 5 **RED**, naming the
+  exact line (`plantedNovelToken`). Load-bearing.
+- a repo with **no stash** -> case 6 **RED**, so "clean" can never print as
+  "verified".
+
+Both runs exposed real bugs in the suite, all fixed:
+
+1. membership compared **raw lines**, so a re-indented copy read as a line the
+   tree "lacks" — the one false answer that would have sent a droppable stash
+   down the "finish it" path. Now normalised (`_norm`).
+2. case 5 printed **"0 unresolvable" while RED**, because its count was
+   computed over a different set than the one it asserted. Now the label is
+   derived from the assertion's own predicate.
+3. `all([])` is True, so an empty repo printed a green "every stash is
+   droppable" for a repo it never examined. Case 6 now requires >= 1 stash.
+
+**Evidence** (real output)
+
+- `test/stash_verdict_test.py` -> **7/7 ALL PASS** on the real repo;
+  mutant **4/6 RED**, no-stash **4/5 RED**. Both correct directions fire.
+- `test/run_tests_retry_budget_test.py` -> **4 passed, 0 failed** (regression)
+- **Build gate denied Dart again**: `build_gate.py` -> **NO ROOM**, 539 MB
+  available against a 900 MB floor; `Balloon:` holds 5174 MB outside this PID
+  namespace, more than the 361 MB the box is short, so no local action clears
+  it. This tick is Python-only **by measurement, not choice**.
+- `flutter analyze` / `run_tests.py` **not run** — the gate forbids it. **No
+  Dart and no `lib/` changed**, so the analyzer verdict is unchanged by
+  construction and the suite count stays **2603**. Nothing renders, **no
+  screenshot claimed**.
+- `59076ee` -> remote `a886398`. **1/1 blob verified byte-identical**
+  (`01d4d63`) off `raw.githubusercontent.com`
+- **Both stashes left in place, not dropped.** Dropping is a founder call; this
+  tick only proves they are empty. Recoverable either way.
+
+**Protocol correction — the paths in this job's prompt are dead.** The prompt
+names `/home/renia/allomokawil` and `/home/renia/tools/flutter/bin/flutter`.
+`/home/renia` **does not exist on this host** (rebuilt 26 Sep). The real paths
+are the ones in the Loop protocol table and were used: repo
+`/home/hatch/allomokawil`, Flutter `/home/hatch/tools/sdk/flutter/bin/flutter`,
+push helper `/home/hatch/workspace/repos/gh_push.py`. A `git status` in the
+prompt's directory returns *"not a git repository"*, and
+`/home/hatch/workspace/repos/allomokawil` is a **bare copy with no `.git`** —
+its `IMPROVEMENT_BACKLOG.md` reads **1531 lines against the real file's
+30527**, so a tick that trusted the cwd would have "verified" a backlog that is
+four months stale and declared a shipped item unchecked. Same failure the
+protocol already records for `gh_push.py`: a command in this file that dies on
+arrival is how ticks are lost.
+
+**Next.** The last open item is still the one-word comment edit at
+`relative_time_hour_floor_test.dart:97`, and it is **comment-only but
+Dart-gated** — it cannot be gated until the balloon clears, so it is the first
+thing to take when `build_gate.py` goes quiet. Nothing is open behind it.
+
 ## The rule on the claim itself: the census, measured — and the count pinned
 
 **Item: carry the rule on the claim → counted before built. SHIPPED as a
