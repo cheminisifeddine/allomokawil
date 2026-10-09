@@ -164,4 +164,19 @@ void main() {
     // ignore: avoid_print
     print('SHOT $open\nSHOT $full');
   });
+
+  testWidgets('a gallery PAST its ceiling, which is the state the count '
+      'reaches (9 Oct)', (tester) async {
+    // Three states, not two, since 9 Oct: room, exactly full, and **over**.
+    // `used > limit` with no bug behind it -- a plan downgrade, photos added
+    // from another surface, or the free-plan default for a server that sent
+    // nothing. Before the fix this screen printed «بلغت حد صور خطتك: 5 صور»
+    // directly above six photographs, because the sentence never saw the
+    // count. A two-sided capture would have passed on a gate that only ever
+    // reads the middle state.
+    final over = await _shoot(tester, 'allowance_03_over',
+        photos: 6, limit: 5);
+    // ignore: avoid_print
+    print('SHOT $over');
+  });
 }

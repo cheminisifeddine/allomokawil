@@ -149,7 +149,16 @@ void main() {
         for (final used in counts) {
           expectNoHole(_allowance(used, limit), 'allowance(used: $used, $limit)');
         }
-        expectNoHole(portfolioFullLineAr(limit), 'portfolioFullLineAr($limit)');
+        // The count is the second argument since 9 Oct, so this sweeps the
+        // cross-product: a limit is a plan value and a count is a gallery
+        // length, and the two have crossed only by accident (a downgrade, the
+        // free-plan default for a silent server). Every pairing must still
+        // return a whole sentence -- including `used > limit`, which is the
+        // branch that prints both numbers.
+        for (final used in counts) {
+          expectNoHole(portfolioFullLineAr(limit, used),
+              'portfolioFullLineAr($limit, $used)');
+        }
       }
     });
 
@@ -184,7 +193,7 @@ void main() {
 /// can actually be in, not just the one the screen currently guards.
 String _allowance(int used, int limit) {
   final a = PortfolioAllowance(limit: limit, used: used);
-  if (a.isFull) return portfolioFullLineAr(a.limit);
+  if (a.isFull) return portfolioFullLineAr(a.limit, a.used);
   if (a.isUnlimited) return portfolioUnlimitedLineAr();
   return portfolioLeftLineAr(a.left!, a.limit);
 }

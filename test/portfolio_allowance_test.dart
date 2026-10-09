@@ -94,7 +94,32 @@ void main() {
     });
 
     test('the full line names the limit it hit', () {
-      expect(portfolioFullLineAr(5), 'بلغت حد صور خطتك: 5 صور');
+      expect(portfolioFullLineAr(5, 5), 'بلغت حد صور خطتك: 5 صور');
+    });
+
+    test('a gallery past the ceiling says so, and names both numbers', () {
+      // The defect this signature change fixes: one argument meant the
+      // sentence was byte-identical for five photographs and for a hundred and
+      // thirty, printed directly under the line that says which he is looking
+      // at. Measured live on 9 Oct: 130 posted, 130 listed, allowance 5.
+      expect(portfolioFullLineAr(5, 130),
+          'تجاوز معرض أعمالك حد صور خطتك: 130 صورة في 5 صور');
+      // One over is not the same sentence as exactly full, which is the whole
+      // point of handing the count in.
+      expect(portfolioFullLineAr(5, 6), isNot(portfolioFullLineAr(5, 5)));
+      // …and the nouns still come from the shared photo count, so the
+      // agreement cannot drift from the line above.
+      expect(portfolioFullLineAr(30, 130), contains(photosAr(130)));
+      expect(portfolioFullLineAr(30, 130), contains(photosAr(30)));
+    });
+
+    test('an unknown count falls back to the limit, never to a hole', () {
+      // `photosAr(0)` is silence, so interpolating it unedited would print
+      // «…: في 5 صور». The ceiling is still true of the plan even when the
+      // gallery size is not known, so the limit carries the sentence alone.
+      expect(portfolioFullLineAr(5, 0), 'بلغت حد صور خطتك: 5 صور');
+      // The negatives a bad `_int()` parse produces are the same case.
+      expect(portfolioFullLineAr(5, -3), 'بلغت حد صور خطتك: 5 صور');
     });
 
     test('the unlimited line prints no number to disagree about', () {
@@ -105,7 +130,8 @@ void main() {
       // The defect class this file is in: a count spelled by hand that drifts
       // from the one above it. Asserted against the shared helper so the two
       // cannot part company.
-      expect(portfolioFullLineAr(5), contains(photosAr(5)));
+      expect(portfolioFullLineAr(5, 5), contains(photosAr(5)));
+      expect(portfolioFullLineAr(5, 130), contains(photosAr(130)));
       expect(portfolioLeftLineAr(2, 30), contains(photosAr(2)));
     });
   });

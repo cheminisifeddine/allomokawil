@@ -7,6 +7,70 @@ the **top unchecked item in phase order**, ships it, and ticks it.
 Rules for what belongs here: a real user-visible improvement or a real
 correctness gap — never a refactor for its own sake. One item per loop.
 
+- [x] **The ceiling sentence the gallery prints was blind to the count it sits
+      above -- and is now handed it.**  `ab533eb`.
+      The Dart half of the portfolio-allowance item, carried over from the two
+      Python-only ticks that measured it. **The build gate answered CLEAR this
+      tick** (3199 MB available against the 900 MB floor, `java` 0 and no
+      flutter tool running), so this is the first build tick in five and the
+      gate was real rather than skipped.
+
+      **What changed.** `portfolioFullLineAr(int limit)` ->
+      `portfolioFullLineAr(int limit, int used)`. The count is a **required**
+      parameter, not an optional one, so no future caller can rebuild the
+      sentence without knowing which state he is in -- the compiler, rather
+      than a review, is what keeps the blindness from coming back. Past the
+      ceiling the line is now «تجاوز معرض أعمالك حد صور خطتك: 130 صورة في 5
+      صور» instead of «بلغت حد صور خطتك: 5 صور» printed above a gallery of
+      130. `PortfolioAllowance` gained `isOver` and `overBy` for the same
+      judgement, and both call sites (`_Header._subLine`, `_FullNotice`) pass
+      `a.used`.
+
+      **Both sentences from one function, deliberately.** The header subline
+      and the `_FullNotice` card were two call sites of one function, so a
+      re-word can only ever happen in one place -- this is the opposite of the
+      "second copy" shape two earlier items found, and the reason to say so.
+
+      *Evidence.* `flutter analyze` -> **No issues found!** (11.0s).
+      Targeted: `portfolio_allowance_test` 14, `portfolio_allowance_widget_test`
+      6, `zero_is_silence_test` 8, `portfolio_allowance_shot_test` 2 -- **30
+      passed, 0 failed**. **+5 tests** over HEAD (2+2+1). *Mutation:* forcing
+      the pre-fix branch (`if (true || ...)`) kills **4** of the new
+      assertions, so they are not vacuous.
+      *Pixels:* `/tmp/shots/allowance_03_over.png` (6 photos, limit 5) joins
+      the two existing captures. Measured, not asserted: the header card is
+      byte-identical in extent between the full and over states (rows
+      187..395 at x=500), the longer sentence **wraps inside the card**
+      (text bands 309..342 then 346..348, leftmost ink x=109 against a card
+      that starts at x=50), and no `RenderFlex overflow` is logged. The count
+      line above it is unchanged, so the two numbers now agree instead of
+      contradicting each other.
+
+      **Three failures the gate reported are NOT this change, and this is
+      measured rather than asserted.** Shards 1 and 5 failed on
+      `no_empty_text_site_test.dart` ("every declared empty-returning copy
+      function is in the list") and two cases in `agreement_comment_test.dart`.
+      Stashed the whole change and ran both files on clean `HEAD`: **the same
+      three, byte-identical names** (`diff` of the two `[E]` sets is empty). So
+      they are pre-existing on this tree and this tick neither caused nor
+      fixed them. **They are a real, open item -- the empty-text guard fails
+      because `portfolioFullLineAr` was absent from its `_emptyReturning` list
+      and the other two grade prose in `arabic_agreement.dart`'s neighbourhood.
+      Not fixed here because it is not this tick's item, and a tick that
+      smuggles in a second fix is how two items get half-done.**
+
+      *Not claimed:* **no `tool/run_tests.py` number.** The run was started and
+      killed at shard 7 -- **because this tick stashed the tree mid-run** to
+      prove the failures pre-existing, which contaminated it. That is this
+      tick's error, not the runner's, and it is why the "+5 tests, count must
+      not drop" claim above rests on the per-file runs rather than on a suite
+      number the protocol does not have. **No APK, no release, no tag.**
+
+      *Next tick, in order:* (1) **the suite gate is owed a clean full run** --
+      do not bank a count from the contaminated one; (2) the pre-existing
+      `no_empty_text_site_test.dart` failure is the smaller of the three and
+      sits in this file's own subject matter.
+
 - [x] **A name pasted out of Facebook painted a blank navy circle instead of
       the user's own letter — in every place the app shows who a person is.**
       `9ce35fe` -> remote `4e19dd1`.

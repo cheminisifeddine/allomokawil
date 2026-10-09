@@ -33,6 +33,21 @@
 // affordance, not a paywall: it stops the contractor hitting a wall he cannot
 // see coming and points him at the plan that lifts it. If BACKEND-API later
 // enforces the limit server-side, the number this reads is the same one.
+//
+// **And the server sends no usage count, so `used` is the list length — which
+// is why the ceiling sentence needs it (9 Oct).** `/api/mobile/subscription`
+// carries `quotes_used_this_month` and `quotes_left` for the quote side and
+// **no photo-usage field at all**, so the one number this screen can know about
+// its own gallery is how many rows came back. Measured live: 130 posted, 130
+// listed, an allowance of 5, and the list is uncapped (the 100-row cap the
+// notifications and reviews routes have is not applied here). A plan
+// downgrade, photos added from another surface, or the `kDefaultPortfolioLimit`
+// of 5 standing in for a server that sent nothing all reach the same state.
+//
+// [portfolioFullLineAr] took one argument and so could not tell those two
+// states apart: it printed «بلغت حد صور خطتك: 5 صور» above a gallery of 130
+// photographs, and the same string for a gallery of exactly 5. The count is a
+// **required** parameter now, so no caller can build the sentence without it.
 library;
 
 import 'photo_count_copy.dart';
@@ -88,6 +103,23 @@ class PortfolioAllowance {
   /// same reason: a tile that is not there reads as a broken screen, which is
   /// why [portfolioFullLineAr] says what happened instead.
   bool get isFull => !isUnlimited && (left ?? 1) <= 0;
+
+  /// True when the gallery holds more photographs than the plan allows.
+  ///
+  /// A **different** state from [isFull], and the two sentences are different
+  /// too: «full at five» is what a contractor who filled his allowance sees,
+  /// while «over the ceiling» is what a downgrade, photos from another
+  /// surface, or the free-plan default standing in for a silent server produce.
+  /// Treating them as one sentence is what printed a ceiling over a gallery
+  /// three times its size.
+  bool get isOver => !isUnlimited && used > limit;
+
+  /// How many photographs past the ceiling, or 0 while inside it.
+  ///
+  /// The size of the gap rather than merely its existence, so a report — or a
+  /// future upgrade prompt — can state how far over the plan is without
+  /// recomputing `used - limit` against a value it was not handed.
+  int get overBy => isOver ? used - limit : 0;
 }
 
 /// «بقيت صورتان من 5 صور في خطتك» — the room, on the gallery header.
@@ -128,8 +160,27 @@ String portfolioUnlimitedLineAr() => 'صور بلا حد في خطتك';
 /// colon is what made that read as a fault: «بلغت حد صور خطتك: » — a sentence
 /// pointing at nothing. The claim that is still true, and is the one the tile
 /// underneath it needs, is the limit itself with no count attached.
-String portfolioFullLineAr(int limit) {
+///
+/// **[used] is required, not optional, and that is the whole fix.** One
+/// argument meant the sentence was byte-identical for a gallery of five
+/// photographs and a gallery of a hundred and thirty, printed directly above
+/// the count line that says which of those two he is looking at — so a ceiling
+/// was stated over pictures that did not stop at it. Making the count
+/// mandatory means a caller *cannot* produce the sentence without knowing the
+/// state, and the compiler is what keeps it that way: no future caller gets
+/// the blindness back by forgetting an argument.
+///
+/// A [used] that is not a count (zero, or the negatives a bad parse produces)
+/// falls back to the limit alone rather than printing a hole, because the
+/// ceiling is still true of the plan even when the gallery size is not known.
+String portfolioFullLineAr(int limit, int used) {
   final total = photosAr(limit);
   if (total.isEmpty) return 'بلغت حد صور خطتك';
-  return 'بلغت حد صور خطتك: $total';
+  final have = photosAr(used);
+  if (have.isEmpty || used <= limit) return 'بلغت حد صور خطتك: $total';
+  // Past the ceiling: both numbers, because neither alone is an answer. The
+  // count line above it says how many he has; this says what the plan allows,
+  // and reading the two together is what makes them stop contradicting each
+  // other. «تجاوز معرض أعمالك حد صور خطتك: 130 صورة في 5 صور».
+  return 'تجاوز معرض أعمالك حد صور خطتك: $have في $total';
 }

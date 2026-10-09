@@ -88,11 +88,24 @@ void main() {
     WidgetTester tester, {
     required int photos,
     required int limit,
+    Object? mountKey,
   }) async {
     tester.view.physicalSize = const Size(1080, 2600);
     tester.view.devicePixelRatio = 2.75;
     addTearDown(tester.view.reset);
     SharedPreferences.setMockInitialValues(<String, Object>{});
+    // **Unmount whatever is already up.** A second `pumpWidget` of the same
+    // widget TYPE reuses the existing `State` — `MyPortfolioScreen` is stateful
+    // and sits at the same position, so the element updates in place and the
+    // screen never re-reads. A case that renders two states in one tester
+    // therefore reads the FIRST state twice and passes on a comparison that
+    // never happened. This was written wrong, failed, and is why the key is
+    // here: the second mount gets a different key, which forces a fresh
+    // element and a fresh read.
+    if (find.byType(MyPortfolioScreen).evaluate().isNotEmpty) {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle(const Duration(milliseconds: 200));
+    }
 
     final api = ApiClient(
       baseUrls: const ['https://x.test'],
@@ -112,7 +125,9 @@ void main() {
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
         locale: const Locale('ar'),
-        home: const MyPortfolioScreen(),
+        home: mountKey == null
+            ? const MyPortfolioScreen()
+            : MyPortfolioScreen(key: ValueKey<Object>(mountKey)),
       ),
     ));
     await tester.pumpAndSettle(const Duration(seconds: 2));
@@ -160,6 +175,48 @@ void main() {
       expect(find.byKey(const Key('portfolio-add')), findsOneWidget);
       expect(find.byKey(const Key('portfolio-full')), findsNothing);
       expect(texts, contains('بقيت 24 صورة من 30 صورة في خطتك'), reason: '$texts');
+    });
+
+    testWidgets('a gallery PAST its ceiling says so instead of claiming it '
+        'stopped at the limit', (tester) async {
+      // The state measured live on 9 Oct: the list is uncapped and the server
+      // enforces nothing, so a downgrade, photos from another surface, or the
+      // free-plan default standing in for a server that sent nothing all put
+      // the contractor over his ceiling with no bug anywhere. Before the fix
+      // this screen said «بلغت حد صور خطتك: 5 صور» over six photographs.
+      final texts = await render(tester, photos: 6, limit: 5);
+
+      expect(find.byKey(const Key('portfolio-add')), findsNothing);
+      expect(find.byKey(const Key('portfolio-full')), findsOneWidget);
+      expect(texts,
+          contains('تجاوز معرض أعمالك حد صور خطتك: 6 صور في 5 صور'),
+          reason: '$texts');
+      // …and the ceiling sentence is NOT the one that claims it stopped there.
+      expect(texts, isNot(contains('بلغت حد صور خطتك: 5 صور')),
+          reason: 'the over-ceiling state must not print the full sentence');
+      // The count line above it is unchanged, so the two agree instead of
+      // contradicting each other.
+      expect(texts, contains('6 صور في معرض أعمالك'), reason: '$texts');
+    });
+
+    testWidgets('exactly full and over the ceiling are two sentences, not one',
+        (tester) async {
+      // The whole fix in one comparison. If these two rendered the same
+      // string, the count never reached the sentence and the change was
+      // cosmetic.
+      final full = await render(tester, photos: 5, limit: 5, mountKey: 'full');
+      final over = await render(tester, photos: 6, limit: 5, mountKey: 'over');
+
+      // `contains` on a List<String> is EXACT membership, so a prefix is not
+      // a match — which is why this asserts the sentence that starts the
+      // rather than the whole string, and why the first write of this case
+      // failed on the over state while the screen was already correct.
+      expect(full, contains('بلغت حد صور خطتك: 5 صور'));
+      expect(over, isNot(contains('بلغت حد صور خطتك: 5 صور')));
+      expect(
+          over.any((t) => t.startsWith('تجاوز معرض أعمالك حد صور خطتك')),
+          isTrue,
+          reason: '$over');
     });
 
     testWidgets('a plan the server never sent does not close the gallery',

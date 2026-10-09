@@ -787,6 +787,15 @@ class _Header extends StatelessWidget {
   ///
   /// Null is silence by contract — a plan that never answered leaves this card
   /// saying exactly what it said before the allowance existed.
+  ///
+  /// **The count is passed to the full line, and that is the fix (9 Oct).** The
+  /// count line above this one prints how many photographs he has, so a ceiling
+  /// sentence that only knew the limit was stating a limit the screen itself
+  /// was showing past — «بلغت حد صور خطتك: 5 صور» directly under «130 صورة في
+  /// معرض أعمالك». Reachable without a bug: a plan downgrade, photos added
+  /// from another surface, or `kDefaultPortfolioLimit` standing in for a server
+  /// that sent nothing. The list is uncapped and the server enforces no ceiling,
+  /// so nothing stops the count from being above the limit here.
   String _subLine() {
     final a = allowance;
     if (a == null) {
@@ -794,7 +803,7 @@ class _Header extends StatelessWidget {
           ? uploadedThisSessionAr(uploaded)
           : 'هذه الصور يراها كل صاحب مشروع في ملفك.';
     }
-    if (a.isFull) return portfolioFullLineAr(a.limit);
+    if (a.isFull) return portfolioFullLineAr(a.limit, a.used);
     if (a.isUnlimited) return portfolioUnlimitedLineAr();
     return portfolioLeftLineAr(a.left!, a.limit);
   }
@@ -828,7 +837,12 @@ class _FullNotice extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(portfolioFullLineAr(allowance.limit),
+                // Same sentence as the header's subline and for the same
+                // reason: it is the ceiling line, so it needs the count to
+                // tell a full gallery from an overfull one. The two are the
+                // same string by construction rather than two copies of it,
+                // which is the only way they cannot drift apart.
+                Text(portfolioFullLineAr(allowance.limit, allowance.used),
                     style: AppTheme.label.copyWith(
                         fontSize: AppTheme.fsSmall,
                         color: AppTheme.accentDeep)),
