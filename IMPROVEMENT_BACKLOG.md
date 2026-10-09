@@ -7,6 +7,89 @@ the **top unchecked item in phase order**, ships it, and ticks it.
 Rules for what belongs here: a real user-visible improvement or a real
 correctness gap — never a refactor for its own sake. One item per loop.
 
+- [x] **The `agreement_comment_test.dart` pair, red for four ticks: BOTH pins
+      are stale, and the one that guards the reader CANNOT FAIL.**  `99e239e`
+      (remote `dba6212`).
+      The item the last tick ordered. A non-build tick: `tool/build_gate.py`
+      answered NO ROOM at **746 MB available against the 900 MB floor**, with
+      the hypervisor holding ~4.5 GB nothing in this PID namespace owns, so no
+      Dart was edited **and none could be verified**. The pins are Dart. What
+      could be built is the measurement, so that is what shipped —
+      `tool/agreement_census_audit.py` (new) and
+      `test/agreement_census_audit_test.py` (new, 32 cases). **The two red
+      tests are untouched and still red**; what changed is that the next tick
+      reads three numbers instead of re-deriving them.
+
+      *Both pins are stale, and each drifted by exactly the amount one later
+      feature explains — so this is bookkeeping the tree owed, not a defect in
+      the reader.*
+
+      | pin | pinned | measured | why it moved |
+      | --- | --- | --- | --- |
+      | `census.direct.length` | 20 | **22** (+2) | `partial_market_copy.dart` and `partial_thread_copy.dart` both call `arabicCounted` for real; added by `7e70c21` / `45dd762`, after the pin was written at `c0b23a1` and never revisited. |
+      | `census.surface.length` | 25 | **27** (+2) | `partial_thread_copy_test.dart` adds two TRUE claim-shaped sentences («103 takes the broken plural», «3-10 take the broken plural»); `relative_time_hour_floor_test.dart` swaps the false «120 is a dual» that the 9 Oct tick fixed at the site for the true «2 takes the dual». |
+
+      The second row is the one worth reading twice: a fix that adds one
+      sentence and removes another is **net zero**, so the count did not move
+      on the day it was made, and the pin looked fine for exactly as long as
+      no other tick added anything. Measured by diffing the tree at `95bf7f4`
+      (where the pin was written) against HEAD: **3 sentences added, 1
+      removed**.
+
+      **THE FINDING THAT MATTERS: the pin cannot fail.** Its own comment says
+      it is there so «a census that cannot tell a call site from a worked
+      EXAMPLE» cannot pass unnoticed. Measured, both ways, at the pin's commit
+      *and* today:
+
+          mutation                                   count at c0b23a1   HEAD   delta
+          comment filter in `codeOf` removed              20           22      +0
+          `calls` widened to the BARE NAME                 20           22      +0
+
+      A count pin can only see a mutation that MOVES the count, and neither of
+      these does — so **`expect(census.direct.length, 20)` would stay green
+      under exactly the failure it was written to catch**, and it went stale
+      anyway, because a count also moves when an unrelated feature lands. The
+      pin is load-bearing against drift and vacuous against the defect; those
+      are different jobs and one number cannot do both. A later tick should
+      replace it with a **membership** assertion — «the set of claim-bearing
+      files whose only mention of the helper is prose is EMPTY» — which is
+      what can actually fail, and which this tool now reports on directly.
+      That edit needs a build gate, so it waits for one.
+
+      **The tool has no constant of its own to rot**, and that is deliberate.
+      It *extracts* `_calls`, `_probeLoose` and `_negated` from the Dart reader
+      and *parses* the pins out of `expect(census.<field>.length, <int>,` —
+      so a number that rots here has to rot in the same place it rots in the
+      test. A pattern it cannot find exits **2**, never 0: this file has
+      already spent three items learning what a second reader costs (two
+      scanners of one vocabulary that disagree is a claim graded by nobody),
+      and the refusal is the whole point.
+
+      *Evidence.* `python3 tool/agreement_census_audit.py` -> both pins
+      reported as drift, `AUDIT_EXIT=1`, and both mutations answered
+      **«PIN CANNOT SEE IT»**. `python3 test/agreement_census_audit_test.py`
+      -> **32 passed, 0 failed**. **14 mutants, 14 killed, 0 survived, 0
+      skipped**, the battery refusing to count a patch that did not apply.
+
+      **Three defects the battery found in this tick's own work, all real:**
+      the two `build/` exclusions were indistinguishable from each other, so
+      **neither could be mutated alone** — one mechanism for one rule, or two
+      mechanisms nobody can test; the pin terminator accepted only `,`, so a
+      reformat that swapped the punctuation would have silently un-pinned both
+      numbers and reported «no pins found» as agreement; and a **stale
+      `tool/__pycache__`** served the last mutant to two later processes and
+      made the two refusal cases fail against a source that was correct. All
+      three fixed at the cause rather than papered over.
+
+      **Not claimed:** no `flutter analyze`, no `tool/run_tests.py` — the gate
+      refused, so **zero Dart files changed** and the banked **2655** is
+      untouched. No APK, no release, no tag.
+
+      **Next.** With a gate: replace `expect(census.direct.length, 20)` with
+      the membership assertion, and re-measure both pins to their real values
+      in the same commit, so the two reds in shard 1 go green for a reason a
+      later tick can read.
+
 - [x] **The ceiling sentence the gallery prints was blind to the count it sits
       above -- and is now handed it.**  `ab533eb`.
       The Dart half of the portfolio-allowance item, carried over from the two
