@@ -7,6 +7,111 @@ the **top unchecked item in phase order**, ships it, and ticks it.
 Rules for what belongs here: a real user-visible improvement or a real
 correctness gap — never a refactor for its own sake. One item per loop.
 
+- [x] **Six of the seven numeric fields have a floor and no roof, and an
+      over-long paste is silently rewritten instead of refused.**  `bd34a19`
+      (remote `4a3bff2`).
+      A non-build tick: `tool/build_gate.py` answered **NO ROOM** at **608 MB
+      against the 900 MB floor**, the hypervisor balloon holding **4470 MB**
+      that nothing in this PID namespace owns, so no Dart was edited and none
+      could be verified. No unchecked item existed (282 checked, 0 unchecked)
+      and the carry-over from the 9 Oct tick -- re-measuring the two agreement
+      census pins -- is Dart, so it is still blocked. What shipped is the
+      measurement a gated tick needs, plus the audit that keeps it honest.
+
+      **The finding, by following each controller from the box it was typed in
+      to the parser that judges it.** `DzNumber.tryParse` enforces a 12-digit
+      ceiling and a caller may add a `min:` or a `max:` -- and only **ONE** of
+      the seven fields passes a `max:`. `profile_years` (`max:
+      DzNumber.maxExperienceYears`, 70) is the single bounded field in the app.
+
+      | field | box | min | max |
+      | --- | --- | --- | --- |
+      | `bid_amount` | 12 | 1000 | **none** |
+      | `bid_days` | 12 | 1 | **none** |
+      | `budget_min` / `budget_max` | 12 | -- | **none** |
+      | `profile_min_price` / `profile_max_price` | 12 | -- | **none** |
+      | `profile_years` | 12 | -- | 70 |
+
+      **The one that reaches the customer.** The bid sheet reads the duration
+      with `DzNumber.tryParse(rawDays, min: 1)` -- a floor and no roof -- so
+      `estimated_days` can be **999999999999** and `quoteDurationLineAr` prints
+      the number **verbatim** on the quote card the customer picks a tradesman
+      from. The amount on the row directly above it is floored at 1000 and has
+      no roof either: **one sheet's two fields are not both bounded.**
+
+      **The louder half, and it is in the formatter.** `DzNumberInputFormatter`
+      handles two inputs it cannot represent in two different ways:
+
+          25,5   -> REFUSED.  return oldValue; screen's validation explains.
+          13+    -> TRUNCATED. digits.substring(0, maxDigits); no error,
+                                  no message, no marker.
+
+      Same field, same keystroke: one impossible input handled loudly, the other
+      rewritten quietly. The parser then validates **the truncated number**,
+      finds it in range, and the write ships it -- so the value that reaches
+      the API is not the value on screen when he pressed send. The fractional
+      branch's own comment calls truncating "worse than asking again"; the
+      length branch does it anyway.
+
+      **And a third cap that inerts itself.** `NumberField.maxDigits` is wired
+      to the formatter, but **no call site in `lib/` passes it** (measured:
+      0 of 7 in `lib/`, 0 in `test/`), and `tryParse` never sees it. So
+      narrowing the box today would bound **what he can type** while the parser
+      still accepts 12 digits -- the knob promises "no screen can accept a
+      number the API would store as garbage" and the validator is not in that
+      sentence. **The fix has to move all three or none of them.**
+
+      *Shipped.* `tool/numeric_bound_audit.py` (new): every cap is **EXTRACTED**
+      from the Dart it describes -- `maxDigits`, `maxExperienceYears`, each
+      field's `min`/`max`, both formatter branches, and `formatEditUpdate`'s
+      parameter **names**. A name that has moved exits **2** rather than
+      answering from a remembered value. `test/numeric_bound_audit_test.py`
+      (new): **31 cases, 12 mutants, 12 killed.**
+
+      **Four real defects this battery caught in the tool itself** -- each would
+      have made the audit lie rather than merely be incomplete:
+
+      1. `profile_years` -- **the one bounded field in the app** -- read as
+         unroofed, because its regex demanded no trailing comma. A lookup miss
+         that **invents** a finding, the exact fault just fixed in the census
+         tool; here it would have sent a gated tick "fixing" a correct field.
+      2. The mirror image: once a field **gains** a `max:`, the strict patterns
+         stopped matching and it read as **ABSENT** -- so the run that finally
+         fixed everything would have reported the defects it had just closed.
+      3. `fraction_is_refused` hardcoded `oldValue`/`newValue`, so a rename
+         silently reported a fractional paste as unguarded. It now derives the
+         names from the signature.
+      4. "A parser I could not find" and "a field with no roof" **both scored
+         clean**. ABSENT is now reported separately and **keeps the run red on
+         its own** -- a tree that is otherwise clean must still go red when the
+         tool cannot find what it was auditing.
+
+      And one in the battery itself: a case asserted "fixing the truncation
+      clears `drift`" -- wrong. The roofs are an **independent** defect, and one
+      tick's work switching the light green for both is the failure this key
+      exists to prevent.
+
+      *Evidence.* `python3 tool/numeric_bound_audit.py` -> the table above,
+      **6 of 7 unroofed**, `over_long_truncates: True`,
+      `fraction_refused: True`, **`AUDIT_EXIT=1` taken unpiped** (a pipe returns
+      `tail`'s code, which is how an evidence line loses its meaning).
+      `python3 test/numeric_bound_audit_test.py` -> **31 passed, 0 failed**.
+      Mutation run: **12 mutants, 12 killed, 0 survived** (the first run left
+      **2 survivors**, both masked: one passed only because another defect kept
+      the tree red, the other asserted on a section header that the table
+      already satisfied -- so the Arabic label is now pinned too).
+
+      *Not claimed:* no `flutter analyze`, no `run_tests.py` -- gate refused.
+      **Zero Dart changed.** No APK, no release, no tag.
+
+      **Next tick, WITH a gate -- and it is Dart, in ONE commit:**
+      (a) give `bid_days` a real ceiling (3650 is ten years; the value prints
+      to the customer, so it needs one); (b) refuse an over-long paste the way
+      a fractional one is refused, rather than truncating it in silence;
+      (c) thread the per-field cap through `tryParse` so `NumberField.maxDigits`
+      is no longer inert. **All three or none** -- (c) without (a) bounds the
+      box and not the value.
+
 - [x] **The prescribed fix for the pair above is REFUTED: the membership
       assertion it orders ALREADY EXISTS, and on this tree it is equally
       vacuous.**  `2268f64` (remote `62c2c85`).
