@@ -718,9 +718,49 @@ future tick can *see*.
       The blob sha is **unchanged** at `f1c9595`, which is what proves the fix
       is metadata-only: the same bytes, a different mode.
 
-- [ ] **The guard that keeps the suite baseline honest is itself red — and it
+- [x] **The guard that keeps the suite baseline honest is itself red — and it
       has been, because it can no longer see the number it polices.**
-      `test/loop_protocol_test.py` case 5, **6/7**, failing on the committed
+      **SHIPPED — `test/loop_protocol_test.py` now 9/9, the guard reads a
+      machine line instead of a sentence.** The demand moved into the fence on
+      one canonical line, `# GATE BASELINE: SUITE PASS — 2609 tests across 14
+      shard(s)`, and the prose paragraph below it now only *describes* that
+      line. `stated_baseline` takes the fenced block and reads the marker;
+      the paragraph it used to scan is no longer an input at all.
+      *Both halves of the reported failure were real, and the second was the
+      bigger one.* `newest_green` took `hits[-1]` — the **last match by
+      position** — over a file whose tick write-ups are not in date order:
+      2609 sits at line 1617 and a 2605 at line 31216, so "last" was reading
+      the older number. It now takes the **highest** banked run, and matches
+      both recorded shapes (`N tests across M shard(s)` and `N tests, M/M
+      shards`), since the runner and the ticks each write their own.
+      *The trap this had to avoid.* Both numbers once came out of one string,
+      so `stated >= newest` compared the demand against a match that could
+      **be** the demand and held by construction — a green guard that cannot
+      fail, which is worse than a red one. So `main` splits the protocol: the
+      fence goes to `stated_baseline`, everything outside it to
+      `newest_green`, and a case asserts the two regions can never see each
+      other. That is the reason this is a fix and not a prose edit.
+      *Proven by mutation, five ways.* Demand dropped to 2528/13 → **7/9**;
+      marker line deleted while prose still read 2609 → **6/9**; a *newer*
+      banked run of 2631 appears and the demand is not updated → **8/9**
+      (the exact regression the previous tick predicted, now caught); demand
+      inflated to 2620 → 9/9, correctly, since a gate may demand more than is
+      banked yet. And re-wording the prose to «The baseline is now, at last,
+      2609» → **9/9**: the original rot now passes, because the guard reads
+      the line and not the sentence. On that same re-worded file the old
+      regex returns **`None`** — the two readers provably disagree.
+      *Neighbouring suites unchanged and green:* `remote_state_test.py`,
+      `push_helper_test.py`, `run_tests_busy_code_test.py` (2/2),
+      `stash_verdict_test.py` 7/7. Fence balance still 0 open.
+      *Non-build tick, and honestly so:* `build_gate.py` reports NO ROOM — a
+      `Balloon:` holds **5658 MB of 7935 MB**, nothing in this PID namespace
+      owns it, **249 MB available** against the 900 MB floor. No Dart changed,
+      so no Dart gate was owed and no count moved; the suite that gates
+      numbers is python and this file is not collected by `flutter test`.
+      *Not visual.* A markdown line and a test harness draw nothing; no
+      screenshot is claimed and none should be.
+      *The original report, kept:* `test/loop_protocol_test.py` case 5,
+      **6/7**, failing on the committed
       tree at `0060b0f` (verified by `git stash`, so it is not caused by
       `589a9ba`).
 
@@ -919,10 +959,14 @@ in this file that dies on arrival is how two ticks were lost.
    ```
    /home/hatch/tools/sdk/flutter/bin/flutter analyze   # must print "No issues found!"
    python3 tool/run_tests.py                           # count must be >= the previous count
+   # GATE BASELINE: SUITE PASS — 2609 tests across 14 shard(s)
    ```
 
-   **The baseline is now 2605, banked 9 Oct as ONE bare run -- the carry-over
-   this loop has been carrying since the balloon landed, closed.** `python3
+   **The baseline is 2609 -- the `# GATE BASELINE` line in the fence above is
+   the one the guard reads, not this paragraph: re-wording this paragraph
+   cannot move it.** 2609 was banked 9 Oct by the gated bid-sheet tick
+   (`0f70dbd`, +4); the 2605 run quoted below it is the one that closed the
+   carry-over this loop had been carrying since the balloon landed. `python3
    tool/run_tests.py` with no flags -> `SUITE PASS - 2605 tests across 14
    shard(s), every shard green`, `2597 passed, 8 skipped`, `RUNNER_EXIT=0`,
    19:47, **zero FAIL/HUNG lines**, every shard green on its FIRST attempt

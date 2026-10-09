@@ -33,6 +33,25 @@ the 13/13 vs 14/14 shard split makes the verdict unreadable.
 **Both are checked against the real file, not a fixture.** The defect is
 about what line 831 of *this* protocol contains; a test run against a
 synthetic markdown could stay green while the real block rots further.
+
+**3. The guard itself went blind, and it rotted twice more for the same
+reason.** Case 5 read the demanded count out of a *sentence* a tick is free
+to re-word. Inserting one word -- "is **now** 2605" -- put a token between
+"is" and the digits and the count silently became `None`, so the case spent
+weeks comparing `(None, 14)` against a real number and reporting FAIL for a
+reason that had nothing to do with staleness. Prose is not a number anything
+can gate on, so the demand now lives on one `# GATE BASELINE:` line inside
+the fence and the prose only describes it. Re-wording the paragraph can no
+longer break the guard; that is mutation-tested here.
+
+**The vacuity trap, and the split that avoids it.** `newest_green` must not
+read the demand line: if it did, `stated >= newest` would compare the demand
+against itself and hold by construction -- a green guard that cannot fail.
+So `main` hands the fence to `stated_baseline` and everything *outside* it to
+`newest_green`, and a case asserts the two regions cannot see each other.
+`newest_green` also takes the **highest** banked count rather than the last
+one in the file: the backlog is append-only but tick write-ups sit out of
+order, so position is not chronology (2609 was written above a 2605).
 """
 import os
 import re
@@ -87,17 +106,45 @@ def gate_commands(body):
             if l.strip().startswith(("python3 ", "/home/"))]
 
 
+# The one machine-read line inside step 4's fence. Both readers key off this
+# marker, so the shape lives here once instead of in two regexes that used to
+# disagree about what a green run looks like.
+BASELINE_MARK = "# GATE BASELINE:"
+
+
+def stated_baseline(body):
+    """The demand the fence states, read from the canonical line only.
+
+    Reads `body` -- the fenced block itself -- and NOT the prose around it.
+    The old reader scanned the whole protocol for a hand-worded sentence
+    (a regex on "**The baseline is <digits>"), which then broke twice: the
+    word *now* was inserted between "is" and the digits and the count went to
+    None. A sentence a tick can re-word is not a number anything can gate on;
+    the marker line is the demand, and prose describes it.
+    """
+    for line in body:
+        if BASELINE_MARK in line:
+            m = re.search(r"SUITE PASS\s*[—\-]+\s*(\d+) tests across (\d+) shard",
+                          line)
+            if m:
+                return int(m.group(1)), int(m.group(2))
+    return None, None
+
+
 def newest_green(txt):
-    """The last SUITE PASS count in the file, which is the last green run."""
-    hits = re.findall(r"SUITE PASS\s*[—\-]+\s*(\d+) tests across (\d+) shard", txt)
-    return (int(hits[-1][0]), int(hits[-1][1])) if hits else (None, None)
+    """The highest-counted banked green run in the tick write-ups.
 
-
-def stated_baseline(txt):
-    m = re.search(r"\*\*The baseline is (\d+)", txt)
-    s = re.search(r"across (\d+) shard", txt)
-    return (int(m.group(1)) if m else None,
-            int(s.group(1)) if s else None)
+    `txt` is the whole protocol MINUS step 4's fenced block, so this can never
+    read the demand line back and satisfy itself. See the note in `main`.
+    """
+    hits = re.findall(r"SUITE PASS\s*[—\-]+\s*(\d+) tests(?:,| across)"
+                      r"\s*(?:(\d+) shard|(\d+)/\d+ shards)", txt)
+    runs = []
+    for tests, across, frac in hits:
+        shards = across or frac
+        if shards is not None:
+            runs.append((int(tests), int(shards)))
+    return max(runs) if runs else (None, None)
 
 
 def main():
@@ -109,7 +156,7 @@ def main():
 
     txt = read()
     proto = protocol_lines(txt)
-    start, end, body = fenced_block_after(proto, HEADER)
+    start, _open_i, body = fenced_block_after(proto, HEADER)
 
     # ---------------------------------------------------------------- 1
     # The block a tick copies must hold the gate commands and nothing else.
@@ -150,13 +197,42 @@ def main():
     # ---------------------------------------------------------------- 5
     # The number the gate demands must be one this tree can still meet, and
     # must agree with the newest green run recorded in the same file.
-    stated = stated_baseline(proto)
-    newest = newest_green(proto)
+    #
+    # `writeups` is the protocol with step 4's fenced block REMOVED, and the
+    # demand is read out of that block. That split is load-bearing: when both
+    # numbers came out of one string, the guard compared the demand against a
+    # match that could be the demand, so `stated >= newest` held by
+    # construction and the case could not fail no matter how wrong the prose
+    # was. `writeups` cannot see the marker line, and `stated_baseline` is
+    # only ever handed the fence, so neither can borrow the other's number.
+    # `fenced_block_after` returned (header_i, open_fence_i, body); the fence
+    # closes immediately after the body, so both cut points are already known
+    # and neither needs a second scan for fences.
+    plines = proto.split("\n")
+    close_i = _open_i + 1 + len(body)
+    assert plines[close_i].strip().startswith("```"), repr(plines[close_i])
+    writeups = "\n".join(plines[:_open_i] + plines[close_i + 1:])
+
+    stated = stated_baseline(body)
+    newest = newest_green(writeups)
     check("the fenced baseline is not stale (states %s, newest green %s)"
           % (stated, newest),
           stated[0] is not None
           and newest[0] is not None
           and stated[0] >= newest[0])
+
+    # The demand must live on the marker line, not only in prose. Without this
+    # a tick could delete the line, the prose would still read "The baseline is
+    # 2609", and case 5 would pass on a block no longer stating anything.
+    check("the fence states the demand on the %r line (%d found)"
+          % (BASELINE_MARK, sum(BASELINE_MARK in l for l in body)),
+          any(BASELINE_MARK in l for l in body))
+
+    # And the two readers must not overlap: if the marker line ever leaked
+    # into the region case 5 scans, the demand would be able to vouch for
+    # itself. This is the check that fails if someone "simplifies" the split.
+    check("the write-ups cannot see the demand line",
+          all(BASELINE_MARK not in l for l in writeups.split("\n")))
 
     # ---------------------------------------------------------------- 6
     # ...and the shard count must agree too, or "13/13 green" reads as a
