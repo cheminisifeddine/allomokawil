@@ -599,8 +599,10 @@ int _andUpCopulaWritten() {
 /// one false positive to be argued about in prose forever, because the file
 /// that carries it is testing a different rule entirely.
 ///
-/// **The decision, therefore: fix the sentence, not the reader.** See the
-/// `_articleCensus` group in `main()`.
+/// **The decision, therefore: fix the sentence, not the reader.** DONE, at the
+/// site, on 9 Oct -- the sentence now reads «2 takes the dual», which this
+/// reader grades and passes, and the reader itself was left alone exactly as
+/// measured. See the `_articleCensus` group in `main()`.
 class _ArticleCensus {
   _ArticleCensus(this.surface, this.unread);
 
@@ -882,47 +884,95 @@ String plantMentionOnly() => 'writes an example, calls nothing';
               'the doc comment and this line together');
     });
 
-    test('the unread surface is ONE sentence, and it is the false positive',
-        () {
-      // This is the whole finding. Every claim-shaped sentence in `lib/` and
-      // `test/` is either readable or is this one.
+    test('the unread surface is EMPTY outside this file -- the false '
+        'positive is GONE', () {
+      // This was the whole finding on the tick that measured it: every
+      // claim-shaped sentence in `lib/` and `test/` was either readable or was
+      // `relative_time_hour_floor_test.dart:97`, «120 is a dual» -- true about
+      // the hour-floor rule that file tests and FALSE about this one, because
+      // 120 % 100 = 20 and 20 is outside the 3-10 window. [_copula] missed it
+      // only because the shape carried an article the vocabulary does not
+      // accept.
       //
-      // It is `relative_time_hour_floor_test.dart:97` -- «120 is a dual» --
-      // which is true about the hour-floor rule that file tests and false about
-      // this one, and which [_copula] misses because the shape carries an
-      // article the vocabulary does not accept. The reader does not fail to
-      // reach it for a structural reason; it fails on a missing word.
-      expect(census.unreadInLib, 1,
-          reason: 'the unread surface is ${census.unread.map((c) => "${c.file}:${c.line} \"${c.text}\"").join('; ')} -- '
-              'this was measured at exactly 1, the false positive. More means '
-              'the reader has a real gap and the annotation pass is cheap; '
-              'fewer means the probe stopped matching what the reader matches '
-              'and this count is not a measurement');
+      // Said the way this file's own vocabulary would read it -- «120 takes the
+      // counted singular» -- it would have been a claim, and an unreadable one,
+      // which is the defect reproduced in the fix. The census measured that:
+      // this paragraph pushed the surface to 26 and the unread surface to 2.
+      //
+      // The sentence has since been fixed AT THE SITE, which is where the
+      // earlier ticks measured the fix had to be. It now reads «2 takes the
+      // dual» -- the same boundary, stated about the number the form is
+      // actually decided on, and TRUE about this rule, so the reader grades it
+      // and it passes. The surface did not shrink to hide it: it still counts
+      // 25, and line 97 still carries a claim.
+      expect(census.unreadInLib, 0,
+          reason: 'the unread surface outside this file is '
+              '${census.unread.map((c) => "${c.file}:${c.line} \"${c.text}\"").join('; ')} -- '
+              'it was 1 (the false positive) until it was fixed at the site. '
+              'A non-zero value means a NEW claim-shaped sentence has become '
+              'unreadable, which is a real gap in the reader; the fix is to '
+              'look at that sentence, not to re-open the annotation pass');
+    });
+
+    test('the fixed sentence is now READ, TRUE, and still on the surface',
+        () {
+      // The three properties the fix had to preserve at once, because the
+      // cheap wrong answers each break one of them:
+      //   * DROP the sentence -> the surface falls to 24 and the census stops
+      //     measuring that part of the tree (a guard that quietly covers less).
+      //   * Keep a FALSE claim-shaped sentence -> the reader grades it and the
+      //     suite goes red on a file testing a different rule.
+      //   * Make it unreadable again -> unreadInLib goes back to 1.
       final blind = census.unread
           .where((c) => c.file != 'agreement_comment_test.dart')
           .toList();
-      expect(blind.single.file, 'relative_time_hour_floor_test.dart');
-      expect(blind.single.line, 97);
-      expect(blind.single.from, 120);
-      expect(blind.single.form, 'dual');
+      expect(blind, isEmpty);
+
+      final found = census.surface
+          .where((c) => c.file == 'relative_time_hour_floor_test.dart')
+          .toList();
+      expect(found.length, 1,
+          reason: 'the sentence must still be CLAIM-SHAPED, or the census '
+              'stops measuring it -- a fixed comment that is no longer a claim '
+              'is a comment the guard no longer watches');
+      expect(found.single.line, 97, reason: 'the fix was comment-only and kept '
+          'the line it was on');
+      expect(found.single.from, 2);
+      expect(found.single.form, 'dual');
+
+      // And it is TRUE, which is the entire point: the grader now reads it and
+      // passes it, rather than being kept away from it by a missing article.
+      expect(arabicCount(found.single.from, one, two: two, few: few),
+          _wanted(found.single.form),
+          reason: '«${found.single.text}» is now graded against the rule it '
+              'states; if this fails, the sentence is false again and the file '
+              'is correctly red');
+      // 120 itself is still the counted singular -- the sentence is about the
+      // hour floor's conversion, and this pins that the fix did not bend the
+      // rule to fit the comment.
+      expect(arabicCount(120, one, two: two, few: few), one);
     });
 
-    test('the one unread sentence is FALSE about this rule, and it is about '
-        'another one', () {
-      // Why the reader is right to be unsure about it, and why grading it
-      // would be wrong. 120 % 100 = 20, which is outside the 3-10 window, so
-      // [arabicCount] calls 120 counted singular -- the comment says dual and
-      // is wrong. But the sentence is not ABOUT this rule: it is the boundary
-      // of an hour floor, where 120 minutes is two hours and
-      // `arabicCount(2, ...)` really is the dual.
+    test('120 is still the counted singular -- the fix did not bend the rule',
+        () {
+      // This is the finding that made the sentence a false positive, and it is
+      // KEPT rather than deleted, because it is a fact about the rule and not
+      // about the comment. 120 % 100 = 20, which is outside the 3-10 window,
+      // so [arabicCount] calls 120 counted singular. That is why «120 is a
+      // dual» was false ABOUT THIS RULE, and it remains true that the hour
+      // floor converts 120 minutes to a two-hour count first.
+      //
+      // The fix changed the COMMENT, not this. A fix that had bent the rule to
+      // suit the sentence would have made this line red, which is the check
+      // that the sentence was corrected rather than accommodated.
       expect(arabicCount(120, one, two: two, few: few), one,
-          reason: '120 is counted singular, so a comment calling it a dual is '
-              'false ABOUT THIS RULE -- which is why grading it and going red '
-              'would be reporting a real falsehood');
+          reason: '120 is counted singular: 20 is outside the 3-10 window. The '
+              'comment was fixed to agree with this rather than this being '
+              'widened to agree with the comment');
       expect(arabicCount(2, one, two: two, few: few), two,
-          reason: 'and it is true about the rule the file is actually testing: '
-              'the hour floor converts 120 minutes to a two-hour count, and a '
-              'two-hour count takes the dual');
+          reason: 'and 2 takes the dual, which is the number the fixed comment '
+              'now names -- the hour floor converts 120 minutes to a two-hour '
+              'count, and that count takes the dual');
     });
 
     test('widening the vocabulary is NOT the fix, and that was measured', () {

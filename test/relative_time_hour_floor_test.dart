@@ -94,9 +94,11 @@ void main() {
     });
 
     test('the boundary either side of the window is still hour-accurate', () {
-      // 59 is a minute count and 120 is a dual: the two arms meet without a
+      // 59 is a minute count and 2 takes the dual: the two arms meet without a
       // gap and without an overlap, so every minute in the day has an answer
-      // and no minute has two.
+      // and no minute has two. The sentence names 2 and not 120 because 120 is
+      // not the number the form is decided on -- 120 % 100 = 20, so 120 itself
+      // takes the singular, and only the hour floor converts it to 2 first.
       expect(relativeTimeAr(ago(59), now: base), 'قبل 59 دقيقة');
       expect(relativeTimeAr(ago(119), now: base), 'قبل ساعة و 59 دقيقة');
       expect(relativeTimeAr(ago(120), now: base), 'قبل ساعتين');
