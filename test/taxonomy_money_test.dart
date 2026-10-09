@@ -80,5 +80,47 @@ void main() {
     test('a negative amount clamps to zero instead of printing a minus', () {
       expect(Money.amountOnly(-5), '0');
     });
+
+    // The arm the negative fold above did not cover.
+    //
+    // `amountOnly` takes a `num`, so a `double` is inside the signature's
+    // contract, and `round()` is `toInt()` — which throws `UnsupportedError` on
+    // anything not finite. The negative case passed because a negative *is*
+    // finite; NaN and the infinities are not, and the guard was on the value
+    // the old test happened to hold rather than the value the type accepts.
+    //
+    // Each case below is written as `expect(() => ..., returnsNormally)` first
+    // in intent: a throw here is not a wrong string, it is the project card
+    // failing to build, because `UnsupportedError` is an `Error` and every arm
+    // in `errorCopy` is an `is SomeException` test that cannot catch it.
+    test('a non-finite amount reads as zero instead of throwing', () {
+      // The two values arithmetic actually produces, not just the literals.
+      expect(Money.amountOnly(0.0 / 0.0), '0');
+      expect(Money.amountOnly(1.0 / 0), '0');
+      expect(Money.amountOnly(double.nan), '0');
+      expect(Money.amountOnly(double.infinity), '0');
+      expect(Money.amountOnly(double.negativeInfinity), '0');
+    });
+
+    test('dzd carries the same fold, currency included', () {
+      expect(Money.dzd(double.nan), '0 دج');
+      expect(Money.dzd(double.infinity), '0 دج');
+    });
+
+    // An `int` is finite by construction, so the NaN arm must not have cost the
+    // integer path anything: this pins that the guard is narrow.
+    test('integers are untouched by the non-finite fold', () {
+      expect(Money.amountOnly(0), '0');
+      expect(Money.amountOnly(1), '1');
+      expect(Money.amountOnly(999999999999), '999999999999');
+    });
+
+    // A finite double still rounds, which is the one behaviour a blanket
+    // `try/catch` around `round()` would have silently destroyed.
+    test('a finite double still rounds half away from zero', () {
+      expect(Money.amountOnly(6000.4), '6000');
+      expect(Money.amountOnly(6000.5), '6001');
+      expect(Money.amountOnly(-5.5), '0');
+    });
   });
 }
