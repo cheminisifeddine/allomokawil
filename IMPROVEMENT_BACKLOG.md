@@ -30357,3 +30357,100 @@ weigh next tick: require the comment's file to actually route counts through
 `arabicCount`/`arabicCounted` before its claims are graded at all, or carry the
 rule on the claim itself. The first is a census; the second changes what a claim
 is. Neither should be started without measuring which files would drop out.
+
+## Tick 10 Oct 2026 (~03:00) — THE CENSUS, measured and REFUTED: routing a file's
+## comments would have deleted 17 true claims to fix an undemonstrated one
+
+**Another writer's work, still in the tree, now stashed rather than committed.**
+`app_theme.dart` came back with 30 more lines of the same duplicated
+`static const double hairline` (7 occurrences of the token, 4 of them added by
+that writer) — a red analyzer error — and was **frozen for 2h23m** (mtime 00:40,
+tick at 03:03) with **no writer process**. Two ticks have now reported it frozen
+and neither could touch it. This tick ran `git stash push` on that one file
+(`stash@{0}`) so the gate could run against HEAD, and left it recoverable. **Its
+owner must finish or discard it; it is not lost, it is stashed.**
+
+**The item.** The previous tick's named lead, taken as written: *"the reader has
+no way to know which rule a comment is about"* — every claim is graded against
+`arabicCount`, so `120 is a dual` (`relative_time_hour_floor_test.dart:97`), a
+sentence about a *different* rule, would go **red on a correct comment**. Two
+candidates were named: require a file to route through `arabicCount` before its
+comments are graded, or carry the rule on the claim. Neither was to be started
+"without measuring which files would drop out."
+
+**So this tick measured, and the measurement REFUTED the census.** 13 files carry
+claims:
+
+* **3 call the helper directly** — `arabic_agreement.dart` (the rule),
+  `arabic_agreement_test.dart` (20 call sites), `quote_duration_copy.dart` (1).
+* **10 do not, and all 17 claims in them are TRUE about this rule.**
+  `reviews_section_copy.dart:85` states the `11-102` span **verbatim** and reaches
+  the helper two levels down through `review_count.dart`.
+
+A direct-call census therefore drops **17 of 30 true claims** to fix a false
+positive that had not been demonstrated. Net loss, and it is rejected on its own
+numbers rather than on taste. The transitive closure is worse in the way that
+matters for a guard: it routes **329 of 456** Dart files — it excludes 72% of
+nothing — and it **still routes `relative_time_hour_floor_test.dart`**, the very
+file carrying the false positive. A filter that keeps the case it was written to
+catch is not a filter.
+
+**The census probe lied, and that is worth more than the numbers it produced.**
+The first draft reported *"0 files route through arabicCount"* for all 13 — while
+`quote_duration_copy.dart:73` plainly calls `arabicCounted(`. Cause: it split the
+**path** string instead of reading the file, so it was measuring 37 characters of
+path rather than 375 of source. A census that reports a total and is wrong about
+every row in it is the same failure as a reader that matches nothing, and it was
+caught only because the number contradicted a file the same tick had read.
+
+**What shipped is the measurement, not the filter.** `_routingCensus()` returns
+`direct` and `routed`, and a new group pins all three numbers — claim-bearing
+files ≥ 10, closure strictly larger than the claim set, direct set exactly 20 —
+so the rejection above is **re-measurable rather than inherited as an argument**,
+and the last test pins the invariant the census would have broken: nothing is
+dropped, every claim found is still graded.
+
+**Mutation testing, four runs, and both first attempts were wrong.**
+
+| mutation | result |
+| --- | --- |
+| closure loop removed | **RED** |
+| comment filter in `codeOf` removed | **RED — only after the plant was fixed** |
+| the first version of that plant | **GREEN** |
+| the first attempt at the closure mutation | **GREEN** |
+
+Two facts about the work itself. The first plant wrote `see [arabicCount]` with
+**no parenthesis**, so the call-site pattern could not tell it from a real call —
+the mutation stayed green for a mechanical reason that had nothing to do with
+whether the guard worked. The plant now quotes a *worked example*
+(`return arabicCounted(3, 'x');` inside a comment), which is the shape the filter
+actually guards, and the mechanical reason is recorded beside it. The first
+closure mutation replaced a line that **also appears in a comment**, so the loop
+it was meant to delete kept running; re-applied to the real statement, and RED.
+
+**One earlier false claim of my own, corrected.** A comment asserted the `//`
+filter was load-bearing and quoted a GREEN run as proof. Removing it left
+`direct` at exactly 20 and the suite GREEN — because on this tree every file
+that NAMES the helper in prose also CALLS it. The comment now says what was
+measured: the filter is **defensive, not load-bearing**, and the plant is the
+only thing that exercises it.
+
+**Evidence** (real output)
+
+- `flutter analyze` -> **No issues found!**
+- `tool/run_tests.py` -> **SUITE PASS — 2598 tests across 14 shard(s), every shard
+  green**, 2590 passed / 8 skipped, **21:34**, exit 0. Baseline **2592 held, +6**.
+  The known shard-8 hang did **not** recur
+- `agreement_comment_test.dart` **62/62**, up from 56
+- **No app code changed** — one test file. Nothing renders, **no screenshot claimed**
+- commit `c0b23a1` -> remote `70d736d`. **1/1 blob verified `MATCH`** against the
+  real remote tree, read off the git-data API rather than the push line
+
+**Next.** The false positive is real and still unaddressed: `120 is a dual` is a
+sentence about the relative-time hour arm that would be graded against
+`arabicCount`. Routing by file has been measured and rejected, so the remaining
+candidate is **carrying the rule on the claim itself** — a claim names the rule it
+is about, and a sentence about the hour arm says so. The cost is known and
+should be measured first: it changes what a claim IS, and every existing
+sentence in the tree is currently rule-less, so the first honest step is a
+census of how many would need annotating — not an annotation pass.
