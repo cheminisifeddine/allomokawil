@@ -492,7 +492,248 @@ int _andUpCopulaWritten() {
   return n;
 }
 
-void main() {
+/// Which files' comments are actually ABOUT this rule, measured rather than
+/// assumed.
+///
+/// The last tick left this open: the reader has no way to know which rule a
+/// comment is about, so every claim it grades is checked against [arabicCount],
+/// and a sentence about a different rule is either ignored or falsely red. Two
+/// answers were on the table -- require a file to route counts through the
+/// helper before its comments are graded, or carry the rule on the claim itself
+/// -- and neither was to be started without measuring which files drop out.
+///
+/// So this measures it, and the measurement REFUTES the census. A file is
+/// `direct` when its own code calls the helper; it is `routed` when it, or
+/// anything it imports, does. A comment about this rule is legitimately in a
+/// file that only ever calls a *wrapper*: `reviews_section_copy.dart` states
+/// the span rule and reaches [arabicCounted] two levels down through
+/// `review_count.dart`.
+({Set<String> direct, Set<String> routed}) _routingCensus() {
+  final index = <String, String>{};
+  for (final dir in const ['lib', 'test']) {
+    final d = Directory(dir);
+    if (!d.existsSync()) continue;
+    for (final e in d.listSync(recursive: true)) {
+      if (e is! File || !e.path.endsWith('.dart')) continue;
+      if (e.path.split(Platform.pathSeparator).contains('build')) continue;
+      index.putIfAbsent(
+          e.path.split(Platform.pathSeparator).last, () => e.path);
+    }
+  }
+
+  // CALL SITES, not mentions. `quote_duration_copy.dart` names the helper three
+  // times in prose and calls it once; counting prose is what makes a census
+  // look busier than it is. The `//` filter is what removes it -- doc comments
+  // are exactly the mentions that are not delegations.
+  final calls = RegExp(r'arabicCount(?:ed)?\s*\(');
+  final importRe = RegExp('import' r'\s+["\x27]([^"\x27]+)["\x27]');
+
+  String codeOf(String path) {
+    return File(path)
+        .readAsStringSync()
+        .split('\n')
+        .where((l) => !l.trimLeft().startsWith('//'))
+        .join('\n');
+  }
+
+  final direct = <String>{};
+  for (final name in index.keys) {
+    if (calls.hasMatch(codeOf(index[name]!))) direct.add(name);
+  }
+
+  // Fixpoint, because "imports something that routes" is recursive: the app's
+  // count copy funnels through `review_count.dart` -> `arabic_agreement.dart`.
+  final routed = <String>{...direct};
+  var grew = true;
+  while (grew) {
+    grew = false;
+    for (final name in index.keys) {
+      if (routed.contains(name)) continue;
+      for (final m in importRe.allMatches(codeOf(index[name]!))) {
+        if (routed.contains(m.group(1)!.split('/').last)) {
+          routed.add(name);
+          grew = true;
+          break;
+        }
+      }
+    }
+  }
+  return (direct: direct, routed: routed);
+}
+
+void main() {  // -----------------------------------------------------------------------
+  // WHICH RULE IS THIS COMMENT ABOUT -- the census, measured, and REFUTED.
+  //
+  // The reader grades every claim it finds against [arabicCount]. The open
+  // question was whether a file should be required to route counts through
+  // that helper before its comments are graded at all, so a sentence about a
+  // DIFFERENT rule could not go falsely red. Measured here rather than
+  // argued, and the answer is that the census would DELETE true claims.
+  //
+  // Measured on this tree: 13 files carry claims.
+  //   * 3 write the call themselves -- `arabic_agreement.dart` (the rule),
+  //     `arabic_agreement_test.dart` (20 call sites) and
+  //     `quote_duration_copy.dart` (1 call site).
+  //   * 10 do not, and all 17 claims in them are TRUE about this rule.
+  //     `reviews_section_copy.dart:85` states the `11-102` span verbatim, and
+  //     that file reaches the helper two levels down through `review_count`.
+  //
+  // So a direct-call census drops 17 of 30 true claims to fix a false positive
+  // that had not yet been demonstrated. Net loss; rejected on its own numbers.
+  //
+  // The transitive closure is worse in the way that matters for a guard: it
+  // routes 329 of 456 Dart files, excluding 72% of nothing. It still routes
+  // `relative_time_hour_floor_test.dart` -- the very file carrying
+  // `120 is a dual`, the false positive this question came from. A filter that
+  // keeps the case it was written to catch is not a filter.
+  //
+  // Both candidates are therefore rejected BY MEASUREMENT. What is shipped is
+  // not the census but the numbers that refute it, pinned so the decision is
+  // re-measurable rather than inherited as an argument.
+  group('a comment is graded against the rule it can actually be checked by',
+      () {
+    final claimFiles = {for (final c in _claims()) c.file};
+    final census = _routingCensus();
+    final routed = census.routed;
+
+    test('the census that was rejected was measured on a real tree', () {
+      // Without these the rejection above is an argument, and the next tick
+      // re-raises it.
+      expect(claimFiles.length, greaterThanOrEqualTo(10),
+          reason: 'only ${claimFiles.length} files carry claims -- the '
+              'measurement this rejection rests on was taken on a tree this '
+              'reader does not describe');
+      expect(routed.length, greaterThan(claimFiles.length),
+          reason: 'the closure routed ${routed.length} files for '
+              '${claimFiles.length} claim-bearing files, which is not what '
+              'was measured');
+    });
+
+    test('a direct-call census would drop true claims, so it is rejected', () {
+      // Every claim-bearing file that does not call the helper itself is a
+      // claim the census would delete.
+      const direct = {
+        'arabic_agreement.dart',
+        'arabic_agreement_test.dart',
+        'quote_duration_copy.dart'
+      };
+      final wouldDrop = claimFiles.difference(direct);
+      expect(wouldDrop.length, greaterThanOrEqualTo(8),
+          reason: 'the census now excludes only ${wouldDrop.length} files -- '
+              'if that is few it may no longer be dropping true claims, and '
+              'the rejection must be re-measured rather than inherited');
+      // The claim it is written to save: this file states the span rule while
+      // calling the helper two levels down, so a direct-call census would
+      // silently stop checking it.
+      expect(wouldDrop.contains('reviews_section_copy.dart'), isTrue,
+          reason: 'the file that states the span rule verbatim no longer '
+              'illustrates why the census was rejected');
+    });
+
+    test('a mention in prose is not a delegation', () {
+      // The comment filter in `codeOf` is load-bearing, and this is what makes
+      // it so. Measured: dropping it and counting doc comments that merely
+      // NAME the helper left the suite GREEN, because the closure routes those
+      // files anyway -- so the claims above did not notice. What DOES notice is
+      // the direct set growing: `reviews_section_copy.dart` says "a hand-written
+      // copy of [arabicCounted]" in prose and calls nothing, and a census that
+      // cannot tell the two apart is the census this guard rejected.
+      final directClaimFiles =
+          census.direct.intersection(claimFiles).difference({
+        'arabic_agreement.dart',
+        'arabic_agreement_test.dart',
+        'quote_duration_copy.dart'
+      });
+      expect(directClaimFiles, isEmpty,
+          reason: 'these files carry claims but only MENTION the helper in '
+              'prose: ${directClaimFiles.join(', ')} -- prose is not a call '
+              'site, and a census that cannot tell them apart is the one this '
+              'guard rejected');
+      // And the size, because the set-membership check above passed even when
+      // the pattern was widened to the bare NAME and the direct set grew from
+      // 20 to 40-odd. A census that stopped asking for a parenthesis and
+      // started reading prose does not change WHICH claim-bearing files call
+      // it -- so it changed nothing that was asserted. Pinned here so the
+      // difference has to be visible somewhere.
+      expect(census.direct.length, 20,
+          reason: 'the direct call-site set is ${census.direct.length} files; '
+              'it was 20 when measured, and a jump means `calls` started '
+              'matching something other than a call');
+    });
+
+    test('a quoted example of the helper is not a call site', () {
+      // The plant the real tree cannot supply. Every file in `lib/` and `test/`
+      // that writes a QUOTED example of the helper in prose ALSO calls it, so
+      // the comment filter in `_routingCensus` was unexercised: measured with
+      // the filter removed, `direct` stayed at exactly 20 and the suite stayed
+      // GREEN. A guard that cannot see the case it was written for is the
+      // blindness this file exists to catch, one level down -- so it is
+      // written here.
+      //
+      // Measured on why a weaker plant would not do: the first version of this
+      // plant wrote `see [arabicCount]`, with no parenthesis, and the mutation
+      // stayed GREEN for a mechanical reason -- the call-site pattern already
+      // requires `(`, so that plant could not tell the two apart no matter
+      // what the comment filter did. The plant has to carry the paren too.
+      //
+      // Both halves matter and the tree has only one of them. The positive half
+      // (a file that DOES call it) is `arabic_agreement.dart` itself, already
+      // pinned by the count below; the negative half is written to disk here
+      // and removed again, because a comment-only file is exactly the shape
+      // this tree does not have.
+      const name = '_census_plant_mentions_only.dart';
+      final path = 'test/$name'; // ignore: prefer_const_declarations
+      File(path).writeAsStringSync("""// This file never calls the helper. The call below is QUOTED in a comment,
+// which is what a worked example in a doc comment looks like:
+//     return arabicCounted(3, 'x');
+import 'package:allomokawil/src/core/l10n/arabic_agreement.dart';
+
+String plantMentionOnly() => 'writes an example, calls nothing';
+""");
+      try {
+        final planted = _routingCensus();
+        expect(planted.direct.contains(name), isFalse,
+            reason: 'a file whose only `arabicCounted(` is inside a comment was '
+                'counted as a call site, so the census reads a worked EXAMPLE '
+                'as a delegation -- the confusion that makes it unsafe as a '
+                'filter');
+      } finally {
+        File(path).deleteSync();
+      }
+      // Really gone, so a green here is not the file simply never having been
+      // written.
+      expect(File(path).existsSync(), isFalse);
+    });
+
+    test('the transitive closure excludes too little to be a filter', () {
+      // It keeps the false-positive case the question was raised by.
+      // The one file that pins the CLOSURE as distinct from the direct set.
+      // It reaches the helper through `notification_copy.dart` and calls nothing
+      // itself, which is why the assertions above could not tell a closure from
+      // a flat direct set: 20 and 13 satisfy every one of them.
+      expect(routed.contains('relative_time_hour_floor_test.dart'), isTrue,
+          reason: 'the closure no longer routes the file carrying '
+              '"120 is a dual" -- re-measure before treating it as a filter');
+      expect(census.direct.contains('relative_time_hour_floor_test.dart'),
+          isFalse,
+          reason: 'this file only reaches the helper through an import, so if '
+              'it is now a direct call site the census is reading something '
+              'other than call sites and the comparison above is not testing '
+              'what it claims to test');
+    });
+
+    test('nothing is dropped: every claim the reader finds is still graded',
+        () {
+      // The invariant the rejected census would have broken. If this fails it
+      // is because a claim stopped being readable, which is a different bug
+      // and a louder one.
+      final claims = _claims();
+      expect(claims, isNotEmpty);
+      expect(claims.length, greaterThanOrEqualTo(_selfClaims().length));
+    });
+  });
+
+
   group('the comments that state the rule agree with the rule', () {
     final claims = _claims();
     final selfClaims = _selfClaims();
