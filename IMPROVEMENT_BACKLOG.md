@@ -30205,3 +30205,155 @@ shapes its author thought of. The question worth asking next is not another
 word list but **how a reader learns that its vocabulary is incomplete** --
 the floor test pins the count, so the count moving is the signal, and no
 automated thing in this tree watches a shape nobody wrote yet.
+
+## Tick 9 Oct 2026 (~02:00) — the AND-UP COPULA, an unbounded claim joined by a
+## conjunction, and the floor that CANNOT be pinned on graded claims
+
+**Another writer's work is still in the tree, untouched.** `app_theme.dart` came
+back at 00:40 with 30 more lines of the same duplicated `static const double
+hairline` — a red analyzer error — and has been frozen for 75 minutes with no
+writer process. Per step 1 it is not mine to commit or discard, so the gate ran
+in an isolated `git archive` copy of HEAD (606 files, its own `git init`), and
+only this tick's four files were staged. **That red file is still in the working
+tree, uncommitted, and belongs to whoever is editing it. It has now been frozen
+for 75 minutes across two ticks.**
+
+**The item.** The previous tick's named lead, taken as written: *"the reader now
+knows seven shapes and still cannot see a claim written about a range boundary
+in prose."*
+
+**The hole, measured before any code.** A probe over `lib/` and `test/`, using
+the file's own paragraph model (comment runs, joined, quoted spans blanked) and
+asking what no pattern in the file recognises, found **51 loose candidates** and
+**four sentences** in a shape none of the seven patterns read:
+
+    11 and up are counted singular
+
+[_andUp] needs the literal verb *takes*. [_copula] needs the number to carry the
+verb itself. Neither reads a sentence whose number and verb are separated by a
+conjunction — and this is **the most dangerous shape in the file**, because it is
+the one the rule's own English reading invites. [_andUp]'s own doc comment calls
+"11 and up" *exactly the English reading of a rule that does not work that way*,
+and a guard that reads "11 and up TAKE the singular" while staying silent on
+"11 and up ARE the singular" is reading the grammar, not the claim.
+
+**What it found: a false claim in `lib/`.** `quote_duration_copy.dart:22` — the
+doc comment of the quote-duration copy — states it in a table row:
+
+    * 11 -> «11 يوم»   11 and up are counted singular, so the word is right
+
+11 and up is **not** counted singular. 103 takes the plural «أيام», because the
+rule is `n % 100`. The same sentence sat in `portfolio_badge_copy_test.dart:16`,
+which is graded too. Both corrected at the site to `11-102`, and the rule's own
+header now names the two uniform spans so a reader of that file is not left
+re-deriving them.
+
+**The second defect, and it is the one that would have shipped silently.**
+Writing the correction is itself a claim, and `11-102 are counted singular`
+matched **nothing**: `_copula`'s form group listed `broken plural` but not
+`counted singular`. A guard that cannot read its own correction trades one blind
+spot for another, and the correction would have gone into `lib/` unchecked. The
+four adjective prefixes now normalise through one `_formWord` helper, so the
+label reader and the prose reader agree on what a form word *is* — which is the
+second pair of scanners in this file that had been answering the same question
+twice.
+
+**The third defect, structural: the vocabulary existed TWICE.** `_scanClaims`
+(this file's own reader) and `_claims` (the tree scan) each carried their own
+copy of all seven loops. That is not a style point — it is the *mechanism* by
+which the shape above was found in one and missed in the other, and it is why
+this pattern had to be added in two edits. Both scanners now call a single
+`_lineClaims(text, name, line)`. The vocabulary is in one place, so a shape
+cannot be half-added.
+
+**The floor the last three ticks pin is UNSATISFIABLE for this shape, and the
+reason is the rule rather than the test.** This file's method has been to pin
+the *graded* count of each new shape, because a claim graded only by a loop
+over `_claims()` cannot witness its own removal. Correcting both false claims
+took the graded count to **zero** — not because the reader stopped reaching the
+shape, but because it had just done its job. **A mod-100 rule has no TRUE
+unbounded claim**: every occurrence of "N and up is <form>" in this tree is
+either false and corrected, or an exhibit and quoted. A floor of 2 on graded
+claims would have been a test that can only ever pass on a tree with a known
+defect in it.
+
+So the floor is pinned on the **raw shape being written** (`_andUpCopulaWritten`,
+counting the pattern's matches over `lib/` and `test/` comment lines, floor 2)
+plus the sanity relation `graded <= written`. That is what the pattern can
+actually witness: a weakened, renamed or dropped pattern moves the number,
+whether or not the surviving occurrences happen to be true. Recorded as a
+property of the RULE, not as a lowered threshold — the threshold was never
+lowered, it was pinned on the right observable.
+
+**Red before green, twice, and both were real.**
+* With the pattern and no corrections: **4 red** — the two false claims in the
+  tree, and two failures in *my own file*.
+* The first of those was the guard working: my doc comment quoted only the
+  Arabic and left the English claim standing, which is an assertion, and the
+  self-scan read it. The second was the `_copula`/`counted singular` gap above,
+  found by the correction rather than by a probe.
+* `the real file yields zero claims` had to change honestly: correcting the
+  `lib/` claim wrote the correction **here**, unquoted, so the self-scan now
+  reads a real TRUE claim ("103 takes the plural") out of this file and grades
+  it. `isEmpty` would have failed on the sentence this tick added. Rewritten as
+  "is graded by the loop above, and it is not zero" — a self-policing file
+  strictly beats the zero it replaced.
+
+**Mutation testing, all six, and one caught a hole in the pattern's own words.**
+
+| mutation | result |
+| --- | --- |
+| drop the and-up copula loop from `_lineClaims` | **RED** — the `lib/` table-row plant |
+| drop the shared reader (tree scan reverts to its own copy) | **RED** |
+| upper bound = lower bound (unbounded checked only at 11) | **RED** |
+| drop the `_formWord` normalisation of `counted` | **RED** |
+| weaken the pattern, narrowing the copula to `is\|are` | **GREEN — then RED** |
+| the first attempt at that fifth mutation | **was a no-op** |
+
+Two facts about the work itself, both worth more than the numbers. **The first
+M2 mutation did not apply** — the replacement string never matched, and the
+`SyntaxWarning` in the transcript is the only reason it was noticed; the suite
+went green because the file had not changed, not because the code was robust.
+Re-applied with an `assert`, verified in the source *before* running, and the
+real result was **GREEN**: narrowing eight verbs to two is invisible to a tree
+that happens to write only "is" and "are". That is a word list nobody exercises
+shrinking silently, so the fix is a plant that runs **all eight** verbs — after
+which the mutation is RED. A mutation that cannot fail is a fact about the
+tests, and this one was a fact about the *pattern*.
+
+**Evidence** (real output)
+
+- `flutter analyze` -> **No issues found!** (run on the isolated copy, whose
+  `lib/` is HEAD's, so the other writer's red `app_theme.dart` is not in it)
+- `tool/run_tests.py` -> **SUITE PASS — 2592 tests across 14 shard(s), every
+  shard green**, 2584 passed / 8 skipped, **18:41**, exit 0. Baseline **2581
+  held**, +11. The known shard-8 hang did **not** recur — shards 8-12 all
+  PASSed at 1:04-1:24
+- `agreement_comment_test.dart` **56/56**, up from 45
+- `lib/` moved in **comments only** — two doc comments and the rule's own
+  header. No Dart expression changed, nothing renders, **no screenshot is
+  claimed**
+- commit `b646bbc` -> remote `7610e37`. **4/4 blobs verified `MATCH`** against
+  the real remote tree, read off the git-data API rather than the push line
+
+**Next.** The reader now knows eight shapes and one shared reader, and the four
+remaining loose candidates from the probe were measured and deliberately NOT
+taken, because they are a different rule wearing this one's grammar:
+
+* `the counted singular at 5` (`portfolio_allowance_test.dart:88`) — a claim
+  about `photosAr`, and **false** by the same mod-100 rule, but stated as a
+  PREPOSITION + number, which has no number-then-verb order at all.
+* `120 is a dual` (`relative_time_hour_floor_test.dart:97`) — about the
+  relative-time hour arm, a *different rule entirely*. A naive article-aware
+  copula would grade it against `arabicCount` and go **red on a correct
+  comment**. Measured, not guessed: this is the first shape found in this
+  probe whose failure mode is a FALSE POSITIVE rather than a blind spot.
+
+That is the honest next question, and it is not another word list: **the reader
+has no way to know which rule a comment is about.** Every claim it grades is
+checked against `arabicCount`, so a sentence about another rule is either
+ignored or, once a pattern catches it, falsely red. Two candidate answers to
+weigh next tick: require the comment's file to actually route counts through
+`arabicCount`/`arabicCounted` before its claims are graded at all, or carry the
+rule on the claim itself. The first is a census; the second changes what a claim
+is. Neither should be started without measuring which files would drop out.
