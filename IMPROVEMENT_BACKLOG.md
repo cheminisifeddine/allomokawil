@@ -30876,3 +30876,89 @@ Dart, no `lib/`.** Nothing renders, **no screenshot claimed**.
 the next item is a fresh one, not a carry-over — and the natural first move is
 the caveat above: re-run `tool/run_tests.py` bare and record a true single-run
 14/14 before anything new is opened on top of a tree that has never produced one.
+
+---
+
+## Tick 9 Oct 2026 — the gate said BUSY and exited 2, and a tick believed it
+
+**The carry-over did not happen, and the reason is the box.** The previous tick
+left one job: re-run `tool/run_tests.py` **bare** and bank a true single-run
+14/14, because this tree has never produced one. I started exactly that.
+
+    $ python3 tool/run_tests.py          # no --deadline, the protocol's own command
+    BUSY — not starting a second suite on this box.
+    EXIT=2
+
+**Nothing ran.** The build gate refused before a single test process was spawned,
+so there is no 14/14 to bank and there never was one to bank today.
+
+**The box, measured, not guessed:**
+
+    Memory: 416 MB available of 7935 MB, no swap; a build needs >= 900 MB
+    NO ROOM — a run of this suite was measured to bottom out at 1177 MB.
+    THE HOST IS HOLDING 5658 MB OF THIS BOX (`Balloon:` in /proc/meminfo)
+    No process here accounts for it: the 490 MB shortfall is larger than every
+    visible holder combined. Only the hypervisor can give it back.
+
+`Balloon:` re-read at **5793380 kB** mid-tick and had not moved. `pgrep -a
+flutter_tester` is empty; `pgrep -c java` is 0. **No local action clears this** —
+not killing anything, not waiting — so this tick was correctly a non-build tick
+under the loop's own build-safety rule, and I did not force a Dart run to
+manufacture a green line.
+
+**And the refusal was misreporting itself.** `run_tests.py` returns **2** for the
+gate refusal. The protocol defines 2 as *"the deadline fired, a shard hung"* —
+the opposite fact. Exit 2 is also the part of the runner that survives a scrolled
+log and a cron wrapper, which is why it is the dangerous half.
+
+**This is not new, and it has already cost this loop twice.** The previous tick
+reported a `HUNG` shard 9 with 208 tests and exit 2 — **for a run that launched
+zero test processes**. It then spent the tick reconciling 1614 + 1185 across two
+logs because of it. The tick before spent its whole report hunting a hang in a
+tree whose shards were all green. Both ticks read a refusal as a hang because
+the refusal was wearing the hang's number.
+
+**Fixed, and the fix is pinned in python so it survives the exact condition
+that triggers it.** `BUSY = 3`, returned only by the gate refusal, with a
+message that says `NOT ONE TEST RAN` and `This is not a hang`. A tick that
+trusts the code now cannot misread it; a tick that reads words cannot either.
+
+**Evidence, all real:**
+
+- `test/run_tests_busy_code_test.py` (new) -> **2 passed, 0 failed**. Pins the
+  code *and* that nothing spawned — the stub writes a marker file, so "did it
+  start?" is answered by the filesystem, not by the log under test.
+- **Negative control:** the same test run against `HEAD`'s pre-fix runner
+  returns **2** and fails both cases. The test catches the bug; it is not
+  vacuous.
+- `test/run_tests_retry_budget_test.py` -> **4 passed, 0 failed**.
+- `test/build_gate_test.py` -> **32/32 ALL PASS**.
+- Blobs verified against the remote tree: **4/4 MATCH** at tip `732a32d`.
+
+**One thing I nearly mis-reported and did not.** Run in parallel, the two harness
+suites printed `29/32 SOME FAILED`; run alone, the same file prints
+**32/32 ALL PASS**. Two suites at once on a box this starved is a measurement
+artefact, and reporting `29/32` would have been a fabricated regression. I
+re-ran it alone before writing a number down.
+
+**The Dart gate did not run and I am not claiming it.** `flutter analyze` and
+`flutter test` were both refused by `build_gate.py` for the memory reason above.
+`test/run_tests_deadline_test.dart` — where I changed `exitCode == 2` to `3` — is
+a Dart file and is therefore **unverified by execution**. It is a one-token
+assertion on an existing case, but it is unverified, and it is the one thing here
+that a memory-free tick must re-gate before this is called fully green.
+
+**Files:** `tool/run_tests.py`, `test/run_tests_busy_code_test.py` (new),
+`test/run_tests_deadline_test.dart`, `IMPROVEMENT_BACKLOG.md`. No `lib/`, no
+app surface, nothing renders, **no screenshot claimed**.
+
+**Commit** `a259c31` -> remote `732a32d`, 4/4 blobs MATCH.
+
+**Next.** Two things, in order, and the first is not optional:
+
+1. **Re-gate the Dart file when the box has memory.** `run_tests_deadline_test.dart`
+   changed and has not been executed. Nothing else about this tree is less
+   certain than that one assertion.
+2. **Then bank the bare single-run 14/14** — still not done, still the standing
+   carry-over. It needs `build_gate.py` to answer CLEAR, and the gate has said
+   NO ROOM on the balloon every reading today.
