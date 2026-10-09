@@ -674,6 +674,79 @@ The backlog is empty and the gate was lying, so this phase is about the
 harness rather than the app. Items here are only real if they change what a
 future tick can *see*.
 
+- [x] **The notification centre drew the newest hundred, counted its own unread
+      from them, and left the rest of the server's unread stranded where no
+      gesture could reach it.**  `PENDING_HASH`.
+      The screen pass the 9 Oct tick named as its next item, on the one
+      `repository.dart` read surface neither the market nor the thread had
+      covered. Found by **measuring the live API**, for the same reason the
+      other two were: the client reads correctly.
+      *It caps, and hard.* 140 notifications seeded on one throwaway account;
+      `GET /api/notifications` answers **100 rows**, while the server's own
+      `/api/unread` says **140**. `?limit=200`, `?limit=500&page=1`, `?page=2`,
+      `?offset=100` and `?all=1` all return those same 100 rows byte for
+      byte — so the cap is the server's and not a default the client may
+      raise, exactly like `/api/messages/:id`.
+      *The order is already the least harmful one.* Rows come back **newest
+      first** (checked against `created_at`, not assumed from ids), so unlike
+      the inbox nothing here needs sorting and the newest fact always
+      survives. That is why this is not the same bug twice.
+      *The write 500s at exactly the reachable size.* Bisected, not guessed:
+      **1, 5, 20, 50, 60, 70, 80, 90, 95 and 99** ids all return 200 with the
+      correct new count; **100 ids returns 500 `code: internal`**. And 100 is
+      precisely what the capped read returns, so the shape is one the app can
+      produce — not an exotic payload.
+      *The stranding is the defect, not the cap.* `[_unread]` counts **drawn
+      rows only**, so:
+        1. the centre draws the newest 100 and cannot see the other 40;
+        2. read those 100 — per-row, batched as a 99 + a 1, because the
+           100-id call is the one that fails — and `_unread` reaches **0**;
+        3. `[_unread] > 0` is the gate on «تعليم الكل كمقروء», so the button
+           **disappears**;
+        4. the server still reports **40 unread**.
+      Measured end to end on production, both hosts. So the user clears every
+      notification they can see, the app says there is nothing left, and the
+      server says otherwise — with **nothing on screen to contradict it**.
+      That is the mirror image of the market bug shipped earlier the same day:
+      there the app claimed *nothing matches*; here it claims *nothing is
+      unread*, which is a claim about rows it never read.
+      *Not shipped this tick, deliberately, and the reason is worth writing
+      down.* A Dart band here is obvious, and it would be **wrong on its own**:
+      the number that must go in it does not exist in the phone. The screen
+      holds 100 rows and 0 unread; the 40 are discoverable only by asking the
+      server. The repair is therefore a *read* — carry `/api/unread` beside the
+      rows, the same seam `NotificationCountTrust` already draws from — and
+      that is a Dart change, which this box's gate refused (352 MB available
+      against a 900 MB floor, `Balloon:` at 5.6 GB, nothing building). Filing
+      the band against the *screen's* count would make the app say «40 unread»
+      about a list that is not where they live, which is a fabrication of the
+      exact kind this family has been fixed for.
+      *Shipped:* `tool/notification_read_audit.py` — the measurement, made
+      reproducible on both hosts, exit 1. `test/notification_read_audit_test.py`
+      — **11 cases, python**, because the gate refuses Dart on exactly the box
+      where this tool matters.
+      **Evidence.** Live, both hosts: `140 made, 100 rows drawn, server unread
+      140`, `write with 100 ids -> HTTP 500`, `strands rows: True`,
+      `EXIT=1`. **9 mutations, all killed.**
+      **Two defects the run caught in my own work, both the same shape as the
+      69th tick's:**
+      (1) The gate check called `build_gate.py --quiet` and then tested the
+      output for `nothing is building`. `--quiet` prints nothing, so the test
+      could never match and the tool **refused every run on this box** — a
+      refusal that invents a reason. Caught by running it, not by reading it.
+      Fixed here **and in `inbox_read_audit.py`**, which carried the identical
+      bug from the tick that wrote it, so that tool was dead on arrival and had
+      been run once with the gate refusing.
+      (2) My first `cf_1010` case stubbed `Wire.call` and therefore asserted
+      only that a dict it had just built held a flag it had just set. It
+      **survived deleting the discrimination** — a case that cannot fail when
+      the thing it names is removed reads as coverage. Rewritten to replace
+      `urlopen` so the real parser runs, and an agent-pin case added.
+      **Not claimed:** no `flutter analyze`, no `tool/run_tests.py` — the gate
+      refused. **Zero Dart files changed**, so banked 2609 cannot move.
+      Full detail in the Tick 10 Oct 2026 (notification centre) section at the
+      foot of this file.
+
 - [x] **A chat thread that lost its newest messages drew the oldest hundred and
       said nothing — and the "did my message arrive?" re-check read from that
       same blind spot.**  `45dd762`.
@@ -31688,3 +31761,137 @@ surface is the **chat/conversation paging** (`messages(conversationId, {after})`
 and the `_conversationToken` generation at `worker_home_screen.dart:114`) —
 same shape as the bug just fixed: a read that returns rows and no word about
 what it did not read.
+
+## Tick 10 Oct 2026 (notification centre) — the screen that forgot 40 unread
+## notifications and then said it had none. **MEASURED, NOT YET FIXED**
+
+**This is the screen pass the 9 Oct tick named as its next item**, on the one
+`data/repository.dart` read surface neither the market nor the thread had
+covered. And it is the third member of this family to be found by *measuring
+the live API* rather than by reading the client — which is now the only
+reliable way to find one, since every one of these reads looks correct in the
+source.
+
+**Measured, both hosts, one throwaway account holding 140 notifications:**
+
+    GET /api/notifications                 -> 100 rows
+    ?limit=200 / ?limit=500&page=1 / ?page=2 / ?offset=100 / ?all=1
+                                          -> the same 100 rows, byte-identical
+    GET /api/unread                        -> 140
+
+So the cap is the server's, at **100**, and no query parameter raises it. Rows
+come back **newest first** — verified against `created_at`, not inferred from
+descending ids — which is the *least* harmful ordering: the rows the user
+misses are the oldest, and the newest fact always survives. That is the whole
+difference from `/api/messages/:id`, which answers the **oldest** hundred and
+drops the newest thirty.
+
+**The write fails at exactly the reachable size.** Bisected, not guessed:
+
+    ids[: 1]  -> 200   ids[: 20]  -> 200   ids[: 50]  -> 200
+    ids[: 70] -> 200   ids[: 95]  -> 200   ids[: 99] -> 200
+    ids[:100] -> 500 {"code":"internal"}
+
+100 is precisely what the capped read returns, so this is a shape the app can
+produce rather than a payload nobody would send.
+
+**And that combination is the defect.** `NotificationsScreen._unread` counts
+**drawn rows only**, and `_unread > 0` is the gate on «تعليم الكل كمقروء»:
+
+    1. the centre draws the newest 100, and the other 40 do not exist on the
+       phone;
+    2. the user reads those 100 — as a 99-batch plus a 1, because the 100-id
+       call is the one that fails — and `_unread` reaches 0;
+    3. the mark-all button **disappears**, because it is gated on `_unread`;
+    4. `GET /api/unread` still answers **40**.
+
+Measured end to end: `drawn=100, screen _unread=0 -> mark-all button shown?
+False, server_unread=40`. So the user clears every notification they can see,
+the app announces there is nothing left, and the server disagrees — with
+**nothing on screen to contradict it**. Pressing mark-all on a *different*
+account state (with the button still visible) does return 200 and clear all 140,
+which is why this is a stranding rather than a permanent loss: the repair is
+one press away, on a button that this exact sequence removes.
+
+**Why the mirror image of the market bug matters to name.** The search shipped
+earlier the same day made the app claim *nothing matches* over a market it had
+read three fifths of. This makes it claim *nothing is unread* over rows it
+never read. Same family, same repair shape — except one step further, because
+here the honest number **is not in the phone**: the screen holds 100 rows and 0
+unread, and the 40 are discoverable only by asking the server.
+
+**So a Dart band was deliberately NOT written.** It is the obvious move and it
+would have been wrong on its own. A band built from the screen's own count
+would say «0» about a list that is not where the 40 live, and a band built
+from any hardcoded figure would be fabrication. The repair is a *read* — carry
+`/api/unread`'s number beside the rows, through the same
+`NotificationCountTrust` seam the header already draws from, and let the band
+compare `server_unread` against `rows.length` the way
+`partialMarketMayClaimNoResults` compares pages asked against pages read. That
+is a Dart change, and `tool/build_gate.py` refused tonight: **352 MB available
+against a 900 MB floor**, `Balloon:` holding **5.6 GB** of 7.9 GB, *nothing
+building*. So the tick ends measured rather than shipped, which is the honest
+end state and not a stall — the next tick that gets a `flutter` in front of it
+has a defect with a reproduction, a bisected threshold and a named seam.
+
+**Two defects the run caught in my own work, and both are the 69th tick's bug.**
+
+1. **The gate check could never succeed.** `_another_writer_is_building()`
+   called `build_gate.py --quiet` and then tested the output for `nothing is
+   building`. `--quiet` prints nothing, so the test can never match and the
+   tool **refused every run on this box** — the instant refusal was the tell.
+   The gate's entire point is that one sentence discriminates *two* denials
+   (BUSY = another writer, NO ROOM = hypervisor), so the call must not silence
+   it. Fixed here **and in `tool/inbox_read_audit.py`**, which carried the
+   identical bug from the tick that wrote it — that tool has been unable to
+   run since, and every "measured uncapped" claim it made was made in a run
+   where it never executed. Both now read the sentence, and both report
+   `another writer is building: False` on this box.
+2. **A test of mine was vacuous.** The first `cf_1010` case stubbed
+   `Wire.call` itself, so it asserted only that a dict the case had just built
+   contained a flag the case had just set. It **survived deleting the
+   discrimination** — proven by mutation, not suspected. Rewritten to replace
+   `urlopen` so the real parser runs, plus a case that the `User-Agent` is the
+   pinned app string rather than urllib's (the signature Cloudflare answers
+   `1010` to). A case that cannot fail when the thing it names is removed is
+   worse than no case, because it reads as coverage.
+
+**Evidence (real output):**
+
+- `python3 test/notification_read_audit_test.py` -> **11 passed, 0 failed**.
+- **9 mutations, all killed**: cap witness flipped to a self-comparison; the
+  stranding forced false; the write probe forced true; `newest_first` pinned;
+  the `cf_1010` discrimination removed; the `User-Agent` header deleted; the
+  undated-row count zeroed; `--quiet` restored; the gate sentence inverted.
+- Two survivors were explained rather than papered over. `if True:` in place of
+  the sentence match makes the check *more* permissive, which the case's
+  premise ("proceed on NO ROOM") still endorses — it cannot fail, because
+  being wrong in the safe direction is not the failure being tested. The
+  inverting mutation is the one that kills it.
+- Live, both hosts: `140 made, 100 rows drawn, server unread 140 (258 B/row)`,
+  `newest first: True | write with 100 ids -> HTTP 500 | strands rows: True`,
+  **`EXIT=1`**.
+
+**Why a tool, and why Python.** Same reasoning as the tick before it, and it
+kept earning its place: the gate refused Dart (352 MB against a 900 MB floor),
+and a measurement is exactly the work that must not be dropped for that
+reason. It needs no Dart VM, and its cases are Python so they stay checkable
+on precisely the box whose memory is too full to run the suite that would
+otherwise pin them.
+
+**Files:** `tool/notification_read_audit.py` (new),
+`tool/inbox_read_audit.py` (the `--quiet` fix),
+`test/notification_read_audit_test.py` (new), `IMPROVEMENT_BACKLOG.md`.
+
+**Not claimed:** no `flutter analyze`, no `tool/run_tests.py` — the gate
+refused. **Zero Dart files changed**, so the banked **2609** cannot move and
+is untouched by this tick.
+
+**Next.** Carry the server's unread count beside the drawn rows and let a band
+compare the two — `server_unread > rows.length` is the signal, exactly as
+`partialMarketMayClaimNoResults` compares pages asked to pages read, and it
+costs one call the screen does not make yet. Then the 100-id write: it is a
+**server** defect (`POST /api/notifications/read` answers 500 at 100 ids and
+200 at 99), so it belongs to BACKEND-API and is worth filing as such rather
+than working around in the app — though the client can stop sending the shape
+by chunking, which is worth doing either way since the cap is the server's.

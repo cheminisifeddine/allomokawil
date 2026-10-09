@@ -202,7 +202,16 @@ def _another_writer_is_building():
     """True only when the gate names a build it can see. Never guesses."""
     try:
         import subprocess
-        run = subprocess.run([sys.executable, "tool/build_gate.py", "--quiet"],
+        # **NOT `--quiet`, and that is the bug this first run shipped with.**
+        # `--quiet` suppresses the very sentence the branch below tests for, so
+        # on a box where the gate denies for *memory* the check could never
+        # match and the helper answered "a writer is building" on every call --
+        # a refusal that invents a reason, which is worse than no refusal. It
+        # was caught by running the tool: it refused instantly on a box where
+        # the gate was simultaneously reporting that nothing was building.
+        # The gate's whole point is that one sentence discriminates two
+        # different denials, so this call has to read it.
+        run = subprocess.run([sys.executable, "tool/build_gate.py"],
                              capture_output=True, text=True, timeout=90)
     except Exception:  # noqa: BLE001 - a missing gate must not block the audit
         return True
