@@ -19,16 +19,17 @@
 //   * 3  -> «3 يوم»    3-10 need the broken plural «أيام»
 //   * 7  -> «7 يوم»    same
 //   * 10 -> «10 يوم»   same
-//   * 11 -> «11 يوم»   11 and up are counted singular, so the word is right
+//   * 11 -> «11 يوم»   11-102 are counted singular, so the word is right
 //   * 30 -> «30 يوم»   but the noun for 3-10 is wrong and the dual is wrong
 //
-// So «يوم» is the correct *word* for 1 and for 11+, and the wrong word for
-// everything from 2 to 10 — which is why the line looks right at a glance and
-// survives review: it is a real Arabic noun in every case, and the only thing
-// that changes is whether a number is standing in front of it. A reviewer
-// reading «مدة الإنجاز: 7 يوم» sees a real Arabic noun and moves on.
+// So «يوم» is the correct *word* for 1 and for 11-102, and the wrong
+// word for everything from 2 to 10, and again from 103 up — which is why the
+// line looks right at a glance and survives review: it is a real Arabic noun in
+// every case, and the only thing that changes is whether a number is standing
+// in front of it. A reviewer reading «مدة الإنجاز: 7 يوم» sees
+// a real Arabic noun and moves on.
 //
-// The two ranges that were already right (1 and 11+) were right by accident:
+// The two ranges that were already right (1 and 11-102) were right by accident:
 // both take a counted singular, and that happens to be the word that was
 // hard-coded. The most common value on the screen — 3 to 10, the ordinary
 // answer for a repaint or a bathroom — was wrong for every contractor who

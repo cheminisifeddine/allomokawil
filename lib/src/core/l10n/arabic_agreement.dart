@@ -36,7 +36,11 @@
 //     the plural «أيام» exactly as 3 does, and 110 takes the plural too,
 //     because 10 is inside the 3–10 window. The whole rule is one clause —
 //     `n % 100` — and 110 is the number that catches a reader who believes
-//     "11 and up" the way they would in English. See [arabicCount].
+//     "11 and up" the way they would in English. The two uniform spans, named as
+//     the spans they are: **11-102 and 111-202 are counted singular**, and the
+//     phrase to avoid is "11 and up are counted singular" — a guard in
+//     `test/agreement_comment_test.dart` grades that sentence and this one.
+//     See [arabicCount].
 //
 // Nouns are passed in, never derived, so a caller can never accidentally print
 // the singular form of a feminine noun in the dual slot: the compiler sees the

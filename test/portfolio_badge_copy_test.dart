@@ -13,7 +13,7 @@
 // both of those were wrong on a live screen:
 //   * **2 → «2 صور».** The dual is «صورتان», and Arabic takes no number with
 //     it, so the branch printed a number the word already carries.
-//   * **11 → «11 صور».** 11 and up are counted singular — the number is what
+//   * **11 → «11 صور».** 11-102 are counted singular — the number is what
 //     makes the noun singular — so it is «11 صورة».
 //
 // Only 1 and 3-10 were right, which is why it survived: the two ranges anyone

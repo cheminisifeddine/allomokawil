@@ -90,6 +90,40 @@ final _andUp = RegExp(
     r'(broken\s+plural|plural|dual|singular)',
     caseSensitive: false);
 
+/// **The AND-UP COPULA form - the vocabulary's third gap, measured at two
+/// claims, one of them FALSE.** [_andUp] above needs the literal verb
+/// *takes*, and [_copula] needs the number to carry the verb itself. Neither
+/// reads the sentence this tree actually writes about the open-ended range:
+/// «11 and up are counted singular» -- an open-ended claim whose number and
+/// whose verb are separated by a conjunction.
+///
+/// That is the most dangerous shape in the file, because it is the one the
+/// rule's own English reading invites: "11 and up" is how English says it, and
+/// this is exactly the phrase [_andUp] calls out as "exactly the English
+/// reading of a rule that does not work that way". A guard that reads
+/// "11 and up TAKE the singular" and stays silent on "11 and up ARE the
+/// singular" is reading the grammar, not the claim.
+///
+/// **Measured: it hid a false claim in `lib/`.** `quote_duration_copy.dart:22`
+/// -- the doc comment of the quote-duration copy -- states the open-ended range
+/// with a conjunction and a copula, in a table row, and the sentence is FALSE:
+/// 103 takes the plural «أيام», because the rule is `n % 100`. The same shape
+/// sits in `portfolio_badge_copy_test.dart:16`, which is graded too. Both were
+/// invisible to every pattern in this file before this one.
+///
+/// **And it caught this paragraph first.** The first draft of the sentence
+/// above quoted only the Arabic and left the English claim standing, which is
+/// an assertion -- and the self-scan read it and went red on this file, which
+/// is the whole point of [_selfClaims]. The claim is written out here as the
+/// correction rather than as the false sentence, which is the only reason a
+/// file may state what is wrong at all.
+final _andUpCopula = RegExp(
+    r'(\d+)\s+and\s+up\s+'
+    r'(?:is|are|was|were|counts\s+as|reads\s+as|is\s+counted(?:\s+as)?)\s+'
+    r'(?:an?\s+|the\s+)?'
+    r'(broken\s+plural|counted\s+singular|plural|dual|singular)',
+    caseSensitive: false);
+
 /// `11-99 take the singular`, `11–102 take the plural` — a bounded range in
 /// words. Each number in the range is a claim.
 final _ranged = RegExp(
@@ -112,7 +146,7 @@ final _ranged = RegExp(
 final _copula = RegExp(
     r'(\d+)(?:\s*[-\u2013\u2014]\s*(\d+))?\s+'
     r'(?:is|are|was|were|counts\s+as|reads\s+as|is\s+counted(?:\s+as)?)\s+'
-    r'(?:the\s+)?(broken\s+plural|plural|dual|singular)',
+    r'(?:the\s+)?(broken\s+plural|counted\s+singular|plural|dual|singular)',
     caseSensitive: false);
 
 /// **The LABEL form - the vocabulary's second gap, measured at 11 claims.**
@@ -290,6 +324,19 @@ final _negated = RegExp(r'(never|not|no|wrong|instead of|rather than|but)\s*$',
 /// fails on a phrase it was never meant to read.
 const _arabicForms = {'أيام': 'plural', 'يومين': 'dual', 'يوم': 'singular'};
 
+/// A form word as the pattern wrote it, and as the helper is asked about it.
+///
+/// "broken plural" and "counted singular" are two of the four names [_copula]
+/// accepts, and both are adjectives sitting in front of the real form. A
+/// reader that strips only one of them grades a corrected comment with the
+/// wrong verb -- measured: correcting a false claim to «11-102 are counted
+/// singular» produced a sentence NO pattern could read, which would have left
+/// the correction in the tree unchecked and traded one blind spot for another.
+String _formWord(String raw) => raw
+    .replaceAll('broken ', '')
+    .replaceAll('counted ', '')
+    .toLowerCase();
+
 String _form(String noun) =>
     noun == two ? 'dual' : (noun == few ? 'plural' : 'singular');
 
@@ -314,6 +361,136 @@ String _wanted(String form) {
 /// Why [lastTwo] took the plural, for the failure message.
 String _pluralWindow(int lastTwo) =>
     lastTwo >= 3 && lastTwo <= 10 ? 'is in the 3-10 window' : 'is outside it';
+
+/// Every claim shape a SINGLE LINE states -- the whole vocabulary, in one
+/// place, for BOTH scanners.
+///
+/// This function is the third reader in the file and the one that ends the
+/// defect the other two shared: [_scanClaims] (the run scanner, which reads
+/// this file) and [_claims] (the tree scan, which reads `lib/` and `test/`)
+/// each carried their OWN copy of every pattern, and a shape added to one was
+/// silently absent from the other. Measured on the tick that added
+/// [_andUpCopula]: it was written into the tree scan and the run scanner in
+/// two edits, and a third shape had to be found by hand to confirm neither
+/// copy had drifted.
+///
+/// Two scanners of one vocabulary that disagree about what a sentence says is
+/// the same class of bug as the guard itself -- a sentence graded by one and
+/// invisible to the other is graded by nobody, in practice. So there is now
+/// one place where a claim shape exists, and both scanners call it.
+List<_Claim> _lineClaims(String text, String name, int line) {
+  final out = <_Claim>[];
+
+  for (final m in _englishForm.allMatches(text)) {
+    if (_negated.hasMatch(text.substring(0, m.start))) continue;
+    final lo = int.parse(m.group(1)!);
+    final hi = int.parse(m.group(2) ?? '$lo');
+    out.add(_Claim(name, line, lo, hi, _formWord(m.group(3)!), m.group(0)!));
+  }
+
+  for (final m in _quotedNoun.allMatches(text)) {
+    if (_negated.hasMatch(text.substring(0, m.start))) continue;
+    final form = _arabicForms[m.group(3)!];
+    if (form == null) continue; // a noun from some other sentence
+    final lo = int.parse(m.group(1)!);
+    final hi = int.parse(m.group(2) ?? '$lo');
+    out.add(_Claim(name, line, lo, hi, form, m.group(0)!));
+  }
+
+  for (final m in _andUp.allMatches(text)) {
+    if (_negated.hasMatch(text.substring(0, m.start))) continue;
+    final lo = int.parse(m.group(1)!);
+    // No upper bound is given, so the claim runs to the end of the window --
+    // checking only the lower number would let the one form of this sentence
+    // that is always false pass.
+    out.add(_Claim(name, line, lo, lo + _window, _formWord(m.group(2)!),
+        m.group(0)!));
+  }
+
+  for (final m in _ranged.allMatches(text)) {
+    if (_negated.hasMatch(text.substring(0, m.start))) continue;
+    out.add(_Claim(name, line, int.parse(m.group(1)!), int.parse(m.group(2)!),
+        _formWord(m.group(3)!), m.group(0)!));
+  }
+
+  for (final m in _meansUpTo.allMatches(text)) {
+    if (_negated.hasMatch(text.substring(0, m.start))) continue;
+    final lo = int.parse(m.group(1)!);
+    out.add(_Claim(name, line, lo, int.parse(m.group(2)!), 'singular',
+        m.group(0)!,
+        uniform: true));
+  }
+
+  for (final m in _open.allMatches(text)) {
+    if (_negated.hasMatch(text.substring(0, m.start))) continue;
+    final lo = int.parse(m.group(1)!);
+    out.add(_Claim(name, line, lo, lo + _window, _formWord(m.group(2)!),
+        m.group(0)!));
+  }
+
+  // The copula form: "10 is plural", "11 is counted singular",
+  // "3-10 is the broken plural". A range is a range here too -- "3-10 is the
+  // broken plural" is ten claims wearing one coat.
+  for (final m in _copula.allMatches(text)) {
+    if (_negated.hasMatch(text.substring(0, m.start))) continue;
+    final lo = int.parse(m.group(1)!);
+    final hi = int.parse(m.group(2) ?? '$lo');
+    out.add(_Claim(name, line, lo, hi, _formWord(m.group(3)!), m.group(0)!));
+  }
+
+  // The and-up copula: an open-ended claim whose number and verb are split by
+  // a conjunction. The lower bound is the number and the upper bound is the
+  // WINDOW, because "and up" is unbounded and one counterexample -- 103 --
+  // falsifies the whole sentence.
+  for (final m in _andUpCopula.allMatches(text)) {
+    if (_negated.hasMatch(text.substring(0, m.start))) continue;
+    final lo = int.parse(m.group(1)!);
+    out.add(_Claim(name, line, lo, lo + _window, _formWord(m.group(2)!),
+        m.group(0)!));
+  }
+
+  // The label shape, through [_labelClaims]: "3-10 (plural)",
+  // "(broken plural, 3-10 and 103-110)" -- a worked-example table, which is
+  // how `arabic_agreement.dart` states the rule at all.
+  out.addAll(_labelClaims(text, name, line));
+
+  return out;
+}
+
+/// How many places in `lib/` and `test/` WRITE a sentence of [_andUpCopula]'s
+/// shape -- graded or not.
+///
+/// The floor above cannot be a count of graded claims, and the reason is a
+/// fact about the RULE rather than about this file. A mod-100 rule has no TRUE
+/// unbounded claim: "N and up is singular" is false for every N, because 103
+/// is inside the plural window, so every occurrence of this shape in the tree
+/// is either false (and gets corrected) or an exhibit (and gets quoted). This
+/// tick corrected both false ones -- and the graded count went to ZERO, not
+/// because the reader stopped reaching the shape but because the reader had
+/// just done its job.
+///
+/// So the reach is pinned on the raw shape instead: the sentence is still
+/// WRITTEN in the tree (in the corrections, as the counter-example), and a
+/// pattern that stops recognising it -- weakened, renamed, dropped -- moves
+/// this number. That is the property the floor exists for, and it is the one
+/// a graded-claim floor cannot give for this shape.
+int _andUpCopulaWritten() {
+  var n = 0;
+  for (final dir in const ['lib', 'test']) {
+    final d = Directory(dir);
+    if (!d.existsSync()) continue;
+    for (final e in d.listSync(recursive: true)) {
+      if (e is! File || !e.path.endsWith('.dart')) continue;
+      if (e.path.split(Platform.pathSeparator).contains('build')) continue;
+      for (final line in e.readAsLinesSync()) {
+        final t = line.trimLeft();
+        if (!t.startsWith('//')) continue;
+        n += _andUpCopula.allMatches(t).length;
+      }
+    }
+  }
+  return n;
+}
 
 void main() {
   group('the comments that state the rule agree with the rule', () {
@@ -409,6 +586,30 @@ void main() {
               'arabic_agreement.dart is written in, and nothing read them');
     });
 
+    // THE AND-UP COPULA VOCABULARY IS PINNED BY A FLOOR, for the reason the two
+    // floors above state: a claim shape graded only by the loop over
+    // `_claims()` cannot witness its own removal -- deleting the branch that
+    // produces the claims deletes the tests that would have noticed.
+    //
+    // Measured: two claims in the tree state the open-ended range with a
+    // conjunction and a copula, "11 and up are counted singular", in
+    // `quote_duration_copy.dart` and `portfolio_badge_copy_test.dart`. BOTH are
+    // false -- 103 takes the plural, because the rule is `n % 100` -- and both
+    // were read by no pattern in this file before this one.
+    test('the and-up copula vocabulary still reaches the tree', () {
+      // Two claims were graded and BOTH were false; correcting them left the
+      // graded count at zero. See [_andUpCopulaWritten] for why a graded-count
+      // floor is unsatisfiable for this shape, and what is pinned instead.
+      final graded = claims.where((c) => _andUpCopula.hasMatch(c.text)).length;
+      final written = _andUpCopulaWritten();
+      expect(written, greaterThanOrEqualTo(2),
+          reason: 'only $written sentences of the "N and up is the <form>" '
+              'shape are written in lib/ and test/ -- the shape is stated in '
+              'the tree and a false one in it would be graded by no one');
+      expect(graded, lessThanOrEqualTo(written),
+          reason: 'the reader cannot read more than the tree writes');
+    });
+
     // The two stages the real tree cannot exercise, planted.
     test('the label reader takes the range from before the bracket', () {
       final found = _labelClaims('before 7 دقائق   3-10 (plural)', 'p.dart', 0);
@@ -479,6 +680,94 @@ void main() {
       // "see the mod-100 rule below" on the very row the guard reads.
       expect(found.map((c) => '${c.from}-${c.to}'), ['11-11', '11-102']);
       expect(found.any((c) => c.from == 100 || c.to == 100), isFalse);
+    });
+
+// The shape PLANTED, because the real tree cannot exercise the two stages
+    // the run scanner owns on its own: `_selfClaims()` on this file is
+    // correctly empty, so a plant is the only thing that can see those stages
+    // go. Written before the scanner branch, and the first one of the two
+    // caught a bug in it -- see the plant two below.
+    group('the reader reads an open-ended claim joined by a conjunction', () {
+      test('the lower bound is the number and the upper bound is the window',
+          () {
+        final found = _scanClaims(const [
+          '// 11 and up are counted singular.',
+          'void main() {}',
+        ], 'planted.dart');
+        expect(found, isNotEmpty,
+            reason: 'the scanner found nothing, so it cannot fail');
+        expect(found.single.from, 11);
+        expect(found.single.form, 'singular');
+        expect(found.single.to, greaterThanOrEqualTo(1000),
+            reason: '"and up" is unbounded -- checking only 11 would let the '
+                'one form of this sentence that is always false pass');
+      });
+
+      // The REAL sentence, verbatim, from `quote_duration_copy.dart` -- with
+      // the bullet and the table around it, because the shape has to survive
+      // the paragraph it really lives in.
+      test('the real claim in lib/ is read out of its own table row', () {
+        final found = _scanClaims(const [
+          '//   * 3  -> «3 يوم»    3-10 need the broken plural «أيام»',
+          '//   * 10 -> «10 يوم»   same',
+          '//   * 11 -> «11 يوم»   11 and up are counted singular, so the word',
+          '//     is right',
+          'void main() {}',
+        ], 'planted.dart');
+        expect(found, isNotEmpty);
+        expect(found.single.from, 11);
+        expect(found.single.form, 'singular');
+      });
+
+      // "and up" claims a form, not a boundary, so the copula's `the`
+      // article and the `counted` qualifier are both optional -- and the
+      // qualifier is the one that carries the meaning here.
+      test('the counted qualifier is not part of the form name', () {
+        final found = _scanClaims(const [
+          '// 3 and up are the broken plural.',
+          'void main() {}',
+        ], 'planted.dart');
+        expect(found.single.form, 'plural',
+            reason: '"counted singular" must grade as `singular` and "broken '
+                'plural" as `plural`, or _wanted() throws on a real claim');
+      });
+
+      // The wider verb set. **Mutation-measured: narrowing the copula to
+      // `is|are` left the suite GREEN**, because the tree happens to write
+      // only those two and every plant above used one of them -- the pattern
+      // carried four alternatives that nothing could see go. A word list
+      // nobody exercises is a word list that can shrink silently, and the
+      // cost of shrinking it is a sentence no longer read.
+      test('the passive and classificatory verbs are read too', () {
+        for (final verb in <String>[
+          'is',
+          'are',
+          'was',
+          'were',
+          'counts as',
+          'reads as',
+          'is counted',
+          'is counted as',
+        ]) {
+          final found = _scanClaims([
+            '// 3 and up $verb the broken plural.',
+            'void main() {}',
+          ], 'planted.dart');
+          expect(found, hasLength(1), reason: '"$verb" is in the pattern and '
+              'must be read; a narrower verb list passes by not noticing');
+          expect(found.single.form, 'plural');
+          expect(found.single.from, 3);
+        }
+      });
+
+      test('a negated sentence is still only an example', () {
+        expect(
+            _scanClaims(const [
+              '// never 11 and up are counted singular.',
+              'void main() {}',
+            ], 'planted.dart'),
+            isEmpty);
+      });
     });
 
     // THE READER, PLANTED. `_selfClaims` returns zero on this file -- correctly,
@@ -594,10 +883,30 @@ void main() {
                 'comment that is correct');
       });
 
-      test('the real file yields zero claims, and that zero is correct', () {
-        // The honest closure: this reader's live input really does produce
-        // nothing, and the reason is stated rather than assumed.
-        expect(_selfClaims(), isEmpty);
+      test('the real file is graded by the loop above, and it is not zero',
+          () {
+        // This assertion used to be `isEmpty`, and it was honest: every claim-
+        // shaped sentence in this file was a quotation or a counter-example, so
+        // the self-scan had nothing live to grade and the loop above added no
+        // tests. Correcting the false `lib/` claim this tick wrote the
+        // correction HERE, unquoted -- "103 takes the plural" is the counter-
+        // example to the sentence being corrected -- so the self-scan now reads
+        // a real, TRUE claim out of this file and grades it against the helper
+        // like any other.
+        //
+        // That is strictly better than the zero it replaced: a live file the
+        // loop grades is a self-policing file, and `isEmpty` would now be
+        // failing on the very sentence this tick added. Pinned at >= 1 rather
+        // than deleted, because a file that asserts a number and grades none of
+        // them is the blindness this whole file was written after.
+        expect(_selfClaims(), isNotEmpty,
+            reason: 'this file states the correction to a false claim '
+                'unquoted, so the loop above grades it -- if this is empty '
+                'again, the self-scan has stopped reading this file');
+        expect(_selfClaims().every((c) => c.from == 103 && c.to == 103),
+            isTrue,
+            reason: 'the only live claim here is the counter-example to the '
+                'sentence being corrected, and it must stay true');
       });
     });
 
@@ -718,50 +1027,11 @@ List<_Claim> _scanClaims(List<String> lines, String name) {
     // scanner graded this file's own two explanatory sentences as claims.
     final text = _blankQuotedSpans(run.map(_blankQuotedSpans).join(' ')).trim();
     if (_isExhibitText(text)) continue;
-    for (final m in _englishForm.allMatches(text)) {
-      if (_negated.hasMatch(text.substring(0, m.start))) continue;
-      final lo = int.parse(m.group(1)!);
-      final hi = int.parse(m.group(2) ?? '$lo');
-      out.add(_Claim(name, 0, lo, hi,
-          m.group(3)!.replaceAll('broken ', '').toLowerCase(), m.group(0)!));
-    }
-    for (final m in _quotedNoun.allMatches(text)) {
-      if (_negated.hasMatch(text.substring(0, m.start))) continue;
-      final form = _arabicForms[m.group(3)!];
-      if (form == null) continue;
-      final lo = int.parse(m.group(1)!);
-      final hi = int.parse(m.group(2) ?? '$lo');
-      out.add(_Claim(name, 0, lo, hi, form, m.group(0)!));
-    }
-    for (final m in _andUp.allMatches(text)) {
-      if (_negated.hasMatch(text.substring(0, m.start))) continue;
-      final lo = int.parse(m.group(1)!);
-      out.add(_Claim(name, 0, lo, lo + _window,
-          m.group(2)!.replaceAll('broken ', '').toLowerCase(), m.group(0)!));
-    }
-    for (final m in _ranged.allMatches(text)) {
-      if (_negated.hasMatch(text.substring(0, m.start))) continue;
-      out.add(_Claim(name, 0, int.parse(m.group(1)!), int.parse(m.group(2)!),
-          m.group(3)!.replaceAll('broken ', '').toLowerCase(), m.group(0)!));
-    }
-    for (final m in _meansUpTo.allMatches(text)) {
-      if (_negated.hasMatch(text.substring(0, m.start))) continue;
-      out.add(_Claim(name, 0, int.parse(m.group(1)!), int.parse(m.group(2)!),
-          'singular', m.group(0)!, uniform: true));
-    }
-
-    // The copula form. A range is a range here too: "3-10 is the broken
-    // plural" is ten claims wearing one coat, exactly as "3-10 takes the
-    // broken plural" is above.
-    for (final m in _copula.allMatches(text)) {
-      if (_negated.hasMatch(text.substring(0, m.start))) continue;
-      final lo = int.parse(m.group(1)!);
-      final hi = int.parse(m.group(2) ?? '$lo');
-      out.add(_Claim(name, 0, lo, hi,
-          m.group(3)!.replaceAll('broken ', '').toLowerCase(), m.group(0)!));
-    }
-
-    out.addAll(_labelClaims(text, name, 0));
+    // Every claim shape, through the SAME reader the tree scan uses. Two
+    // scanners of one vocabulary must not disagree about what a sentence
+    // says -- which is the defect this shared reader exists to end, and the
+    // reason the loops that used to sit here, twice, are gone.
+    out.addAll(_lineClaims(text, name, 0));
   }
   return out;
 }
@@ -829,6 +1099,7 @@ String _blankQuotedSpans(String text) => text
 bool _isExhibitText(String text) =>
     RegExp(r'(\d+)\s+takes?\s+').hasMatch(text) == false &&
     _copula.hasMatch(text) == false &&
+    _andUpCopula.hasMatch(text) == false &&
     // A paragraph of worked examples is a paragraph of claims: the gate has to
     // ask the same question the scanners answer, or the label shape is the one
     // shape this file can exhibit forever without a reader.
@@ -877,71 +1148,7 @@ List<_Claim> _claims() {
         // decides whether a real file goes red.
         final text = _blankQuotedSpans(raw);
 
-        for (final m in _englishForm.allMatches(text)) {
-          if (_negated.hasMatch(text.substring(0, m.start))) continue;
-          final lo = int.parse(m.group(1)!);
-          final hi = int.parse(m.group(2) ?? '$lo');
-          out.add(_Claim(relative, i + 1, lo, hi,
-              m.group(3)!.replaceAll('broken ', '').toLowerCase(), m.group(0)!));
-        }
-
-        for (final m in _quotedNoun.allMatches(text)) {
-          if (_negated.hasMatch(text.substring(0, m.start))) continue;
-          final form = _arabicForms[m.group(3)!];
-          if (form == null) continue; // a noun from some other sentence
-          final lo = int.parse(m.group(1)!);
-          final hi = int.parse(m.group(2) ?? '$lo');
-          out.add(_Claim(relative, i + 1, lo, hi, form, m.group(0)!));
-        }
-
-        for (final m in _andUp.allMatches(text)) {
-          if (_negated.hasMatch(text.substring(0, m.start))) continue;
-          final lo = int.parse(m.group(1)!);
-          // No upper bound is given, so the claim runs to the end of the
-          // window — checking only the lower number would let the one form of
-          // this sentence that is always false pass.
-          out.add(_Claim(relative, i + 1, lo, lo + _window,
-              m.group(2)!.replaceAll('broken ', '').toLowerCase(), m.group(0)!));
-        }
-
-        for (final m in _ranged.allMatches(text)) {
-          if (_negated.hasMatch(text.substring(0, m.start))) continue;
-          out.add(_Claim(relative, i + 1, int.parse(m.group(1)!),
-              int.parse(m.group(2)!),
-              m.group(3)!.replaceAll('broken ', '').toLowerCase(), m.group(0)!));
-        }
-
-        for (final m in _meansUpTo.allMatches(text)) {
-          if (_negated.hasMatch(text.substring(0, m.start))) continue;
-          final lo = int.parse(m.group(1)!);
-          out.add(_Claim(relative, i + 1, lo, int.parse(m.group(2)!),
-              'singular', m.group(0)!, uniform: true));
-        }
-
-        for (final m in _open.allMatches(text)) {
-          if (_negated.hasMatch(text.substring(0, m.start))) continue;
-          final lo = int.parse(m.group(1)!);
-          out.add(_Claim(relative, i + 1, lo, lo + _window,
-              m.group(2)!.replaceAll('broken ', '').toLowerCase(), m.group(0)!));
-        }
-
-        // The copula form, in the tree scan as well. Without this line the
-        // reader reads a paragraph only when it holds the word *takes*, so
-        // "10 is plural, 11 is counted singular" -- eleven true sentences
-        // across the tree, and one false one -- is graded by nothing.
-        for (final m in _copula.allMatches(text)) {
-          if (_negated.hasMatch(text.substring(0, m.start))) continue;
-          final lo = int.parse(m.group(1)!);
-          final hi = int.parse(m.group(2) ?? '$lo');
-          out.add(_Claim(relative, i + 1, lo, hi,
-              m.group(3)!.replaceAll('broken ', '').toLowerCase(), m.group(0)!));
-        }
-
-        // The label shape, in the tree scan as well, through the SAME function
-        // the self scan calls -- see [_labelClaims]. Without it the only reader
-        // of a worked-example table is a reader that is skipped by the one
-        // exemption in this file.
-        out.addAll(_labelClaims(text, relative, i + 1));
+        out.addAll(_lineClaims(text, relative, i + 1));
       }
     }
   }
