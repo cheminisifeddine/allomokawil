@@ -834,6 +834,52 @@ The backlog is empty and the gate was lying, so this phase is about the
 harness rather than the app. Items here are only real if they change what a
 future tick can *see*.
 
+- [x] **The empty-text guard was policing 19 copy functions out of 23 — and
+      the other guard shape it could not see was the correct one.**  `90c4434`.
+      The pre-existing `no_empty_text_site_test.dart` failure the 9 Oct tick
+      left **owed**, closed. It was not flaky: the guard's own list of
+      empty-returning copy functions had gone stale for weeks.
+
+      *Two defects, one file, and the second only became visible once the
+      first was fixed.* **One:** four functions grew after the guard was
+      written — `lostPagesAr`, `partialMarketLineAr`, `partialThreadLineAr`,
+      `undrawnMessagesAr`, all in the `partial_*_copy.dart` family that
+      `zero_is_silence_test.dart` already sweeps. The list's own test failed
+      the moment they landed and has been red ever since, so the **three
+      sweeps below it were blind to all four**: a new unguarded
+      `Text(partialThreadLineAr(...))` would have passed. **Two:** with the
+      list corrected, the sweep flagged `chat_screen.dart:1241` — and that site
+      is **not** a hole. It branches on the *predicate*
+      (`if (partialThreadMayClaimComplete(undrawn: _undrawn)) return const
+      SizedBox.shrink();`) twenty lines above the `Text` and builds the sentence
+      at the bottom of the widget. `_isGuarded` reads three lines up, so the
+      other legitimate guard shape was invisible to it.
+
+      *The tempting repair was the one that would have cost more than the
+      bug.* `_exempt` skips a file for **all three** sweeps, so adding both
+      call-site files to silence one line would have hidden every genuine hole
+      elsewhere in a 2,000-line chat screen, permanently, in exchange for
+      making a red suite green. Instead the shape is accepted where it happens
+      (`_bailsBeforeDraw`) and both files stay under test. The honest cost of
+      reading a *source* shape is recorded in the code rather than hidden — a
+      function that bails early for an unrelated reason and also draws a copy
+      raw would pass — so the underlying claim is proved at **runtime** instead:
+      a new test asserts the sentence is silent **exactly when** the predicate
+      says the read was complete, equal on every input, which is the only thing
+      entitling the early return to stand in for the missing `isEmpty` test.
+      `<= 0` vs `== 0` is pinned with it: change one side and a negative count
+      makes exactly one of them lie.
+
+      **Evidence.** `flutter analyze` -> **No issues found!** (10.8s).
+      `no_empty_text_site_test.dart` -> **6/6** (was 4 passed / 1 failed).
+      **Mutation:** disabling `_bailsBeforeDraw` fails the sweep on
+      `chat_screen.dart:1241`, so the new guard is load-bearing, not vacuous.
+      **Full suite — the clean run the last tick owed — 2655 tests across 14
+      shards, 13 green / 1 not**, against the 2609 baseline. The one shard is
+      the KNOWN `agreement_comment_test.dart` pair, **proven pre-existing**: my
+      change stashed, the identical two failures reproduced on clean HEAD, then
+      restored. Those two are the only red left in the tree.
+
 - [x] **The notification centre drew the newest hundred, counted its own unread
       from them, and left the rest of the server's unread stranded where no
       gesture could reach it.**  `e02e8b3`.
