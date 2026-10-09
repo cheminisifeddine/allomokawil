@@ -831,10 +831,11 @@ in this file that dies on arrival is how two ticks were lost.
    ```
    /home/hatch/tools/sdk/flutter/bin/flutter analyze   # must print "No issues found!"
    python3 tool/run_tests.py                           # count must be >= the previous count
+   ```
 
-   **The baseline is 2528, measured 8 Oct -- and it is a number, not an
-   assumption.** `SUITE PASS - 2528 tests across 13 shard(s)`, 13/13 green,
-   `2520 passed, 8 skipped`, 18:42, zero FAIL/HUNG lines. It REPLACES two
+   **The baseline is 2603, measured 9 Oct -- and it is a number, not an
+   assumption.** `SUITE PASS - 2603 tests across 14 shard(s)`, 14/14 green,
+   `2595 passed, 8 skipped`, 19:03, zero FAIL/HUNG lines. It REPLACES two
    earlier figures that were not wrong by accident: **2297** and **2459**
    were both counting shards 4 and 7 as empty, because `passed_count`
    could not read a progress line carrying a skip marker (see the Phase 6
@@ -844,7 +845,6 @@ in this file that dies on arrival is how two ticks were lost.
    **Do not "restore" 2297/2459**, and do not gate on a number lower than
    the last green run: the count only moves when tests are added or lost,
    and a drop is the one signal this gate exists to give.
-   ```
    If either fails: `git checkout -- .` (or `git stash`) and report the failure
    instead of committing. **A red build is never shipped.**
 
@@ -30618,3 +30618,89 @@ this very reader, so the first step is to write it and let the loop judge it —
 that is the point of the loop. Note the constraint measured here: a comment that
 says «120 is a dual» cannot be made true, so the fix is to say what the sentence
 is actually about, not to make the shape gradeable.
+
+---
+
+## Tick 9 Oct — the gate block itself was not copy-pasteable
+
+`69a3f4b`. The backlog carried **no unchecked item**, so this cycle had no
+Dart work to take and the previous tick's "next" was still Dart-gated. What
+it did have was the thing step 4 depends on.
+
+**Step 4 is the only instruction in this file with no second copy to check
+it against.** Every other step is pinned by a suite; this one is read by an
+agent under time pressure and obeyed. It had rotted twice, invisibly.
+
+**1. The fence closed 13 lines late.** The opening ``` sits directly under
+`4. Gate before committing:` and its closing one was 13 lines below the two
+gate commands, so a whole paragraph of Markdown — the baseline note, the
+2297/2459 history, the "do not gate lower" rule — rendered inside the same
+code block. Copy it and you get 15 lines of shell; `bash -n` on that is a
+syntax error at the line carrying *"progress line carrying a skip marker
+(see the Phase 6 item)"*. Fixed: the fence now closes after the two commands.
+
+**2. The baseline in it was stale, and the fence hid the contradiction.** It
+stated **2528 across 13 shard(s)**; the newest green run in this same file
+states **2603 across 14**, and the block's own text says *do not gate on a
+number lower than the last green run*. A tick reading only the fenced block
+gated **75 tests below the tree it was about to measure**, so a legitimate
++75 was indistinguishable from a regression, and 13/13 vs 14/14 left the
+verdict unreadable. Corrected to 2603/14 — and this tick's own run then
+measured **2603 across 14**, which is the number now written down.
+
+**`test/loop_protocol_test.py`, 7 cases, against the real file.** The block
+holds commands and no prose; it parses as shell; both commands are inside it
+and only them; the baseline is not below the newest green run; the shard
+count matches it; **every fence in the protocol balances**; plus a control,
+so the cases cannot pass vacuously on a step 4 that no longer exists.
+
+**Mutation-tested, and it earned its keep twice.**
+- Replay the original defect (fence closed late) -> **4/7 red**, each naming
+  itself: 65 prose lines, `bash -n` syntax error, fences unbalanced.
+- **A regression I introduced this tick was caught by a case I had to add
+  first.** Moving the paragraph out of the block left its original closing
+  fence orphaned, and that one stray ``` swallowed the remaining **28,600
+  lines** of the protocol into a single code block — while the suite read
+  **7/7 green**, because it only looked at step 4. The fence-balance case
+  exists because of that, and it is the reason the file is not quietly
+  broken right now.
+- **Dropped one case that could not fail**: its regex looked for a gate floor
+  carrying digits, matched nothing in the file, and reported `none` while
+  passing. A guard that reports nothing is not a guard.
+- A fourth mutant initially came back red for the wrong reason — my *mutator*
+  inserted the fence one line too early, so 1 command was captured. The
+  suite was right and the mutator was wrong; fixed, then re-ran.
+
+**Evidence** (real output)
+- `flutter analyze` -> **No issues found!** (11.9s)
+- `tool/run_tests.py` -> **SUITE PASS — 2603 tests across 14 shard(s), every
+  shard green**, 2595 passed / 8 skipped, **14/14, zero retries, zero
+  FAIL/HUNG lines**, exit 0. Baseline **2603 confirmed, not asserted**
+- `test/loop_protocol_test.py` -> **7/7 ALL PASS**
+- `test/build_gate_test.py` -> **32/32 ALL PASS**
+- `run_tests_retry_budget_test.py` -> 4 passed, 0 failed; `remote_state_test`
+  and `push_helper_test` and `stash_verdict_test` (7/7) all still green
+- **No Dart, no `lib/`** — one markdown file, one Python suite. Nothing
+  renders, **no screenshot claimed**
+
+**A measured correction to last tick's memory claim.** This tick opened with
+`build_gate.py` -> **NO ROOM**, 432 MB against the 900 MB floor, `Balloon:`
+holding 5264 MB outside the PID namespace. That was correct and it held for
+the first half of the cycle. Memory then rose on its own to **1235 MB** with
+nothing in this loop running, the gate went **CLEAR**, and the Dart gates
+above were taken in the same tick the protocol said they could not be.
+
+So the honest statement is not "the host is permanently starved" — it is that
+**the box oscillates across its own floor**, which is case 10's finding
+again, and a tick that treats one NO ROOM as permanent will skip a gate that
+had become available. Re-check the gate immediately before building; do not
+carry last tick's verdict into this one. `build_gate_test.py` failing 28/32
+mid-cycle was this same oscillation, not a regression: the suite file is
+byte-identical (`c9e807d`) and returns 32/32 on the same tree once the box
+is above 900 MB.
+
+**Next.** The comment edit at `relative_time_hour_floor_test.dart:97` is
+still open and still Dart-gated — it is one sentence, the fix is known
+(replace the false pluralisation claim with what the sentence is actually
+about), and it needs a live gate to land. It is first up the moment the box
+is above 900 MB at the start of a tick. Nothing behind it.
