@@ -82,7 +82,7 @@ import 'worker_stats_copy.dart';
 ///
 ///     2  ->  يظهر أعلاه تقييمان،      (dual, no number, the dual says two)
 ///     3  ->  يظهر أعلاه 3 تقييمات،    (broken plural, 3-10 and 103-110)
-///     11 ->  يظهر أعلاه 11 تقييماً،  (counted singular, 11+ and 110+)
+///     11 ->  يظهر أعلاه 11 تقييماً،  (counted singular, 11-102 and 111-202)
 ///     1  ->  يظهر أعلاه تقييم واحد،  (unchanged — a count of one reads
 ///                                       better in the word than in digits)
 String? reviewsSectionUnbackedAr({required int headerCount}) =>

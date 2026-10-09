@@ -115,6 +115,154 @@ final _copula = RegExp(
     r'(?:the\s+)?(broken\s+plural|plural|dual|singular)',
     caseSensitive: false);
 
+/// **The LABEL form - the vocabulary's second gap, measured at 11 claims.**
+///
+/// A table of worked examples states the rule in a shape none of the seven
+/// patterns above reads, because it has neither the word *takes* nor a copula:
+/// the form is a **parenthetical**, and the range it is about is either the one
+/// before the bracket or the ones named inside it.
+///
+///     `3-10 (plural)`                      <- BEFORE, in arabic_agreement.dart
+///     `(broken plural, 3-10 and 103-110)`   <- INSIDE, in reviews_section_copy.dart
+///
+/// Measured before this was written: **eight rule-stating lines across three
+/// files are read by no pattern in this file** - the agreement table that is
+/// the header of the file the whole rule lives in, the three-row worked-example
+/// table in `reviews_section_copy.dart`, and the class census in
+/// `zero_is_silence_test.dart`. The header of `arabic_agreement.dart` is the
+/// most-read comment in the app, and every one of its five rule rows was
+/// invisible to a guard written to police it.
+///
+/// **And reading it found a false claim in `lib/`, on the tick it was added.**
+/// `reviews_section_copy.dart:85` labelled its counted-singular row
+/// `(counted singular, 11+ and 110+)` - and 110 is **plural**: 10 is inside
+/// the broken-plural window, which is the mod-100 rule stated a few lines below
+/// it in the same file. Corrected at the site to the two spans that really are
+/// uniform, `11-102 and 111-202`.
+///
+/// Three guards on reading this shape. Each one exists because the plant that
+/// pins it was written FIRST and the reader had to be fixed to pass it, which
+/// is the only reason this tick's plants were written before the reader rather
+/// than after:
+///
+///   * **A bracket's number is not necessarily the row's number.**
+///     `قبل 7 دقائق   3-10 (plural)` is a claim about **3-10**; the 7 is an
+///     example the row illustrates. So the number before the bracket is read
+///     only when nothing but punctuation and spaces stands between them, and
+///     never more than [_labelGap] characters of it. Without this the example
+///     on every row of the header was graded instead of the rule, and three of
+///     its five rows became claims about the wrong number.
+///   * **A bracket that says the form carries no number is not a claim.**
+///     `(dual, no number, the dual says two)` is about the WORD.
+///   * **`mod-100` is not a count.** "see the mod-100 rule below" is prose
+///     about the rule, so an inner range is only a claim when it does not
+///     follow a letter or a hyphen. Without this the header's own fifth row was
+///     read as "100 is plural", and it failed on a comment that was true.
+final _paren = RegExp(r'\(([^()\n]*)\)');
+
+/// The form word that OPENS a label, and nothing else: `(broken plural, 3-10…)`
+/// states that 3-10 is a broken plural, whereas a form word in the middle of a
+/// bracket is prose.
+final _labelForm = RegExp(
+    r'^\s*(broken\s+plural|counted\s+singular|plural|dual|singular)\b',
+    caseSensitive: false);
+
+/// A range BEFORE the bracket - `3-10 (plural)`, `11+ (singular)`. The run
+/// between the number and the bracket must be **punctuation and spaces only**,
+/// and that character class is the whole guard: an Arabic word between a
+/// number and its bracket is what separates the row's own number from the
+/// example it illustrates, and no Arabic character can appear in the run.
+///
+/// **The length bound was tried and deleted, and the mutation test is why it
+/// went.** An earlier version capped the run at eight characters. Widening that
+/// class to "anything non-word" left the suite GREEN at 45/45 -- Arabic is not
+/// a word character in Dart's regex, so the cap was never what excluded it,
+/// and the constant was decoration the analyzer's own `unused_element` lint
+/// caught when the cap stopped being enforced. Recorded because the
+/// alternative -- keeping a bound that cannot fail -- is the exact failure this
+/// file has been written to catch since 8 Oct, wearing a different hat.
+final _labelBefore = RegExp(
+    r'(\d+)(?:\s*[-\u2013\u2014]\s*(\d+))?(\+)?'
+    r'[ \t>\-=,.:]*'
+    r'\(\s*(broken\s+plural|counted\s+singular|plural|dual|singular)\b',
+    caseSensitive: false);
+
+/// A range INSIDE the bracket, after the form word that opened it:
+/// `(broken plural, 3-10 and 103-110)`. The lookbehind is what keeps `mod-100`
+/// and `n % 100` out of it.
+final _rangeInLabel = RegExp(
+    r'(?<![\w-])(\d+)(?:\s*[-\u2013\u2014]\s*(\d+))?(\+)?');
+
+/// A bracket that says the form carries no number - `(dual, no number, the dual
+/// says two)` is about the WORD, and the word it holds is not a count.
+final _noNumberInLabel =
+    RegExp(r'\bno\s+number\b|\bnot\s+a\s+number\b', caseSensitive: false);
+
+/// The inner text of the bracket a given offset sits inside, or null.
+///
+/// The BEFORE rule is anchored on the number rather than on the bracket, so it
+/// cannot ask "which bracket am I in?" for free: this walks the parentheses of
+/// the one line and answers it. It has to be a walk rather than a second
+/// capture in [_labelBefore], because the two brackets a line can hold are
+/// independent - `2 -> (dual, no number) ... 3-10 (plural)` is two claims and
+/// two different exemptions, and a pattern that could only see its own bracket
+/// would grade the first one off the second one's exemption.
+String? _bracketHolding(String text, int offset) {
+  for (final m in _paren.allMatches(text)) {
+    if (m.start <= offset && offset < m.end) return m.group(1);
+  }
+  return null;
+}
+
+/// Every claim the LABEL shape carries, from one place.
+///
+/// **One function, two callers, on purpose.** The tree scan and the self scan
+/// must not be able to disagree about whether a bracket is a claim, so neither
+/// owns the pattern: they both call this.
+List<_Claim> _labelClaims(String text, String name, int line) {
+  final out = <_Claim>[];
+
+  void add(int lo, int hi, String form, String label) => out.add(_Claim(
+      name, line, lo, hi,
+      form.replaceAll('broken ', '').replaceAll('counted ', '').toLowerCase(),
+      label));
+
+  for (final m in _labelBefore.allMatches(text)) {
+    if (_negated.hasMatch(text.substring(0, m.start))) continue;
+    // The form word is what the bracket is ABOUT, so the exemption is asked
+    // about the form word. Asked about [m.start] instead -- which is the number
+    // and therefore usually OUTSIDE the bracket -- it read either the previous
+    // bracket or nothing at all, and `2 -> (dual, no number)` was graded as a
+    // claim about 2. One bracketed exemption, missed by one offset.
+    final formOffset = m.end - m.group(4)!.length;
+    if (_noNumberInLabel.hasMatch(_bracketHolding(text, formOffset) ?? '')) {
+      continue;
+    }
+    final lo = int.parse(m.group(1)!);
+    add(
+        lo,
+        m.group(3) != null
+            ? lo + _window
+            : int.parse(m.group(2) ?? '$lo'),
+        m.group(4)!,
+        m.group(0)!);
+  }
+
+  for (final pm in _paren.allMatches(text)) {
+    final inner = pm.group(1)!;
+    final fm = _labelForm.firstMatch(inner);
+    if (fm == null) continue;
+    if (_noNumberInLabel.hasMatch(inner)) continue;
+    for (final r in _rangeInLabel.allMatches(inner.substring(fm.end))) {
+      final lo = int.parse(r.group(1)!);
+      add(lo,
+          r.group(3) != null ? lo + _window : int.parse(r.group(2) ?? '$lo'),
+          fm.group(1)!, '${r.group(0)} in (${fm.group(1)})');
+    }
+  }
+  return out;
+}
+
 /// `11 and up means up to 110` — the boundary stated directly. It claims the
 /// upper number is *inside* the open range, so the pair is one span: read as
 /// "11 through 110 are all singular", which is the claim being made.
@@ -242,6 +390,95 @@ void main() {
               'singular" and "3-10 is the broken plural" are stated in the '
               'tree and nothing read them, so a false one in this shape is '
               'graded by no one');
+    });
+
+    // THE LABEL VOCABULARY IS PINNED BY A FLOOR, for the reason the copula
+    // floor above states: the eight label claims are graded only by the loop
+    // over `_claims()`, so deleting the pattern deletes the tests that would
+    // have noticed. Measured at 8 across `lib/` and `test/` at this commit --
+    // five rows in `arabic_agreement.dart`, three in
+    // `reviews_section_copy.dart`, two in `zero_is_silence_test.dart`.
+    test('the label vocabulary still reaches the tree', () {
+      final labelClaims =
+          claims.where((c) => c.text.contains('in (') || _labelBefore
+              .hasMatch(c.text)).toList();
+      expect(labelClaims.length, greaterThanOrEqualTo(8),
+          reason: 'only ${labelClaims.length} label-form claims were read out '
+              'of lib/ and test/ -- "3-10 (plural)" and "(broken plural, 3-10 '
+              'and 103-110)" are the shape the agreement table in '
+              'arabic_agreement.dart is written in, and nothing read them');
+    });
+
+    // The two stages the real tree cannot exercise, planted.
+    test('the label reader takes the range from before the bracket', () {
+      final found = _labelClaims('before 7 دقائق   3-10 (plural)', 'p.dart', 0);
+      expect(found.length, 1);
+      expect(found.single.from, 3);
+      expect(found.single.to, 10);
+      expect(found.single.form, 'plural');
+    });
+
+    // The REAL line from `reviews_section_copy.dart`, copied verbatim -- Arabic
+    // and all -- rather than a cleaned-up paraphrase of it.
+    //
+    // The paraphrase was the bug, and it was a bug in the PLANT rather than in
+    // the reader: it dropped the Arabic between the row's number and its
+    // bracket, so a `11 -> (` shaped string let the BEFORE rule fire on the row
+    // number as well and the plant expected two claims where three are
+    // correct. The Arabic is exactly what the gap guard in [_labelBefore]
+    // exists to see, so a plant without it is a plant for a row this tree does
+    // not have.
+    test('the label reader takes the ranges named inside the bracket', () {
+      final found = _labelClaims(
+          '11 ->  يظهر أعلاه 11 تقييماً،  (counted singular, 11-102 and 111-202)',
+          'p.dart',
+          0);
+      expect(found.map((c) => c.from), [11, 111]);
+      expect(found.map((c) => c.to), [102, 202]);
+    });
+
+    // The same line WITHOUT the Arabic: the row's own number is then adjacent
+    // to the bracket, so it IS the row's number and is a claim in its own
+    // right. Pinned because the two readings differ only in the text between
+    // them, which is the entire content of the gap guard.
+    test('a number adjacent to its bracket is the row\'s own claim', () {
+      final found = _labelClaims('11 -> (counted singular)', 'p.dart', 0);
+      expect(found.length, 1);
+      expect(found.single.from, 11);
+      expect(found.single.form, 'singular');
+    });
+
+    // `11+` inside a bracket is an UNBOUNDED claim, and one counterexample
+    // falsifies it -- `103` takes the plural. Planted so the open-ended
+    // reading cannot
+    // be dropped to make a wrong comment pass, which is the mistake this whole
+    // file exists to catch.
+    test('an open-ended range inside a bracket is tested to the window', () {
+      final found = _labelClaims('11+ (singular)', 'p.dart', 0);
+      expect(found.single.to, greaterThanOrEqualTo(1000));
+    });
+
+    // The two exclusions, each of which fails a correct table if dropped.
+    test('a bracket that says the form carries no number is not a claim', () {
+      expect(_labelClaims('2 -> (dual, no number, the dual says two)', 'p', 0),
+          isEmpty);
+    });
+
+    // `mod-100` is the exclusion that applies to a range INSIDE a bracket: the
+    // 100 is part of the name of the rule, not a count. The earlier version of
+    // this plant wrote it in front of the bracket instead, where the number
+    // really is the row's number and the reader is right to grade it -- a
+    // correct comment that the plant was asking to be ignored.
+    test('mod-100 inside a bracket is not a count', () {
+      final found = _labelClaims(
+          '11 -> (counted singular, 11-102 - see the mod-100 rule below)', 'p',
+          0);
+      // Two claims, not three: the row's own 11, and the 11-102 inside the
+      // bracket. The 100 of `mod-100` is part of the NAME of the rule, and a
+      // reader that graded it would fail this tree's own header -- which says
+      // "see the mod-100 rule below" on the very row the guard reads.
+      expect(found.map((c) => '${c.from}-${c.to}'), ['11-11', '11-102']);
+      expect(found.any((c) => c.from == 100 || c.to == 100), isFalse);
     });
 
     // THE READER, PLANTED. `_selfClaims` returns zero on this file -- correctly,
@@ -523,6 +760,8 @@ List<_Claim> _scanClaims(List<String> lines, String name) {
       out.add(_Claim(name, 0, lo, hi,
           m.group(3)!.replaceAll('broken ', '').toLowerCase(), m.group(0)!));
     }
+
+    out.addAll(_labelClaims(text, name, 0));
   }
   return out;
 }
@@ -589,7 +828,12 @@ String _blankQuotedSpans(String text) => text
 /// a rule has to be present in the text before its truth is a question.
 bool _isExhibitText(String text) =>
     RegExp(r'(\d+)\s+takes?\s+').hasMatch(text) == false &&
-    _copula.hasMatch(text) == false;
+    _copula.hasMatch(text) == false &&
+    // A paragraph of worked examples is a paragraph of claims: the gate has to
+    // ask the same question the scanners answer, or the label shape is the one
+    // shape this file can exhibit forever without a reader.
+    _labelBefore.hasMatch(text) == false &&
+    _labelForm.hasMatch(text) == false;
 
 
 List<_Claim> _claims() {
@@ -692,6 +936,12 @@ List<_Claim> _claims() {
           out.add(_Claim(relative, i + 1, lo, hi,
               m.group(3)!.replaceAll('broken ', '').toLowerCase(), m.group(0)!));
         }
+
+        // The label shape, in the tree scan as well, through the SAME function
+        // the self scan calls -- see [_labelClaims]. Without it the only reader
+        // of a worked-example table is a reader that is skipped by the one
+        // exemption in this file.
+        out.addAll(_labelClaims(text, relative, i + 1));
       }
     }
   }
