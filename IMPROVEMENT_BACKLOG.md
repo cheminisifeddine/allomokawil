@@ -674,6 +674,94 @@ The backlog is empty and the gate was lying, so this phase is about the
 harness rather than the app. Items here are only real if they change what a
 future tick can *see*.
 
+- [x] **Step 6's blob check could not see a mode difference — so a tick
+      reported MATCH on a tree the tree gate called DIVERGED, and both were
+      right.**  `589a9ba`.
+      A non-build tick: `build_gate.py --quiet` exits **1** — a `Balloon:`
+      holds **5585 MB of 7935 MB**, nothing in this PID namespace owns it,
+      and the gate refuses a Dart gate at 387 MB available against its 900 MB
+      floor. This cycle is Python-only, which is the one arm still checkable
+      on a box whose memory is too full to run Dart.
+
+      The item came from step 6 itself. `tool/remote_state.py` answered
+      **DIVERGED** while the previous tick's hand-run evidence line said every
+      blob **MATCH** — and both were true, which is the defect: the two checks
+      read different objects.
+
+      **`git hash-object` returns a BLOB sha. The mode lives in the TREE
+      hash.** The step-6 recipe (below) builds `remote = {path: sha}` and
+      compares SHAs only, so a file whose bytes are identical and whose mode
+      differs reads MATCH forever. `test/run_tests_busy_code_test.py` was
+      committed **100755** by `chmod +x` + add (`a259c31`), and
+      `gh_push.py:318` mints **every** path `100644` — so the remote had been
+      permanently DIVERGED on the mode axis since that commit, invisible to
+      the recipe that every tick runs as its push proof.
+
+      *The bit was cosmetic and nothing lost it.* The file is invoked only as
+      `python3 test/run_tests_busy_code_test.py` (one hit in the whole repo),
+      and it was the **only** tracked `100755` in the tree — `git ls-files -s`
+      over all 300+ files returns that path and nothing else. So no real
+      executable is disarmed by this.
+
+      *Shipped:* `git update-index --chmod=-x` **plus** the matching on-disk
+      `chmod 644`. The index half alone leaves `MM` — index 644, worktree 770 —
+      and still DIVERGED; both halves are load-bearing and neither alone works.
+
+      *Evidence.* `--why` named **exactly one** path and no other:
+      `mode  test/run_tests_busy_code_test.py  local 100755 / remote 100644`.
+      `python3 test/run_tests_busy_code_test.py` -> **2 passed, 0 failed**
+      before *and* after the change; `remote_state_test.py` and
+      `push_helper_test.py` green. `remote_state.py` now exits **0, IN SYNC**
+      with both trees at `d743f3d`, and the **remote mode read back over the
+      API is 100644** — not inferred from the summary line, which is the
+      mistake this backlog exists to stop repeating.
+      The blob sha is **unchanged** at `f1c9595`, which is what proves the fix
+      is metadata-only: the same bytes, a different mode.
+
+- [ ] **The guard that keeps the suite baseline honest is itself red — and it
+      has been, because it can no longer see the number it polices.**
+      `test/loop_protocol_test.py` case 5, **6/7**, failing on the committed
+      tree at `0060b0f` (verified by `git stash`, so it is not caused by
+      `589a9ba`).
+
+      ```
+      **FAIL** the fenced baseline is not stale (states (None, 14), newest green (2605, 14))
+      ```
+
+      `stated = stated_baseline(proto)` returns **`None`** for the count, and
+      the tuple is the whole assertion: the case is comparing `(None, 14)`
+      against `(2605, 14)`. `stated_baseline` is
+      `re.search(r"\*\*The baseline is (\d+)", txt)` and step 4's line reads
+      «**The baseline is now 2605, banked 9 Oct…» — the word **now** sits
+      between `is` and the digits, so the regex matches nothing. The check is
+      not asserting the baseline is stale; it cannot find the baseline at all.
+
+      **A second mismatch is hiding behind the first, and it is the real one.**
+      Even with `is now` parsed, the case would still fail: the newest banked
+      run is **2609** (`+4` from the bid-sheet item), but `newest_green` only
+      matches `SUITE PASS — N tests across M shard(s)`, and the 2609 line is
+      written `SUITE PASS — 2609 tests, 14/14 shards green` — a different
+      shape. So the guard compares the 2609 tree against a 2605 truth. Setting
+      step 4's prose to 2609 would make the numbers agree **without changing
+      what is compared**, i.e. it would turn the guard green and leave it
+      vacuous. That is the shape of change this backlog exists to refuse.
+
+      *The fix to make, and NOT to shortcut:* give step 4's fenced block one
+      canonical, machine-read baseline line in the exact shape
+      `newest_green` already parses, and have `stated_baseline` read **that
+      line** rather than a hand-worded prose sentence — so the number the gate
+      demands and the number the newest green run recorded cannot drift
+      through a re-worded paragraph again. Pinned by a case where the prose is
+      re-worded and the guard must still read the canonical line.
+      Non-build tick: no Dart changes, `build_gate.py` is closed while the
+      balloon holds 5585 MB.
+
+      **Left for a later tick, because the gate is closed:** step 6's recipe
+      should compare `(sha, mode)` the way `remote_state.py` already does, or
+      simply be deleted in favour of `tool/remote_state.py --files` — one
+      command that answers both axes. Until then the hand-run heredoc stays
+      mode-blind and a tick must not treat its MATCH as proof of IN SYNC.
+
 - [x] **The gate's own test suite decided its own result by whatever else was
       on the box — and it had been leaving one arm untested entirely.**
       `2af285c`.
@@ -983,6 +1071,14 @@ in this file that dies on arrival is how two ticks were lost.
    helper invocation with `ROOT=.` from `/home/hatch/workspace/repos`
    refuses, and with `ROOT=/home/hatch/allomokawil` it succeeds **from that
    directory and from `/tmp`**. Pinned by `test/push_helper_test.py`.
+   **WARNING 9 Oct 2026 — the recipe below compares BLOB shas only, so it is
+   blind to a mode difference.** `git hash-object` returns a blob sha; the
+   mode lives in the tree hash. `test/run_tests_busy_code_test.py` sat 100755
+   locally against 100644 on the remote and this recipe reported MATCH while
+   `tool/remote_state.py` said DIVERGED — both true, different objects.
+   Prefer `python3 tool/remote_state.py --files <paths...>`, which compares
+   both axes. Full write-up in Phase 6.
+
    **The blob check itself, written out**, because it is the one step in step 6
    that cannot be reproduced from this shell by hand: `dynamic_credentials` is
    not on `gh_push.py`'s import path unless *its* directory is added, and
