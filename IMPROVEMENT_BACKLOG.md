@@ -33436,3 +33436,115 @@ the next run that completes, not on this one.
 `32/32 ALL PASS` after a `git stash` refreshed the caches — the stale-`.pyc`
 defect this file filed earlier, redisplaying itself on a box whose mtimes moved.
 Same fix, same verdict: not a regression, and not ignorable either.
+
+## Tick 10 Oct 2026 (`f5f0805`) — a STARVED shard was a HUNG one, and the fix
+## last tick proposed would have misclassified its own case
+
+Finishes the defect recorded one tick below. **No Dart touched** — see the
+gate note at the end.
+
+- [x] **`run_tests.py` cannot tell a starved shard from a deadlocked one.** The
+      five-shard timeout was `flutter_tester` at **58 % CPU** on a box at load
+      7 with a foreign Chrome; the runner printed `HUNG` for every one of them,
+      which is the code it defines as *a shard I started stopped answering*.
+      A hang says **the tree is suspect** and earns a bisect; a starve says
+      **the box is suspect** and earns a wait. Same silence, opposite owner, and
+      the old code sent every starved shard down the expensive path.
+      **SHIPPED** (`f5f0805`, remote `0b2a18c`).
+
+**`STARVED = 4`**, alongside `PASS=0 / FAIL=1 / HUNG=2 / BUSY=3`, with its own
+shard line, its own final sentence (`INCONCLUSIVE, not red` / `Do not go
+looking for a defect in the tree`), and a `MIXED` verdict when both shapes
+appear in one run.
+
+**The signal is the shard's OWN process-group CPU — and load average could not
+do this job.** Last tick's proposal was *"sample `/proc/loadavg` ... report
+`STARVED (load N on M cores)`"*. Measured here before writing any code, both
+shapes, quiet and loaded:
+
+| shape | own-group CPU | `load1` |
+| --- | --- | --- |
+| `sleep 600` (deadlocked) | **0.0 %** | 0.55 |
+| busy loop (starved) | **90.3 %** | 0.67 |
+| deadlocked + 4 foreign hogs | **0.0 %** | **1.85** |
+
+Load average is box-wide and 1-minute weighted, so it reads **high for a
+deadlocked shard** when something else is busy and **low for a starved one**
+when nothing else is. **No cut separates that table**: 1.0 calls the loaded
+deadlock starved, and anything above it calls the real starve a hang. Load
+average answers *is the BOX busy*; the question is *is THIS SHARD busy*. The
+proposal would have shipped the 10 Oct case as a HUNG — the exact failure it
+was written to fix — and case 5 of the new test now pins the metric so that
+regression cannot return quietly.
+
+**Sampling order is load-bearing: CPU is read BEFORE `_kill_group`.** After the
+kill the ticks are back in the kernel's aggregate and there is nothing left to
+measure. Mutation C moves the two lines and is caught.
+
+**Thresholds: `>= 25 %` of one core for the whole cap, plus a `0.5` CPU-s
+absolute floor.** At the real 300 s deadline that is **75 CPU-s** — **2.3x below
+the measured starved case (174)** and unreachable by a deadlocked one (0.00).
+The margin is asymmetric on purpose: a shard that burned 70 CPU-s really did
+reach its cap doing work, and calling that a hang sends a tick after a defect
+that is not there.
+
+**Evidence — `test/run_tests_starved_code_test.py`, 6/6** (python, for the
+`run_tests_busy_code_test.py` reason: the box that produces a starved shard is
+the box that refuses Dart):
+
+| case | pins |
+| --- | --- |
+| 1 | deadlocked -> `2`, never STARVED |
+| 2 | starved -> `4`, and not 0/1/2/3 |
+| 3 | the verdict names STARVED, `CPU-s`, `INCONCLUSIVE`, `not red`, `No assertion failed` |
+| 4 | green stays green, exit 0, no starvation verdict |
+| 5 | the sampler reads `/proc/<pid>/stat`, **not `loadavg`** |
+| 6 | a real 2-shard MIXED run reports `shard 1/2: STARVED` **and** `shard 2/2: HUNG` |
+
+**Three mutations, three kills:** always-`HUNG` **3/6**; `loadavg` instead of
+own-group CPU **4/6**; sample-after-kill **3/6**.
+
+**Four things that were mine and are in the record**, because each one shipped
+green before it was caught:
+1. **My first threshold was unreachable.** `STARVED_MIN_CPU_SECS = 5.0` was
+   calibrated for a 300 s shard, so in a 20 s test window a burning stub
+   measured 5.2 CPU-s of 20 — and a *real* `flutter_tester` at 58 % could only
+   produce 3.5. Caught by the end-to-end trial printing HUNG, not by the unit
+   check. Re-derived from the measured gap.
+2. **The mixed case branched on `$3`, which matches nothing.** Real argv is
+   `[test, --reporter, expanded, <file>]` — the file is **`$4`**. Both shards
+   took the `sleep 600` branch, so the case passed **by accident while testing
+   nothing**. It now prints the file it was handed and asserts on it, so a
+   mis-keyed stub fails instead of going quiet.
+3. **The first `--shard-size 0` mixed case could not be mixed** — one shard.
+   It was replaced with the 2-shard run above; it now genuinely exercises the
+   merge.
+4. **I orphaned four CPU burners.** The measurement script for the loadavg
+   table hit `PermissionError` on `os.setpgid`, so cleanup never ran and four
+   `while :; do :; done` loops sat at ~31 % CPU each for 719 s — load 7.28, on
+   a 2-core box. That is **exactly the starvation this change detects**, and it
+   made cases 2–3 fail on the next run for a reason that had nothing to do with
+   the tree. Found by process inspection, killed (they were mine), and the
+   suite went 4/6 -> 6/6 on the same code. Recorded because a stray burner that
+   invalidates the next measurement is the kind of thing that gets blamed on the
+   tree.
+
+**GATE.** `build_gate.py` answered `NO ROOM` at **515 MB** available against
+its **900 MB** floor, with `Balloon: 5080 MB` held by the hypervisor and the
+largest local holder at 240 MB — correct, and not clearable locally. **So
+`flutter analyze` and `tool/run_tests.py` did not run this tick.** That is the
+correct call for this item, which is **python-only and gates on its own suite**:
+`git diff --name-only` shows **0 `.dart` files**, so the 2673-test count is
+untouched by construction. `test/run_tests_busy_code_test.py` **2/2**,
+`test/run_tests_retry_budget_test.py` **4/4**, `test/remote_state_test.py`
+**pass** — the pre-existing runner contracts, re-run to show the 4-tuple return
+did not break them.
+
+**Pushed:** remote `0b2a18cd7fe178e8e4b2caa2a5cbfdefad17a501`, trees
+byte-identical `4502080f`, `tool/run_tests.py` MATCH,
+`test/run_tests_starved_code_test.py` MATCH, worktree clean.
+
+**Next:** the Dart gate is still the loop's only real constraint and the box has
+not given it back in 10 ticks. Nothing in the backlog needs Dart, so the next
+item is the first unchecked one when one exists — and the standing instruction
+to repoint this cron at `/home/hatch/allomokawil` still stands.
