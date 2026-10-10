@@ -63,7 +63,22 @@ up from #3: the guard is not blind, it is *silent about a line it does not
 read*. `prose_baseline` reads only the present-tense claim directly under the
 fence, so the dozens of historical "banked 2609" mentions in the file cannot
 trip it.
+
+**5. The path table, which is what a tick reads FIRST, and which had rotted
+twice with nothing watching.** Everything above guards step 4 -- the middle of
+the protocol. The table at the top is read before step 1 is even reached, and
+it rotted twice on this host: `/home/renia/*` stopped existing on 26 Sep, and
+a *second* checkout later appeared at `/home/hatch/workspace/repos/allomokawil`
+with no `.git` and a stale copy of this very file. Both cost ticks real time
+rediscovering where the work was, and both were reported in prose that nothing
+executes. `path_table` reads the table and every row is checked against the
+live filesystem, so the table cannot name a path that is not there.
+
+Two rows are deliberately **outputs**, not tools, and are held to a weaker
+rule -- see `OUTPUT_ROWS`. A row that must EXIST is a different claim from a
+row that must merely be *where this protocol says it is*.
 """
+import io
 import os
 import re
 import subprocess
@@ -204,6 +219,121 @@ def newest_green(txt):
     return max(runs) if runs else (None, None)
 
 
+# The protocol's path table: "| what | real path (verified 26 Sep) |" followed
+# by rows of "| label | `path` (note) |". Read as a TABLE, not as a grep for
+# "/home/", because a grep cannot tell a row from the ~30 historical path
+# mentions scattered through the tick write-ups below it.
+TABLE_HEADER = "real path (verified"
+
+# Rows whose path is an OUTPUT the loop produces rather than a tool it runs.
+# `design shots` names /tmp/shots, which `design_shots_test.dart` creates with
+# `Directory(...).createSync(recursive: true)` on every run -- so it is absent
+# on a healthy box between ticks, and a rule that demanded it EXIST would train
+# the loop to distrust a correct table. For these the check is that the path is
+# the one this repo actually uses: it must appear in the writer that owns it.
+OUTPUT_ROWS = ("design shots",)
+
+
+def path_table(txt):
+    """{label: path} for every row of the protocol's path table.
+
+    Returns None when the table itself is absent -- distinct from an empty
+    table, because "no table" is what a tick must be told about rather than a
+    verdict of "every path checked".
+    """
+    if TABLE_HEADER not in txt:
+        return None
+    rows = {}
+    started = False
+    for line in txt.split("\n"):
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            if rows:
+                break                      # first non-table line ends it
+            continue
+        if stripped.startswith("| ---") or TABLE_HEADER in stripped:
+            if TABLE_HEADER in stripped:
+                started = True
+            continue
+        if not started:
+            continue
+        cells = [c.strip() for c in stripped.strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        label = cells[0].strip()
+        m = re.search(r"`([^`]+)`", cells[1])
+        if not label or not m:
+            continue
+        rows[label] = m.group(1)
+    return rows
+
+
+def rows_note(txt):
+    """{label: (path, trailing note)} for every table row.
+
+    The note is the part of the row AFTER the backticked path -- where rows
+    name their own owning file. `path_table` throws it away because the
+    liveness check does not need it; this reader needs it, and having two
+    scanners for one table is how they drift, so the row is parsed once here
+    and `path_table` stays the single source of the path itself.
+    """
+    if TABLE_HEADER not in txt:
+        return {}
+    out, started = {}, False
+    for line in txt.split("\n"):
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            if out:
+                break
+            continue
+        if stripped.startswith("| ---") or TABLE_HEADER in stripped:
+            if TABLE_HEADER in stripped:
+                started = True
+            continue
+        if not started:
+            continue
+        cells = [c.strip() for c in stripped.strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        m = re.search(r"`([^`]+)`(.*)$", cells[1])
+        if cells[0].strip() and m:
+            out[cells[0].strip()] = (m.group(1), m.group(2))
+    return out
+
+
+#: `const _outDir = '/tmp/shots';` and `const outDir = "/tmp/shots";`
+_ASSIGNED_DIR_RE = re.compile(
+    r"""(?:const|final|var|String)\s+\w*(?:out|dir|path|shots?)\w*\s*=\s*"""
+    r"""['"]([^'"]+)['"]""", re.IGNORECASE)
+
+#: `Directory('/tmp/shots').createSync(recursive: true);`
+_CREATED_DIR_RE = re.compile(
+    r"""Directory\(\s*['"]([^'"]+)['"]\s*\)\s*\.createSync\(""")
+
+
+def _declares_output_dir(body, path):
+    """Does this Dart file DECLARE `path` as an output directory?
+
+    Two acceptable shapes, and both are a declaration rather than a mention:
+    a variable assigned the path, or the path handed straight to the
+    `Directory(...).createSync` that makes it. Anything looser -- the bare
+    substring -- is satisfied by 46 files in this repo at once and therefore
+    asserts nothing about which one owns the row.
+    """
+    want = path.rstrip("/")
+    for rx in (_ASSIGNED_DIR_RE, _CREATED_DIR_RE):
+        for m in rx.finditer(body):
+            if m.group(1).rstrip("/") == want:
+                return True
+    return False
+
+
+def _first_line_path(body):
+    """The first quoted absolute path in a Dart file, for the report line."""
+    m = re.search(r"'(/[^']+)'", body)
+    return m.group(1) if m else "?"
+
+
 def main():
     results = []
 
@@ -335,6 +465,128 @@ def main():
           % len(opens), depth == 0)
     for line in opens[:2]:
         print("    unbalanced fence: %r" % line.strip()[:60])
+
+    # ---------------------------------------------------------------- 7
+    # The PATH TABLE -- the first thing a tick reads, and the one part of the
+    # protocol that had rotted twice with the suite green both times.
+    #
+    # Control FIRST, and for the seventh time in this file: a reader that finds
+    # no table returns None, and every assertion below would then pass
+    # vacuously while the table a tick depends on rots. `path_table` returning
+    # {} on the real tree is a BLIND reader, not a lenient one.
+    rows = path_table(proto)
+    check("control: the path table is readable (%d row(s))"
+          % (len(rows) if rows else 0),
+          rows is not None and rows)
+
+    if rows is not None and rows:
+        # (a) Every tool row must EXIST on this host. This is the assertion
+        # that would have caught /home/renia/* on the tick after the rebuild,
+        # and it is the one the founder's cron keeps tripping over.
+        dead = sorted("%s=%s" % (label, path) for label, path in rows.items()
+                      if label not in OUTPUT_ROWS and not os.path.exists(path))
+        check("every tool path in the table exists on this host (%d dead)"
+              % len(dead), not dead)
+        for row in dead[:4]:
+            print("    dead path: %s" % row)
+
+        # (b) The repo row must be the checkout THIS test is running in. If a
+        # tick is pointed at the stale second checkout, the table still looks
+        # perfect -- every path exists -- while every commit this guard makes
+        # lands in a tree with no .git. That is the trap the table cannot see
+        # by liveness alone, so it is checked against the file's own location.
+        check("the table's repo row is this checkout (%s)"
+              % rows.get("repo"),
+              os.path.realpath(rows.get("repo", "")) == os.path.realpath(REPO))
+
+        # (c) The repo row must be a real git checkout, not a bare copy. The
+        # stale checkout at /home/hatch/workspace/repos/allomokawil passes
+        # every existence check in (a) -- it is a full file tree -- and is
+        # missing exactly this one thing, which is why a tick could spend a
+        # whole cycle there.
+        repo_dir = rows.get("repo", "")
+        check("the table's repo row is a git checkout (.git present)",
+              os.path.isdir(os.path.join(repo_dir, ".git")))
+
+        # (d) An OUTPUT row must be the path its writer actually uses, so the
+        # table cannot drift from the code without turning red. This is a
+        # CONTENT check rather than an existence check, deliberately -- see
+        # OUTPUT_ROWS.
+        # (e) Every row must carry an ABSOLUTE path. A relative one resolves
+        # against whatever cwd a tick happens to be standing in, so it can
+        # pass (a) by luck from the right directory and fail everywhere else
+        # -- a table row that is sometimes true is worse than one that is
+        # never true, and it is invisible to an existence check alone.
+        # (Written as a real assertion rather than the "is every row covered"
+        # check this line first carried: that one computed
+        # `set(rows) - out | out == set(rows)`, which is true by algebra for
+        # any input whatsoever -- a case that could not fail, which is the
+        # seventh time this file has been bitten by exactly that.)
+        relative = sorted("%s=%s" % (label, path)
+                          for label, path in rows.items()
+                          if not path.startswith("/"))
+        check("every table path is absolute (%d relative)" % len(relative),
+              not relative)
+        for row in relative[:4]:
+            print("    relative path: %s" % row)
+
+        # (f) An OUTPUT row must be the path its writer actually uses, so the
+        # table cannot drift from the code without turning red. This is a
+        # CONTENT check rather than an existence check, deliberately -- see
+        # OUTPUT_ROWS. Sorted, because `os.listdir` order is filesystem
+        # order, and a label that names a different file run to run reads as a
+        # second writer appearing.
+        notes = rows_note(proto)
+        for label, path in sorted((l, p) for l, p in rows.items()
+                                  if l in OUTPUT_ROWS):
+            # The row names ONE owner in the table ("written by
+            # `design_shots_test.dart`"), so check THAT file -- not "some file
+            # somewhere under test/ mentions this path". The first version did
+            # the latter and passed on **46** files, every one of which writes
+            # shots into the same shared directory: a check that fires on 46
+            # inputs asserts nothing about the row it names, and its green was
+            # reporting the directory's popularity rather than agreement.
+            note = notes.get(label, ("", ""))[1]
+            named = re.search(r"`([\w./]+\.dart)`", note)
+            owner = named.group(1) if named else None
+            check("output row %r names an owning test file (%s)"
+                  % (label, owner or "none"), bool(owner))
+            if not owner:
+                continue
+            # `owner` is the path AS THE TABLE WRITES IT -- "test/
+            # design_shots_test.dart", repo-relative. The first version joined
+            # it onto REPO/test/, opening test/test/..., got an empty string,
+            # and reported FAIL for a file that matched perfectly. A guard
+            # that cannot open its own subject must say WHICH subject it
+            # failed to open; `_first_line_path` printing "?" is that tell.
+            owner_path = owner if owner.startswith("test/") \
+                else os.path.join("test", owner)
+            try:
+                with io.open(os.path.join(REPO, owner_path),
+                             encoding="utf-8") as fh:
+                    body = fh.read()
+            except (IOError, OSError) as exc:
+                body = ""
+                print("    cannot open %s: %s"
+                      % (os.path.join(REPO, owner_path), exc))
+            # Compared with the trailing slash normalised: the table writes
+            # `/tmp/shots/` because that is how a directory is set in
+            # Markdown, and `const _outDir = '/tmp/shots';` carries none. The
+            # first run of this case turned RED on that one character, which
+            # is the right verdict about a mismatch and the wrong demand --
+            # a guard that cries rot over punctuation teaches the loop to
+            # reword the table instead of reading it.
+            # The path must be one this file **DECLARES**, not merely one it
+            # mentions. 46 files under test/ write into /tmp/shots, so
+            # `path in body` is true for all of them and cannot tell the owner
+            # from a bystander -- mutation M6 (the row repointed at
+            # wilaya_trap_shot_test.dart, which writes /tmp/shots too) passed
+            # green under that rule. The declaration is what makes it THE
+            # owner: a named output dir in a string constant, or the argument
+            # to the createSync that makes it.
+            check("output row %r is the path %s writes (%s vs %s)"
+                  % (label, owner, path.rstrip("/"), _first_line_path(body)),
+                  _declares_output_dir(body, path))
 
     print("\n%d case(s) against %s" % (len(results), os.path.relpath(BACKLOG, REPO)))
     ok = sum(results)
