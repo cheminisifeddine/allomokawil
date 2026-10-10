@@ -319,6 +319,38 @@ def measure(root: str) -> dict:
     # interesting one.
     bare = re.compile(calls.pattern.replace(r"\(", ""))
 
+    # THE CONJUNCTION -- the mutation the Dart file's own comment names, and
+    # the one neither isolated measurement can see. It reads at line 768 of
+    # `test/agreement_comment_test.dart`:
+    #
+    #     "the direct set grew from 20 to 40-odd. A census that stopped
+    #      asking for a parenthesis and started reading prose does not change
+    #      WHICH claim-bearing files call it"
+    #
+    # Both halves are named there, so it is the CHANGE that has to be falsifiable
+    # -- not each filter on its own. Measured on the real tree this tick: each
+    # filter alone moves the count by **0**, and together they move it by
+    # **+16** (22 -> 38).
+    #
+    # **Why each one alone measures zero, which is the trap.** A file that
+    # mentions the helper in prose but never calls it carries no parenthesis in
+    # its comment either -- the prose is written `arabicCounted(` only when it is
+    # quoting a real call, and a quoted example is usually `arabicCounted(n,
+    # 'a', ...)` WITH the parenthesis. So:
+    #
+    #   * widening `calls` to the bare name adds nothing, because the comment
+    #     filter already deleted every prose-only file from the set before the
+    #     name could match it;
+    #   * removing the comment filter adds nothing, because the parenthesis
+    #     requirement already rejected a mention that was not written as a call.
+    #
+    # Each filter hides exactly the files the other one would have caught. The
+    # real tree has **16** such files (see `combined_files`), which is where the
+    # +16 comes from. Reporting the two isolated deltas as `PIN CANNOT SEE IT`
+    # and stopping is therefore not a measured weakness of the pin -- it is the
+    # tool measuring a change nobody made and reporting the pin innocent.
+    combined = direct_ignoring_comments(root, bare)
+
     surface = loose_surface(root, probe, negated)
 
     # The membership assertion, read out of the same file the pins come from.
@@ -342,6 +374,10 @@ def measure(root: str) -> dict:
         "bare_name_delta": len(direct_call_sites(root, bare)) - len(direct),
         "bare_name_files": sorted(
             set(direct_call_sites(root, bare)) - set(direct)),
+        # ...and can it see the CONJUNCTION the comment actually names? This is
+        # the one that matters, and the two above are each measured in the dark.
+        "combined_delta": len(combined) - len(direct),
+        "combined_files": sorted(set(combined) - set(direct)),
         "surface": surface,
         "surface_count": len(surface),
     }
@@ -439,6 +475,20 @@ def verdict(m: dict) -> dict:
             m["comment_filter_delta"] != 0,
         "direct_pin_falsifiable_for_bare_name":
             m["bare_name_delta"] != 0,
+        # The conjunction. Reported SEPARATELY from the two above and never
+        # folded into either, because a count pin that cannot see the change its
+        # own comment names is not saved by a filter that sees half of it: a
+        # delta of 0 here with a non-zero `combined_delta` means the two
+        # isolated measurements are answering a question nobody asked.
+        "direct_pin_falsifiable_for_combined":
+            m["combined_delta"] != 0,
+        # True when the conjunction moves the count but NEITHER filter does on
+        # its own. This is the shape that made this tool report a real blindness
+        # as a clean bill of health, and it is the only verdict worth reading
+        # before acting on the two lines above it.
+        "isolated_deltas_hide_a_real_combined_movement":
+            (m["combined_delta"] != 0 and m["comment_filter_delta"] == 0
+             and m["bare_name_delta"] == 0),
         # ...and the membership assertion the last tick ordered INSTEAD of it.
         # It is the stronger guard only if the real tree can supply the case it
         # is sensitive to. Zero prose-only files means the tree cannot, so on
@@ -504,6 +554,21 @@ def render(m: dict, v: dict) -> "list[str]":
     if m["bare_name_files"]:
         out.append("      files only the bare name adds: %s"
                    % ", ".join(m["bare_name_files"]))
+    out.append("")
+    out.append("  The CONJUNCTION -- the change the pin's own comment names")
+    out.append("  (\"stopped asking for a parenthesis AND started reading prose\").")
+    out.append("    both filters off at once           : delta %+d  -> %s"
+               % (m["combined_delta"],
+                  "pin CAN see it" if v["direct_pin_falsifiable_for_combined"]
+                  else "PIN CANNOT SEE IT"))
+    if v["isolated_deltas_hide_a_real_combined_movement"]:
+        out.append("      -> THE TWO LINES ABOVE ARE MISLEADING ON THIS "
+                   "TREE. Each filter alone moves the count by 0 while the two "
+                   "together move it by %+d: each one hides exactly the files "
+                   "the other would have caught, so neither is a measurement "
+                   "of the change anybody made." % m["combined_delta"])
+        out.append("      -> files only the conjunction adds: %s"
+                   % ", ".join(m["combined_files"]))
     out.append("")
     out.append("  The membership assertion the count pin was ordered to become.")
     if not v["membership_present"]:

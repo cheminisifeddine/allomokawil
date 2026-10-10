@@ -266,6 +266,7 @@ class VerdictTests(unittest.TestCase):
     def _m(self, **kw):
         base = {"pins": {"direct": 20, "surface": 25}, "direct": 20,
                 "comment_filter_delta": 0, "bare_name_delta": 0,
+                "combined_delta": 0, "combined_files": [],
                 "surface_count": 25}
         base.update(kw)
         return base
@@ -659,6 +660,7 @@ class MembershipVerdictTests(unittest.TestCase):
         m = {"pins": {"direct": 22}, "direct": 22, "direct_files": [],
              "comment_filter_delta": 0, "comment_filter_files": [],
              "bare_name_delta": 0, "bare_name_files": [],
+             "combined_delta": 0, "combined_files": [],
              "surface_count": 27, "surface": []}
         m.update(base)
         return aca.verdict(m)
@@ -678,6 +680,154 @@ class MembershipVerdictTests(unittest.TestCase):
         v = self._v(membership_present=False)
         self.assertFalse(v["plant_is_the_only_coverage"])
         self.assertFalse(v["membership_guarded"])
+
+
+# The shape that hides a real blindness behind a clean measurement.
+#
+# `test/agreement_census_audit_test.py` already carries two mutation batteries
+# whose first run found SURVIVORS (`prose_only_count` hardcoded, and the VACUOUS
+# sentence softened -- both left the suite green because every other case drove
+# `verdict()` directly and never rendered). This class is the third battery,
+# built the same way, for the same reason.
+#
+# **What it pins.** The pin on `census.direct.length` names a mutation in its own
+# comment at `test/agreement_comment_test.dart:768` -- a census that "stopped
+# asking for a parenthesis AND started reading prose". That is ONE change made of
+# two filters, and the tool measures the two filters SEPARATELY. On the real tree
+# each one moves the count by **0** and together they move it by **+16**, so a
+# tool that reports only the isolated deltas prints "PIN CANNOT SEE IT" twice and
+# a reader concludes the pin is blind -- when the pin sees the actual change
+# perfectly well. The tool was measuring a mutation nobody made.
+class ConjunctionTests(unittest.TestCase):
+    """The mutation the pin names is a conjunction, not two mutations."""
+
+    # A file that calls in code AND quotes the helper in a comment.
+    BOTH = ("// A worked example: arabicCounted(3, 'a', two: 'b') is one shape.\n"
+            "String f(int n) => arabicCounted(n, 'a', two: 'b');\n")
+    # The file each isolated filter CANNOT see: prose with no parenthesis.
+    # `arabicCounted` named in a comment WITHOUT `(` -- so the paren filter
+    # rejects it and the comment filter is the only thing hiding it.
+    BARE_PROSE = ("// See [arabicCounted] for the other shape.\n"
+                  "String f() => 'x';\n")
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp)
+
+    def test_both_filters_off_moves_the_count_when_either_alone_does_not(self):
+        # The whole finding, as one assertion: the conjunction moves the set and
+        # each isolated filter does not. If either isolated delta ever becomes
+        # non-zero this case goes red and the finding has to be re-measured --
+        # which is the only thing a stale comment about a dead defect can do.
+        root = write_tree(self.tmp, {
+            "lib/a.dart": CALLER,
+            "lib/b.dart": self.BARE_PROSE,
+            "lib/c.dart": self.BOTH,
+        })
+        calls = re.compile(r"arabicCount(?:ed)?\s*\(")
+        direct = aca.direct_call_sites(root, calls)
+        unfiltered = aca.direct_ignoring_comments(root, calls)
+        bare = re.compile(calls.pattern.replace(r"\(", ""))
+        combined = aca.direct_ignoring_comments(root, bare)
+
+        # a.dart and c.dart both CALL in code; b.dart is prose with no
+        # parenthesis, which is the file neither isolated filter can see.
+        self.assertEqual(sorted(direct), ["a.dart", "c.dart"])
+        self.assertEqual(len(unfiltered) - len(direct), 0,
+                         "the comment filter alone must move nothing here")
+        self.assertEqual(len(aca.direct_call_sites(root, bare)) - len(direct), 0,
+                         "the bare name alone must move nothing here")
+        self.assertEqual(len(combined) - len(direct), 1,
+                         "together they add b.dart, the file neither sees alone")
+        self.assertEqual(sorted(set(combined) - set(direct)), ["b.dart"])
+
+    def test_measure_publishes_the_conjunction_delta(self):
+        # The field has to be in the measurement, not reconstructed by a reader.
+        self.tmp2 = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp2)
+        dart = ("final calls = RegExp(r'arabicCount(?:ed)?\\s*\\(');\n"
+                "final _negated = RegExp(r'never\\s*$', "
+                "caseSensitive: false);\n"
+                "final _probeLoose = RegExp(r'(\\d+) is the plural');\n"
+                "void main() { expect(census.direct.length, 1, 'w'); }\n")
+        path = os.path.join(self.tmp2, aca.DART)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(dart)
+        write_tree(self.tmp2, {
+            "lib/a.dart": CALLER, "lib/b.dart": self.BARE_PROSE})
+        m = aca.measure(self.tmp2)
+        self.assertEqual(m["combined_delta"], 1)
+        self.assertIn("b.dart", m["combined_files"])
+        self.assertTrue(aca.verdict(m)["direct_pin_falsifiable_for_combined"])
+
+    def test_the_verdict_flags_the_case_where_the_isolated_deltas_lie(self):
+        # The three-way shape, spelled out rather than assumed: conjunction
+        # non-zero, both isolated deltas zero. A tool that only reports the
+        # isolated pair cannot distinguish this from "nothing to report".
+        v = aca.verdict({
+            "pins": {"direct": 20}, "direct": 20, "direct_files": [],
+            "comment_filter_delta": 0, "comment_filter_files": [],
+            "bare_name_delta": 0, "bare_name_files": [],
+            "combined_delta": 16, "combined_files": ["x.dart"],
+            "surface_count": 25, "surface": [],
+            "membership_present": True, "membership_guarded": True,
+            "prose_only": [], "prose_only_count": 0,
+        })
+        self.assertFalse(v["direct_pin_falsifiable_for_comment_filter"])
+        self.assertFalse(v["direct_pin_falsifiable_for_bare_name"])
+        self.assertTrue(v["direct_pin_falsifiable_for_combined"])
+        self.assertTrue(v["isolated_deltas_hide_a_real_combined_movement"])
+
+    def test_a_quiet_tree_is_not_flagged_as_hiding_anything(self):
+        # The guard on the guard. The warning must not fire on an ordinary tree,
+        # or it is a noise line that gets ignored exactly when it matters.
+        v = aca.verdict({
+            "pins": {"direct": 20}, "direct": 20, "direct_files": [],
+            "comment_filter_delta": 0, "comment_filter_files": [],
+            "bare_name_delta": 0, "bare_name_files": [],
+            "combined_delta": 0, "combined_files": [],
+            "surface_count": 25, "surface": [],
+            "membership_present": True, "membership_guarded": True,
+            "prose_only": [], "prose_only_count": 0,
+        })
+        self.assertFalse(v["isolated_deltas_hide_a_real_combined_movement"])
+        self.assertFalse(v["direct_pin_falsifiable_for_combined"])
+
+
+class ConjunctionCliTests(CliTests):
+    """The render path -- where a reader is actually convinced.
+
+    A judgement that is right in a dict and absent from the output has told
+    nobody anything, which is how the previous two mutations survived.
+    """
+
+    def test_the_render_names_the_conjunction_and_its_delta(self):
+        self._dart(open(os.path.join(ROOT, aca.DART), encoding="utf-8").read())
+        write_tree(self.tmp, {
+            "lib/caller.dart": CALLER,
+            "lib/bare_prose.dart": ConjunctionTests.BARE_PROSE})
+        code, out = self._capture(self.tmp)
+        self.assertIn("CONJUNCTION", out)
+        self.assertIn("both filters off at once", out)
+
+    def test_the_render_says_the_isolated_lines_mislead_when_they_do(self):
+        # The sentence that stops the next reader trusting the two lines above it.
+        self._dart(open(os.path.join(ROOT, aca.DART), encoding="utf-8").read())
+        write_tree(self.tmp, {
+            "lib/caller.dart": CALLER,
+            "lib/bare_prose.dart": ConjunctionTests.BARE_PROSE})
+        code, out = self._capture(self.tmp)
+        self.assertIn("MISLEADING ON THIS TREE", out)
+        self.assertIn("files only the conjunction adds", out)
+        self.assertIn("bare_prose.dart", out)
+
+    def test_a_quiet_tree_renders_no_misleading_warning(self):
+        self._dart(open(os.path.join(ROOT, aca.DART), encoding="utf-8").read())
+        write_tree(self.tmp, {"lib/caller.dart": CALLER})
+        code, out = self._capture(self.tmp)
+        self.assertIn("CONJUNCTION", out)
+        self.assertNotIn("MISLEADING ON THIS TREE", out)
 
 
 if __name__ == "__main__":
