@@ -69,6 +69,104 @@ correctness gap — never a refactor for its own sake. One item per loop.
       `remote_state.py` -> `IN SYNC: identical tree`. The push the helper
       verifies is now the same push its caller can verify.
 
+- [x] **The Dart gate ran for the first time in two ticks — the balloon lifted,
+      so the count that the push-helper tick owed on its own change is
+      finally banked.** This tick's item is the **carry-over**: the previous
+      tick shipped a real fix to `gh_push.py` and recorded, in these words,
+      `Gate: NOT RUN ... no Dart count was re-banked ... This tick re-checks
+      the gate on the next pass.` A protocol that says "re-check next pass" is
+      an instruction, and an instruction nobody executes is how a count stops
+      moving. The gate re-checked; it is clear; the count is banked.
+
+      **The gate, re-run before anything else.** `python3 tool/build_gate.py`
+      -> **CLEAR**, `2867 MB available of 7935 MB, no swap; a build needs >=
+      900 MB`, exit 0 — against **NO ROOM at 251 MB** last tick. So the
+      refusal was the box, not the tree, exactly as `run_tests.py`'s exit 4
+      already argues: *4 is not a flavour of 2*. Both pgrep answers were 0 by
+      hand first (`pgrep -c java` -> 0, no flutter/dart tool) so the tick never
+      leaned on the gate alone for the decision the protocol asks it to make
+      twice.
+
+      **Evidence, real output, unpiped.**
+      * `/home/hatch/tools/sdk/flutter/bin/dart analyze` -> **No issues found!**
+        (package-wide).
+      * `python3 tool/run_tests.py` -> **`SUITE PASS - 2701 tests across 14
+        shard(s), every shard green`**, `2693 passed, 8 skipped`, **elapsed
+        22:09**, `shards: 14 run, 14 green, 0 not green, 0 never started`.
+        **All 14 green on their FIRST attempt** (`1 attempt(s)` on every shard),
+        and **zero FAIL / HUNG / STARVED / BUSY lines in the whole log** — a
+        grep for those four returns **0**. Every shard finished in 0:34-2:42
+        against a 300 s cap, so the 6 Oct shard-8 overrun did not reproduce.
+
+      **What the number means and does not mean.** **2701** is the count the
+      protocol's own `# GATE BASELINE` fence states, so this run **confirms
+      the baseline rather than moving it** — the correct outcome for a tick
+      that changed zero `.dart` files, and the honest way to report it. The
+      last count that *gated a code change* is still **2609**; nothing this
+      tick changed a line of Dart, so nothing new gates on 2701.
+      `test/loop_protocol_test.py` -> **29/29 ALL PASS** against the backlog,
+      so the fence the guard reads is intact.
+
+      **What the gate therefore cleared, stated precisely.** The previous tick
+      verified its `.py` edit *statically* and said so. That reasoning was
+      correct and is now no longer load-bearing: the edit sits behind a real,
+      green, 2701-test run. The previous tick's `NO ROOM` note on this item is
+      superseded, not deleted.
+
+      **The finding this run made possible, and it is the next item.** With
+      the gate finally readable, the last tick's second "needs you" note got
+      measured instead of repeated. `gh_push.py` — **the loop's only
+      instrument for reaching the founder's repo** — is in **no git repository
+      at all**: `/home/hatch/workspace/repos` is not a checkout
+      (`git rev-parse --show-toplevel` fails), the file is **not tracked by
+      `allomokawil`** (`git ls-files | grep gh_push` -> empty; `git
+      check-ignore` does not even claim it), and the only copies on this host
+      are four stale `.bak` files plus scratch copies under a cache that is
+      pruned. The 26 Sep host rebuild is why: the tracked version died with
+      `/home/renia`, and the working copy was recreated outside version
+      control where no commit can reach it. So the 35-case battery that
+      guards this helper guards **a file no rollback can restore**. Confirmed
+      safe to version, measured not assumed: **no credential material** in the
+      file (grep for `ghp_`, `github_pat_`, `Bearer`, `private_key` -> zero
+      hits; it takes the token through an `authd` surrogate at call time), and
+      **zero wall-clock reads**, which is why `tool_clock_seam_test.dart`'s
+      "no wall-clock read in any tracked `.py`" rule will hold the moment the
+      file becomes tracked.
+
+- [ ] **The push helper is in no git repository — the loop's only instrument
+      for reaching the founder's repo cannot be rolled back, and the battery
+      guarding it guards a file no commit can restore.** FOUND 10 Oct, in the
+      tick that finally re-ran the gate. Measured, not assumed:
+      `/home/hatch/workspace/repos` is **not** a checkout
+      (`git rev-parse --show-toplevel` -> *not a git repository*); the file is
+      **not tracked by `allomokawil`** (`git ls-files` finds no `gh_push`, and
+      `git check-ignore` does not claim it either, so it is not merely
+      ignored — it is **unreachable**); the on-disk copies are **four stale
+      `.bak` files** plus scratch copies in a cache that prunes at 24 h. The
+      26 Sep host rebuild is the cause: the tracked copy died with
+      `/home/renia`, and the working copy was recreated outside version
+      control. 504 lines, and every push this loop has ever made went through
+      it.
+      **Why it outranks inventing new work.** The founder named this tool
+      himself on 10 Oct (it reported three green pushes and left 5 of 10 files
+      unpushed), it is the one component whose loss stops the loop shipping at
+      all, and the two preceding ticks each pushed through it while noting it
+      was untracked. Two ticks documenting a risk is one tick too many; the
+      fix is small and lands in a repo that already has the verifier
+      (`tool/remote_state.py`) and the 35-case battery
+      (`test/push_helper_test.py`).
+      **Guard for the fix, measured:** `test/push_helper_test.py` hardcodes
+      `HELPER_DIR = "/home/hatch/workspace/repos"`, and it exits **1 with an
+      uncaught `FileNotFoundError`** — not a clean refusal — when the helper is
+      absent (reproduced on a scratch copy). Versioning the helper means
+      pointing that battery at the tracked copy, and the pin has to survive a
+      host rebuild the way the rest of the Loop protocol table does.
+      **No secrets in scope, verified before starting:** zero hits for `ghp_`,
+      `github_pat_`, `Bearer`, `private_key`, `api_key`; the token comes from
+      an `authd` surrogate at call time and is never persisted. Release
+      signing, deploy credentials and secrets stay untouched, and no APK,
+      release or tag is in scope.
+
 - [x] **The notification centre's "you have more than this list" band was
       gated off by the very condition it exists to report — and shipping it
       first proved a defect nobody had run.**  `1d67787` (remote `d73b55a`,
