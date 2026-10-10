@@ -57,6 +57,8 @@ gallery; every write here lands on an id the tool itself just minted.
 """
 import argparse
 import json
+import os
+import re
 import random
 import sys
 import urllib.error
@@ -74,10 +76,57 @@ HOSTS = [
 USER_AGENT = "AlloMokawilApp/1.0 (Android 14; Flutter)"
 READ_TIMEOUT = 30
 
+# The Dart this tool mirrors. Read, never assumed -- see
+# `dart_ceiling_line_takes_count`.
+DART_ALLOWANCE = "lib/src/data/portfolio_allowance.dart"
+
+# An explicit `None` means "no file, no answer"; the default means "look in
+# the repo". Distinct, because the two produce different verdicts.
+_MISSING = object()
+
+
 # Enough rows to pass every allowance this app can print. The largest plan sells
 # 120 (`portfolio_allowance.dart`), so 130 is over the top of the range rather
 # than a round number picked for luck.
 OVER_LIMIT_ROWS = 130
+
+
+def dart_ceiling_line_takes_count(path=_MISSING):
+    """Does the SHIPPED `portfolioFullLineAr` take the gallery count?
+
+    Reads the signature out of the Dart rather than keeping a model of it.
+    A mirror that hard-codes "this function takes one argument" is correct
+    only until the Dart moves -- and when it moves, the mirror does not
+    crash, it reports the FIXED screen as broken. That is the worst failure
+    available to a tool whose whole job is judging the app: a tick reads
+    `header_contradicts: True`, goes looking for a server bug, and the one
+    live contradiction on both hosts had already been fixed in Dart.
+
+    Returns True when the count is a parameter, False when it is not, and
+    **None when the file cannot be read** -- an absent answer and a "no" are
+    different, and collapsing them would report a verdict nobody measured.
+
+    Counted as the number of parameters the parameter list NAMES, so a
+    required, optional or positional one all count: what matters to the
+    sentence is whether the count can reach it at all.
+    """
+    if path is _MISSING:
+        target = os.path.join(os.getcwd(), DART_ALLOWANCE)
+    elif path is None:
+        return None
+    else:
+        target = path
+    try:
+        with open(target, encoding="utf-8") as fh:
+            src = fh.read()
+    except OSError:
+        return None
+    m = re.search(
+        r"portfolioFullLineAr\s*\(([^)]*)\)", src)
+    if not m:
+        return None
+    params = [p.strip() for p in m.group(1).split(",") if p.strip()]
+    return any(re.search(r"\bused\b|\bcount\b", p) for p in params)
 
 
 class Wire:
@@ -260,51 +309,61 @@ def _check_header(wire, acct, rep):
     This is the app's logic, reproduced in Python and **marked as a mirror**.
     The Dart side is `portfolio_allowance.dart` +
     `my_portfolio_screen.dart::_Header._subLine`; the audit cannot import them
-    (no Dart VM on a memory-denied box), so these are the two lines of that
-    rule spelled out:
-
-        count line   : photosAr(count) + " في معرض أعمالك"
-        subline      : portfolioFullLineAr(limit)   when isFull
-                     : portfolioLeftLineAr(left, limit) otherwise
+    (no Dart VM on a memory-denied box), so the rule is spelled out here.
 
     What is asserted is the *shape* -- does the screen print a count and a
     ceiling that contradict each other -- not the Arabic. `isFull` is
-    `limit - used <= 0`, and `left` floors at zero, which is why this is a
-    "full" sentence rather than a negative room.
+    `limit - used <= 0`, and `left` floors at zero.
+
+    **The ceiling sentence is read from the Dart, not modelled.** The whole
+    verdict turns on whether `portfolioFullLineAr` is told the gallery count,
+    and that function is the Dart's, not this tool's: a mirror that assumed
+    the old one-argument signature reported the FIXED screen as broken, and
+    called both live hosts a server contradiction. `takes_count` is read by
+    `dart_ceiling_line_takes_count` on every call, so a future signature
+    change is measured rather than remembered.
     """
     used = rep["gallery"]["app_rows"]
     limit = rep["plan"].get("portfolio_limit")
-    out = {"used": used, "limit": limit}
+    takes_count = dart_ceiling_line_takes_count()
+    out = {"used": used, "limit": limit, "subline_takes_count": takes_count}
     if not isinstance(limit, int):
         out["verdict"] = "NO_LIMIT_STATED"
         return out, None
     out["left"] = max(limit - used, 0)
     out["is_full"] = limit - used <= 0
     out["count_line"] = "%d photos in your gallery" % used
-    out["subline"] = ("full at limit: %d" % limit) if out["is_full"] \
-        else ("%d left of %d" % (out["left"], limit))
-    # The contradiction, stated as one boolean: the same card claims the
-    # gallery holds `used` photographs AND that the plan stops at `limit`, and
-    # `used` is past it. Both are true of the screen's own arithmetic and only
-    # one of them can be true of the photographs.
-    out["count_exceeds_limit"] = used > limit
-    out["header_contradicts"] = bool(out["is_full"] and used > limit)
-    # The claim the Dart fix will be measured against.
-    #
-    # `portfolioFullLineAr(limit)` takes ONE argument, so the sentence it
-    # builds cannot tell "full at five" from "a hundred and thirty against a
-    # ceiling of five" -- it names the ceiling and nothing else. That is the
-    # defect the 9 Oct tick ordered fixed, and this is the check that pins the
-    # fix: while `over_ceiling_line` stays True, the printed ceiling sentence is
-    # the same string in both states, so a fix that only re-words the subline
-    # around it would not move this boolean. Only a `portfolioFullLineAr` that
-    # is told the count can.
-    #
-    # Two claims, kept deliberately separate: `over_ceiling_line` is the
-    # boolean the copy fix must drive False, and `over_ceiling_by` says by how
-    # much the gallery is past, so a report can state the size of the gap
-    # instead of merely that there is one. 0 while inside the ceiling.
-    out["over_ceiling_line"] = bool(out["is_full"] and used > limit)
+
+    if not out["is_full"]:
+        out["subline"] = "%d left of %d" % (out["left"], limit)
+        out["over_ceiling_line"] = False
+        out["over_ceiling_by"] = 0
+        out["count_exceeds_limit"] = used > limit
+        out["header_contradicts"] = False
+        return out, None
+
+    # At or over the ceiling the Dart picks between two sentences, and WHICH one
+    # is the whole question:
+    #   not told the count -> "full at limit: N", naming only the ceiling, so
+    #                        it cannot tell 5-of-5 from 130-against-5;
+    #   told the count     -> both numbers, which is what stops the card
+    #                        contradicting the count line printed above it.
+    if takes_count:
+        # «تجاوز معرض أعمالك حد صور خطتك: 130 صورة في 5 صور» -- has and ceiling.
+        out["subline"] = ("over your plan's limit: %d against %d"
+                          % (used, limit))
+        out["count_exceeds_limit"] = used > limit
+        out["over_ceiling_line"] = False
+        out["header_contradicts"] = False
+    else:
+        out["subline"] = "full at limit: %d" % limit
+        out["count_exceeds_limit"] = used > limit
+        out["over_ceiling_line"] = True
+        out["header_contradicts"] = bool(used > limit)
+
+    # Reported on every path, including `NO_LIMIT_STATED`: how far past the
+    # ceiling the gallery is, so a report can state the size of the gap and not
+    # merely that there is one. 0 while inside the ceiling.
     out["over_ceiling_by"] = max(used - limit, 0)
     return out, None
 
@@ -380,9 +439,21 @@ def _render(reports):
         # survives the fix: `header_contradicts` goes False once the two
         # sentences stop disagreeing, this goes False only when the ceiling
         # sentence itself can name the count.
+        # The explanation has to follow the boolean. A row that printed
+        # "still takes only a limit" beside `False` would be a report
+        # contradicting itself one line under its own verdict -- the exact
+        # failure this tool exists to catch, caught in the tool.
+        blind = bool(head.get("over_ceiling_line"))
+        if head.get("subline_takes_count") is None:
+            why = "`portfolioFullLineAr` NOT READ -- no verdict"
+        elif blind:
+            why = "`portfolioFullLineAr` still takes only a limit"
+        else:
+            why = "`portfolioFullLineAr` is handed the count and names both"
         lines.append("    ceiling sentence is blind to the count: %s "
-                     "(over by %s) -- `portfolioFullLineAr` still takes only a limit"
-                     % (head.get("over_ceiling_line"), head.get("over_ceiling_by")))
+                     "(over by %s) -- %s"
+                     % (head.get("over_ceiling_line"),
+                        head.get("over_ceiling_by"), why))
     return lines
 
 

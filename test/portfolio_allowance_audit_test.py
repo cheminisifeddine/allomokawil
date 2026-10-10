@@ -304,8 +304,20 @@ def t_post_transport():
 
 # --- the contradiction the header prints ---------------------------------
 
-@case("a gallery past the ceiling makes the header contradict itself")
+@case("a gallery past the ceiling states BOTH numbers, so it contradicts nothing")
 def t_header_contradicts():
+    """This case used to assert `header_contradicts: True` -- it was correct
+    about the arithmetic and wrong about the screen, because the ceiling
+    sentence it modelled was the old one-argument one. The Dart fix shipped
+    `portfolioFullLineAr(int limit, int used)`, so the sentence now carries the
+    count and the card stops contradicting itself.
+
+    The arithmetic is still asserted in full: 12 against 5, `is_full`, `left`
+    at zero, and `count_exceeds_limit` True. Those are facts about the
+    numbers and they did not change -- only the sentence did. A header that
+    "resolved" the contradiction by pretending 12 <= 5 would be caught here,
+    because `count_exceeds_limit` is still pinned True.
+    """
     def body(api):
         wire = audit.Wire(api.HOST)
         acct = _acct()
@@ -316,7 +328,7 @@ def t_header_contradicts():
         assert head["is_full"] is True, head
         assert head["left"] == 0, head
         assert head["count_exceeds_limit"] is True, head
-        assert head["header_contradicts"] is True, head
+        assert head["header_contradicts"] is (not head["subline_takes_count"]), head
     _run(body)
 
 
@@ -381,26 +393,45 @@ def t_header_empty():
 
 # --- the ceiling sentence is blind to the count --------------------------
 
-@case("the ceiling sentence cannot tell 12-against-5 from 130-against-5")
+@case("the ceiling sentence at 12-over-5 follows the shipped Dart")
 def t_over_ceiling_line():
+    """Driven by the Dart signature, not by a model of it.
+
+    While the ceiling sentence was blind to the count this case asserted
+    `True`; the 9 Oct tick shipped `portfolioFullLineAr(int limit, int used)`
+    so the count is now mandatory and the sentence names both numbers. The
+    case now asserts whatever the Dart actually does -- so it pins the FIX
+    rather than the bug, and it will follow the next signature change instead
+    of silently going red the way a hard-coded expectation would.
+    """
     def body(api):
         wire = audit.Wire(api.HOST)
         acct = _acct()
         plan, _ = audit._read_limit(wire, acct)
         gal, _ = audit._fill_past_the_limit(wire, acct, rows=12)
         head, _ = audit._check_header(wire, acct, {"plan": plan, "gallery": gal})
-        # True at 12 over a ceiling of 5, and it must be True at 130 over the
-        # SAME ceiling, because that is the point: `portfolioFullLineAr` is
-        # handed `limit` alone, so the string it builds is identical in both
-        # states. If this ever goes False on its own, something changed the
-        # ceiling function -- which is the fix, not a test fix.
-        assert head["over_ceiling_line"] is True, head
         assert head["over_ceiling_by"] == 7, head
+        assert head["count_exceeds_limit"] is True, head
+        # The sentence must name the count iff the Dart is told it, and the
+        # count has to be in the string when it is -- otherwise the header
+        # still prints a ceiling over pictures that pass it.
+        assert head["over_ceiling_line"] is (not head["subline_takes_count"]), head
+        assert head["header_contradicts"] is head["over_ceiling_line"], head
+        if head["subline_takes_count"]:
+            assert "12" in head["subline"], head
     _run(body)
 
 
-@case("the same check holds at 130 rows: the ceiling sentence is unchanged")
+@case("12-over-5 and 130-over-5 no longer print the same sentence")
 def t_over_ceiling_line_far_over():
+    """The defect this tool was built for, stated as a FAILURE it now passes.
+
+    The old case asserted both states produced the identical string
+    "full at limit: 5" -- a ceiling stated over a gallery that runs 125
+    photographs past it. The count is now part of the sentence, so the two
+    states must differ; if they ever print the same text again, the header is
+    blind to the count whichever way the boolean reads.
+    """
     def body(api):
         wire = audit.Wire(api.HOST)
         acct = _acct()
@@ -408,11 +439,12 @@ def t_over_ceiling_line_far_over():
         gal, _ = audit._fill_past_the_limit(wire, acct, rows=130)
         head, _ = audit._check_header(wire, acct, {"plan": plan, "gallery": gal})
         assert head["used"] == 130 and head["limit"] == 5, head
-        assert head["over_ceiling_line"] is True, head
         assert head["over_ceiling_by"] == 125, head
-        # And the ceiling the sentence names is the same 5 in both cases --
-        # the number in the string never moved, which is the whole defect.
-        assert head["subline"] == "full at limit: 5", head
+        if head["subline_takes_count"]:
+            assert "130" in head["subline"], head
+            assert head["subline"] != "full at limit: 5", head
+        else:
+            assert head["over_ceiling_line"] is True, head
     _run(body)
 
 
@@ -501,13 +533,16 @@ def t_fix_must_touch_the_ceiling_line():
         plan, _ = audit._read_limit(wire, acct)
         gal, _ = audit._fill_past_the_limit(wire, acct, rows=12)
         head, _ = audit._check_header(wire, acct, {"plan": plan, "gallery": gal})
-        before = head["over_ceiling_line"]
+        # Start from a header judged by the SHIPPED Dart, so this case still
+        # refuses the half-fix after the real fix landed rather than being
+        # retired alongside it. The ceiling function is modelled as blind
+        # again -- which is the state the cheap fix leaves behind.
+        blind = {"over_ceiling_line": True, "subline_takes_count": False}
 
         # The cheap fix: a different subline sentence, same ceiling function.
-        cheap = dict(head)
+        cheap = dict(blind)
         cheap["subline"] = "you are past your plan limit"
-        cheap["subline_takes_count"] = False
-        assert audit.check_ceiling_line(cheap) is before is True, \
+        assert audit.check_ceiling_line(cheap) is True, \
             "re-wording the subline must not clear a ceiling-blind line"
 
         # The real fix: `portfolioFullLineAr` is handed the count as well, so
@@ -515,7 +550,7 @@ def t_fix_must_touch_the_ceiling_line():
         real = dict(head)
         real["subline_takes_count"] = True
         real["over_ceiling_line"] = False
-        assert audit.check_ceiling_line(real) is False
+        assert audit.check_ceiling_line(real) is False, head
     _run(body)
 
 
@@ -625,6 +660,149 @@ def t_cf1010():
     for err, expect_cf in ((waf, True), (real_fault, False)):
         blocked = "1010" in str(err)
         assert blocked is expect_cf, (err, blocked)
+
+
+# --- the report must not contradict its own verdict ---------------------
+
+@case("the rendered line never explains a False with a 'blind' reason")
+def t_render_follows_the_verdict():
+    """A report that says "False -- still takes only a limit" is a report
+    contradicting itself one line under its own verdict, which is the exact
+    failure this tool exists to catch -- caught in the tool.
+
+    Both states are rendered: the reason has to change WITH the boolean, not
+    merely be worded so it happens to read true today.
+    """
+    base = {"used": 130, "limit": 5, "left": 0, "is_full": True,
+            "count_line": "130 photos in your gallery",
+            "subline": "over your plan's limit: 130 against 5",
+            "count_exceeds_limit": True, "over_ceiling_by": 125}
+
+    seen = {}
+    for takes, blind in ((True, False), (False, True), (None, False)):
+        head = dict(base, subline_takes_count=takes, over_ceiling_line=blind,
+                    header_contradicts=blind)
+        rep = {"plan": {"portfolio_limit": 5},
+               "gallery": {"app_rows": 130, "rows_dropped_by_app_parse": 0},
+               "header": head}
+        row = [ln for ln in audit._render({"h": (rep, None)})
+               if "blind to the count" in ln]
+        assert len(row) == 1, row
+        text = row[0]
+        seen[takes] = text
+        if takes is None:
+            # An unreadable signature is a THIRD state: the tool has no
+            # verdict to give, and must not dress one up in either wording.
+            assert "NOT READ" in text, text
+            assert "blind to the count: False" in text or blind, text
+        elif blind:
+            assert "still takes only a limit" in text, text
+        else:
+            # The reason must be the NOT-blind one, not merely something else:
+            # MUTATED TWICE here. Asserting only the absence of the blind
+            # wording let a reason that is constant, or one that ignores the
+            # verdict entirely, pass while still misleading the reader.
+            assert "handed the count" in text, (
+                "a False verdict not explained as fixed: %s" % text)
+            assert "still takes only a limit" not in text, (
+                "a False verdict explained as blind: %s" % text)
+    # The two must not render identically -- a constant reason would pass a
+    # single-state check and still be lying in the other.
+    assert seen[True] != seen[False], seen
+    # And an unreadable signature says NO VERDICT, which is a third distinct
+    # thing from both of the above: neither "blind" nor "fixed".
+    assert "NOT READ" in seen[None], seen
+    assert "handed the count" not in seen[None], seen
+    assert "still takes only a limit" not in seen[None], seen
+
+
+# --- does the mirror still model the Dart that is actually shipped? ---
+
+@case("the ceiling sentence is judged against the Dart signature on disk")
+def t_ceiling_reads_the_dart_signature():
+    """The mirror must READ `portfolioFullLineAr`, not assume it.
+
+    A tick shipped `portfolioFullLineAr(int limit, int used)` -- the count is
+    a REQUIRED argument, so a caller cannot build the sentence without the
+    state. The mirror kept its own one-argument model, so it answered
+    `subline_takes_count: <missing>` forever: the tool called the FIXED Dart
+    blind, and reported `header_contradicts: True` against a header that
+    prints both numbers.
+
+    A mirror with a hard-coded model of the code under test goes stale the
+    moment the code moves -- and it fails SILENTLY, as a wrong verdict, not as
+    a crash. So the model is read out of the file, and if the signature cannot
+    be read the tool says so rather than guessing.
+    """
+    dart = os.path.join(REPO, "lib", "src", "data", "portfolio_allowance.dart")
+    takes = audit.dart_ceiling_line_takes_count(dart)
+    assert takes is True, (
+        "the shipped signature reads as NOT taking the count: %r" % (takes,))
+
+
+@case("an unreadable Dart signature is reported, never guessed")
+def t_ceiling_signature_absent_is_none():
+    missing = os.path.join(REPO, "lib", "src", "data", "no_such_file.dart")
+    assert audit.dart_ceiling_line_takes_count(missing) is None, "guessed"
+    assert audit.dart_ceiling_line_takes_count(None) is None, "guessed"
+
+
+@case("a file with no recognisable signature yields no answer, not a guess")
+def t_ceiling_signature_unmatched_is_none():
+    """The third way the read can fail, and the one that SURVIVED mutation.
+
+    `except OSError` covers a file that is not there, and `if not m` covers a
+    signature that is not there -- but when the regex matched nothing and the
+    handler returned the ASSUMED answer, a Dart file without this function
+    would read as "takes the count" and the tool would report the fixed
+    screen correct. Nobody would notice: the file exists, nothing raises, and
+    the verdict is confident.
+    """
+    import tempfile, os as _os
+    fd, path = tempfile.mkstemp(suffix=".dart")
+    try:
+        _os.write(fd, b"class Unrelated {}\n")
+        _os.close(fd)
+        assert audit.dart_ceiling_line_takes_count(path) is None, \
+            "a file with no such function must yield no answer"
+    finally:
+        _os.unlink(path)
+
+
+@case("a one-argument signature is read as blind, honestly")
+def t_ceiling_signature_one_arg_is_false():
+    """`check_ceiling_line` already handles `subline_takes_count`; this pins
+    the OTHER half -- that the reader can still say False, so the reader is
+    measuring and not hard-coding True."""
+    with io.StringIO("String portfolioFullLineAr(int limit) => '';\n") as fh:
+        import tempfile, os as _os
+        fd, path = tempfile.mkstemp(suffix=".dart")
+        try:
+            _os.write(fd, fh.getvalue().encode())
+            _os.close(fd)
+            assert audit.dart_ceiling_line_takes_count(path) is False
+        finally:
+            _os.unlink(path)
+
+
+@case("the header stops claiming a contradiction the shipped Dart does not print")
+def t_header_reflects_shipped_dart():
+    """The live run: both hosts reported `header_contradicts: True` on a
+    header that is now correct. `_check_header` mirrors the ceiling sentence;
+    when the Dart takes the count the sentence names BOTH numbers and stops
+    contradicting the count line above it."""
+    def body(api):
+        wire = audit.Wire(api.HOST)
+        acct = _acct()
+        plan, _ = audit._read_limit(wire, acct)
+        gal, _ = audit._fill_past_the_limit(wire, acct, rows=130)
+        head, _ = audit._check_header(wire, acct, {"plan": plan, "gallery": gal})
+        assert head["over_ceiling_by"] == 125, head
+        assert head["header_contradicts"] is False, (
+            "the shipped Dart prints both numbers, so this header does not "
+            "contradict itself: %r" % (head,))
+        assert audit.check_ceiling_line(head) is False, head
+    _run(body)
 
 
 def main():
