@@ -34411,3 +34411,116 @@ reference anywhere in `test/`.
 /home/renia/allomokawil`, which does not exist on this host. Every path in the
 Loop protocol table above is verified, but the **job prompt itself** is not --
 repoint it to `/home/hatch/allomokawil`; only he can.
+
+---
+
+## Tick 10 Oct 2026 -- `tool/gen_communes.py`: a lost taxonomy row read as a
+## wilaya with no name, and four missing inputs read as a traceback
+
+**Item:** `gen_communes.py`, the last load-bearing tool in `tool/` with **no
+test battery**, and the one that could least afford one. **SHIPPED** as
+`7a038fd` (remote `fc3d54f`, tree `25c794c` both sides, `remote_state.py
+--files` **MATCH** on both new paths -- blob *and* mode).
+
+**Why it was the load-bearing one.** It builds
+`assets/data/communes_dz.json` -- the 1,541-commune picker that **every
+project form opens** -- and `test/communes_test.dart` guards the *asset* while
+nothing guarded the *generator*. Worse, on this host **all four of its inputs
+are gone** (measured: `/home/renia/nadjah_repo/...` died with the 26 Sep
+rebuild, the other three lived in `/tmp`), so "this tool has never failed" and
+"this tool cannot run here" were indistinguishable -- and the second is true.
+
+**Two defects, both in how it READS, not in what it writes.**
+
+1. **A lost taxonomy row read as a wilaya with no seat name.** The reader was
+   one positional regex over the Dart source, matching the literal text
+   `id: '01', name: '`. Measured: reformat **one** row -- double the quotes,
+   swap the two named fields, break the line after the comma, all of which
+   `dart format` or a tidy-up may do -- and the regex drops that row and
+   **still returns 57 rows and no error**. `tax.get(cid)` then reads the loss
+   exactly like a wilaya with no taxonomy spelling, alignment is skipped for
+   it, `wilayas[cid]["ar"]` falls back to the kossa spelling, and the run
+   finishes **exit 0** having written a dataset whose picker header disagrees
+   with the rest of the app. This is the third recording of this repo's
+   standing failure shape: **something absent read as if it had been measured**
+   (9 Oct portfolio mirror, 1 Oct census pin, now here).
+   Now: a reader keyed on the **field names** -- either order, either quote
+   style, any whitespace -- that **refuses** a taxonomy it cannot read instead
+   of returning a shorter one, and refuses duplicate and empty reads. The run
+   also verifies the taxonomy **covers the backbone**, which is what turns a
+   lost row from silent into exit 1.
+
+2. **Four missing inputs answered with a bare `FileNotFoundError`** naming a
+   path dead since 26 Sep, with no hint that the asset is fine and the operator
+   needs a *download*, not a rebuild. Now **exit 2**, every missing input named
+   with what it was and where it comes from, plus an explicit statement that the
+   shipped asset is untouched -- because it is, and a traceback cannot say so.
+
+Also two **printed numbers that were false**: the confirmation line typed
+`"verified: total == 1,541"` regardless of what the run verified, and the
+summary printed a hardcoded `bytes 0` before the file existed. Both now print
+what the run actually did.
+
+**The shipped asset is NOT what was broken -- measured, not assumed.** Declared
+`total` 1541 = 1541 rows; every per-wilaya `count` equals its own row list;
+**zero** search-blind `arkey` duplicates inside a wilaya; **zero** strings
+`clean()` would still change; **zero** empty Latin names; all 58 wilaya names
+agree with `taxonomy.dart`. Cases 18-22 pin that, so a future regeneration that
+breaks the asset fails here rather than on a phone.
+
+**Evidence.** `test/gen_communes_test.py` (new, **31 cases**) -> **31/31, exit
+0**. Against the **unfixed** tool -> **10/27**, and cases 15/16 are the
+evidence that matters: it exited **0 and wrote** the broken dataset.
+**10 mutations, 10 KILLED.**
+
+Cases 13-16 and 15a-b run the **real `main()` end to end** over a synthetic
+backbone paired with the **real** `taxonomy.dart` -- the only way to exercise
+the verification block and the write on a host whose inputs are gone,
+including that an uncovered wilaya **exits 1 and writes nothing**.
+
+**Two mutations survived first time, both honest, both closed.**
+* **M7** (dropping the missing-Arabic refusal) survived because *every*
+  synthetic run gave each commune an Arabic name, so the guard had no case
+  that could trip it. The case it needed also asserts **which** failure is
+  named -- because the per-wilaya count check catches the same dropped row and
+  would otherwise pass it for the wrong reason. Under M7 the run still exits 1,
+  but via `total 1 != official 2`, never naming `Reggana`. That output is the
+  proof, and it is also the tool's own comment made true: the missing-Arabic
+  check had been covered only **by accident**, by a check written for a
+  different reason.
+* **M10** (loosening the field-set test to `if not fields:`) survived because a
+  strict and a loose reader agree on **every well-formed record**, and no case
+  fed the reader a malformed one a loose reader would still accept. Three do
+  now, including `(id: '01')` -- a wilaya with **no name at all**, which M10
+  would have read as a wilaya that had one.
+
+**Two errors of mine, each of which would have produced a green lie.**
+* The battery **crashed** against the unfixed tool with an `AttributeError`:
+  no score, no verdict, and a reader cannot tell a killed defect from a broken
+  test. It now grades a missing symbol as a failed case, and a reader that
+  *refuses* a file it should read is a failed case rather than an uncaught
+  `ValueError` (that is how M2 died -- killed, but unreadably). Against the
+  pre-fix tool it now scores **10/27** instead of dying.
+* My own case 14a asserted `total == 2` for a backbone of **2 wilayas x 2
+  cities**. The end-to-end control caught it -- the only reason to run the real
+  generator rather than just its helpers. Separately, cases 7/8/9/9b were
+  written as `try/except ValueError` around a helper that **returns** the error
+  instead of raising, so the `except` arms were **unreachable** and the only
+  live path was the "no error raised" failure. Both were passing for the wrong
+  reason; all now grade the returned error directly.
+
+**Gates.** `flutter analyze` -> **"No issues found!"**. Zero `.dart` changed,
+so the **2673** baseline is untouched and **no suite count is claimed**. The four
+commune suites -> `SUITE PASS - 32 tests across 1 shard(s), every shard green`,
+`RUNNER_EXIT=0`. Siblings: `px_count` 21/21, `pngscan` 9/9, `loop_protocol`
+29/29, `stale_bytecode` 15/15.
+
+**Next:** the remaining untested tools are `gen_icons.py` (no reference anywhere
+in `test/`, and it imports `prep_mark`, so one battery can cover both) and
+`prep_mark.py`. `publish_release.py` stays **founder-gated -- never run from
+this loop**.
+
+**Still needs the founder:** the job prompt says `Repo:
+/home/renia/allomokawil`, which does not exist on this host. Every path in the
+Loop protocol table above is verified, but the **job prompt itself** is not --
+repoint it to `/home/hatch/allomokawil`; only he can.
