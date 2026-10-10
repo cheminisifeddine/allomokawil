@@ -2016,7 +2016,18 @@ in this file that dies on arrival is how two ticks were lost.
    same `flutter test --reporter expanded` under a wall-clock deadline and adds
    exactly two things — a **bound** and a **name** for the file in flight when
    the deadline fires. Exit codes: 0 pass, 1 fail, **2 hung**, **3 BUSY** (the
-   build gate refused, so *not one test ran*).
+   build gate refused, so *not one test ran*), **4 STARVED** (the deadline
+   fired on a shard that was still working -- the *box* is suspect, the tree
+   is not; re-run when the machine is idle).
+
+   **4 is not a flavour of 2, and that is the point.** A **hang** is *the tree
+   is suspect*: bisect it, read the culprit file, find the defect. A **starve**
+   is *the box is suspect*: nothing in here changed. Same silence, opposite
+   owner, and a tick reading either went hunting for a defect in a tree that
+   has none. Added 10 Oct after five consecutive shards hit their cap with
+   **zero assertion failures** while a foreign browser burned a 2-core box;
+   every one of them printed `HUNG`. Read 4 as *inconclusive, not red* --
+   do **not** gate a commit on it, and do not bisect for it.
 
    **3 exists because 2 was doing two jobs and a tick believed it — measured
    9 Oct, fixed this cycle.** A bare `run_tests.py` on a ballooned box printed
