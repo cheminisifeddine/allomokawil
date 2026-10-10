@@ -59,6 +59,28 @@ ROOTS = ("lib", "test")
 PIN_RE = re.compile(
     r"expect\(\s*census\.(\w+)\.length\s*,\s*(\d+)\s*[,;]")
 
+# **THE THIRD PIN, and the gap this closes.** [PIN_RE] above reads ONLY
+# `census.<field>.length`. `test/agreement_comment_test.dart` carries a third
+# pin on the SAME census -- `expect(census.unreadInLib, 0, ...)` -- with no
+# `.length` in it, so it was read by NOTHING on every run of this tool.
+# Measured on the real tree: [read_pins] answered `{'direct': 20,
+# 'surface': 25}` while the file holds three distinct pins, one of them
+# pinned to **0**.
+#
+# The same defect the portfolio-allowance audit shipped on 9 Oct, one layer
+# over: a reader whose vocabulary is narrower than the tree it grades, so the
+# thing it cannot see reads as ABSENT rather than as UNMEASURED. Here it is
+# worse than a stale number, because the unseen pin is the one asserting that
+# **no claim-shaped sentence in `lib/` is unreadable** -- the single statement
+# in the file that the reader has no hole in it.
+#
+# The field is NAMED in [VALUE_FIELDS] rather than inferred from the spelling.
+# Matching every `census.<field>, N` would over-read the same way the loose
+# probe was built to avoid, and would invent pins the tree does not hold.
+VALUE_PIN_RE = re.compile(
+    r"expect\(\s*census\.(\w+)\s*,\s*(\d+)\s*[,;]")
+VALUE_FIELDS = ("unreadInLib",)
+
 
 # --------------------------------------------------------------------------
 # Reading the Dart reader's own vocabulary
@@ -145,14 +167,36 @@ def extract_regex(src: str, name: str) -> "re.Pattern[str]":
 
 
 def read_pins(src: str):
-    """`{field: value}` for every pinned `expect(census.<field>.length, N, ...)`.
+    """`{field: value}` for every pin the Dart file asserts on this census.
+
+    TWO shapes, and the second is the one this was blind to:
+
+      * `expect(census.<field>.length, N, ...)`  -- a list size   [PIN_RE]
+      * `expect(census.<field>, N, ...)`         -- a plain field
+                                                     [VALUE_PIN_RE]
+
+    The plain-field shape is read for the fields NAMED in [VALUE_FIELDS] and
+    only those, so the vocabulary is explicit and a new field reads as
+    unmeasured rather than as a typo.
 
     A pin this cannot find is a pin that has been deleted, renamed or
     re-pointed -- so the caller compares the SET of pins it found against the
     set it was asked about, and a missing one is reported rather than ignored.
     Silence about a pin that no longer exists is how a guard stops guarding.
+    **That sentence used to be the lie this reader told:** it promised a
+    missing pin is reported, while `unreadInLib` -- a pin the tree really
+    holds -- could not be seen at all. The gap was STRUCTURAL, so promising
+    better reporting around it was decoration.
     """
-    return {field: int(value) for field, value in PIN_RE.findall(src)}
+    pins = {field: int(value) for field, value in PIN_RE.findall(src)}
+    for field, value in VALUE_PIN_RE.findall(src):
+        # Only the NAMED fields, and only when the pin is not already counted
+        # as a `.length` pin: `census.surface.length` also matches the looser
+        # shape's field group, and letting the second pass overwrite the first
+        # would depend on regex order rather than on what the Dart says.
+        if field in VALUE_FIELDS and field not in pins:
+            pins[field] = int(value)
+    return pins
 
 
 # --------------------------------------------------------------------------
@@ -446,13 +490,43 @@ def prose_only_files(root: str, calls: "re.Pattern[str]") -> dict:
 # `census.direct.length` is measured by walking the tree; `census.surface
 # .length` is the size of a list. Kept as a table so a THIRD pin -- the file
 # may well grow one -- reads as a missing entry rather than as a wrong answer.
-MEASURED_AS = {"direct": "direct", "surface": "surface_count"}
+# **The third entry is new, and it is registered as a HANDED-OVER number
+# rather than as one this file computes.** `unreadInLib` is the number of
+# loose matches the reader does not recover -- and recovering them means
+# running [_lineClaims], which is eleven claim shapes, a label reader with a
+# bracket walk, and a form-word table, in a language this tool is not.
+#
+# Re-implementing `_lineClaims` here would be the one thing this file must
+# never do: it has spent three backlog items learning what a second reader of
+# one vocabulary costs. So the number is MEASURED BY THE DART and handed in --
+# the same contract [extract_regex] already follows by refusing to answer from
+# a remembered copy. [MEASURED_AS] is the table of which key carries which
+# field; `unread_in_lib` is the key the caller fills.
+MEASURED_AS = {"direct": "direct", "surface": "surface_count",
+               "unreadInLib": "unread_in_lib"}
 
 
 def verdict(m: dict) -> dict:
     pins = m["pins"]
     drift = []
+    # A pin this tool knows how to measure, and did not, because its
+    # measurement is not in the payload. `unreadInLib` lives here, and it is a
+    # THIRD state rather than a kind of drift: the pin is real, the tree is
+    # unknown to this tool, and the Dart run is what measures it.
+    #
+    # Reporting it as drift would be a lie of the same shape as the blindness
+    # this tick closed -- a number that is not measured printed beside a
+    # number that is. Reporting it as agreement would be the old bug. It gets
+    # its own line, and the exit code ignores it: a pin the Dart asserts and
+    # the Dart measures must not make a PYTHON tool red on a box where Dart
+    # cannot run.
+    handover = []
     for field, pinned in sorted(pins.items()):
+        if field in MEASURED_AS and m.get(MEASURED_AS[field]) is None:
+            handover.append({"pin": field, "pinned": pinned})
+    for field, pinned in sorted(pins.items()):
+        if any(h["pin"] == field for h in handover):
+            continue
         # A pin this tool cannot measure is ONE fault, not two. The first
         # version branched twice -- an unknown field, then an absent
         # measurement -- and the mutation battery proved the branches
@@ -470,6 +544,7 @@ def verdict(m: dict) -> dict:
                           "delta": actual - pinned})
     return {
         "drift": drift,
+        "handover": handover,
         # A count pin is only falsifiable for a mutation that MOVES the count.
         "direct_pin_falsifiable_for_comment_filter":
             m["comment_filter_delta"] != 0,
@@ -521,6 +596,21 @@ def render(m: dict, v: dict) -> "list[str]":
     out.append("  files that CALL the helper in code : %d" % m["direct"])
     out.append("  loose claim-shaped sentences      : %d" % len(m["surface"]))
     out.append("")
+    if v.get("handover"):
+        out.append("  pins the DART measures and this tool does not:")
+        for h in v["handover"]:
+            out.append("    %-12s pinned %-4s -- READ, NOT MEASURED HERE."
+                       % (h["pin"], h["pinned"]))
+            out.append("                 -> counting it needs `_lineClaims`, "
+                       "and a second copy of it in")
+            out.append("                    Python is the defect this file "
+                       "exists to measure. The")
+            out.append("                    `flutter test` run of "
+                       "agreement_comment_test.dart is the")
+            out.append("                    measurement; this tool reports the "
+                       "pin rather than inventing a")
+            out.append("                    number beside two it did measure.")
+        out.append("")
     if v["drift"]:
         out.append("  DRIFT -- a pin no longer describes this tree:")
         for d in v["drift"]:
@@ -533,8 +623,10 @@ def render(m: dict, v: dict) -> "list[str]":
             # re-measures a pin that did not move.
             if d.get("note"):
                 out.append("             -> %s" % d["note"])
-    else:
+    elif not v.get("handover"):
         out.append("  every pin agrees with the tree.")
+    else:
+        out.append("  every pin this tool measures agrees with the tree.")
     out.append("")
     out.append("  Is the pin on `census.direct.length` falsifiable for the "
                "mutations its own comment names?")

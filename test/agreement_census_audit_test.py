@@ -157,6 +157,130 @@ class PinReadingTests(unittest.TestCase):
                                        "greaterThanOrEqualTo(20), 'x');"), {})
 
 
+class ThirdPinTests(unittest.TestCase):
+    """The pin that is not a `.length` -- the gap this tick closed.
+
+    **The defect, measured on the real tree.** `test/agreement_comment_test.
+    dart` asserts THREE pins on this census: `census.direct.length` 20,
+    `census.surface.length` 25, and `census.unreadInLib` **0**. The reader
+    [PIN_RE] could see only the first two, because it requires `.length`, so
+    the third was invisible on every run and `read_pins` answered a confident
+    two-pin dict. The unseen pin is the one that says *no claim-shaped
+    sentence in `lib/` is unreadable* -- the assertion that the reader has no
+    hole in it.
+
+    A pin that reads as ABSENT rather than as UNMEASURED is the same failure
+    the portfolio-allowance audit shipped on 9 Oct, one layer over.
+    """
+
+    REAL = ("void main() {\n"
+            "  expect(census.direct.length, 20, 'r');\n"
+            "  expect(census.surface.length, 25, 'r');\n"
+            "  expect(census.unreadInLib, 0, 'r');\n"
+            "}")
+
+    def test_the_plain_field_pin_is_read(self):
+        self.assertEqual(aca.read_pins(self.REAL)["unreadInLib"], 0)
+
+    def test_all_three_pins_are_read_together(self):
+        # Not one-at-a-time: the failure was a pin MISSING FROM A SET, so a
+        # case that reads the third pin alone would pass on a reader that had
+        # simply stopped seeing the other two.
+        self.assertEqual(aca.read_pins(self.REAL),
+                         {"direct": 20, "surface": 25, "unreadInLib": 0})
+
+    def test_a_zero_valued_pin_is_a_pin(self):
+        # THE case the bug turned on. A reader that treated 0 as falsy, or
+        # skipped a field whose value is 0, would have kept this one invisible
+        # while looking like it worked.
+        self.assertEqual(aca.read_pins("expect(census.unreadInLib, 0, 'r');"),
+                         {"unreadInLib": 0})
+
+    def test_a_length_pin_is_not_overwritten_by_the_loose_shape(self):
+        # `census.surface.length` also matches the plain-field shape's FIELD
+        # group. If both passes wrote the same dict key, the value would depend
+        # on regex order instead of on what the Dart says.
+        got = aca.read_pins("expect(census.surface.length, 25, 'r');")
+        self.assertEqual(got, {"surface": 25})
+
+    def test_an_unnamed_field_in_the_LOOSE_shape_is_not_a_pin(self):
+        # The second reader only accepts the fields NAMED in
+        # `VALUE_FIELDS`. `census.unread` is a real field of `_ArticleCensus`
+        # and is NOT pinned, so `expect(census.unread, 2)` must stay invisible
+        # -- guessing a field's identity from its spelling is the over-match
+        # the loose probe was built to avoid, and it is how a tool ends up
+        # reporting drift on a number nobody asserted.
+        #
+        # **Written with the `.length` removed first, and that is the whole
+        # correction:** the plant was `census.routed.length`, which is a
+        # genuine `.length` pin and is CORRECTLY read by [PIN_RE] -- so it went
+        # red against a reader doing the right thing, and the test was asking
+        # about the loose shape while measuring the strict one.
+        self.assertEqual(aca.read_pins("expect(census.unread, 2, 'r');"), {})
+
+    def test_a_dot_length_field_of_the_loose_shape_is_still_a_pin(self):
+        # The other half, so the case above is about the SHAPE and not about
+        # the field being unnamed: `census.routed.length` carries the strict
+        # marker, so it is read whatever the field is called -- and it then
+        # reaches [MEASURED_AS] as UNMEASURED, which `verdict` reports rather
+        # than skipping.
+        self.assertEqual(aca.read_pins("expect(census.routed.length, 13, 'r');"),
+                         {"routed": 13})
+
+    def test_a_bound_is_still_not_a_pin(self):
+        # `lessThan(3)` beside the pin is a bound, not a pin -- and the value
+        # `0` must not be read out of the OTHER assertion's sentence.
+        self.assertEqual(aca.read_pins(
+            "expect(census.unreadInLib, lessThan(3), 'r');"), {})
+
+    def test_it_is_reported_rather_than_invented(self):
+        # The register: the pin is read, MEASURED_AS knows the key, and the
+        # payload has no value -- so it is a HANDOVER, neither drift (no
+        # number disagrees) nor agreement (no number was compared).
+        m = {"pins": {"direct": 20, "unreadInLib": 0},
+             "direct": 20, "surface_count": 25}
+        m.update({k: 0 for k in
+                  ("comment_filter_delta", "bare_name_delta", "combined_delta",
+                   "membership_present", "membership_guarded",
+                   "prose_only_count")})
+        v = aca.verdict(m)
+        self.assertEqual([h["pin"] for h in v["handover"]], ["unreadInLib"])
+        self.assertEqual(v["drift"], [],
+                         "a pin this tool cannot measure must not be printed "
+                         "as a number mismatch -- that is a lie of the same "
+                         "shape as the blindness being fixed")
+
+    def test_the_handover_keeps_the_exit_code_out_of_the_dart(self):
+        # The Dart assertion is measured by the Dart suite. A python tool that
+        # exited 1 on a pin it cannot see would be red on every tick that
+        # cannot run Dart -- which is most of them on this host.
+        m = {"pins": {"direct": 20, "surface": 25, "unreadInLib": 0},
+             "direct": 20, "surface_count": 25}
+        m.update({k: 0 for k in
+                  ("comment_filter_delta", "bare_name_delta", "combined_delta",
+                   "membership_present", "membership_guarded",
+                   "prose_only_count")})
+        v = aca.verdict(m)
+        self.assertTrue(aca.main([]) in (0, 1))  # never 2, never a crash
+        self.assertEqual(v["drift"], [])
+
+    def test_the_render_names_the_handover_and_does_not_claim_agreement(self):
+        # The sentence at the top of the report is the one a scrolled log
+        # leaves behind. "every pin agrees with the tree" above a pin that was
+        # never measured is the blindness in its most quotable form.
+        m = {"pins": {"direct": 20, "unreadInLib": 0}, "direct": 20,
+             "surface_count": 25, "surface": [], "unread_in_lib": None,
+             "comment_filter_delta": 0, "bare_name_delta": 0,
+             "combined_delta": 0, "comment_filter_files": [],
+             "bare_name_files": [], "combined_files": [],
+             "membership_present": True, "membership_guarded": True,
+             "membership_exempt": [], "prose_only": [], "prose_only_count": 0}
+        text = "\n".join(aca.render(m, aca.verdict(m)))
+        self.assertIn("unreadInLib", text)
+        self.assertNotIn("every pin agrees with the tree", text)
+        self.assertIn("every pin this tool measures agrees", text)
+
+
 class CommentFilterTests(unittest.TestCase):
     """The filter that tells a call site from a worked example."""
 
