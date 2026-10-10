@@ -32908,3 +32908,83 @@ check on `worker_profile_screen.dart`, which draws the same gallery for a
 *customer* and was never measured for the same ceiling sentence. That is the
 "second copy of the thing" shape the monogram item and the wilaya-sheet item
 both found, and it is the only place the fixed sentence can still be blind.
+
+## Tick 10 Oct 2026 (2nd) — the next item's premise was WRONG, and measuring it
+## found a worse defect one layer under the reader the last tick repaired
+
+**Carried first, and it was the right call.** The previous tick died holding an
+uncommitted, *red* tree (9 failed / 33 passed on correct source — the stale
+`.pyc`). Protocol step 1 says commit or stash; `git checkout -- .` on that tree
+would have thrown away the fix on the strength of a number written before it.
+Re-validated on this box, then committed: **15 + 42 + 14 passed**, census read
+`direct=22 surface=27 unreadInLib=0`, `AUDIT_EXIT=0` both hosts. Local
+`7ec6940`, remote `d94fda9`, **IN SYNC on blob and mode**.
+
+**The open item was `worker_profile_screen.dart` — and the premise was false.**
+The last two ticks called it "the second copy of the thing" on the grounds that
+it "draws the same gallery for a customer". It draws the gallery and **no
+ceiling sentence at all**: `grep` for `حد صور خطتك` in `lib/` returns
+`portfolio_allowance.dart` and `my_portfolio_screen.dart` only, and
+`worker_profile_screen.dart` has zero hits. That is **correct**, not a gap — the
+plan limit is the worker's private fact, and printing it on the page a customer
+picks him from would be the lie, not the fix. So the `over_ceiling_line` check
+the note asked for has nothing to measure, and adding it would have been
+instrumenting a surface that is already right. **Not done, on the evidence.**
+
+**What measuring it turned up instead — the reader's third state was being
+discarded one layer up.** The arity fix earlier today gave
+`dart_ceiling_line_takes_count` a genuine `None` (declaration unreadable) to go
+with `True`/`False`, and `_render` already renders it in words: *"`portfolioFullLineAr`
+NOT READ -- no verdict"*. **`_check_header` branches on `if takes_count:`**, so
+`None` takes the same arm as `False` — a file nobody opened gets a measured
+defect verdict, and `header_contradicts` → **exit 1 against two live hosts**,
+printed beside "no verdict" on one line.
+
+Two triggers, **neither touching a line of app logic**, both measured:
+- run from any directory but the repo root — the default path resolved through
+  `os.getcwd()`, and every protocol command `cd`s first, so it read as a
+  non-issue for the tool's whole life;
+- **`portfolioFullLineAr` renamed** — a rename is as ordinary as a parameter
+  rename, and the fix an hour earlier covered only the parameters.
+
+**Fix.** The default path resolves against the repo root, not the shell. The
+`None` arm is explicit, returns *before* the blind arm, and still reports
+`over_ceiling_by` — arithmetic on two numbers this tool **did** measure, true
+whoever wrote the Dart.
+
+**The control is the case that makes the fix mean something.** Folding `None`
+into "not blind" would also silence the real defect, so a one-parameter
+signature is pinned to still read as `blind=True` and still file the
+contradiction. **5 new cases, 47 total. 4 mutations of the fix, 4 killed, 0
+survived** — including dropping the `None` arm wholesale (3 killed).
+
+**Third recurrence of the same shape, and the first time the third state
+existed at all.** 1 Oct census, 9 Oct mirror, today — a reader whose vocabulary
+is narrower than the tree it grades, so what it cannot see reads as *absent*
+rather than *unmeasured*. Today is different in one way: the reader was RIGHT
+and its **caller** was wrong. The fix was one layer up, not down.
+
+**Files:** `tool/portfolio_allowance_audit.py` (repo-root path, explicit `None`
+arm), `test/portfolio_allowance_audit_test.py` (+5 → 47), this file.
+
+**Evidence.** `python3 tool/portfolio_allowance_audit.py` → **AUDIT_EXIT=0**,
+both hosts, verdict unchanged (`130 against 5`, `header_contradicts: False`).
+47 passed / 0 failed, gallery 14, stale-bytecode 15, census + 5 sibling
+audits green. Commit `d1eeb16` → remote `57e9540`, **IN SYNC**.
+
+**Dart gate denied for the 5th tick running** — 539 MB available against the
+900 MB floor, balloon holding ~5.2 GB. **Zero Dart changed this tick**, so
+`flutter analyze` / `tool/run_tests.py` correctly did not run and the 2609
+baseline is untouched. This was the right item for a denied box: a pure-Python
+audit defect.
+
+**Next.** The `over_ceiling_line` item above is **CLOSED as unfounded** — the
+customer-facing surface has no ceiling sentence by design, and that is now
+recorded here so a later tick does not re-open it on the same false premise.
+The open thread is the same defect class in the **census** reader, which now
+has its own `handover` verdict (ticked earlier today): two audits in a row
+disagree about what an unmeasured field should do, and the census tool says
+`handover` does **not** touch its exit code while this one now says an
+unreadable file must. Those two policies are not reconciled, and reconciling
+them is the next thing worth doing — it is one decision, in one place, about
+what an audit reports when it cannot measure.
