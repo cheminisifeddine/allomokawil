@@ -714,6 +714,77 @@ remote tree, read off the git-data API rather than trusted from the push line.
 
 ## Phase 6 — the loop's own instruments
 
+- [x] **The suite that hunts the leaked browser was leaking one — and the
+      gate blamed it on «this loop's render».** FOUND 10 Oct. `6312954`
+      (remote `0d95a2d`).
+      No unchecked item remained (293/293), so this tick took the
+      measurement the last several ticks kept reporting instead of fixing:
+      every one of them closed with `build_gate.py` -> **NO ROOM**, and the
+      protocol names the Dart gate as the loop's only real constraint. This
+      is the first tick to ask **who was holding the box**, and the answer
+      was the loop itself.
+
+      *The finding.* The gate named pid **15189**: a headless Chrome, PPID 1,
+      ~199 MB of PSS, holding a box with no swap under a 900 MB floor. Its
+      `--user-data-dir` was `gate_chrome_livesyklbhy0` — a `mkdtemp` prefix
+      that appears **nowhere in the repository except `test/build_gate_test.py`
+      case 12**. So the process starving every tick was a fixture *this very
+      file* had orphaned, and the gate's own label — `LEAKED headless chrome
+      (this loop's render)` — was naming our test instead of a real render.
+      Two more such profile directories were still on disk, from **9 and 10
+      Oct**, so this had fired more than once.
+
+      *The mechanism, in the shape of the case.* Case 12 forks a browser to
+      init and reaps it with `mod.reap(...)` as the **last statement of a
+      50-line block with no `try`/`finally`**. Between the spawn and the reap
+      sit four `results.append` calls, a `socket.create_connection` and a
+      `recv` that can time out on a loaded box. Any raise skips the reap and
+      leaves a ~200 MB orphan parented to init. A leak detector whose own
+      test suite manufactures the leak it is asked to detect is worse than no
+      detector: the one instrument the loop uses to explain starvation was
+      producing the starvation.
+
+      *Shipped.* **`_armed_browser`**, a context manager that spawns the
+      reparented browser, records its pid, and reaps it on the way out
+      **however the case exits**; cases 9 and 12 both go through it. The case
+      still holds a real, provably-dead leak while it asserts — it is testing
+      the leak arm, so the leak must exist — but it can no longer survive its
+      own assertions. `reap()` is **verified, not assumed**: `mod.reap` (the
+      shipped routine, so the case still exercises real code) followed by
+      `_force_gone()`, a bounded wait for `/proc/<pid>` to disappear, because
+      *sent the signal* and *the box came back* are different claims and only
+      the second is worth anything to the next case. SIGTERM first and SIGKILL
+      only on the tree root, since a SIGKILL to the root orphans the renderer
+      group and trades a 200 MB leak for a smaller permanent one. The CDP
+      socket is now closed in a `finally` — left open it stays ESTABLISHED,
+      which `_port_in_use` counts as a live session, so the next case would
+      have found our own fixture looking like somebody's in-flight screenshot.
+      Cases 9 and 12 now take their port from `_free_port()` like case 12
+      already did; 9398 was hardcoded.
+
+      *Evidence.* `python3 test/build_gate_test.py` -> **32/32 ALL PASS,
+      exit 0**, and **zero orphan browsers afterwards**, verified with the
+      gate's own predicates rather than by eye. The mutation that matters:
+      with `reap()` neutered to a no-op the suite still prints 25/31 and
+      **leaves an orphan holding 152 MB** — the guard is load-bearing, not
+      decorative. Pre-existing Python guards unchanged: exit-docs **8/8**,
+      busy **2/2**, retry budget **4/4**, loop protocol **9/9**, `remote_state`
+      pass. **No `.dart` file changed**, so the **2673** baseline is untouched
+      by construction; the Dart gate did not run and no Dart count is
+      claimed — `build_gate.py` answers NO ROOM and the host balloon holds
+      4917 MB of 7935, more than the 8 MB the box is short.
+
+      *One thing recorded rather than papered over.* The first green run
+      reported **31/32** on *«no Balloon: field -> still refused, host NOT
+      invented»*. That case passes standalone and in the re-run (32/32). The
+      cause was a foreign headless Chrome — pid **21259**, port 9333,
+      `/tmp/chrome-cheikh-9333` — that started 10 s before that suite run and
+      was gone by the next one: another session's live render. This is the
+      same non-hermetic defect this file has been bitten by twice before, and
+      fixing it properly is its own item. *«It passed on the retry» is not the
+      same claim as «it cannot fail for that reason»*, so the retry is
+      reported as what it is.
+
 - [x] **The suite runner counts a shard with skipped tests as ZERO — and the
       number it prints is the number this loop gates on.** FOUND 8 Oct, not
       started. `passed_count()` reads the reporter's progress lines with
