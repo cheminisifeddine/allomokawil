@@ -72,13 +72,14 @@ def load_tool():
 nba = load_tool()
 
 
-def dz_src(cap=12, years=70):
+def dz_src(cap=12, years=70, extra_consts=""):
     return """
 class DzNumber {
   static const int maxDigits = %d;
   static const int maxExperienceYears = %d;
+%s
 }
-""" % (cap, years)
+""" % (cap, years, extra_consts)
 
 
 def fmt_src(truncates=True, refuses_fraction=True):
@@ -122,10 +123,21 @@ class NumberField extends StatelessWidget {
 """ % (cap, blocks)
 
 
-def detail_src(amount_roof=None, days_roof=None):
-    """The bid sheet. `capped` and `uncapped` variants of the SAME call."""
+def detail_src(amount_roof=None, days_roof=None,
+               amount_roof_expr=None, days_roof_expr=None):
+    """The bid sheet. `capped` and `uncapped` variants of the SAME call.
+
+    `*_roof_expr` plants a roof written as a `DzNumber.NAME` reference rather
+    than a literal -- the shape the real fixer uses, and the shape that once
+    made this tool report six unroofed fields on a tree where all seven had
+    roofs.
+    """
     amt = ", min: 1000" + (", max: %d" % amount_roof if amount_roof else "")
     day = ", min: 1" + (", max: %d" % days_roof if days_roof else "")
+    if amount_roof_expr:
+        amt = ", min: 1000, max: %s" % amount_roof_expr
+    if days_roof_expr:
+        day = ", min: 1, max: %s" % days_roof_expr
     return """
 class DetailScreen {
   void go() {
@@ -434,6 +446,207 @@ def field(m, fid):
         if f["id"] == fid:
             return f
     raise AssertionError("no field %r in %s" % (fid, [f["id"] for f in m["fields"]]))
+
+
+
+
+class TestNamedRoofsAreResolved(PlantCase):
+    """A roof written as `DzNumber.NAME` is a roof.
+
+    Regression from the tick that shipped the fix: every bound was passed as a
+    named constant, `int("DzNumber.maxAmountDzd")` raised, and all seven fields
+    read NO ROOF in a tree where all seven were roofed -- the tool reported the
+    fix's own result as the defect it had been measuring. Every case here plants
+    a NAMED roof, because a literal-only reader and a constant-aware reader
+    produce identical output on every fixture this file already had.
+    """
+
+    NAMED = "  static const int maxAmountDzd = 900000000000;"
+    NAMED_DAYS = "  static const int maxDurationDays = 3650;"
+
+    def test_a_named_roof_is_read_as_a_roof(self):
+        """A named roof must score exactly as the literal one scores.
+
+        The fixture roofs ALL SEVEN fields, mixing a named amount roof with a
+        named duration roof: a reader that resolved only the one it happened to
+        know about would still pass a case that roofed a single field, because
+        the other six would dominate the verdict and the point would be lost in
+        the noise of a list of names nobody reads.
+        """
+        v = self.verdict(**self.all_roofed())
+        self.assertEqual(v["unroofed"], [], "unroofed: %s" % v["unroofed"])
+        self.assertFalse(v["drift"])
+
+    def all_roofed(self):
+        """Every field roofed, the AMOUNT roofs NAMED and the days roof named."""
+        return dict(
+            dz=dz_src(extra_consts=self.NAMED + "\n" + self.NAMED_DAYS),
+            fmt=fmt_src(truncates=False),
+            detail=detail_src(amount_roof_expr="DzNumber.maxAmountDzd",
+                              days_roof_expr="DzNumber.maxDurationDays"),
+            new=new_src(min_roof=ROOF_AMOUNT, max_roof=ROOF_AMOUNT),
+            profile=profile_src(min_roof=ROOF_AMOUNT, max_roof=ROOF_AMOUNT))
+
+    def test_the_resolved_value_is_the_constants_value_not_a_boolean(self):
+        """Not merely "some roof" -- the number the tree actually holds.
+
+        A reader that mapped any name to a sentinel would pass the case above
+        while being unable to answer "what does the app accept", which is the
+        only reason this tool prints a table instead of a count.
+        """
+        m = self.measure(**self.all_roofed())
+        by = {f["id"]: f for f in m["fields"]}
+        self.assertEqual(by["bid_amount"]["parse_max"], 900000000000)
+        self.assertEqual(by["bid_days"]["parse_max"], 3650)
+        self.assertEqual(by["budget_min"]["parse_max"], ROOF_AMOUNT)
+        self.assertEqual(by["profile_years"]["parse_max"], 70)
+
+    def test_maxExperienceYears_still_resolves_as_the_named_constant(self):
+        """The one pre-existing named roof must not regress to the literal path."""
+        m = self.measure(profile=profile_src())
+        by = {f["id"]: f for f in m["fields"]}
+        self.assertEqual(by["profile_years"]["parse_max"], 70)
+
+    def test_a_name_that_does_not_exist_reads_as_absent_not_as_unbounded(self):
+        """**The distinction this battery exists for.**
+
+        An unresolvable `max:` is not a field with no roof -- it is a field this
+        tool cannot read. Scoring ignorance as a defect is the "invent a finding
+        on a correct field" fault this file was opened to stop; scoring it as
+        clean is the mirror of it. ABSENT keeps the run red AND says a human
+        has to look, which is the only honest answer.
+        """
+        m = self.measure(
+            detail=detail_src(amount_roof_expr="DzNumber.doesNotExist"))
+        by = {f["id"]: f for f in m["fields"]}
+        self.assertIsNone(by["bid_amount"]["parse_max"])
+        self.assertFalse(by["bid_amount"]["roofed"])
+        self.assertTrue(by["bid_amount"]["max_unreadable"])
+        v = nba.verdict(m)
+        # Scoped to THIS field: the other five carry no `max:` at all in this
+        # fixture, so they are honestly unroofed and belong in that list. The
+        # claim under test is that `bid_amount` -- which HAS a bound the tool
+        # could not read -- is not counted as one of them.
+        self.assertNotIn("bid_amount", v["unroofed"],
+                         "an unreadable bound is NOT a proven unroofed field")
+        self.assertIn("bid_amount", v["unreadable"])
+        self.assertTrue(v["drift"], "unreadable must keep the run red alone")
+
+    def test_unreadable_alone_keeps_the_run_red_with_no_defect_named(self):
+        """Every other field roofed, and the one bound unreadable.
+
+        This is the exact shape the fixer produced: a tree that is correct in
+        every field the tool can read, with one expression it cannot evaluate.
+        It must exit non-zero and name nothing as a proven defect.
+        """
+        v = self.verdict(**self.all_roofed_unreadable_one())
+        self.assertEqual(v["unroofed"], [], "unroofed: %s" % v["unroofed"])
+        self.assertEqual(v["unreadable"], ["budget_min"])
+        self.assertTrue(v["drift"])
+        self.run_tool(expect=1, **self.all_roofed_unreadable_one())
+
+    def all_roofed_unreadable_one(self):
+        kw = self.all_roofed()
+        # budget_min loses its literal roof and gains one the tool cannot read.
+        kw["new"] = new_src(min_roof=ROOF_AMOUNT, max_roof=ROOF_AMOUNT).replace(
+            ", max: %d" % ROOF_AMOUNT, ", max: _roofFromPolicy", 1)
+        return kw
+
+    def test_unreadable_is_never_printed_as_a_proven_defect(self):
+        """The sentence matters more than the exit code.
+
+        "NO ROOF" is a claim about the tree. A tool that could not evaluate the
+        bound has no such claim to make, and printing one sends a human to fix
+        correct code -- which is what happened the moment the roofs became named.
+        """
+        m = self.measure(
+            detail=detail_src(amount_roof_expr="DzNumber.doesNotExist"))
+        out = "\n".join(nba.render(m, nba.verdict(m)))
+        self.assertIn("BOUND UNREADABLE", out)
+        self.assertIn("CANNOT READ", out)
+        # The other five fields really are unroofed here, so "NO ROOF" is
+        # correct for THEM. What must never happen is the unreadable field's
+        # own row claiming it -- that is the claim the tool cannot support.
+        row = [ln for ln in out.splitlines()
+               if ln.strip().startswith("bid_amount")][0]
+        self.assertNotIn("NO ROOF", row, row)
+        # And it must not be named in the proven-defect list either.
+        defect = out.split("DEFECT", 1)[-1]
+        self.assertNotIn("bid_amount", defect)
+
+    def test_an_expression_the_tool_cannot_evaluate_is_absent_too(self):
+        """A runtime expression is unreadable, and is reported rather than
+        guessed. Scoring it UNBOUNDED would be inventing a finding."""
+        m = self.measure(
+            detail=detail_src(amount_roof_expr="_roofFor(field)"))
+        by = {f["id"]: f for f in m["fields"]}
+        self.assertIsNone(by["bid_amount"]["parse_max"])
+        self.assertFalse(by["bid_amount"]["roofed"])
+        self.assertIn("bid_amount", nba.verdict(m)["unreadable"])
+
+    def test_a_named_roof_does_not_rescue_a_field_with_no_parser_at_all(self):
+        """Roofs are read per FIELD; one roofed field must not green the run."""
+        v = self.verdict(
+            dz=dz_src(extra_consts=self.NAMED),
+            detail=detail_src(amount_roof_expr="DzNumber.maxAmountDzd"))
+        self.assertIn("bid_days", v["unroofed"])
+        self.assertNotIn("bid_days", v["unreadable"],
+                         "bid_days has NO max: at all -- that is unroofed")
+        self.assertTrue(v["drift"])
+
+    def test_the_tool_exit_code_follows_the_named_roof(self):
+        """The planted tree is clean, so the tool must answer 0 -- the whole
+        failure was a clean tree exiting 1 for the fix."""
+        self.run_tool(expect=0, **self.all_roofed())
+
+    def test_the_table_prints_the_resolved_number_not_the_constant_name(self):
+        m = self.measure(**self.all_roofed())
+        out = "\n".join(nba.render(m, nba.verdict(m)))
+        self.assertIn("900000000000", out)
+        self.assertNotIn("NO ROOF", out)
+        self.assertNotIn("UNREADABLE", out)
+
+
+class TestResolveBoundDirectly(unittest.TestCase):
+    """The resolver, on its own, so a failure names the arm rather than a field."""
+
+    CONSTS = {"maxAmountDzd": 900000000000}
+
+    def test_a_literal_resolves(self):
+        self.assertEqual(nba.resolve_bound("3650", self.CONSTS, 70), 3650)
+
+    def test_a_named_constant_resolves(self):
+        self.assertEqual(
+            nba.resolve_bound("DzNumber.maxAmountDzd", self.CONSTS, 70),
+            900000000000)
+
+    def test_the_experience_constant_resolves_from_its_own_reader(self):
+        self.assertEqual(
+            nba.resolve_bound("DzNumber.maxExperienceYears", self.CONSTS, 70), 70)
+
+    def test_whitespace_does_not_defeat_it(self):
+        self.assertEqual(
+            nba.resolve_bound("  DzNumber.maxAmountDzd ", self.CONSTS, 70),
+            900000000000)
+
+    def test_an_unknown_name_is_none_not_zero(self):
+        """Zero would be a roof -- the tightest possible one -- invented from
+        a typo. None is the answer that keeps the run red for a human."""
+        self.assertIsNone(nba.resolve_bound("DzNumber.nope", self.CONSTS, 70))
+
+    def test_arithmetic_is_none(self):
+        self.assertIsNone(nba.resolve_bound("1000 * 2", self.CONSTS, 70))
+
+
+class TestConstantsComeFromTheTree(unittest.TestCase):
+    def test_the_extraction_reads_names_and_values(self):
+        src = "class DzNumber {\n  static const int maxDigits = 12;\n" \
+              "  static const int maxDurationDays = 3650;\n" \
+              "  static const String currency = 'دج';\n}"
+        consts = nba.dz_int_constants(src)
+        self.assertEqual(consts.get("maxDurationDays"), 3650)
+        self.assertNotIn("currency", consts,
+                         "a String constant is not an int bound")
 
 
 if __name__ == "__main__":

@@ -504,4 +504,18 @@ class S {
   static const bidAmountMin = 'المبلغ يجب أن يكون 1000 دج على الأقل';
   static const bidAmountNotNumber = 'المبلغ يجب أن يكون رقماً بالدينار';
   static const bidDaysNotNumber = 'مدة الإنجاز يجب أن تكون عدداً من الأيام';
+
+  // ---- The other end of a bound: a value that is a number and still cannot be
+  // sent. Floors said "at least", so they read as rules; roofs have to say
+  // what is too much, or a contractor who types 13 digits is told the field
+  // "is not a number" for a field holding nothing but digits — which is a lie
+  // about the value and teaches him the app does not know its own limits.
+  //
+  // Functions, not constants, because both numbers come from [DzNumber]: a
+  // copied literal here would be a second place to move when the roof moves,
+  // and this file already holds the Arabic half of the bid sheet's rules.
+  static String bidAmountMax(int max) =>
+      'المبلغ يجب ألا يتجاوز $max دج';
+  static String bidDaysMax(int max) =>
+      'مدة الإنجاز يجب ألا تتجاوز $max يوماً';
 }

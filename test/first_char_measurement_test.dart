@@ -156,12 +156,24 @@ const _allowed = <String, _AllowedSite>{
       'own strip',
       'DzPhone.canonicalFromDigits'),
 
-  // The other two reach their fold through a public entry point, and they are
-  // listed individually because a bundled glob could not say which module each
-  // belongs to: `dz_number` (money fields) must not be allowed to excuse a
-  // future site in a screen.
-  'lib/src/core/text/dz_number.dart#formatEditUpdate':
-      _AllowedSite('digit-only number, input-formatter bound', 'DzNumber.digits'),
+  // **The `dz_number` entry was REMOVED here, and this guard is what removed
+  // it.** `formatEditUpdate` was allowed because it sliced the folded digits
+  // with `digits.substring(0, maxDigits)` — it was an excuse for a site, and
+  // the fold it named is still what bounds the text. That slice was a real
+  // defect: an over-long paste was truncated silently, so the value on screen
+  // was not the value sent. The formatter now **refuses** an over-long paste
+  // (`return oldValue`) instead of cutting it, so the function no longer
+  // reaches a string's first character at all and the entry excuses nothing.
+  //
+  // The staleness case below caught this by name on its own, which is the
+  // point of keeping it: an entry that stops matching a measured site is an
+  // excuse that has stopped covering anything, and leaving it would have let
+  // the NEXT `substring(0, ...)` in that file pass unchecked for having a
+  // tidy reason attached to it.
+  //
+  // `phone_field` is listed individually rather than bundled, because a
+  // bundled glob could not say which module a site belongs to: `dz_number`
+  // (money fields) must not be allowed to excuse a future site in a screen.
   'lib/src/widgets/phone_field.dart#formatEditUpdate':
       _AllowedSite('digit-only phone, input-formatter bound', 'DzPhone.digits'),
 };
@@ -183,6 +195,41 @@ const _allowed = <String, _AllowedSite>{
 /// splitting it, and that the clip is wired in at the call site — a *stronger*
 /// statement than the excuse it replaced, which only ever said what the receiver
 /// was.
+
+/// The folds that owe the user a number with **no excuse resting on them**.
+///
+/// A separate table from [_allowed] rather than a second half of the rule above,
+/// because the two answer different questions. [_allowed] says "this measured
+/// site is safe because this fold makes it safe"; this says "this fold is run
+/// because it decides what the user typed", which is true of it whether or not
+/// any `String[0]` ever reads its result.
+///
+/// **The entry here exists because of a defect the coverage was hiding, and
+/// the way it hid is the finding.** `DzNumber.digits` was classified
+/// `normative` -- obliged to fold Arabic-Indic digits, `٢٥٠٠٠` to `25000` --
+/// for months, and the only thing that ever executed it was the hostile-input
+/// loop walking [_allowed]. On the tick that removed the `dz_number` excuse
+/// (correctly: the formatter no longer slices a folded string, so it measures
+/// no first character and needed no excuse), the loop stopped running it. The
+/// fold underneath **every money field in the app** -- bid amount, bid
+/// duration, project budget, worker price range -- went from executed on every
+/// suite to not executed at all, and **not one assertion went red about it**.
+/// The staleness arm caught something else (a dead entry) and reported that,
+/// and the real loss was quiet.
+///
+/// So the relationship is now stated instead of inferred: every fold in
+/// [_folds] is run for a reason, and the reason is either an excuse naming it
+/// or a line here. A fold that loses its excuse must be re-declared here in
+/// the same commit, where the diff shows a *user-visible fold about to stop
+/// being checked* rather than a line quietly removed from a table.
+const _standing = <String, String>{
+  'DzNumber.digits':
+      'the fold under every money field in the app -- bid amount, bid '
+      'duration, project budget, worker price range. Arabic-Indic `٢٥٠٠٠` '
+      'pasted out of WhatsApp must arrive as 25000 and not as nothing. No '
+      'measured `String[0]` reads its result, so nothing excuses it and '
+      'nothing else runs it.',
+};
 
 /// An arbitrary string cut to a length — a crash message, a response body, a
 /// chat line the user is being quoted back.
@@ -1007,13 +1054,33 @@ String probeCodeUnit(String s) => s.codeUnitAt(0).toString();
                 'or name one that exists.\nKnown folds: '
                 '${_folds.keys.join(', ')}');
       }
-      final unused = _folds.keys
+      // **A fold nothing excuses is not a fault -- it is a claim that has to be
+      // made in its own table, and this arm used to say it was a fault.**
+      //
+      // Both halves of the pair above were true at once and could not both be
+      // satisfied once `dz_number` stopped being an excuse: every excuse must
+      // name a fold (kept), and every fold must be named by an excuse (dropped
+      // -- it is now asserted against [_standing] instead). The second half was
+      // only ever a proxy for "a fold is being run by nobody", and the tick
+      // that made it false did not make the *loop* stop running it -- it made
+      // this assertion go red while the fold's coverage quietly vanished with
+      // it. So the claim is now explicit and checked from both sides: a fold
+      // is run either because an excuse points at it or because [_standing]
+      // says why it is run on its own, and the two tables together must name
+      // every fold exactly once between them.
+      final unexcused = _folds.keys
           .where((k) => !_allowed.values.any((a) => a.fold == k))
           .toList();
-      expect(unused, isEmpty,
-          reason: 'these folds are run by the case below but no excuse names '
-              'one, so either the registry or the table is out of date: '
-              '$unused');
+      expect(unexcused, _standing.keys.toList()..sort(),
+          reason: 'the folds that are run with no excuse resting on them '
+              'are $unexcused, and [_standing] claims '
+              '${_standing.keys.toList()..sort()}. Either the run set or the '
+              'table is out of date: a fold nobody excuses must say in '
+              '[_standing] why it is still owed the user a number, and a '
+              '[_standing] entry for a fold that IS excused is a claim about '
+              'nothing.\n'
+              'Excused folds: '
+              '${_folds.keys.where((k) => !unexcused.contains(k)).toList()}');
     });
 
     test('every named fold folds hostile input down to digits, by execution',
@@ -1113,16 +1180,54 @@ String probeCodeUnit(String s) => s.codeUnitAt(0).toString();
               'owe the user something.');
 
       final notDigits = RegExp(r'[^0-9]');
-      for (final entry in _allowed.entries) {
-        final fold = _folds[entry.value.fold]!;
-        final mustFoldArabic = normative.contains(entry.value.fold);
+      // **Iterated over [_folds], not over [_allowed] -- and this loop used to
+      // iterate over [_allowed], which is what made the removal of the
+      // `dz_number` excuse a silent coverage loss rather than a cleanup.**
+      //
+      // The hostile-input case asked "does the fold behind each excuse hold?"
+      // by walking the excuse table, so a fold stopped being executed the
+      // moment no excuse named it. The tick that stopped excusing
+      // `dz_number.dart#formatEditUpdate` -- correctly, because the formatter
+      // no longer slices a folded string and so reaches no first character --
+      // therefore stopped running `DzNumber.digits` at all, without a word.
+      // `DzNumber.digits` is the fold under **every money field in the app**,
+      // and the property under test is the one that decides whether `25000`
+      // pasted out of WhatsApp arrives as 25000 or as nothing. That property
+      // was being held by an entry whose only job was to point at it, and the
+      // entry was removed for an unrelated reason.
+      //
+      // The registry is the right unit because it is the thing that can drift
+      // from reality: a fold in it is a live function in `lib/`, and holding it
+      // to a rule costs nothing and catches a regression nobody is looking
+      // for. Whether an *excuse* rests on it is a separate question, answered by
+      // the case above -- so the two directions are independent instead of one
+      // table silently owning both. **This is also what turned the guard above
+      // red:** it asserts every fold is named by an excuse, which is a
+      // different claim from "every excuse names a fold", and only now are
+      // both half of a pair that can both be true.
+      for (final foldEntry in _folds.entries) {
+        final name = foldEntry.key;
+        final fold = foldEntry.value;
+        final mustFoldArabic = normative.contains(name);
+        // Named in the failure reason when there is one, and said plainly when
+        // there is not: a reader seeing a fold fail must be able to tell
+        // whether it took a measured site down with it or is simply a fold
+        // that owes the user a number.
+        final rests = _allowed.entries
+            .where((e) => e.value.fold == name)
+            .map((e) => e.key)
+            .toList();
+        final owed = rests.isEmpty
+            ? 'no measured site is excused on it; it runs because it is a '
+                'user-visible fold, not because an excuse points at it'
+            : 'rests on the measured site(s) ${rests.join(', ')}';
         for (final raw in _hostileDigits) {
           final out = fold(raw);
           final hex = out.runes.map((r) => r.toRadixString(16)).join(' ');
           if (mustFoldArabic) {
             expect(notDigits.hasMatch(out), isFalse,
-                reason: '${entry.value.fold} left a non-digit in "${_hex(raw)}" '
-                    '-> "$hex". ${entry.key} is excused by name on this fold, '
+                reason: '$name left a non-digit in "${_hex(raw)}" '
+                    '-> "$hex". $name is $owed, '
                     'so a hole in it is a hole in that site as well.');
             // And it is not enough to leave *no* non-digit: the fold must
             // produce the number the user meant. `DzPhone.digits` deleting the
@@ -1146,15 +1251,15 @@ String probeCodeUnit(String s) => s.codeUnitAt(0).toString();
             // makes the assertion fire on the rows it was previously blind to.
             if (raw.runes.any(_isArabicDigit)) {
               expect(out, isNotEmpty,
-                reason: '${entry.value.fold} answered nothing for '
+                reason: '$name answered nothing for '
                     '"${_hex(raw)}". It folds Arabic-Indic digits by '
                     'definition, so deleting the whole string satisfies '
                     '"no non-digit survived" and is still a broken phone '
-                    'number. ${entry.key} is excused on this fold.');
+                    'number. $name: $owed.');
             }
             if (raw.endsWith('0550123456')) {
               expect(out, '0550123456',
-                reason: '${entry.value.fold} dropped the digits a user typed: '
+                reason: '$name dropped the digits a user typed: '
                     '"${_hex(raw)}" -> "${_show(hex)}"');
             }
           } else {
@@ -1162,12 +1267,12 @@ String probeCodeUnit(String s) => s.codeUnitAt(0).toString();
             // `d[0]` is a single **code unit**, so what matters is that it
             // cannot be a glyph that paints nothing or half of one.
             expect(_hasInvisible(out), isFalse,
-                reason: '${entry.value.fold} let an invisible character '
+                reason: '$name let an invisible character '
                     'through into the receiver "${_hex(raw)}" -> "$hex". '
                     'The first code unit is read as an operator digit, and a '
                     'zero-width one silently answers "not 5/6/7".');
             expect(_loneSurrogate(out), isFalse,
-                reason: '${entry.value.fold} split a surrogate pair: "$hex".');
+                reason: '$name split a surrogate pair: "$hex".');
           }
         }
       }

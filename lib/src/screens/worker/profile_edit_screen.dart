@@ -123,11 +123,18 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   Future<void> _save() async {
     final name = _name.text.trim();
     // Folded parse — `٨` on an Arabic keypad and `2.500` are the same 2500 here.
-    final min = DzNumber.tryParse(_minPrice.text);
-    final max = DzNumber.tryParse(_maxPrice.text);
+    // Each parser is called with the same width its box was built with, so a
+    // narrowed field is narrowed in both places. `_years` was already roofed at
+    // 70 but its box still accepted 12 digits — the value that reached the API
+    // was decided by the parser, and the keyboard was free to disagree.
+    final min = DzNumber.tryParse(_minPrice.text,
+        max: DzNumber.maxAmountDzd, maxDigits: DzNumber.amountDigits);
+    final max = DzNumber.tryParse(_maxPrice.text,
+        max: DzNumber.maxAmountDzd, maxDigits: DzNumber.amountDigits);
     final years = DzNumber.tryParse(
       _years.text,
       max: DzNumber.maxExperienceYears,
+      maxDigits: DzNumber.experienceDigits,
     );
 
     if (name.isEmpty) {
@@ -146,8 +153,18 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       return;
     }
     for (final f in [_minPrice, _maxPrice]) {
-      if (f.text.trim().isNotEmpty && DzNumber.tryParse(f.text) == null) {
-        setState(() => _error = 'أسعارك يجب أن تكون أرقاماً بالدينار');
+      if (f.text.trim().isNotEmpty &&
+          DzNumber.tryParse(f.text,
+                  max: DzNumber.maxAmountDzd, maxDigits: DzNumber.amountDigits) ==
+              null) {
+        // Two mistakes, one sentence each. "Not a number" for text with no
+        // digits in it, and a ceiling sentence for a number that is simply
+        // too large — a price range of 999999999999 دج is a number this app
+        // should not quote, and telling the man it "is not a number" teaches
+        // him the form is broken rather than that he typed too much.
+        setState(() => _error = DzNumber.digits(f.text).isEmpty
+            ? 'أسعارك يجب أن تكون أرقاماً بالدينار'
+            : 'أسعارك يجب ألا تتجاوز ${DzNumber.maxAmountDzd} دج');
         return;
       }
     }
@@ -344,6 +361,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                   controller: _years,
                   hintText: 'مثال: 8',
                   suffixText: 'سنة',
+                  // Two digits is 99, and the roof above it is 70 — the field
+                  // is two digits wider than the answer can be, which is what
+                  // makes the ceiling a question rather than a wall he hits by
+                  // typing one digit too many.
+                  maxDigits: DzNumber.experienceDigits,
                   onChanged: (_) => setState(() => _error = null),
                 ),
                 const SectionTitle('أسعارك (دج)', icon: Icons.payments_rounded),
@@ -361,6 +383,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                           NumberField(
                             controller: _minPrice,
                             hintText: '2500',
+                            maxDigits: DzNumber.amountDigits,
                             onChanged: (_) => setState(() => _error = null),
                           ),
                         ],
@@ -376,6 +399,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                           NumberField(
                             controller: _maxPrice,
                             hintText: '8000',
+                            maxDigits: DzNumber.amountDigits,
                             onChanged: (_) => setState(() => _error = null),
                           ),
                         ],

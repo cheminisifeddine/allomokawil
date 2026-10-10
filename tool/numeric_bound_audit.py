@@ -154,6 +154,52 @@ def extract_max_experience_years(src: str) -> int:
     return int(m.group(1))
 
 
+def dz_int_constants(src: str) -> dict:
+    """Every `static const int NAME = <digits>;` in dz_number.dart, by name.
+
+    **This exists because of a real failure, not a hypothetical one.** The
+    fixer passed its roofs as `max: DzNumber.maxAmountDzd` — named, not
+    literal — and every field still read NO ROOF: `max_in` matched, the value
+    was the string `DzNumber.maxAmountDzd`, `int()` raised, and the field fell
+    through to `pmax = None`. So the tool reported, in full confidence, the six
+    unroofed fields of a tree where **all seven were roofed** and the run that
+    fixed everything exited 1 for the fix. That is worse than the bug the tool
+    was built to find: it is the same "invent a finding on a correct field"
+    fault already caught once in this tool (`profile_years`) and once in the
+    census tool — and it fired on **every** field at once, so nothing in the
+    table contradicted it.
+
+    It is also the second-order version of the fault above: a reader that
+    cannot resolve a name has not learned that the field is unbounded, only
+    that it did not understand it, and it was scoring that ignorance as a
+    defect. Unknown stays unknown and stays red; known-but-unresolvable is
+    gone entirely.
+    """
+    return {n: int(v) for n, v in re.findall(
+        r"static\s+const\s+int\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(\d+)\s*;", src)}
+
+
+def resolve_bound(expr: str, consts: dict, years_cap: int) -> "int | None":
+    """The value of a `max:` argument, or None when it is not a number we can read.
+
+    Accepts a bare literal (`3650`) or a `DzNumber.NAME` reference. An expression
+    the tree builds at runtime — a ternary, an arithmetic sum, a call — resolves
+    to None, which the caller reports as ABSENT rather than as unbounded: the
+    run stays red and says a human has to look, instead of asserting a defect it
+    has not proved.
+    """
+    expr = expr.strip()
+    if expr.startswith("DzNumber."):
+        name = expr[len("DzNumber."):]
+        if name == "maxExperienceYears":
+            return years_cap
+        return consts.get(name)
+    try:
+        return int(expr)
+    except ValueError:
+        return None
+
+
 def _format_edit_params(src: str):
     """The two parameter names of `formatEditUpdate`, in order.
 
@@ -214,6 +260,7 @@ def measure(root: str) -> dict:
     nf_src = read(os.path.join(root, NUMBER_FIELD))
     parser_cap = extract_dz_max_digits(dz_src)
     years_cap = extract_max_experience_years(dz_src)
+    consts = dz_int_constants(dz_src)
 
     screens = {}
     for _, path, _, _ in FIELDS:
@@ -233,14 +280,19 @@ def measure(root: str) -> dict:
             max_in = re.search(r"max:\s*([^,)]+)", whole)
             if max_in is None:
                 pmax = None
-            elif "maxExperienceYears" in max_in.group(1):
-                pmax = years_cap
+                unreadable = False
             else:
-                try:
-                    pmax = int(max_in.group(1))
-                except ValueError:
-                    pmax = None
-            parses[fid] = {"min": pmin, "max": pmax, "call": whole}
+                pmax = resolve_bound(max_in.group(1).strip(), consts, years_cap)
+                # A `max:` is present and this tool cannot evaluate it. That is
+                # NOT the same as a field with no roof, and reporting it as one
+                # is the "invent a finding" fault this tool has now been caught
+                # by twice -- once on `profile_years`, once on every field at
+                # once when the roofs became named constants. It is carried as
+                # its own verdict so the run stays red for a human without the
+                # table asserting a defect nobody proved.
+                unreadable = pmax is None
+            parses[fid] = {"min": pmin, "max": pmax, "call": whole,
+                           "max_unreadable": unreadable}
 
     fields = []
     for fid, path, controller, label in FIELDS:
@@ -260,6 +312,7 @@ def measure(root: str) -> dict:
             "parse_max": p["max"] if p else None,
             "parse_found": p is not None,
             "roofed": bool(p and p["max"] is not None),
+            "max_unreadable": bool(p and p.get("max_unreadable")),
         })
 
     return {
@@ -276,13 +329,17 @@ def measure(root: str) -> dict:
 def verdict(m: dict) -> dict:
     # A field with a floor and no roof: any value that clears the floor ships.
     unroofed = sorted(f["id"] for f in m["fields"]
-                      if f["parse_found"] and not f["roofed"])
+                      if f["parse_found"] and not f["roofed"]
+                      and not f["max_unreadable"])
+    unreadable = sorted(f["id"] for f in m["fields"] if f["max_unreadable"])
     missing = sorted(f["id"] for f in m["fields"] if not f["parse_found"])
     return {
         "unroofed": unroofed,
         "unroofed_count": len(unroofed),
+        "unreadable": unreadable,
         "parser_missing": missing,
-        "drift": bool(unroofed or missing or m["over_long_truncates"]),
+        "drift": bool(unroofed or unreadable or missing
+                      or m["over_long_truncates"]),
     }
 
 
@@ -302,12 +359,23 @@ def render(m: dict, v: dict) -> "list[str]":
         L.append("  %-19s %-6s %-7s %s" % (
             f["id"], f["box_cap"],
             "-" if f["parse_min"] is None else f["parse_min"],
-            f["parse_max"] if f["parse_max"] is not None else "-- NO ROOF --"))
+            f["parse_max"] if f["parse_max"] is not None
+            else ("** BOUND UNREADABLE **" if f["max_unreadable"]
+                  else "-- NO ROOF --")))
     L.append("")
     L.append("  Over-long paste: %s" % ("TRUNCATED silently"
                                         if m["over_long_truncates"] else "refused"))
     L.append("  Fractional paste: %s" % ("refused, explained"
                                          if m["fraction_refused"] else "TRUNCATED"))
+    if v["unreadable"]:
+        L.append("")
+        L.append("CANNOT READ -- a bound is present and this tool could not "
+                 "evaluate it,")
+        L.append("on %d field(s). NOT reported as a defect: the tree may be "
+                 "correct." % len(v["unreadable"]))
+        for f in m["fields"]:
+            if f["id"] in v["unreadable"]:
+                L.append("  %-19s «%s»" % (f["id"], f["field"]))
     if v["unroofed"]:
         L.append("")
         L.append("DEFECT -- a floor and no roof, on %d of %d fields:"

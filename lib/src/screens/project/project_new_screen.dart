@@ -478,8 +478,10 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
   /// The budget ends as the user actually wrote them — Arabic-Indic digits,
   /// `25.000` grouping and a pasted `دج` all included. Null means "no usable
   /// number in this field".
-  int? get _budgetMinValue => DzNumber.tryParse(_budgetMin.text);
-  int? get _budgetMaxValue => DzNumber.tryParse(_budgetMax.text);
+  int? get _budgetMinValue => DzNumber.tryParse(_budgetMin.text,
+      max: DzNumber.maxAmountDzd, maxDigits: DzNumber.amountDigits);
+  int? get _budgetMaxValue => DzNumber.tryParse(_budgetMax.text,
+      max: DzNumber.maxAmountDzd, maxDigits: DzNumber.amountDigits);
 
   /// Arabic explanation for a budget that cannot be posted, or null when the
   /// row is fine. Empty is always fine — the budget is optional.
@@ -487,6 +489,20 @@ class _ProjectNewScreenState extends State<ProjectNewScreen> {
     for (final c in [_budgetMin, _budgetMax]) {
       if (c.text.trim().isNotEmpty && DzNumber.digits(c.text).isEmpty) {
         return 'الميزانية يجب أن تكون رقماً بالدينار';
+      }
+    }
+    // **The roof, and the sentence that names it.** This getter used to judge
+    // the two ends against each other and nothing else, so a budget of
+    // 999999999999 was a *valid* project and was published as one — the strip
+    // under the customer's title then printed a number nobody typed. Same
+    // shape as the bid sheet's duration, one screen over, which is why the two
+    // now share [DzNumber.maxAmountDzd] rather than each inventing a limit.
+    for (final c in [_budgetMin, _budgetMax]) {
+      final raw = c.text.trim();
+      if (raw.isEmpty) continue;
+      if (DzNumber.tryParse(raw, max: DzNumber.maxAmountDzd,
+              maxDigits: DzNumber.amountDigits) == null) {
+        return 'الميزانية يجب ألا تتجاوز ${DzNumber.maxAmountDzd} دج';
       }
     }
     final min = _budgetMinValue;

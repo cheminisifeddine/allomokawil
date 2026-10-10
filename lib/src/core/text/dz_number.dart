@@ -41,6 +41,38 @@ class DzNumber {
   /// Highest experience value that is a real answer, not a typo.
   static const int maxExperienceYears = 70;
 
+  /// Highest amount any money field accepts, in dinars: 900,000,000,000.
+  ///
+  /// A roof, not a tightening of [maxDigits] — 900 billion is 12 digits, so
+  /// every value a box of the default width can hold is still a *number*; this
+  /// only refuses the tail that is arithmetic rather than a renovation. The
+  /// largest real figure in this market is a ministry-scale tender in the low
+  /// billions, so the gap between this and a plausible amount is five orders of
+  /// magnitude. A field with a floor and no roof let `999999999999` through as a
+  /// price, which is a number no reader can mistake for anything but a typo.
+  static const int maxAmountDzd = 900000000000;
+
+  /// Longest duration any job can take, in days: 10 years.
+  ///
+  /// **This is the one that reaches a customer.** `quoteDurationLineAr` prints
+  /// `estimated_days` verbatim on the quote card the customer picks a tradesman
+  /// from, so an unroofed duration is not a bad number in a form — it is a bad
+  /// number next to the worker's name and price, where it reads as a lie about
+  /// the job rather than as a typo. Ten years is past the point where the
+  /// bidder is describing a renovation at all.
+  static const int maxDurationDays = 3650;
+
+  /// Box widths that match the roofs above.
+  ///
+  /// [maxDigits] is the parser's ceiling, not a field's: a 4-day field that
+  /// accepts 12 digits is a box that lets in 999999999999 and then refuses it
+  /// at submit, which is the field lying about what it accepts. These make the
+  /// two the same number, and [tryParse] takes the same constant so the box and
+  /// the validator can no longer disagree.
+  static const int amountDigits = 12; // 900000000000
+  static const int durationDigits = 4; // 3650
+  static const int experienceDigits = 2; // 70
+
   static final RegExp _nonDigit = RegExp(r'[^0-9]');
 
   /// A fraction, not a grouping: `25,5`, `25.75`, `٢٥,٥`, `25٫5`. Algerian
@@ -73,7 +105,17 @@ class DzNumber {
   /// `min`/`max` are inclusive bounds for fields that have a real range
   /// (experience in years, a quote amount); a null result is a "ask the user
   /// again", never a value to fall back on silently.
-  static int? tryParse(String raw, {int? min, int? max}) {
+  ///
+  /// [maxDigits] is the **box's** width, not the parser's ceiling, and it
+  /// defaults to the ceiling so a field with no box of its own is unaffected.
+  /// It is here because `NumberField.maxDigits` used to reach the formatter and
+  /// stop: narrowing a box bounded what he could type while this validator went
+  /// on accepting the parser's 12 digits regardless, so the two disagreed and
+  /// only the parser's answer shipped. A caller that narrows its box passes the
+  /// same constant here, and the field's promise — "no screen can accept a
+  /// number the API would store as garbage" — becomes true of the validator as
+  /// well as the keyboard.
+  static int? tryParse(String raw, {int? min, int? max, int maxDigits = DzNumber.maxDigits}) {
     if (hasFraction(raw)) return null;
     final d = digits(raw);
     if (d.isEmpty || d.length > maxDigits) return null;
@@ -113,8 +155,22 @@ class DzNumberInputFormatter extends TextInputFormatter {
     // validation says why (see [DzNumber.hasFraction]).
     if (DzNumber.hasFraction(newValue.text)) return oldValue;
 
-    var digits = DzNumber.digits(newValue.text);
-    if (digits.length > maxDigits) digits = digits.substring(0, maxDigits);
+    // **An over-long paste is refused on the same rule, and this line used to
+    // break it.** `digits.substring(0, maxDigits)` kept the first N digits and
+    // dropped the rest with no error, no message and no marker, so the value on
+    // screen was not the value he sent: the parser then validated the
+    // *truncated* number, found it in range, and shipped that. One field, one
+    // keystroke, two answers — a fraction was refused loudly on the row above
+    // while a length overflow was rewritten quietly, and this file's own comment
+    // calls rewriting "worse than asking again".
+    //
+    // Returning [oldValue] is what makes it loud: the field keeps a value he can
+    // see and correct, nothing is rewritten behind him, and the screen's own
+    // validation is still the thing that explains why it will not send. The
+    // alternative — keep the tail, or keep the head and flag it — would put a
+    // number on screen the app has already decided is wrong.
+    final digits = DzNumber.digits(newValue.text);
+    if (digits.length > maxDigits) return oldValue;
     if (digits == newValue.text) return newValue;
 
     return TextEditingValue(

@@ -33,6 +33,16 @@ const shapes = <String, int>{
   '1000': 1000,
 };
 
+/// 10^n, so a "does this roof fit in the ceiling" case does not write a
+/// literal that can drift from [DzNumber.maxDigits].
+int pow10(int n) {
+  var v = 1;
+  for (var i = 0; i < n; i++) {
+    v *= 10;
+  }
+  return v;
+}
+
 void main() {
   group('every shape a real amount arrives in', () {
     shapes.forEach((input, expected) {
@@ -98,6 +108,51 @@ void main() {
       expect(DzNumber.tryParse('9999999999999'), isNull);
     });
 
+    test('a ROOF refuses what a floor would have accepted', () {
+      // The defect this file exists beside: `min:` was on the bid amount and
+      // the bid duration and `max:` on neither, so anything clearing the floor
+      // shipped. `999999999999` dinars and a four-hundred-billion-day job were
+      // both "valid" submissions.
+      expect(DzNumber.tryParse('${DzNumber.maxAmountDzd + 1}',
+          max: DzNumber.maxAmountDzd), isNull);
+      expect(DzNumber.tryParse('${DzNumber.maxAmountDzd}',
+          max: DzNumber.maxAmountDzd), DzNumber.maxAmountDzd);
+      expect(DzNumber.tryParse('${DzNumber.maxDurationDays + 1}',
+          max: DzNumber.maxDurationDays), isNull);
+      expect(DzNumber.tryParse('${DzNumber.maxDurationDays}',
+          max: DzNumber.maxDurationDays), DzNumber.maxDurationDays);
+    });
+
+    test('the box width reaches the validator, not just the keyboard', () {
+      // `maxDigits` used to stop at the formatter: a field could be narrowed
+      // to 4 digits and `tryParse` went on accepting the parser ceiling. The
+      // two disagreed and only the parser's answer shipped.
+      expect(
+          DzNumber.tryParse('12345', maxDigits: DzNumber.durationDigits),
+          isNull);
+      expect(
+          DzNumber.tryParse('3650', maxDigits: DzNumber.durationDigits), 3650);
+      // It defaults to the ceiling, so a field with no box of its own is
+      // unchanged -- the parameter is additive, not a new default.
+      expect(DzNumber.tryParse('123456789012'), 123456789012);
+    });
+
+    test('each declared box width is wide enough for the roof it carries', () {
+      // A box narrower than its own roof could never accept the largest legal
+      // value, which would make the roof unreachable and the field a lie.
+      expect(DzNumber.amountDigits,
+          greaterThanOrEqualTo('${DzNumber.maxAmountDzd}'.length));
+      expect(DzNumber.durationDigits,
+          greaterThanOrEqualTo('${DzNumber.maxDurationDays}'.length));
+      expect(DzNumber.experienceDigits,
+          greaterThanOrEqualTo('${DzNumber.maxExperienceYears}'.length));
+    });
+
+    test('the roofs are inside the ceiling, so the cap can never be the roof', () {
+      expect(DzNumber.maxAmountDzd, lessThan(pow10(DzNumber.maxDigits)));
+      expect(DzNumber.maxDurationDays, lessThan(pow10(DzNumber.maxDigits)));
+    });
+
     test('min and max bounds are enforced, inclusively', () {
       expect(DzNumber.tryParse('999', min: 1000), isNull);
       expect(DzNumber.tryParse('1000', min: 1000), 1000);
@@ -137,8 +192,65 @@ void main() {
       expect(v.selection.baseOffset, 3);
     });
 
-    test('the length cap holds however the digits arrive', () {
-      expect(edit('1234567890123456').text.length, DzNumber.maxDigits);
+    // **This test used to pin the defect.** It asserted the pasted 16-digit
+    // string came back as 12 digits -- i.e. that an over-long paste was
+    // silently truncated, which is what let a value on screen differ from the
+    // value sent. It was green because the bug was the expectation.
+    //
+    // The cap now holds by REFUSING: the field keeps what it had and the
+    // screen's validation is still the thing that explains why it will not
+    // send. One field, one paste, one answer -- the same rule the fraction
+    // branch above already followed, and the same rule its own comment called
+    // "worse than asking again".
+    test('an over-long paste is refused, leaving the field as it was', () {
+      const before = TextEditingValue(
+          text: '2500', selection: TextSelection.collapsed(offset: 4));
+      final after = const DzNumberInputFormatter().formatEditUpdate(
+          before, const TextEditingValue(text: '1234567890123456'));
+      expect(after.text, '2500',
+          reason: 'nothing may be dropped without saying so');
+    });
+
+    test('a value exactly at the cap is still accepted', () {
+      // The refusal is on the OVERFLOW, not on long numbers: a 12-digit paste
+      // is a number this app accepts and must keep accepting, or the fix has
+      // cost a real amount its last legal value.
+      final atCap = '1' * DzNumber.maxDigits;
+      expect(edit(atCap).text, atCap);
+    });
+
+    test('one digit over the cap is refused, and one under is not', () {
+      const f = DzNumberInputFormatter();
+      final over = f.formatEditUpdate(
+          const TextEditingValue(), TextEditingValue(text: '1234567890123'));
+      expect(over.text, isEmpty, reason: 'the overflow is not accepted');
+      expect(edit('123456789012').text, '123456789012');
+    });
+
+    test('a narrowed box refuses at its OWN width, not at the parser ceiling',
+        () {
+      // `NumberField.maxDigits` is threaded into the formatter, so a 4-digit
+      // duration field must refuse 5 digits even though the parser would take
+      // them. This is the knob the audit found passed by 0 of 7 call sites.
+      const f = DzNumberInputFormatter(maxDigits: DzNumber.durationDigits);
+      final over = f.formatEditUpdate(
+          const TextEditingValue(), TextEditingValue(text: '12345'));
+      expect(over.text, isEmpty);
+      expect(f
+              .formatEditUpdate(const TextEditingValue(),
+                  const TextEditingValue(text: '3650'))
+              .text,
+          '3650');
+    });
+
+    test('an over-long paste of Arabic-Indic digits is refused too', () {
+      // The fold runs before the length check, so the cap must be judged on
+      // the folded digits -- otherwise ١٢ pasted digits read as 12 ASCII ones
+      // and slip past the very gate meant to stop them.
+      const before = TextEditingValue(text: '8');
+      final after = const DzNumberInputFormatter().formatEditUpdate(
+          before, TextEditingValue(text: '١' * (DzNumber.maxDigits + 1)));
+      expect(after.text, '8');
     });
   });
 }

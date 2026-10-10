@@ -680,13 +680,20 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
       // symmetric: a duplicate guard that never fires costs nothing, while a
       // bid that pops unvalidated costs the contractor the message he wrote to
       // win the job.
-      final amt = DzNumber.tryParse(submitted.amount, min: 1000);
+      final amt = DzNumber.tryParse(submitted.amount,
+          min: 1000, max: DzNumber.maxAmountDzd);
       final rawDays = submitted.days.trim();
-      final dayCount = DzNumber.tryParse(rawDays, min: 1);
+      final dayCount = DzNumber.tryParse(rawDays,
+          min: 1, max: DzNumber.maxDurationDays);
       if (amt == null) {
-        showNote(context, S.bidAmountMin);
+        // The sheet already refuses to pop while `_error` is set, so reaching
+        // this arm means the value changed under it — a restored draft, a
+        // double tap. Which sentence explains it is the same question the
+        // sheet answers, so it is asked the same way and both come from one
+        // function rather than from a second reading of the raw text here.
+        showNote(context, _bidAmountError(submitted.amount, isDays: false)!);
       } else if (rawDays.isNotEmpty && dayCount == null) {
-        showNote(context, S.bidDaysNotNumber);
+        showNote(context, _bidAmountError(rawDays, isDays: true)!);
       } else {
         try {
           await widget.repo.submitQuote(
@@ -820,6 +827,43 @@ class _BidSheet extends StatefulWidget {
   State<_BidSheet> createState() => _BidSheetState();
 }
 
+///  The one sentence that explains a bound the bid sheet did not meet, or null
+///  when it is fine. `isDays` switches which field is being judged and which
+///  Arabic sentence it earns — the two were two copies of the same four arms
+///  and this is where they drift.
+///
+///  **The order matters and is the whole point of the roof.** A value with no
+///  digits in it is not a number; a value below the floor is under the minimum;
+///  a value above the roof is too much. Before this, a 13-digit paste in the
+///  amount field came out of the parser as null — the same null as a typo —
+///  and was answered «المبلغ يجب أن يكون 1000 دج على الأقل», a sentence about
+///  the *smallest* legal bid, for a number that was four hundred billion times
+///  bigger. The old formatter hid it by silently truncating the paste to
+///  something in range; with truncation gone, this arm has to name it or the
+///  field answers a different question than the one asked.
+String? _bidAmountError(String raw, {required bool isDays}) {
+  if (DzNumber.digits(raw).isEmpty) {
+    return isDays ? S.bidDaysNotNumber : S.bidAmountNotNumber;
+  }
+  if (isDays) {
+    if (DzNumber.tryParse(raw, min: 1, max: DzNumber.maxDurationDays) == null) {
+      // Under the floor and over the roof are different mistakes with
+      // different sentences; `digits` is non-empty either way, so the
+      // number itself is what tells them apart.
+      return DzNumber.tryParse(raw, min: 1) != null
+          ? S.bidDaysMax(DzNumber.maxDurationDays)
+          : S.bidDaysNotNumber;
+    }
+    return null;
+  }
+  if (DzNumber.tryParse(raw, min: 1000, max: DzNumber.maxAmountDzd) == null) {
+    return DzNumber.tryParse(raw, min: 1000) != null
+        ? S.bidAmountMax(DzNumber.maxAmountDzd)
+        : S.bidAmountMin;
+  }
+  return null;
+}
+
 class _BidSheetState extends State<_BidSheet> {
   final _amount = TextEditingController();
   final _days = TextEditingController();
@@ -860,23 +904,21 @@ class _BidSheetState extends State<_BidSheet> {
   String? get _error {
     final rawAmount = _amount.text.trim();
     if (rawAmount.isEmpty) return S.bidAmountRequired;
-    final amount = DzNumber.tryParse(rawAmount, min: 1000);
-    if (amount == null) {
-      return DzNumber.digits(rawAmount).isEmpty
-          ? S.bidAmountNotNumber
-          : S.bidAmountMin;
-    }
+    final amountError = _bidAmountError(rawAmount, isDays: false);
+    if (amountError != null) return amountError;
     // The duration is optional — `submitQuote` takes a null `estimatedDays` —
     // so only a field he actually filled in is judged. `0` is what the field
     // shows the moment he clears it to type a fresh number, and a bid cannot
     // be finished in zero days, so `min: 1` refuses it here rather than
     // after the sheet has gone.
     final rawDays = _days.text.trim();
-    if (rawDays.isNotEmpty && DzNumber.tryParse(rawDays, min: 1) == null) {
-      return S.bidDaysNotNumber;
+    if (rawDays.isNotEmpty) {
+      final daysError = _bidAmountError(rawDays, isDays: true);
+      if (daysError != null) return daysError;
     }
     return null;
   }
+
 
   /// Hands back the three strings, not the controllers — see [_BidDraft].
   ///
@@ -922,7 +964,8 @@ class _BidSheetState extends State<_BidSheet> {
             // no call site in the app used it — this is the first.
             errorText: error == S.bidAmountRequired ||
                     error == S.bidAmountMin ||
-                    error == S.bidAmountNotNumber
+                    error == S.bidAmountNotNumber ||
+                    error == S.bidAmountMax(DzNumber.maxAmountDzd)
                 ? error
                 : null,
             onChanged: (_) => setState(() {}),
@@ -931,7 +974,15 @@ class _BidSheetState extends State<_BidSheet> {
           NumberField(
             controller: _days,
             labelText: 'مدة الإنجاز (أيام)',
-            errorText: error == S.bidDaysNotNumber ? error : null,
+            // 4 digits, not the parser's 12: a box that accepts 999999999999
+            // and then refuses it on send is a field that lies about what it
+            // accepts, and the same constant reaches `tryParse` below so the
+            // two can never disagree about it again.
+            maxDigits: DzNumber.durationDigits,
+            errorText: error == S.bidDaysNotNumber ||
+                    error == S.bidDaysMax(DzNumber.maxDurationDays)
+                ? error
+                : null,
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 12),
