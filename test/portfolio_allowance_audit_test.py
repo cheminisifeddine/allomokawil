@@ -957,6 +957,140 @@ def t_header_verdict_is_rename_stable():
             "healthy hosts: %r" % (head,))
 
 
+# --- the UNREADABLE verdict must not arrive as a "no" ------------------------
+#
+# The reader grades by ARITY (ticked 10 Oct), and it distinguishes three states:
+# True (the count is a parameter), False (it is not) and None (the declaration
+# could not be read at all). `_render` handles the third one correctly, in
+# words: "`portfolioFullLineAr` NOT READ -- no verdict".
+#
+# **`_check_header` does not.** It branches on `if takes_count:` -- so None and
+# False take the SAME arm, and the tool prints a measured defect verdict for a
+# file it could not read. Measured on this tree, two triggers, neither of which
+# touches a line of app logic:
+#
+#   run from /tmp instead of the repo root -> takes_count None
+#   `portfolioFullLineAr` renamed          -> takes_count None (no declaration)
+#
+# Both give `header_contradicts: True`, which is the verdict that drives
+# **exit 1** against two live hosts, and `_render` prints the contradiction and
+# the "no verdict" line on the same screen -- a report that says it could not
+# measure while spending the rest of its budget asserting a measurement.
+#
+# This is the reader-narrower-than-the-tree defect of 1/9/10 Oct for the third
+# time, and the first time the third state exists at all: the arity fix gave the
+# reader a genuine `None`, and the caller one layer up folds it back into a
+# `False`. What the tool cannot see reads as *absent* rather than *unmeasured*.
+
+
+@case("an UNREADABLE declaration does not file a contradiction")
+def t_unreadable_is_not_a_no():
+    def body(api):
+        measured = {"plan": {"portfolio_limit": 5}, "gallery": {"app_rows": 130}}
+        saved = audit.dart_ceiling_line_takes_count
+        # The reader cannot find a declaration at all -- no rename needed, the
+        # simplest honest way to be unreadable.
+        audit.dart_ceiling_line_takes_count = lambda *a, **k: None
+        try:
+            head, _ = audit._check_header(None, None, measured)
+        finally:
+            audit.dart_ceiling_line_takes_count = saved
+        assert head["subline_takes_count"] is None, head
+        assert head["header_contradicts"] is False, (
+            "an unreadable file is not a verdict about the screen: %r" % (head,))
+        assert head["over_ceiling_line"] is False, head
+    _run(body)
+
+
+@case("an UNREADABLE declaration is reported as UNMEASURED, never as blind")
+def t_unreadable_renders_as_unmeasured():
+    def body(api):
+        measured = {"plan": {"portfolio_limit": 5}, "gallery": {"app_rows": 130}}
+        saved = audit.dart_ceiling_line_takes_count
+        audit.dart_ceiling_line_takes_count = lambda *a, **k: None
+        try:
+            head, _ = audit._check_header(None, None, measured)
+        finally:
+            audit.dart_ceiling_line_takes_count = saved
+        line = [ln for ln in audit._render(
+            {"h": ({"plan": {"portfolio_limit": 5},
+                    "gallery": {"app_rows": 130}, "header": head}, None)})
+            if "ceiling sentence" in ln][0]
+        assert "NOT READ" in line, line
+        # The word `blind` in a row that also says "no verdict" is the report
+        # contradicting itself one line under its own verdict.
+        assert "blind to the count: True" not in line, line
+    _run(body)
+
+
+@case("a REAL False -- a one-parameter function -- still reads as blind")
+def t_false_is_still_false():
+    """The control, and it is the whole risk of the fix.
+
+    Folding `None` into "not blind" would also silence a genuine defect: the
+    one-parameter signature this tool exists to catch. If this case passes for
+    the wrong reason it proves nothing, so it runs the real reader against real
+    Dart rather than a stub.
+    """
+    def body(api):
+        measured = {"plan": {"portfolio_limit": 5}, "gallery": {"app_rows": 130}}
+        with _dart_file_as("String portfolioFullLineAr(int limit) => '';"):
+            head, _ = audit._check_header(None, None, measured)
+        assert head["subline_takes_count"] is False, head
+        assert head["over_ceiling_line"] is True, (
+            "a one-parameter function is the defect this tool exists to catch: "
+            "%r" % (head,))
+        assert head["header_contradicts"] is True, head
+    _run(body)
+
+
+@case("run from ANY directory the reader still finds the shipped Dart")
+def t_reader_is_cwd_independent():
+    """The trigger, measured: cwd is the only thing that can make it unreadable.
+
+    `dart_ceiling_line_takes_count` resolved its default path through
+    `os.getcwd()`, so every call that did not pass one -- which is every call
+    in `_check_header`, because it passes no argument -- depended on the shell
+    being in the repo root. The protocol's own commands all `cd` first, so it
+    read as a non-issue and stayed for the tool's whole life.
+    """
+    real_cwd = os.getcwd()
+    for elsewhere in ("/tmp", "/", os.path.expanduser("~")):
+        audit.os.getcwd = lambda p=elsewhere: p
+        try:
+            got = audit.dart_ceiling_line_takes_count()
+        finally:
+            audit.os.getcwd = real_cwd
+        assert got is True, (
+            "from %s the reader must still grade the shipped Dart, got %r"
+            % (elsewhere, got))
+
+
+@case("a RENAMED declaration is UNREADABLE, and is not scored as a defect")
+def t_rename_is_unreadable_not_blind():
+    """A rename is the trigger that ships, so it is measured end to end.
+
+    Renaming the function is as ordinary as renaming a parameter, and the arity
+    fix last tick covered only the parameters. A rename leaves no declaration
+    for `_DECL` to match, so the reader answers `None` -- and that `None` used
+    to arrive at the exit code.
+    """
+    def body(api):
+        measured = {"plan": {"portfolio_limit": 5}, "gallery": {"app_rows": 130}}
+        src = open(os.path.join(REPO, "lib", "src", "data",
+                                "portfolio_allowance.dart"),
+                   encoding="utf-8").read()
+        renamed = src.replace("portfolioFullLineAr", "portfolioCeilingLineAr")
+        assert renamed != src, "the fixture must actually be a rename"
+        with _dart_file_as(renamed):
+            head, _ = audit._check_header(None, None, measured)
+        assert head["subline_takes_count"] is None, head
+        assert head["header_contradicts"] is False, (
+            "a renamed function is a measurement gap, not a server defect: %r"
+            % (head,))
+    _run(body)
+
+
 import contextlib
 
 

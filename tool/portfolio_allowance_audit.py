@@ -80,6 +80,11 @@ READ_TIMEOUT = 30
 # `dart_ceiling_line_takes_count`.
 DART_ALLOWANCE = "lib/src/data/portfolio_allowance.dart"
 
+# The repo root, from this file rather than from the shell. `tool/x.py` is two
+# directories under it, and the test file rewrites `DART_ALLOWANCE` wholesale --
+# so the root must survive that rewrite, which is why it is not recomputed.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # An explicit `None` means "no file, no answer"; the default means "look in
 # the repo". Distinct, because the two produce different verdicts.
 _MISSING = object()
@@ -195,7 +200,13 @@ def dart_ceiling_line_takes_count(path=_MISSING):
     that is a different check, and this one must not pretend to be it.
     """
     if path is _MISSING:
-        target = os.path.join(os.getcwd(), DART_ALLOWANCE)
+        # Relative to the REPO, not to `os.getcwd()`. Resolved through the cwd
+        # -- which is what this used to do, for the tool's whole life -- it made
+        # the verdict depend on the shell: run from `/tmp` and the shipped Dart
+        # is "unreadable", so `None` reached the exit code. Every protocol
+        # command `cd`s to the repo first, so it read as a non-issue, and it is
+        # exactly the case `_dart_file_as` in the test file reaches for.
+        target = os.path.join(_REPO_ROOT, DART_ALLOWANCE)
     elif path is None:
         return None
     else:
@@ -435,6 +446,29 @@ def _check_header(wire, acct, rep):
         out["header_contradicts"] = False
         return out, None
 
+    # `takes_count` is THREE-valued and the third state must not fall through
+    # to the `else` below. `None` means the declaration could not be read, and
+    # a file nobody read says nothing about the screen: grading it as blind
+    # filed `header_contradicts: True` -- **exit 1 against two live hosts** --
+    # for a file that was never opened, and `_render` printed "no verdict" on
+    # the same line as a defect verdict.
+    #
+    # The distinction is only worth keeping if `False` still reaches the arm
+    # that judges it, so that arm is now explicit and the two cannot be
+    # confused again; `test/portfolio_allowance_audit_test.py` pins both sides.
+    if takes_count is None:
+        # Nothing was measured, so nothing is asserted. `over_ceiling_by` is
+        # still reported below: it is arithmetic on two numbers this tool DID
+        # measure, and it is true whoever wrote the Dart.
+        out["subline_takes_count"] = None
+        out["over_ceiling_line"] = False
+        out["count_exceeds_limit"] = used > limit
+        out["header_contradicts"] = False
+        out["subline"] = ("NOT MEASURED -- `portfolioFullLineAr` could not be "
+                          "read; used %d against limit %d" % (used, limit))
+        out["over_ceiling_by"] = max(used - limit, 0)
+        return out, None
+
     # At or over the ceiling the Dart picks between two sentences, and WHICH one
     # is the whole question:
     #   not told the count -> "full at limit: N", naming only the ceiling, so
@@ -449,6 +483,7 @@ def _check_header(wire, acct, rep):
         out["over_ceiling_line"] = False
         out["header_contradicts"] = False
     else:
+        # Reached only by a genuine `False`: `None` returned above.
         out["subline"] = "full at limit: %d" % limit
         out["count_exceeds_limit"] = used > limit
         out["over_ceiling_line"] = True
