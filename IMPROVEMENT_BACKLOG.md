@@ -33559,3 +33559,87 @@ byte-identical `4502080f`, `tool/run_tests.py` MATCH,
 not given it back in 10 ticks. Nothing in the backlog needs Dart, so the next
 item is the first unchecked one when one exists — and the standing instruction
 to repoint this cron at `/home/hatch/allomokawil` still stands.
+
+## Tick 10 Oct 2026 (2nd) (`15d01a2`) — the protocol's exit-code table had no
+4, and nothing noticed
+
+**The gap.** Yesterday's tick gave the runner a fifth status (`STARVED = 4`)
+and wrote it all up. The ONE sentence in the Loop protocol that states the
+runner's exit codes still read *"0 pass, 1 fail, **2 hung**, **3 BUSY**"*.
+
+That sentence is load-bearing. It is the only place in this file the codes are
+listed, and it is what a tick reads when a suite returns a code it did not
+expect. A tick receiving `4` would have found a table that does not contain
+`4` — on the one code whose entire purpose is to say **do not go looking for a
+defect in the tree**. Same species as the `BUSY=2` vs `BUSY=3` confusion this
+file fixed on 9 Oct: a distinct fact collapsing into a code that means
+something else, where the expensive reading is the wrong one.
+
+It was invisible by construction. The sentence listed 0/1/2/3, the runner
+defined 0-4, and **nothing compared them** — there was no contradiction to
+trip over, only an omission in the one place a reader would look.
+
+**Shipped.**
+- The table now states **4 STARVED**, and says what to do with it: **2** is
+  *the tree is suspect* (bisect it), **4** is *the box is suspect* (re-run when
+  the machine is idle). Read 4 as inconclusive, not red; do not gate a commit
+  on it and do not bisect for it.
+- `test/run_tests_exit_docs_test.py` — new, 8 cases. The statuses are parsed
+  **out of `tool/run_tests.py`**, not hardcoded, so the day a sixth constant is
+  added this turns red until the sentence catches up.
+
+**Evidence — `test/run_tests_exit_docs_test.py`, 8/8** (python, for the reason
+`run_tests_starved_code_test.py` gives: the box that starves a suite is the box
+that refuses Dart):
+
+| case | pins |
+| --- | --- |
+| control | the runner's `STATUS_NAME` table is readable and lists all five |
+| control | the protocol still states an exit-code table at all |
+| control | that sentence parses as a table, rejoined across its 80-col wrap |
+| 2 | every status the runner defines is named in the table |
+| 3 | every name is paired with the number the runner uses (renumber caught) |
+| 4 | the table documents nothing the runner lacks (invention caught) |
+| 5 | the sentence sits in the gate's own section |
+| 6 | no refuted `/proc/loadavg` recommendation in the protocol's instructions |
+
+**Five mutations, all killed.** Revert the table to 0/1/2/3 (M1); renumber
+`STARVED` in the doc only, so the doc says 5 and the runner says 4 (M2); delete
+the sentence outright (M3); **add a fifth status to the runner and leave the
+doc alone** (M4); delete the `STATUS_NAME` table (M6).
+
+**Three errors that were mine, all shipped green before being caught**, and
+recorded because each one is a way this guard could have been a decoration:
+
+1. **M4 survived the first version.** The missing-status case iterated a
+   hardcoded set living in the test file, so adding a status to the runner left
+   it **green**. That is a guard right by construction, which is not a guard —
+   and it is the exact drift the file exists to catch. It now reads the
+   runner's own `STATUS_NAME` table.
+2. **The parser reported an entry as MISSING straight after I added it.**
+   Stripping text from the first `(` onward is enough for a table whose
+   parenthetical came last, and silently drops everything from
+   `4 STARVED (the deadline fired on...)` onward. The fix "failed" for a
+   reason that was in the parser.
+3. **A first draft scoped both checks to the whole file tail** and flagged the
+   10 Oct write-up for mentioning `/proc/loadavg`. That write-up is the *record
+   of a measurement*, and deleting history to satisfy a guard would have
+   destroyed the evidence that chose the design. Scope is now the protocol's
+   **instruction region** — `## Loop protocol` up to the honesty rule that
+   closes it — because instruction regions are what a tick obeys, while
+   write-ups are what it reads about the past.
+
+**Pre-existing Python guards, re-run and unchanged:** `run_tests_starved_code`
+**6/6**, `run_tests_busy_code` **2/2**, `run_tests_retry_budget` **4/4**,
+`remote_state` pass, `loop_protocol` **9/9** — the last one validates the very
+file this commit edits, so the edit did not rot the section it lives in.
+
+**Gate.** `build_gate.py` answered **NO ROOM** at **194 MB against its 900 MB
+floor** (`Balloon: 5388 MB` of 7935, largest local holder 167 MB), so
+`flutter analyze` and the Dart suite did **not** run and no Dart count is
+claimed. Correct for this item and by construction: `git diff --name-only`
+shows **0 `.dart` files**, so the suite count cannot have moved.
+
+**Verified remote:** trees byte-identical (`f96373a`), both files **MATCH** on
+blob and mode via `remote_state.py --files`, not by the push helper's exit
+code.
