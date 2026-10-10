@@ -5416,6 +5416,89 @@ it is a correctness gap that duplicates a user's data.
       **MATCH** against the remote tree (`8061d7d`).
 
 ## Completed
+
+## Tick 10 Oct 2026 (2nd) — `contrast_audit.py`, the tool the loop cites ~40 times,
+## could report GREEN on a palette that fails. **SHIPPED**
+
+**Item.** `tool/contrast_audit.py` had **no test battery at all** — of the app's
+audit tools it was the last one without one, after the tap-target audit was
+given `test/tap_target_probe_test.py` on the previous tick. It is the tool this
+backlog cites as "contrast_audit 28/28" on roughly forty separate ticks, so a
+verdict it gets wrong is a verdict forty ticks copied.
+
+**Found — three defects, all the same species: the audit answered a question
+nobody asked.** Every one of them fails GREEN, in the direction that lets work
+ship.
+
+1. **`--json` exited 0 no matter what.** The branch was `print(...); return 0`,
+   so a palette with three pairs under threshold emitted 28 rows carrying
+   `"pass": false` and still exited **0**. `--json` exists to be consumed by a
+   script, and every such script got a green verdict from a red palette.
+2. **A deleted theme token crashed with the wrong error.** `resolve()` fell
+   back to `token.lstrip("#").upper()`, so removing `textMuted` from
+   `app_theme.dart` returned the string `"textMuted"` and died two lines later
+   with `ValueError: invalid literal for int() with base 16: 'TE'` — naming the
+   arithmetic, never the cause. The `if fg is None` guard in `token_report`
+   written to catch this was **dead code that had never fired once**.
+3. **The table printed a different number than the verdict used.** PASS was
+   decided on the exact double; the row printed `round(ratio, 2)`.
+   `#959595` on white is `2.995346` and printed `3.00 (need 3.0)` directly above
+   a **FAIL** marker.
+
+**Changed.**
+- `tool/contrast_audit.py` — `--json` returns the same exit code as the text
+  branch; `resolve()` returns `None` for a name the palette cannot answer and
+  `token_report` records that as an **unresolved** row instead of skipping it
+  (skipping would have printed "28/28 judged pairs pass" over 27 measured
+  pairs); unresolved exits 1.
+- `printed_ratio()` **floors** instead of rounding. More decimals was the
+  obvious fix and it is wrong: brute-forcing all 16.7M sRGB colours, the
+  largest value still within one ulp *below* a threshold is `2.999999768`
+  (`#989A30` on white), which prints `3.0` at 3 dp too — and `4.499999851`
+  (`#9A6C5A`) prints `4.5`. Rounding moves the hole, it does not close it.
+  Flooring makes the invariant true by construction: `printed <= raw`, so a
+  row judged FAIL can never print at or above its threshold.
+- `EDGE` — a row within `EDGE_BAND` (0.01) of its threshold is now **named**,
+  because a one-sided floor can push a *passing* row a hair under its line and
+  that must be visible rather than silent.
+- `test/contrast_audit_test.py` (new, 25 cases).
+
+**A real finding, from writing the case.** The shipped palette carries
+`success on successWash` at **4.507919** against a 4.5 floor — a margin of
+**+0.0079**, one nudge of that hex from failing. The audit printed it as a
+comfortable `PASS` with no sign it was that close. It now prints as `EDGE`.
+Pinned in case 5b/5c against the real theme, not a fixture.
+
+**Evidence.** `tool/contrast_audit.py token` -> **28/28 judged pairs pass,
+1 on the threshold, exit 0** on the real tree (unchanged verdict; no Dart
+touched). `test/contrast_audit_test.py` -> **25/25 ALL PASS, exit 0**.
+**6 mutations, 6 killed, 0 survived** — the `--json` exit, the `resolve`
+fallback, floor->round, the EDGE band, dropping the unresolved row, and
+unresolved not failing the run.
+
+**Two of my own errors are recorded, because both looked like the tool passing.**
+My first M5 inserted a `continue` *after* the `rows.append`, so it changed
+nothing and the battery "passed" it — an inert mutation is not evidence, and I
+only caught it because the row count stayed at 29. The real mutation (skip the
+append) dies to three cases. And case 5c first asserted against a colour I had
+assumed was inside `EDGE_BAND`: no sRGB grey lands in (4.5, 4.51] on white —
+the grid is too coarse — so it now asserts against the **real** theme row.
+
+**Gate.** `python3 tool/build_gate.py` **DENIED at 239 MB** when the tick
+opened (hypervisor `Balloon:` holding 5711 MB, nothing in this PID namespace
+owns it), so this was taken as the non-build item the protocol allows. It
+**cleared to 5080 MB available mid-tick**, so the gate was then run for real:
+`flutter analyze` -> **No issues found!** (10.4s). **Zero `.dart` changed** ->
+the 2673-test baseline is untouched and **no suite count is claimed**
+(`run_tests.py` is 48 min and cannot finish in a 10-min tick). Siblings green:
+`tap_target_probe_test` 15/15, `loop_protocol_test` 29/29, `build_gate_test`
+36/36, plus `label_fit_test`, `pngscan_test`, `remote_state_test` exit 0.
+
+**Next.** Every audit tool now has a battery. The next app-level gap with none
+is the tools that were never part of the audit family: `tool/band_ink.py`,
+`tool/px_count.py`, `tool/gen_icons.py`, `tool/gen_communes.py`,
+`tool/publish_release.py` (the last is founder-gated and must never be run
+from this loop).
 ## Completed
 
 ## Tick 9 Oct 2026 (1st) — the LABEL shape: the rule's own header table was
