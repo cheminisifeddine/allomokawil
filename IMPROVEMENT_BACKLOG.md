@@ -5415,6 +5415,75 @@ it is a correctness gap that duplicates a user's data.
       *Commit:* local `6e59977`, remote `90298bc`. All five blobs verified
       **MATCH** against the remote tree (`8061d7d`).
 
+## Tick 10 Oct 2026 (4th) — the shortfall band told the user to pull for
+## rows the cap makes unreachable. **FIX WRITTEN, GATE DENIED — NOT SHIPPED**
+
+**Item.** The unfinished notification-shortfall work left in the tree by the
+previous tick (files timestamped 14:39-14:42, same loop, same owner), reviewed
+rather than restarted. **The tree was NOT clean on arrival** — see carry-over.
+
+**What the review found — a real defect in the in-flight copy.**
+`notificationShortfallLineAr` closed with «اسحب للأسفل للتحميل» — *pull down to
+load*. `tool/notification_read_audit.py` had already measured against
+production that this gesture cannot work:
+
+    GET /api/notifications                     -> 100 rows (hard cap)
+    ?limit=200 / ?limit=500&page=1 / ?page=2
+      / ?offset=100 / ?all=1                   -> the SAME 100 rows,
+                                                   byte-identical
+
+There is **no pagination on this endpoint and no page the reader could pull
+to**, and `Repository.notifications()` passes no query parameters at all. So
+the band told the reader to perform an action that provably does nothing — on
+the one screen whose whole job is to be the app's memory of what happened
+while it was closed. The number was right and only the instruction was a
+lie, which is why **every existing case passed**: they assert `contains('40')`
+and `isNotEmpty`, and both are satisfied by a sentence ending «اسحب للأسفل
+للتحميل». A positive-content assertion structurally cannot reach this.
+
+**The fix, written and not committed.** «... أقدم من المعروض. لا يمكن عرضها
+في هذه القائمة.» — *older than shown · cannot be displayed in this list.*
+«أقدم» is accurate because the order is measured too: rows come back **newest
+first** (id descending, verified against `created_at`), so the cap holds back
+the **oldest** slice. Files: `lib/src/data/notification_shortfall_copy.dart`
+(the string, plus a doc comment recording the measurement and why a refresh
+instruction is forbidden) and `test/notification_shortfall_test.dart` (+1 case
+asserting the **absence** of `اسحب` / `تحديث` / `للتحميل` / `المزيد`).
+
+**Why it is NOT committed — the gate denied for the whole tick.**
+`python3 tool/build_gate.py` -> `NO ROOM`, and it never once cleared:
+
+    799 -> 546 -> 536 -> 484 -> 434 -> 450 -> 414 -> 395 MB available
+    (floor is 900 MB; a suite run was measured to bottom out at 1177 MB)
+    `Balloon:` 4836 -> 5162 MB, held outside this PID namespace; nothing here
+    owns it and `--reap` cannot return it.
+
+So **`flutter analyze` and `tool/run_tests.py` never ran**, and the protocol
+gates a change before committing it. Committing two unanalysed Dart files on
+the strength of a manual brace count is exactly the unverified work this loop
+keeps refusing to ship. **The fix stays in the working tree, uncommitted and
+marked here; the next tick that gets 900 MB should gate, commit and tick it.**
+
+**What did run, and it is green.** `python3 test/notification_read_audit_test.py`
+-> **11 passed, 0 failed** — the measurement the fix rests on is reproducible
+and its own logic is pinned, and it is Python so it survives the box refusing
+Dart. The new battery now carries 12 cases (was 11).
+
+**Carry-over for the next tick, stated plainly.** The working tree is **dirty**
+on arrival and was left dirty on purpose: the notification-shortfall feature
+(194 lines in `notifications_screen.dart`, the new copy file, the new battery)
+was **never committed by the tick that wrote it**, and this tick is not its
+owner. Step 1's exception says touch nothing — but a tree dirty for 20+
+minutes holding a complete, coherent, reviewable feature is not "another
+writer mid-cycle", it is a **crash-loose carry-over**. The next tick that
+clears the gate should: gate the whole feature (`analyze` + suite), commit it
+with this band's copy fix, tick the item, and record the commit. Nothing about
+it is half-built.
+
+**Backlog balance:** 0 unchecked, 3 `[~]` handoffs (wilayas/D1, out of repo;
+the gate-seeding purge; the Phase 4 cold-start handoff — all founder- or
+backend-gated). Phase 4 cold start still needs the founder.
+
 ## Completed
 
 ## Tick 10 Oct 2026 (3rd) — `band_ink.py` called a readable red band blank
