@@ -7,6 +7,60 @@ the **top unchecked item in phase order**, ships it, and ticks it.
 Rules for what belongs here: a real user-visible improvement or a real
 correctness gap — never a refactor for its own sake. One item per loop.
 
+- [x] **The push helper reported success it never checked — three green
+      pushes, 5 of 10 files unpushed.** The founder named this on 10 Oct and it
+      is a defect in the loop's only instrument for getting work to the remote,
+      so it outranks the next unchecked backlog item (there are none left:
+      every phase is ticked and the three `[~]` are backend/D1 or founder-gated
+      handoffs). Two independent defects, both measured on a scratch checkout
+      before the fix:
+
+      1. **the tree was built with a hardcoded `100644`.** An executable file
+         was pushed as `100644` while git had it as `100755`. `git hash-object`
+         covers CONTENT only, so every content check said `MATCH` — the exec
+         bit was the one axis the push could neither carry nor notice, which is
+         the exact blind spot `tool/remote_state.py` was written to close on
+         the *verifying* side while the helper kept reproducing it on the
+         *writing* side. Now read from `git ls-files -s`, the same reader the
+         verifier uses, so the two cannot drift apart.
+      2. **nothing re-read the tree after the ref moved.** Every step returned
+         success — 201 blob, 201 tree, 201 commit, 200 ref — and the push was
+         still incomplete. A helper that cannot catch its own failure forces
+         every caller to hand-write a second verifier, and that is how the
+         5-of-10 happened: `remote_state.py` existed and was not run until
+         after two bad pushes. `verify_push()` now re-reads the tree from the
+         API — *not* from the local dict of what we meant to send, because a
+         diff against intent can only ever confirm intent — and checks BOTH
+         axes. A failure exits **5** (distinct from 2 bad-args, 3 refused
+         deletions) and prints no `FULL_SHA`, which is the line a scraper greps
+         to decide the push worked. A **truncated** listing is a failure, not a
+         pass: "I could not see the rest" is the same lie as `NO PATHS CHECKED`.
+
+      **Evidence.** `test/push_helper_test.py` 35 cases, `all push_helper cases
+      pass`, exit 0. Hermetic by construction — `gh_push.api` is replaced with a
+      fake, so no case reaches the network, reads a credential, mints a commit
+      or moves a ref; the defect under test fires *after* a successful push, and
+      a test of it that pushed for real would be testing on main. **4 mutations,
+      4 killed**: hardcoded-`100644` reinstated, mode check disabled,
+      truncation treated as success, `main()` no longer gating on the result —
+      each turns the suite red on its own named case. One case (the staged
+      deletion) failed on its first run and **the test was wrong, not the code**:
+      it asserted on a tree where the deletion target was absent, which is a
+      *successful* deletion. Corrected, and the converse case added so it cannot
+      pass by always returning False.
+
+      **Gate: NOT RUN, and that is the honest state of this tick.** `build_gate`
+      answered `NO ROOM` — a foreign balloon holds ~5.2 GB of the 7.9 GB box and
+      grew through the tick (350 → 1084 → 855 → 251 MB available), so
+      `flutter analyze` and `run_tests.py` could not run and **no Dart count was
+      re-banked**. Verified statically instead: **zero `.dart` files changed**
+      (`git diff --stat HEAD -- '*.dart'` empty), `run_tests.py` collects only
+      `*_test.dart` so a `.py` edit cannot move the count, and no Dart test
+      invokes or reads either file. `tool_clock_seam_test.dart` sweeps every
+      tracked `*.py` including this one, so its tokenizer rule was replicated
+      directly against the edit: **zero** wall-clock reads, not even in prose.
+      This tick re-checks the gate on the next pass.
+
 - [x] **The notification centre's "you have more than this list" band was
       gated off by the very condition it exists to report — and shipping it
       first proved a defect nobody had run.**  `1d67787` (remote `d73b55a`,

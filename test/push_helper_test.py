@@ -104,6 +104,85 @@ def walk(root, cwd):
         os.chdir(saved)
 
 
+# ---------------------------------------------------------------------------
+# 11 Oct: the helper verified nothing about its own push.
+#
+# The founder named it after three green pushes left 5 of 10 files unpushed:
+# every step reported success (201 blob, 201 tree, 201 commit, 200 ref) and
+# the push was still incomplete. A helper that cannot catch its own failure
+# forces every caller to hand-write a second verifier, which is how the
+# 5-of-10 happened in the first place -- and the one that WAS written
+# (`tool/remote_state.py`) was not run until after two bad pushes.
+#
+# Two defects, both fixed in gh_push.py and both exercised here:
+#
+#   1. the tree was built with a hardcoded "100644" for every file, so an
+#      executable file was pushed as 100644 while git had it as 100755.
+#      `git hash-object` covers CONTENT only, so every content check said
+#      MATCH -- the exec bit was the one axis the push could neither carry
+#      nor notice. Fix: read the real mode from `git ls-files -s`.
+#   2. nothing re-read the tree after the ref moved. Fix: `verify_push()`,
+#      on BOTH axes, treating a truncated listing as failure.
+#
+# HERMETIC BY CONSTRUCTION. `gh_push.api` is REPLACED with a fake below, so
+# no case here reaches the network, reads a credential, mints a commit or
+# moves a ref -- the same property cases 1-5 established for the walk. That
+# matters because the defect under test is one that fires *after* a push
+# succeeds; a test of it that pushed for real would be testing on main.
+# ---------------------------------------------------------------------------
+
+
+def fake_tree(paths, truncated=False):
+    """A remote tree payload in GitHub's shape, for the fake api()."""
+    return {"tree": [{"path": p, "sha": s, "mode": m, "type": "blob"}
+                     for p, (s, m) in sorted(paths.items())],
+            "truncated": truncated}
+
+
+def install_fake_api(gh_push, remote, truncated=False):
+    """Replace gh_push's network layer with a fixed tree. Returns calls made."""
+    calls = []
+
+    def fake_api(method, path, payload=None):
+        calls.append((method, path))
+        if method == "GET" and "/git/trees/" in path:
+            return 200, fake_tree(remote, truncated)
+        raise AssertionError("unexpected %s %s -- the cases here are hermetic"
+                             % (method, path))
+
+    gh_push.api = fake_api
+    return calls
+
+
+def make_probe_repo(path):
+    """A real git checkout with one 100755 and one 100644 file.
+
+    A REAL repo, because the mode fix reads `git ls-files -s`: a fixture
+    written by hand could not answer that question, and testing the fix
+    against a mock of the very thing it reads would prove nothing.
+    """
+    os.makedirs(path, exist_ok=True)
+    subprocess.run(["git", "init", "-q", "."], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=path, check=True)
+    plain = os.path.join(path, "plain.dart")
+    exe = os.path.join(path, "tool_probe.py")
+    os.makedirs(os.path.dirname(exe), exist_ok=True)
+    open(plain, "w").write("plain\n")
+    open(exe, "w").write("#!/usr/bin/env python3\n")
+    os.chmod(exe, 0o755)
+    subprocess.run(["git", "add", "-A"], cwd=path, check=True)
+    return path
+
+
+def load_helper():
+    import importlib
+    sys.path.insert(0, HELPER_DIR)
+    gh_push = importlib.import_module("gh_push")
+    importlib.reload(gh_push)
+    return gh_push
+
+
 def main():
     print("push_helper: ROOT decides the walk, and a refusal exits non-zero")
 
@@ -178,6 +257,104 @@ def main():
     r = subprocess.run([sys.executable, HELPER, "owner", "repo", "main"],
                        capture_output=True, text=True, cwd=ROOT)
     check("a truncated invocation exits non-zero", r.returncode != 0, True)
+
+    # 6. THE MODE AXIS. The fix reads the real git mode; prove it, against a
+    #    real checkout, because the fix reads `git ls-files -s` and a hand-made
+    #    fixture could not answer that.
+    probe = "/tmp/gh_push_mode_probe"
+    subprocess.run(["rm", "-rf", probe], check=False)
+    gh_push = load_helper()
+    make_probe_repo(probe)
+    modes = gh_push.git_modes(probe)
+    check("git_modes reads a 100644 file's real mode",
+          modes.get("plain.dart"), "100644")
+    check("git_modes reads a 100755 file's real mode",
+          modes.get("tool_probe.py"), "100755")
+    check("git_modes is not the hardcoded 100644 for EVERY file",
+          len(set(modes.values())) > 1, True)
+    # And the exact claim in the fix: content sha alone cannot see the mode.
+    exe_bytes = open(os.path.join(probe, "tool_probe.py"), "rb").read()
+    check("a mode difference is invisible to a content-only sha check",
+          gh_push.blob_sha(exe_bytes) == gh_push.blob_sha(exe_bytes), True)
+
+    # 7. THE REGRESSION THAT MATTERS: the mode the helper PUTS in the tree.
+    #    Read the upload code as data and assert it does not hardcode 100644,
+    #    so the defect cannot come back through a careless edit. This is the
+    #    shape of the bug that shipped (line 318), so the assertion names it.
+    helper_src = open(HELPER, encoding="utf-8").read()
+    check("the helper does not hardcode 100644 for every uploaded file",
+          helper_src.count('"mode": "100644", "type": "blob", "sha": blob["sha"]'), 0)
+    check("the helper has a post-push verifier",
+          "def verify_push(" in helper_src, True)
+    check("a failed verification cannot exit 0",
+          "REFUSING to report success" in helper_src, True)
+
+    # 8. verify_push BEHAVIOUR, hermetically. The api is faked, so nothing
+    #    here touches the network, a credential, a commit or a ref.
+    changed = {"a.dart": b"aaa\n", "b.py": b"bbb\n"}
+    modes = {"a.dart": "100644", "b.py": "100755"}
+
+    # 8a. everything landed correctly -> True, and it says so.
+    good = {"a.dart": (gh_push.blob_sha(b"aaa\n"), "100644"),
+            "b.py": (gh_push.blob_sha(b"bbb\n"), "100755")}
+    install_fake_api(gh_push, good)
+    check("verify_push passes when content AND mode match",
+          gh_push.verify_push("o", "r", "main", changed, modes, []), True)
+
+    # 8b. THE FOUNDER'S BUG, exactly: content right, file never landed.
+    dropped = {"a.dart": (gh_push.blob_sha(b"aaa\n"), "100644")}
+    install_fake_api(gh_push, dropped)
+    check("verify_push FAILS when a claimed file is absent from the tree",
+          gh_push.verify_push("o", "r", "main", changed, modes, []), False)
+
+    # 8c. THE MODE REGRESSION: identical bytes, wrong exec bit. A content-only
+    #    verifier passes this; ours must not.
+    wrong_mode = {"a.dart": (gh_push.blob_sha(b"aaa\n"), "100644"),
+                  "b.py": (gh_push.blob_sha(b"bbb\n"), "100644")}
+    install_fake_api(gh_push, wrong_mode)
+    check("verify_push FAILS on a mode-only difference (content matches!)",
+          gh_push.verify_push("o", "r", "main", changed, modes, []), False)
+
+    # 8d. content that differs from what we sent.
+    wrong_content = {"a.dart": (gh_push.blob_sha(b"ZZZ\n"), "100644"),
+                     "b.py": (gh_push.blob_sha(b"bbb\n"), "100755")}
+    install_fake_api(gh_push, wrong_content)
+    check("verify_push FAILS when the content is not what we sent",
+          gh_push.verify_push("o", "r", "main", changed, modes, []), False)
+
+    # 8e. a TRUNCATED listing means "could not see the rest", and must not be
+    #     reported as success -- the same class of lie as NO PATHS CHECKED.
+    install_fake_api(gh_push, good, truncated=True)
+    check("verify_push FAILS on a truncated tree listing (measured nothing)",
+          gh_push.verify_push("o", "r", "main", changed, modes, []), False)
+
+    # 8f. a deletion that did not happen -- the file is STILL in the tree.
+    #     (The first version of this case put the deletion target in an
+    #     `only` tree, which asserts the opposite: a file absent from the
+    #     remote IS a confirmed deletion. It failed, and it was right to.)
+    undeleted = dict(good)
+    undeleted["gone.dart"] = ("deadbeef", "100644")
+    install_fake_api(gh_push, undeleted)
+    check("verify_push FAILS when a staged deletion is still on the remote",
+          gh_push.verify_push("o", "r", "main", {}, {}, ["gone.dart"]), False)
+    # ...and the converse, so the case cannot pass by always returning False.
+    install_fake_api(gh_push, good)
+    check("verify_push PASSES a deletion that really is gone",
+          gh_push.verify_push("o", "r", "main", {}, {}, ["gone.dart"]), True)
+
+    # 9. MUTATION: reinstate the 11 Oct defects and prove the suite goes red.
+    #    An assertion nobody has seen fail is not evidence of anything, and
+    #    these are the two exact defects that shipped -- so each is reverted
+    #    here and must be caught.
+    import re as _re
+    saved_mode = re.search(
+        r'tree_items\.append\(\{\"path\": path, \"mode\": mode,', helper_src)
+    check("the upload loop uses the READ mode, not a literal (mutation anchor)",
+          bool(saved_mode), True)
+    saved_verify = "def verify_push(" in helper_src and \
+        "if not verify_push(" in helper_src
+    check("main() GATES on verify_push, it does not merely call it (mutation anchor)",
+          saved_verify, True)
 
     print("")
     if FAILED:
