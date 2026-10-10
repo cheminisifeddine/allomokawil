@@ -34612,12 +34612,108 @@ Siblings: `px_count` 21/21, `pngscan` 9/9, `loop_protocol` 29/29,
 `stale_bytecode` 15/15. The build gate was CLEAR after `--reap` cleared a
 **leaked headless Chrome holding ~303 MB** from an earlier tick's render.
 
-**Next:** `tool/prep_mark.py` -- the last untested generator, and `gen_icons.py`
-now pins the two things it calls (`max_ink_radius` and the `VISIBLE_ALPHA`
-threshold) through its own refusals. `tool/publish_release.py` stays
-**founder-gated -- never run from this loop**.
+**Next:** `tool/prep_mark.py` -- SHIPPED on the following tick (`27bd5a2`,
+remote `9791e02`), with a 10-case battery of its own.
 
 **Still needs the founder:** the job prompt says `Repo: /home/renia/allomokawil`,
 which does not exist on this host. Every path in the Loop protocol table above
 is verified, but the **job prompt itself** is not -- repoint it to
 `/home/hatch/allomokawil`; only he can.
+
+## Tick 10 Oct 2026 (`27bd5a2`, remote `9791e02`, tree IN SYNC) -- `tool/prep_mark.py`:
+## the tool that writes the brand asset had no way to check it. **SHIPPED**
+
+**Item.** `tool/prep_mark.py` -- the last untested generator, named as **Next**
+by the previous tick -- plus `test/prep_mark_test.py` (new, 10 cases). Not a
+build-tick dodge: the Dart gate ran clean, full suite included.
+
+**What it produces was already correct and is not changed here.** The old tool
+and the new one write **byte-identical** artwork -- md5
+`f577b56a47347d89bd600111e0fb9992` both ways -- and the dry-run text is
+unchanged line for line. Case 8 pins the real transform (the shipped
+1024x1024 mark -> 795x1069) and passes on the **unfixed** tool too, which is
+what makes cases 1-7 mean something: they measure reporting, not rendering.
+
+**Four defects, all the same failure this repo keeps meeting in a new costume:
+something unmeasured, reported as if it had been.**
+
+1. **No way to ask "is the mark prepped?" without rewriting it.** The docstring
+   claimed *"Idempotent by construction: once centred, both steps are no-ops."*
+   True of the **result**, false of the **run**: `--write` saved
+   unconditionally, so a second run over an already-prepped mark re-encoded
+   byte-identical artwork and printed `written` -- a claim of work, from a run
+   that did none. Measured by pinning mtime to epoch across the run. `--check`
+   now plans both steps in memory, writes nothing, and exits 1 when stale.
+2. **`--write` printed `written` for work it did not do.** Fixed `--check`
+   alone leaves this trap open, so the no-op path is now skipped *before* the
+   save and the tool says what is true: `already prepped`.
+3. **Every refusal was a raw traceback.** A missing mark raised a bare
+   `FileNotFoundError` naming a path and nothing else; a truncated one raised
+   `OSError: image file is truncated` from inside `Image.open` with **no path
+   in the message at all**. Both are named refusals on **exit 2**, forced to
+   decode eagerly so a truncated file is caught at open rather than mid-crop.
+4. **A mark with no visible ink was reported as a successful trim** -- by
+   `raise SystemExit` from inside a library function, which aborts the whole
+   process for **every remaining file** in a multi-file run. Now a `Refused`
+   naming the threshold, exit 2, rest of the run finishes (case 7 runs three
+   files with a blank one in the middle).
+
+**Case 9 is the one that found something.** I wrote it as "the shipped mark is
+prepped" and **it failed**: `assets/brand/mark.png` ships as the RAW 1024x1024
+artwork, halo and all. That is correct here and must not be "fixed" -- the
+shipped launcher icons were generated from that raw mark
+(`gen_icons.py --check` answers 0 against it today), and prepping it in place
+moves the adaptive foreground's ink by **+4.4%** (25.08 -> 26.17 px at
+`ADAPTIVE_INK_RADIUS`), desyncing all 35 icons. So the tool's job on the
+shipped asset is to *report* that coupling, which is exactly what `--check`
+now does. The case pins the raw mark and the +4.4% blast radius, so a future
+tick that decides to actually write that file has to meet it first.
+
+**The battery corrupted the repo when it failed -- again, and the same way.**
+Grading against the unfixed tool rewrote `assets/brand/mark.png`
+(1024x1024 -> 795x1069): case 6 passed `--write --check` at the **real path**,
+and the old tool ignores `--check` entirely and saves. Case 9 caught it, but
+detection does not undo it. Every case now uses a temp copy, and the run takes
+a hash of the shipped mark up front and **restores it on every exit path**,
+failing loudly if it ever had to.
+
+**Two of my own cases were wrong, and measurement said so, not review.** Case 2
+asserted a lone visible pixel trims to 1x1; it centres to **2x2** by the
+documented `p == 2 * (w/2 - cx)` rule -- the tool was right, the assertion was
+an assumption. And I also nearly shipped a 10% radius claim: `max_ink_radius`
+measures from the **canvas** centre while its docstring talks about a circular
+mask, which on a synthetic off-centre mark overstates by 3.06x. Measured
+against the **real** asset it is a 0.900x *under*statement -- but
+`place_by_radius` re-centres after resize, so end-to-end ink stays inside the
+mask (-0.1% to -0.8%). The docstring now says why the canvas centre is the
+right origin. Not claimed as a fixed bug because nothing was demonstrably
+broken.
+
+**Gates.** `flutter analyze` -> **"No issues found!"** (10.8 s).
+`python3 tool/run_tests.py` -> **SUITE PASS - 2673 tests across 14 shard(s)**,
+`2665 passed, 8 skipped`, `RUNNER_EXIT=0`, **every shard green on its FIRST
+attempt** (~22 min), and the **2673** baseline held exactly. Zero `.dart`
+changed. Battery **10/10**; **8/10 against the unfixed tool** with case 8 green
+on both. Sibling `gen_icons` **24/24**; `gen_icons.py --check` -> 0, so the
+shipped icons still match the shipped raw mark. Shipped `mark.png` last touched
+by `b18c571`, untouched.
+
+**Incidental:** the suite gate answered BUSY on a **leaked headless Chrome
+(~339 MB)** from an earlier tick, cleared with `--reap` per protocol. Killing
+the suite mid-run (my foreground call capped at 420 s, the suite needs ~22 min)
+leaked a second one; also reaped. Gate CLEAR.
+
+**Next:** the `tool/` batteries are done -- `px_count` 21/21, `pngscan` 9/9,
+`loop_protocol` 29/29, `stale_bytecode` 15/15, `gen_communes`, `gen_icons`
+24/24, `prep_mark` 10/10. **Backlog balance is 0 unchecked and 3 `[~]`
+handoffs**, so the next tick should either take the Phase 4 cold-start
+handoff (app-side half shipped `c90db36`, device half needs the founder) or say
+so plainly. `tool/publish_release.py` stays **founder-gated -- never run from
+this loop**.
+
+**Still needs the founder:** the job prompt says `Repo: /home/renia/allomokawil`,
+which does not exist on this host. Every path in the Loop protocol table above
+is verified; the **job prompt itself** is not. Repoint it to
+`/home/hatch/allomokawil`; only he can. Still outstanding from my memory: **JDK17,
+AndroidSDK, `build_web.sh`, `pngscan.py`, `build_arm64.sh`** are missing, so no
+APK, no web bundle and no screenshot step can run from this loop.
