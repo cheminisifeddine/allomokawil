@@ -7,6 +7,102 @@ the **top unchecked item in phase order**, ships it, and ticks it.
 Rules for what belongs here: a real user-visible improvement or a real
 correctness gap — never a refactor for its own sake. One item per loop.
 
+- [x] **The tap-target audit had been exiting 1 on the live tree since
+      before the loop started reading it: all NINE of its hand-measured rows
+      were STALE, and it is the only one of the app's nine audit tools with
+      no test battery at all.**  `aa1b2fa` (remote `0aa1d6e`, tree IN SYNC,
+      verified by `remote_state.py` on content AND mode).
+      Backlog balance was **0 unchecked** and the Dart gate denied at
+      **364 MB** against the 900 MB floor (balloon **5616 MB** of 7935,
+      nothing in this PID namespace owns it), so this tick took a non-build
+      item. Three consecutive ticks had gone further up the stack -- auditing
+      the Loop protocol's own text -- so this one went back down to the app
+      and read a tool's **exit code** rather than its prose.
+
+      **The finding.** `python3 tool/tap_target_audit.py` -> **EXIT 1**, nine
+      STALE hand measurements. It is 529 lines and the app's only tap-target
+      reader, and among the nine audit tools under `tool/` it is the one with
+      **no test file**. Nothing noticed, because the write-ups described it as
+      passing: no tick had run it and read its status.
+
+      **The cause, and it is the same lesson as `loop_protocol_test` case 5,
+      one layer down.** A row was `(file, line, anchor)` -- **a line number is
+      not an identity**, and every edit above a construct moves it. The rows
+      had been **re-pinned by hand three times** (13 Sep, 6 Oct, 7 Oct; the
+      comments above them say so) and were stale on **all nine at once**.
+      Measured before writing anything: **all nine constructs are still
+      present and all nine arithmetic sums still hold** -- `48 + 6x2 = 60`,
+      `tapMin + s4*2 - s4*2 = 56`, `16x2 + 56 dp dot = 88`, `18x2 + 25.6 =
+      61.6`. Only the coordinates rotted. Re-pinning a sixth time would have
+      bought the next six ticks.
+
+      **Fix.** A row now carries a `probe`: a whitespace-insensitive,
+      comment-stripped slice of the construct itself. The line is **resolved
+      from the probe**, so a row follows its construct up the file. Two
+      properties are deliberate:
+      * **unique or reported.** A probe matching two sites does not identify
+        one, so it is refused rather than resolved to the first hit. Without
+        this, a short probe would silently re-point a verdict at a different
+        control that looks the same -- and three of the nine files carry 2-3
+        near-identical `InkWell(` sites, so a bare anchor is genuinely
+        ambiguous here.
+      * **comment-stripped.** A hand measurement is about the construct; a
+        comment is prose about the construct. One of the eleven probes spans
+        six lines *through* a comment, so this is load-bearing, not tidy.
+
+      **The half a line-number fix alone would have missed.**
+      `resolve_measured` used the **same stored coordinates** to decide which
+      ADVISORY rows to suppress. A stale row stopped suppressing its own site,
+      so `ui.dart:400` printed as `ADVISORY -- hand-rolled tap` in the very
+      run that printed its row as STALE: **one table disagreeing with itself,
+      and the ADVISORY count inflated by every stale row.** The key is built
+      from the resolved line now -- **ADVISORY 21 -> 14**, seven sites
+      correctly suppressed again.
+
+      **A dead helper I wrote and the battery caught.** `locate()` first
+      duplicated the normaliser inline, which left `_norm()` **dead code**.
+      The comment-stripping mutation **survived two rounds** because it was
+      mutating a function nothing called. `locate()` calls `_norm()` now, and
+      the same mutation dies immediately. This is the repo's recurring lesson
+      arriving from a new direction: *a helper is load-bearing only if
+      mutating it turns a case red.*
+
+      *Evidence.* `python3 tool/tap_target_audit.py` -> **EXIT 1 -> 0**,
+      **9 STALE -> 11 measured pass**, taken unpiped.
+      `python3 test/tap_target_probe_test.py` (new) -> **15/15 ALL PASS,
+      exit 0**, checking the real tool and the real tree, never a fixture.
+      **8 mutations, 8 killed, 0 survived**: accept a 2-site probe, keep
+      comments, ignore the resolved line in the suppression key, guess at a
+      deleted construct, map the match to the wrong line, drop the
+      suppression, reinstate the old stored-line check, and never report
+      STALE at all.
+
+      **Two errors that were mine, both caught by mutation and both recorded
+      because each is a way this guard could have been a decoration.**
+      1. The comment case put the note **after** the probe, so a tool that
+         kept comments still matched and the case passed either way -- it
+         **survived twice** before the probe was rebuilt to span the comment.
+         A mutation that survives a weak case says nothing about the guard.
+      2. The end-to-end case replaced the **normalised** probe inside raw
+         source -- which contains comments, so it never appears literally and
+         the "deletion" was a **no-op** proving nothing. It now voids the raw
+         lines and **asserts the deletion actually happened** before asking
+         the tool anything. A mutation that does not mutate is not evidence.
+
+      **Gate.** `flutter analyze` -> **No issues found!** (10.2 s) -- the gate
+      **opened mid-tick** (CLEAR at 1329 MB after denying at 364 MB), so it
+      was run rather than skipped. **Zero `.dart` changed**, so the **2673**
+      baseline is untouched by construction and **no suite count is claimed**;
+      `run_tests.py` is a 48-minute run and a 10-minute tick cannot finish
+      one. Siblings green: `loop_protocol` 29/29, `build_gate` 36/36, and
+      `remote_state`, `push_helper`, `run_tests_busy_code`, `stash_verdict`,
+      `pngscan`, `shot_namespace`, `stale_bytecode` all exit 0.
+      Remote: trees identical, both files **MATCH** on blob **and** mode.
+
+      **Not papered over:** no APK, no release, no tag, nothing visual, so no
+      screenshot is claimed. And the founder-facing blocker below is
+      unchanged and still the only thing gating real Dart work on this box.
+
 - [x] **The census tool could not see a THIRD pin on the same census — the one
       that asserts the reader has no hole in it.**  `fa97d02` (remote
       `dbba21f`, tree IN SYNC, verified by `remote_state.py` on content AND
