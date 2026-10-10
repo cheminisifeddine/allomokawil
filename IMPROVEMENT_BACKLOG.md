@@ -2023,6 +2023,8 @@ in this file that dies on arrival is how two ticks were lost.
 | Flutter SDK | `/home/hatch/tools/sdk/flutter/bin/flutter` (3.47.2 / Dart 3.13.2) |
 | push helper | `/home/hatch/workspace/repos/gh_push.py` (needs repo ROOT **absolute**, not `.`) |
 | design shots | `/tmp/shots/` (written by `test/design_shots_test.dart`) |
+| JDK (APK builds only) | `/home/hatch/tools/jdk17/bin/javac` (17.0.20.1) |
+| Android SDK (APK builds only) | `/home/hatch/tools/android-sdk` (platform android-36, build-tools 36.0.0) |
 
 1. `cd /home/hatch/allomokawil && git status --short` must be clean. If it is
    not, commit or stash the leftovers first and say so in the report.
@@ -33971,3 +33973,69 @@ still wrong**: `Repo: /home/renia/allomokawil` does not exist and the
 stale second checkout is still on disk. This tick's case 14 would now fail the
 table if it were repointed at it, but the job's prompt still says
 `/home/renia` -- repointing the job is the only fix, and it is the founder's.
+
+## Tick 10 Oct 2026 -- the path table was guarding 4 of the 6 tools the protocol names
+
+**The item.** Backlog balance was **0 unchecked** and the Dart gate denied at
+**222 MB** against the 900 MB floor, so this tick took the non-build item the
+last two ticks had both recorded and neither had done: the protocol names a
+**JDK** and an **Android SDK**, in the step-8 correction, with real versions
+and a load-bearing claim attached -- *"an APK **can** be built here"*. Both
+lived in **prose**, outside the path table, and the guard shipped last tick
+reads **only the table**. So the table was watching 4 of the 6 tools this
+protocol tells a tick to run, and the two it missed are the two a future tick
+acts on when it has lost the "no JDK" belief.
+
+That claim has already rotted **once on this host**: on 28 Sep "no JDK" was
+wrong for ten consecutive ticks, and the correction that fixed it is a
+paragraph of prose -- read by a tick, checked by nothing.
+
+**Shipped.** The two rows moved **into the table**, where the liveness case
+from last tick already proves they exist, and `BUILDER_ROWS` (cases **19-29**)
+asks what a *reworded sentence* can no longer hide: that the rows are still
+there, that the JDK is **executable** (present-but-not-executable leaves
+"an APK can be built" true about the host and false about the build), and that
+the versions the row claims are the versions **on this host** -- JDK read from
+`release`, SDK read by listing `platforms/` and `build-tools/`.
+
+**No new prose check was added, on purpose.** This file has paid for that
+lesson twice (defect #3: a sentence is not a number anything can gate on, and
+the fence baseline stayed green through re-wording). The demand lives in a
+structured table field this parser already returns; the prose only describes it.
+
+**8 mutations, 8 killed.** JDK row deleted -> 24/25; SDK row deleted -> 23/24;
+JDK row -> dead `/home/renia` path -> 25/29; JDK version drifted to 17.0.99 ->
+28/29; SDK platform drifted to android-35 -> 28/29; row label drift
+("JDK (APK builds only)" -> "JDK") -> 24/25; and the JDK row repointed at a
+**non-executable** javac with a *matching* version -> **28/29**, which is the
+case that matters, because a version-only check passes it.
+
+**One mutation taught me something and is recorded so it is not re-run wrong.**
+The first executability mutation was `chmod -x` on the real javac and it came
+back **29/29** -- a green guard that looked blind. It was not: the filesystem
+**silently refused the chmod** (mode stayed `rw-r--r-x`, `ls -l` proves it), so
+the mutation never happened. Rebuilt as a real one -- a scratch JDK whose
+`release` states the right version and whose `javac` is mode 644 -- it is
+**killed at 28/29**. A mutation that does not mutate is not evidence about
+the guard; read the mutation, not only its verdict.
+
+**Green.** `python3 test/loop_protocol_test.py` -> **29/29 ALL PASS, exit 0**
+(18 -> 29). All eight sibling python guards exit 0: `stash_verdict_test`,
+`remote_state_test`, `push_helper_test`, `run_tests_busy_code_test`,
+`build_gate_test` (36/36), `agreement_census_audit_test`, `shot_namespace_test`,
+`stale_bytecode_test`. Tree verified IN SYNC on blob **and** mode by
+`tool/remote_state.py` before the push.
+
+**Not papered over.** **Zero Dart changed**, so the **2673** baseline is
+untouched and **no suite count is claimed** this tick. The gate denied at
+222 MB when this tick opened and **cleared at 1179 MB** when it closed -- the
+hypervisor gave back the balloon mid-tick. The Dart gate was still not run:
+`run_tests.py` is a **48-minute** run and a 10-minute tick cannot finish one,
+and with **0 Dart files** in the diff it cannot change this commit's verdict
+either. A tick that cannot finish should name what it did not do rather than
+report a number from shards that did not answer.
+
+**Still needs the founder:** the cron job's own prompt says
+`Repo: /home/renia/allomokawil`, which does not exist. The table is now
+guarded, but the **job prompt is not** -- repointing it to
+`/home/hatch/allomokawil` is the only fix and only he can do it.

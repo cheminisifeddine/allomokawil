@@ -233,6 +233,11 @@ TABLE_HEADER = "real path (verified"
 # the one this repo actually uses: it must appear in the writer that owns it.
 OUTPUT_ROWS = ("design shots",)
 
+#: Rows naming the toolchain the founder-GATED apk build needs. They are
+#: tools, not outputs: they exist today and must be executable today. See the
+#: case block in `main` for why they had to be pulled out of prose.
+BUILDER_ROWS = ("JDK (APK builds only)", "Android SDK (APK builds only)")
+
 
 def path_table(txt):
     """{label: path} for every row of the protocol's path table.
@@ -587,6 +592,99 @@ def main():
             check("output row %r is the path %s writes (%s vs %s)"
                   % (label, owner, path.rstrip("/"), _first_line_path(body)),
                   _declares_output_dir(body, path))
+
+    # ---------------------------------------------------------------- 6
+    # THE BUILDER ROWS, and the blind spot this file's own case 17 created.
+    #
+    # Case 17 reads the table and checks every row is alive. That is a
+    # complete guard for a table that lists what a tick USES, and it was
+    # complete for exactly the four rows that existed -- until this tick
+    # found the protocol naming a fifth and sixth tool in PROSE, in the step-8
+    # correction, with real versions and a real claim attached: "a JDK was
+    # restored outside it ... an APK *can* be built here".
+    #
+    # That claim is the one a future tick acts on. A tick that has lost the
+    # "no JDK" belief needs to know whether building is possible, and step 8
+    # is where it looks. Every path it names -- the JDK, the Android SDK --
+    # lived outside the table, so case 17 could not see them, and the step-8
+    # correction has already rotted ONCE on this host (28 Sep: "no JDK" was
+    # wrong for ten ticks). The table was guarding a strict subset of what
+    # the protocol tells a tick to run.
+    #
+    # So the demand is not a new prose check -- this file has already paid
+    # for that lesson twice (defect #3: a sentence is not a number anything
+    # can gate on; the fence baseline went green under re-wording). The two
+    # rows are now IN the table, where case 17 already proves they exist, and
+    # what is checked here is that the table still carries them: a tick that
+    # deletes the JDK row has removed a live, load-bearing instruction and
+    # must be told, not left to re-derive it.
+    #
+    # BUILDER_ROWS are TOOLS, not outputs, so they hold to the same
+    # existence rule as every other tool row -- they exist on this host and
+    # are executable today. They are not exercised here: invoking javac or
+    # starting an Android build inside a guard is exactly the build this loop
+    # is forbidden from starting on a box with 222 MB free. Existence plus
+    # executability (os.access X_OK) is the honest ceiling for a guard that
+    # must stay cheap.
+    rows = path_table(protocol_lines(txt)) or {}
+    notes_all = rows_note(protocol_lines(txt))
+    for label in BUILDER_ROWS:
+        path = rows.get(label)
+        check("builder row %r is in the path table (%s)" % (label, path or "absent"),
+              bool(path))
+        if not path:
+            continue
+        check("builder row %r exists on this host (%s)" % (label, path),
+              os.path.exists(path))
+        # The JDK row names javac: an executable, because its whole claim is
+        # "an APK CAN be built here". A javac that is present but not
+        # executable would leave the step-8 correction true about the host and
+        # false about the build, which is the exact rotted state this guard
+        # exists to catch.
+        check("builder row %r is executable (%s)" % (label, path),
+              os.access(path, os.X_OK))
+
+    # The versions the step-8 correction asserts in prose, checked against the
+    # host rather than against the sentence. `javac -version` is ~0.5s and
+    # `release` is a file read; neither is a build. A re-worded sentence can
+    # no longer make this drift, because the row is the demand and the row is
+    # a structured field this parser already returns.
+    jdk_row = notes_all.get("JDK (APK builds only)")
+    if jdk_row:
+        jdk_path, jdk_note = jdk_row
+        claimed = re.search(r"\(([0-9][0-9.]*)\)", jdk_note)
+        want = claimed.group(1) if claimed else None
+        check("the JDK row states a version (%s)" % (want or "none"), bool(want))
+        got = None
+        release = os.path.join(os.path.dirname(os.path.dirname(jdk_path)),
+                               "release")
+        try:
+            with io.open(release, encoding="utf-8") as fh:
+                m = re.search(r'JAVA_VERSION="([^"]+)"', fh.read())
+                got = m.group(1) if m else None
+        except (IOError, OSError) as exc:
+            print("    cannot read %s: %s" % (release, exc))
+        check("the JDK on this host is the version the row claims (%s vs %s)"
+              % (got, want), got is not None and got == want)
+
+    sdk_row = notes_all.get("Android SDK (APK builds only)")
+    if sdk_row:
+        sdk_path, sdk_note = sdk_row
+        m = re.search(r"android-([0-9]+),\s*build-tools\s+([0-9.]+)", sdk_note)
+        check("the SDK row states a platform and build-tools (%s)"
+              % (m.group(0) if m else "none"), bool(m))
+        if m:
+            plat, tools = m.group(1), m.group(2)
+            for kind, name, claim in (("platforms", "android-%s" % plat, plat),
+                                      ("build-tools", tools, tools)):
+                d = os.path.join(sdk_path, kind)
+                try:
+                    have = sorted(os.listdir(d))
+                except OSError:
+                    have = []
+                check("the SDK on this host carries %s (%s vs %s)"
+                      % (name, claim, ",".join(have) or "none"),
+                      name in have)
 
     print("\n%d case(s) against %s" % (len(results), os.path.relpath(BACKLOG, REPO)))
     ok = sum(results)
