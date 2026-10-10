@@ -34524,3 +34524,100 @@ this loop**.
 /home/renia/allomokawil`, which does not exist on this host. Every path in the
 Loop protocol table above is verified, but the **job prompt itself** is not --
 repoint it to `/home/hatch/allomokawil`; only he can.
+
+---
+
+## Tick 10 Oct 2026 -- `tool/gen_icons.py`: `--check` rewrote the launcher icon
+## it claimed to only check. **SHIPPED**
+
+**Item:** `gen_icons.py`, the generator for every launcher icon, the splash strip
+and the iOS AppIcon set, and the last load-bearing tool in `tool/` with **no
+reference anywhere in `test/`**. `cae73d6` (remote `f420260`, tree IN SYNC
+`90f109b`, verified by `remote_state.py` on content AND mode).
+
+Backlog balance was **0 unchecked**, and the previous tick named this item, so
+no phase was re-ranked to find work.
+
+**Nothing was wrong with what it RENDERS.** That was measured before anything
+was written: the committed icons' ink geometry is what the tool regenerates,
+worst delta 2px across all 35, and that 2px is resampling jitter rather than a
+different picture. **Four defects were all in how it REPORTS**, and every one of
+them is this repo's standing failure in a new costume -- something that was not
+measured, printed as if it had been.
+
+1. **`--check` wrote the files it claimed to only check.** It printed
+   `checked 39 files` *after* saving all of them. The one flag that exists so an
+   operator can ask "are the icons stale" **without touching the shipped
+   launcher icon** was the flag that silently rewrote it: **35 files modified in
+   the working tree**, measured twice. It now renders every asset in memory,
+   compares, prints the drifting paths and exits 1, opening nothing for writing.
+2. **`ink_report` measured the BACKGROUND.** The legacy and round icons are an
+   opaque white tile, so an alpha bounding box over them is the whole canvas:
+   every row printed `ink 100%x100% margins L0% R0%` -- a perfect description of
+   the plate, in the one field a reader opens the report to judge whether the
+   logo is too small. The truth is **67%x89% with 16% margins**. The founder
+   asked for the mark big, and **nothing on screen could check whether that ask
+   survived a regeneration**.
+3. **The iOS count was wrong by four and the writes were doubled.**
+   `Contents.json` names **19 entries over 15 distinct files** -- iPhone and iPad
+   share four -- so the tool looped per *entry*, wrote each shared file twice
+   (last writer winning) and reported `19 files` for 15.
+4. **A mark with no visible ink was accepted.** Every placer renders it to a
+   blank white tile, and the report then calls that `ink 100%x100%` -- a
+   perfectly formed lie, produced by exactly the arithmetic in defect 2. A
+   missing mark raised a bare `FileNotFoundError` naming a path and nothing
+   else. Both are named refusals on **exit 2** now.
+
+**The drift threshold is measured, and what it costs is stated.** The committed
+icons differ from a rebuild by up to **77/255** of LANCZOS antialiasing against a
+different Pillow build, spread over ~2,300 edge pixels, so **96 is the lowest
+threshold that can call the shipped tree clean**. What that floor costs was
+measured rather than assumed: an ink wash of **+220 peaks at 79**, a **4px shift
+at 80**, a **one-third drift toward white at 26** -- all below 77, i.e. all
+inside the encoder's own noise. A check built on pixel differences cannot
+promise to catch those, and the battery **says so out loud** instead of implying
+a strength the tool does not have.
+
+**An earlier revision of this fix used a 16x16 downsample**, on the claim that it
+was insensitive to antialiasing and sensitive to painted regions. Measured, it
+was wrong in **both** directions: it read a 1% `LEGACY_FILL` change as 0.0000 --
+it cannot see the exact constant this tool exists to hold -- and it had no gap at
+all, with the null set reaching 0.3125 against a signal set starting at 0.1875.
+Rejected, and the rejection is in the source so the next tick does not retry it.
+
+**Battery:** `test/gen_icons_test.py`, **24/24, exit 0**; **8/24 against the
+unfixed tool**. **8 mutations, 8 killed.**
+
+* **M7 survived the first time**, honestly: it set `INK_DRIFT_THRESHOLD` to
+  255 -- above any difference the codec can express -- and passed, because case
+  20's only evidence was a hard black bar with 277 pixels exactly 255 apart.
+  Case 20b now pins the floor from both sides instead.
+* **The battery corrupted the repo when it failed.** Running it against the
+  unfixed tool left **35 shipped files modified** in the working tree: case 1
+  detected it, but detection does not undo it. A battery that damages the
+  founder's approved launcher icon when it fails is one nobody runs twice, so it
+  now backs the tree up and restores it **on every path, pass or fail** -- and
+  leaves it clean against the broken tool too, measured.
+* **Two of my own errors, each a green lie in waiting.** The battery *crashed*
+  on the unfixed tool (`AttributeError: no attribute 'flatten'`, no score) --
+  now it grades, which is the failure `gen_communes_test.py` documents in its
+  own header. And case 20b passed **for the wrong reason** twice: it asserted
+  exit 1 while case 20's damaged icon was still in the tree, and its own +40
+  wash clipped to nothing because the band it landed on is near-white in this
+  mark. Each case now proves its own damage.
+
+**Gates.** `flutter analyze` -> **"No issues found!"** (11.7 s). Zero `.dart`
+changed, so the **2673** baseline is untouched and **no suite count is claimed**.
+Siblings: `px_count` 21/21, `pngscan` 9/9, `loop_protocol` 29/29,
+`stale_bytecode` 15/15. The build gate was CLEAR after `--reap` cleared a
+**leaked headless Chrome holding ~303 MB** from an earlier tick's render.
+
+**Next:** `tool/prep_mark.py` -- the last untested generator, and `gen_icons.py`
+now pins the two things it calls (`max_ink_radius` and the `VISIBLE_ALPHA`
+threshold) through its own refusals. `tool/publish_release.py` stays
+**founder-gated -- never run from this loop**.
+
+**Still needs the founder:** the job prompt says `Repo: /home/renia/allomokawil`,
+which does not exist on this host. Every path in the Loop protocol table above
+is verified, but the **job prompt itself** is not -- repoint it to
+`/home/hatch/allomokawil`; only he can.
