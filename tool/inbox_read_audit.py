@@ -268,7 +268,19 @@ def main():
     # exit code, printed BUSY, and refused -- while the gate was simultaneously
     # reporting that **nothing was building**. A refusal that invents a reason
     # is worse than no refusal.
-    if not _another_writer_is_building():
+    # **The polarity was inverted, and it is why this file has never measured
+    # anything.** The helper answers "is a build I can SEE in flight", and
+    # its own docstring plus both sibling audits refuse on `True`. This line
+    # read `not <that>`, so the tool refused precisely when nothing was
+    # building and ran precisely when a real build was in flight -- the
+    # exact opposite of the rule the paragraph above it argues for. The
+    # paragraph right above this line documents refusing on an invented
+    # reason; this line invented one on every single call. Measured: with
+    # the gate reporting `NO ROOM ... nothing is building`, the helper
+    # returned False, `not False` -> refuse, exit 3 -- a refusal whose stated
+    # reason was false on the run that printed it. `worker_reviews_audit.py`
+    # and `notification_read_audit.py` both read `if _another_writer_is_building():`.
+    if _another_writer_is_building():
         sys.stderr.write("REFUSED - another writer is building on this box\n")
         return 3
 

@@ -292,17 +292,34 @@ def _render(reports):
         if err:
             lines.append("  %-42s %s" % (host, err))
             continue
-        ids = rep.get("ids", {})
-        gap = rep.get("gap", {}) or {}
-        lines.append("  %-42s ids: user %s / profile %s -- reviews 200 on BOTH, "
-                     "profile on the user id -> %s"
-                     % (host, ids.get("user_id"), ids.get("profile_id"),
-                        "404" if ids.get("ids_disagree") else "200"))
-        lines.append("  %-42s directory: %s claiming, %s checked, %s empty, "
-                     "%s short of the header, %s LONGER than it"
-                     % ("", gap.get("claiming_reviews"), gap.get("checked"),
-                        gap.get("rows_with_no_cards"), gap.get("rows_shorter_than_claim"),
-                        gap.get("rows_longer_than_claim")))
+        ids = rep.get("ids", {}) or {}
+        gap = rep.get("gap") or {}
+        if not ids:
+            lines.append("  %-42s ids: NOT MEASURED -- the id read did not "
+                         "answer, so no claim about it is printed" % (host,))
+        else:
+            lines.append("  %-42s ids: user %s / profile %s -- reviews 200 on BOTH, "
+                         "profile on the user id -> %s"
+                         % (host, ids.get("user_id"), ids.get("profile_id"),
+                            "404" if ids.get("ids_disagree") else "200"))
+        # **An empty `gap` is a read that did not happen, and printing its keys
+        # as `None` is the lie this file shipped.** `_check_gap` returns
+        # `(None, reason)` on every failure path and `main()` collapses that to
+        # `{}`, so this renderer drew a line of `None claiming, None checked,
+        # None empty, None LONGER than it` -- five absent measurements presented
+        # in the grammar of five measured ones, indistinguishable from a real
+        # result in a scrolled log. The sibling audits that were fixed print
+        # the silence as a silence; this one had no arm for it.
+        if not gap:
+            lines.append("  %-42s directory: NOT MEASURED -- %s"
+                         % ("", rep.get("gap_error") or "the directory read did not answer"))
+        else:
+            lines.append("  %-42s directory: %s claiming, %s checked, %s empty, "
+                         "%s short of the header, %s LONGER than it"
+                         % ("", gap.get("claiming_reviews"), gap.get("checked"),
+                            gap.get("rows_with_no_cards"),
+                            gap.get("rows_shorter_than_claim"),
+                            gap.get("rows_longer_than_claim")))
         if ids.get("ids_disagree"):
             lines.append("  %-42s   ^ /workers/%s/reviews answers 200 while "
                          "/workers/%s answers 404 -- a wrong id reads empty, "
@@ -332,9 +349,11 @@ def main():
             continue
         ids_rep = _check_ids(wire, acct)
         gap_rep, gap_err = _check_gap(wire, args.top)
-        if gap_err and not gap_rep:
-            gap_rep = {}
-        reports[host] = ({"ids": ids_rep, "gap": gap_rep}, None)
+        # The reason was measured and then thrown away: `gap_rep = {}` erased it
+        # and `_render` drew `None`s in its place. It is kept beside the empty
+        # report so the renderer can say WHICH read failed instead of only that
+        # one did.
+        reports[host] = ({"ids": ids_rep, "gap": gap_rep or {}, "gap_error": gap_err}, None)
 
     unreachable = [h for h, (r, e) in reports.items()
                    if e and "failed" in e and "1010" not in str(e)]
