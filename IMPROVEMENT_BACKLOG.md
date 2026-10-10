@@ -34300,3 +34300,114 @@ report a number from shards that did not answer.
 `Repo: /home/renia/allomokawil`, which does not exist. The table is now
 guarded, but the **job prompt is not** -- repointing it to
 `/home/hatch/allomokawil` is the only fix and only he can do it.
+
+## Tick 10 Oct 2026 (`5f8e4f0`, `d52d09f`) -- the pixel-count probe answered an
+## honest `0` for a colour that cannot exist, and the repo had two grammars for
+## "a colour". **SHIPPED**
+
+The backlog held **0 unchecked** items, so this is the next tool on the
+previous tick's own list: `tool/px_count.py`, the last untested instrument the
+app's own pixel guards rest on. Not read-only this time -- it is the probe two
+Dart shot tests **shell out to**, and both assert on its number
+(`expect(goldBefore, greaterThan(0))`, `expect(goldAfter, lessThan(goldBefore))`)
+to answer what a widget assertion cannot: *did this actually repaint.* A wrong
+answer here does not misreport, it **blinds the guard**.
+
+**The counting was never the defect -- the argument was.** Measured on the real
+2400x1800 Flutter capture `message_tab_unread_badge_test.dart` writes,
+`16213E` answers **1333959** and agrees with the decoder's own histogram to
+the pixel. Two defects, both invisible from the source:
+
+1. **An impossible colour printed a real-looking `0`.** `300,0,0` and `-1,0,0`
+   cannot occur in an 8-bit image, yet both parsed, matched nothing and printed
+   `0` with **exit 0**. That is this file's own header's trap -- *"a count of
+   zero from a broken probe is indistinguishable from a count of zero from a
+   blank screen"* -- reached through the **argument** rather than through the
+   filter. Worth being precise about the blast radius: the live caller asserts
+   `greaterThan`, so it would have failed **loudly**; a caller asserting "no
+   muted ink" would have **passed on a typo in its own argument**. The dart
+   file's `-1` sentinel was already doing its job -- a parse error reaches it
+   as no-digits-on-stdout, not as a `0` -- so the fix is where the real hole
+   was and not where the docstring pointed. Out of range now exits 2 with the
+   usage on stderr.
+2. **Two grammars for one concept.** `pngscan.py` accepts `E8A33D`,
+   `#E8A33D` and `232,163,61` through one `parse_color`; this tool used a bare
+   `int(p)` and accepted only the third. The Dart caller builds `r,g,b` today
+   **only because this file demanded it**, so a correct, documented spelling
+   one directory over was a traceback here. Now one parser, one grammar.
+
+Also: `PngError` is caught and **named** rather than left as a traceback,
+matching `pngscan: cannot read ...` / exit 1, so two pixel probes fail alike.
+Deliberately unchanged: a well-formed colour that is merely **absent** still
+answers `0` and exits `0`. "Absent" is a real answer; only the impossible is
+refused.
+
+*Evidence.* `python3 test/px_count_test.py` (new, 21 cases) -> **21/21, exit
+0**; against the **unfixed** tool -> **9/17**, exactly the eight defect cases.
+**10 mutations, 9 killed, 1 SURVIVED**, and the survivor is the honest kind:
+M10 hardcodes `stride = 3` instead of deriving it from the row length, which is
+**provably equivalent** -- `png_read` normalises grey, grey+alpha, RGB and RGBA
+alike to three bytes per pixel, measured across all four colour types. Rather
+than leave that invariant assumed, **case 15** pins it: the same 25 pixels must
+count 25 in a 1-, 2-, 3- or 4-channel file.
+
+**Cases 11-14 run against the REAL app**, not a synthetic image: they count
+`AppTheme.navy` and `AppTheme.accent` in the actual capture and compare the
+tool's answer to the decoder's histogram -- skipped, never faked, when that file
+is absent. Case 13 walks every theme token, so a token added tomorrow is
+covered by construction.
+
+**Three errors of mine, each of which looked like the tool failing.**
+* My mutation harness **timed out at 420 s and left a MUTANT in the working
+  tree** -- case 13 spawned one subprocess per token and each re-decoded the
+  2400x1800 capture, ~90 s of pure waste. Caught by a `diff -q` against the
+  known-good copy, restored, and case 13 now counts a **240x180 crop of the
+  same real capture** (the oracle is the crop's own histogram, so the evidence
+  is unchanged): **2 min -> 14 s**.
+* **M5 survived** because I mutated `except PngError` to `except Exception`,
+  which still catches `PngError`. That is a bad mutation, but it exposed a
+  **real gap**: cases 6/7 asserted only `rc != 0 and no number on stdout`, and
+  a bare **traceback satisfies both** -- so the mutation died only for the
+  wrong reason. Cases 6 and 7 now require the failure to be **named on
+  stderr** and refuse a traceback outright; the mutation was corrected to catch
+  the wrong exception and now dies on the case that was actually blind.
+* Case 15 first asserted **25 navy pixels against a 1-channel grey file**, and
+  "failed" a tool that was right -- a grey file cannot carry navy, since
+  R=G=B. Same error class this file keeps recording: an assertion written
+  against an assumed input rather than a measured one. The grey cases are given
+  a colour they can hold and still prove the point, which is that the count
+  does not depend on how the channels are packed.
+
+**Siblings green.** `test/pngscan_test.py` **9/9**; the two **real** pixel
+callers re-run through the runner -- `message_tab_unread_badge_test.dart` +
+`empty_count_line_shot_test.dart` -> **23 tests, every shard green, exit 0**.
+
+**Zero `.dart` changed**, so the **2673** Dart baseline is untouched and **no
+suite count is claimed** this tick. The Dart gate was not run and could not
+change this commit: it was answered **CLEAR at 3813 MB** when the tick opened
+and denied at **687 MB** when it closed -- by the battery this very tick wrote,
+which is this loop's own memory, not a foreign builder.
+
+**A pre-existing leak found on the way out, not this tick's.** The push was
+verified with `remote_state.py --files`: both new paths **MATCH** on the remote
+(blob **and** mode), while the tree read **DIVERGED**. `--why` named the one
+path: `test/band_ink_test.py` at **100755 locally against 100644 on the
+remote** -- mode only, same bytes. It is the **sole** 100755 among 27 python
+batteries, and `gh_push.py` mints everything 100644, so the odd one out is
+always the local side. Left by the previous tick, repaired here with
+`git update-index --chmod=-x` -> `d52d09f`, and the tree is now **IN SYNC**
+(tree `1b8ab18` on both sides). This is the 60th tick's lesson arriving one
+layer up again: a blob-SHA check is structurally blind to a mode difference, and
+only `--files`/`--why` compares both axes.
+
+**Next:** every audit tool now has a battery. Remaining untested:
+`tool/gen_icons.py`, `tool/gen_communes.py`, `tool/prep_mark.py`, and
+`tool/publish_release.py` (**founder-gated -- must never run from this loop**).
+`gen_communes.py` is referenced by `test/communes_test.dart`, so it is the
+load-bearing one to take next; `gen_icons.py` is the only other tool with no
+reference anywhere in `test/`.
+
+**Still needs the founder:** the job prompt says `Repo:
+/home/renia/allomokawil`, which does not exist on this host. Every path in the
+Loop protocol table above is verified, but the **job prompt itself** is not --
+repoint it to `/home/hatch/allomokawil`; only he can.
