@@ -805,6 +805,181 @@ def t_header_reflects_shipped_dart():
     _run(body)
 
 
+# --- the reader must judge ARITY, not the spelling of a parameter -----------
+#
+# Four cases, and all four are WRONG VERDICTS MEASURED on this tick rather
+# than shapes imagined in advance. The reader used to decide which parameter
+# was the count by its NAME (`used` or `count`), so a field's identity was
+# guessed from the spelling a developer happened to choose -- the same defect
+# the census tick shipped 1 Oct one layer over: a reader whose vocabulary is
+# narrower than the tree it grades, so what it cannot recognise reads as
+# ABSENT rather than UNMEASURED.
+#
+# The first case is the dangerous one. Renaming a parameter is an ordinary,
+# behaviour-preserving edit, and it flipped this tool to `blind=True` and
+# `header_contradicts=True` -- **exit 1 against two healthy hosts**, filing a
+# server defect that does not exist. That is the failure a mirror has and no
+# plain mirror can.
+
+
+def _reader_says(src):
+    """`dart_ceiling_line_takes_count` against a throwaway Dart file."""
+    import tempfile
+    fd, path = tempfile.mkstemp(suffix=".dart")
+    try:
+        os.write(fd, src.encode())
+        os.close(fd)
+        return audit.dart_ceiling_line_takes_count(path)
+    finally:
+        os.unlink(path)
+
+
+@case("a RENAMED count parameter still reads as taking the count")
+def t_reader_survives_a_rename():
+    """The mutation that mattered: `used` -> `have`, with NO logic change.
+
+    Arity is what the sentence needs -- one parameter means the only number
+    this function was handed is the ceiling, whatever it is called. Judged by
+    spelling, this file read as blind, the header read as contradicting
+    itself, and the tool exited 1 on two hosts that are perfectly healthy.
+    """
+    assert _reader_says(
+        "String portfolioFullLineAr(int limit, int have) => '';") is True, \
+        "a behaviour-preserving rename must not blind the reader"
+
+
+@case("a ONE-parameter function reads as blind whatever the parameter is called")
+def t_reader_one_arg_is_false_whatever_its_name():
+    """The opposite direction, and it was wrong the other way.
+
+    `portfolioFullLineAr(int used)` -- one argument, named `count` -- reads as
+    taking the count under the old spelling rule, because the rule asked what
+    the parameter was CALLED and never how many there were. The function
+    cannot see a gallery size: it was handed one number, and that number is
+    the ceiling. Reporting it as count-aware cleared a real defect.
+    """
+    for one in ("String portfolioFullLineAr(int used) => '';",
+                "String portfolioFullLineAr(int count) => '';",
+                "String portfolioFullLineAr(int limit) => '';",
+                "String portfolioFullLineAr(int n) => '';"):
+        assert _reader_says(one) is False, \
+            "a one-argument function takes no count, whatever it is called: %r" % one
+
+
+@case("two parameters read as count-aware whatever they are named")
+def t_reader_two_args_is_true_whatever_their_names():
+    """A second value arrived; what it was called is not the question."""
+    for two in ("String portfolioFullLineAr(int a, int b) => '';",
+                "String portfolioFullLineAr(int limit, int have) => '';",
+                "String portfolioFullLineAr(int x, int y, int z) => '';"):
+        assert _reader_says(two) is True, \
+            "two or more parameters means a count can reach it: %r" % two
+
+
+@case("a parameter list with brackets in it is still ONE parameter list")
+def t_reader_balances_brackets():
+    """A default value that is itself a call, or a list of defaults, must not
+    truncate the read.
+
+    The old pattern stopped at the first `)`, so
+    `portfolioFullLineAr(int limit, {int used = _fallback()})` was cut mid
+    declaration and its own second parameter was never seen. A missing bracket
+    does not mean the parameter list ended.
+    """
+    for src in ("String portfolioFullLineAr(int limit, {int used = fb()}) => '';",
+                "String portfolioFullLineAr(int limit, [int a = 1, int b = 2]) => '';",
+                "String portfolioFullLineAr(int limit, {int used = 0}) => '';"):
+        assert _reader_says(src) is True, \
+            "a bracket inside a default must not hide a parameter: %r" % src
+
+
+@case("a list that never closes is UNREADABLE, and a list that is empty is NOT")
+def t_reader_empty_is_measured_unclosed_is_not():
+    """Two different verdicts that both once collapsed into None.
+
+    `portfolioFullLineAr()` is a declaration this tool read perfectly well: it
+    takes no count, and that is a measurement. A parameter list that never
+    closes is not a declaration at all and must yield no answer. Reporting
+    None for both tells a tick "no verdict" about a file that could be read,
+    which is how an unmeasured thing becomes an absence nobody can see.
+    """
+    assert _reader_says("String portfolioFullLineAr() => '';") is False, \
+        "an empty parameter list is a MEASUREMENT of a function taking no count"
+    assert _reader_says(
+        "String portfolioFullLineAr(int limit, {int used = 0 => '';") is None, \
+        "a parameter list that never closes is not an answer"
+
+
+@case("a CALL SITE in a doc comment is not the declaration")
+def t_reader_ignores_call_sites():
+    """The declaration is the only mention that answers the question.
+
+    `portfolioFullLineAr` appears three more times in its own file: once in a
+    prose sentence, and as `[bracket]` doc references. The old pattern was the
+    bare name plus `(`, so it matched a one-argument CALL written in a comment
+    above the definition and reported a two-parameter function as taking one
+    argument -- the same wrong verdict as the spelling rule, reached by a
+    different road.
+    """
+    assert _reader_says(
+        "/// old shape: `portfolioFullLineAr(limit)` named only the ceiling.\n"
+        "String portfolioFullLineAr(int limit, int used) => '';") is True, \
+        "a call site in a comment must not stand in for the declaration"
+    assert _reader_says("// portfolioFullLineAr(limit)\nclass Unrelated {}") is None, \
+        "with no declaration at all, a call site is not a definition"
+
+
+@case("an annotated declaration is still the declaration")
+def t_reader_accepts_annotations():
+    """`@pragma` above the function must not hide the one line that counts."""
+    assert _reader_says(
+        "@pragma('vm:prefer-inline')\nString portfolioFullLineAr(int limit, int used) => '';"
+    ) is True
+
+
+@case("the header verdict no longer follows a parameter NAME")
+def t_header_verdict_is_rename_stable():
+    """End to end, on the numbers the live hosts actually produce.
+
+    130 photographs against a limit of 5. Under the spelling rule a rename
+    flipped `header_contradicts` to True, which is the verdict that drives
+    **exit 1**. This pins the whole path, not just the reader, so the two
+    cannot be fixed in isolation and the pair still disagree.
+    """
+    measured = {"plan": {"portfolio_limit": 5}, "gallery": {"app_rows": 130}}
+    for name in ("used", "have"):
+        with _dart_file_as("String portfolioFullLineAr(int limit, int %s) => '';" % name):
+            head, _ = audit._check_header(None, None, measured)
+        assert head["subline_takes_count"] is True, head
+        assert head["over_ceiling_line"] is False, head
+        assert head["header_contradicts"] is False, (
+            "renaming the parameter must not file a contradiction against two "
+            "healthy hosts: %r" % (head,))
+
+
+import contextlib
+
+
+@contextlib.contextmanager
+def _dart_file_as(src):
+    """Point the tool at a throwaway Dart file for the duration of the block."""
+    import tempfile
+    fd, path = tempfile.mkstemp(suffix=".dart")
+    try:
+        os.write(fd, src.encode())
+        os.close(fd)
+        saved_file, saved_cwd = audit.DART_ALLOWANCE, audit.os.getcwd
+        audit.DART_ALLOWANCE = path
+        audit.os.getcwd = lambda: os.path.dirname(path) or "."
+        try:
+            yield
+        finally:
+            audit.DART_ALLOWANCE = saved_file
+            audit.os.getcwd = saved_cwd
+    finally:
+        os.unlink(path)
+
+
 def main():
     passed = failed = 0
     for name, fn in _results:

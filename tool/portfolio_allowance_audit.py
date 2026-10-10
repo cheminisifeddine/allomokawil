@@ -91,6 +91,70 @@ _MISSING = object()
 OVER_LIMIT_ROWS = 130
 
 
+# The DECLARATION of the ceiling line, not any mention of it.
+#
+# `portfolioFullLineAr` appears three more times in this very Dart file: once in
+# a prose sentence and twice as a `[bracket]` doc reference. The old pattern was
+# the bare name plus `(` -- it matched a CALL site in a doc comment before it
+# reached the definition, so a file whose function takes two parameters could
+# read as taking one. Anchoring on the return type makes a match mean "this is
+# where it is defined", which is the only one of those mentions that answers
+# the question.
+_DECL = re.compile(
+    r"^\s*(?:@\w+\s+)*"          # an annotation, if the function carries one
+    r"(?:external\s+|static\s+)*"
+    r"String\s+portfolioFullLineAr\s*\(",  # the return type is the anchor
+    re.M)
+
+# A parameter list, balanced across `[...]`, `{...}` and `<...>`.
+#
+# The old one stopped at the first `)`, so a parameter list carrying a default
+# that is itself a call -- `portfolioFullLineAr(int limit, {int used =
+# _fallback()})` -- was truncated mid-declaration and its own count was never
+# seen. A missing bracket does not mean the parameter list ended there.
+_OPENERS = "([{<"
+_CLOSERS = ")]}>"
+_PAIRS = {")": "(", "]": "[", "}": "{", ">": "<"}
+
+
+def _param_list(src, open_paren):
+    """The text between the parens at [open_paren], brackets balanced.
+
+    Returns None when the list never closes, which is the one shape that means
+    "not a parameter list after all" rather than a truncated one.
+    """
+    depth = 0
+    for i in range(open_paren, len(src)):
+        ch = src[i]
+        if ch in _OPENERS:
+            depth += 1
+        elif ch in _CLOSERS:
+            depth -= 1
+            if depth == 0:
+                return src[open_paren + 1:i]
+    return None
+
+
+def _split_params(text):
+    """Top-level parameter names, ignoring nested brackets.
+
+    A comma inside `{}`, `[]` or `<>` separates nothing -- `[int a = 1, int b =
+    2]` is two parameters, not four -- so this splits on depth zero only.
+    """
+    depth = 0
+    parts = [""]
+    for ch in text:
+        if ch in _OPENERS:
+            depth += 1
+        elif ch in _CLOSERS:
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append("")
+        else:
+            parts[-1] += ch
+    return [p.strip() for p in parts if p.strip()]
+
+
 def dart_ceiling_line_takes_count(path=_MISSING):
     """Does the SHIPPED `portfolioFullLineAr` take the gallery count?
 
@@ -106,9 +170,29 @@ def dart_ceiling_line_takes_count(path=_MISSING):
     **None when the file cannot be read** -- an absent answer and a "no" are
     different, and collapsing them would report a verdict nobody measured.
 
-    Counted as the number of parameters the parameter list NAMES, so a
-    required, optional or positional one all count: what matters to the
-    sentence is whether the count can reach it at all.
+    **Judged by ARITY, and that is the whole fix.** The old reader decided
+    which parameter was the count by its SPELLING -- `used` or `count` -- so a
+    field's identity was guessed from the name a developer happened to choose.
+    Three wrong verdicts, all measured on this tick, none of which required a
+    line of logic to change:
+
+      String portfolioFullLineAr(int limit, int have)  -> False  (it does)
+      String portfolioFullLineAr(int used)              -> True   (it does not)
+      String portfolioFullLineAr(int a, int b)          -> False  (it does)
+
+    The first is the dangerous one. Renaming a parameter is an ordinary,
+    behaviour-preserving edit, and it flipped the tool to `blind=True`,
+    `header_contradicts=True` -- **exit 1 against two healthy hosts**, filing a
+    server defect that does not exist. That is the same defect the census
+    tick shipped 1 Oct one layer over: a reader whose vocabulary is narrower
+    than the tree it grades, so what it cannot recognise reads as *absent*
+    rather than *unmeasured*.
+
+    What the sentence needs is whether the count CAN reach it, and that is
+    arity: one parameter means the only number this function was handed is the
+    ceiling, whatever it is called. Two means a second value arrived. It does
+    not matter that a two-parameter function might ignore its second argument --
+    that is a different check, and this one must not pretend to be it.
     """
     if path is _MISSING:
         target = os.path.join(os.getcwd(), DART_ALLOWANCE)
@@ -121,12 +205,21 @@ def dart_ceiling_line_takes_count(path=_MISSING):
             src = fh.read()
     except OSError:
         return None
-    m = re.search(
-        r"portfolioFullLineAr\s*\(([^)]*)\)", src)
+    m = _DECL.search(src)
     if not m:
+        # No DECLARATION. Every mention of the name is a call site or a prose
+        # reference, and a call site's arity is the caller's business.
         return None
-    params = [p.strip() for p in m.group(1).split(",") if p.strip()]
-    return any(re.search(r"\bused\b|\bcount\b", p) for p in params)
+    opener = src.index("(", m.end() - 1)
+    params = _param_list(src, opener)
+    if params is None:
+        return None
+    # An EMPTY parameter list is not an unreadable one: `portfolioFullLineAr()`
+    # is a declaration that was found and read, and it takes no count. Reporting
+    # None there would tell a tick "no verdict" about a file this tool could
+    # read perfectly well, which is how an unreadable answer becomes an
+    # absence nobody can tell apart from a measurement.
+    return len(_split_params(params)) >= 2
 
 
 class Wire:

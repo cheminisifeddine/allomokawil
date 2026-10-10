@@ -32837,3 +32837,74 @@ by chunking, which is worth doing either way since the cap is the server's.
       `worker_profile_screen.dart` — which draws the same gallery for a
       *customer* — has the same header, because this is the "second copy of
       the thing" shape the monogram item and the wilaya-sheet item both found.
+
+## Tick 10 Oct 2026 (pyc) — a stale `.pyc` made correct python read as broken,
+## and the loop was one green-looking gate away from DELETING the fix
+
+The carry-over from the previous tick was uncommitted and **red**: 9 failed /
+33 passed on a tree whose source was correct. The protocol's answer to a red
+gate is `git checkout -- .`, so the loop was one step from throwing away
+correct work and re-opening the same item next tick with a clean tree and the
+bug unfixed.
+
+**The cause was not the code.** `tool/portfolio_allowance_audit.py` was
+rewritten and re-imported inside the same second the cache was written, and
+the edit did not change the byte count -- so CPython's `(mtime, size)`
+`.pyc` header still validated, and the suite was graded against the previous
+tick's `_split_params`. The reader therefore decided the shipped
+`portfolioFullLineAr` takes no count, `header_contradicts` came back True, and
+the tool filed a defect against two healthy hosts.
+
+Measured, not asserted -- `test/stale_bytecode_test.py` reproduces it in a
+temp dir: rewrite the source to return `1111` preserving the header, and the
+import answers `2222`. The control changes the size and the cache is correctly
+rejected, so the trap is narrow and the case means something. **15 passed, 0
+failed**, and **10 mutations of the reader, 10 killed** (one round only: the
+first pass left 3 alive and all three were real -- `sizes[0] == sizes[1]` alone
+cannot tell a preserved header from a coincidence, and the shipped-Dart cases
+were riding on case 1 having already proved staleness).
+
+The honest part: the first draft of that file used `exec(open(...))`, could
+NOT reproduce the defect, and reported the failure rather than asserting the
+story. Only a real `import` consults `__pycache__`.
+
+**This is the 9 Oct mirror and the 1 Oct census pin again, one layer under.**
+Both were a reader whose vocabulary is narrower than the tree it grades, so
+what it cannot recognise read as *absent* instead of *unmeasured*. A stale
+cache needs no new code at all to do the same thing: the tool prints a
+confident verdict, the verdict is about code that no longer exists, and
+nothing in the output says so.
+
+**Files:** `test/stale_bytecode_test.py` (new, 15 cases),
+`tool/portfolio_allowance_audit.py` (carry-over: arity, not spelling),
+`test/portfolio_allowance_audit_test.py` (carry-over: 42 cases),
+`test/agreement_comment_test.dart` (the two stale pins), this file.
+
+**Evidence.** `python3 tool/portfolio_allowance_audit.py` -> both hosts,
+`header_contradicts: False`, `ceiling sentence is blind to the count: False`,
+**`AUDIT_EXIT=0`**. `test/portfolio_allowance_audit_test.py` -> **42 passed**.
+`test/portfolio_gallery_audit_test.py` -> **14 passed**.
+
+**The two stale pins are CLOSED, and the gate that was blamed was not the
+cause.** `direct` 20 -> 22, `surface` 25 -> 27, re-measured by
+`tool/agreement_census_audit.py`, not guessed: the +2 surface is
+`worker_home_screen.dart:2501` ("2 is the dual") and
+`relative_time_hour_floor_test.dart:97` ("2 takes the dual"). **Proven
+pre-existing**: with every change of this tick stashed and the tree pristine,
+`flutter test test/agreement_comment_test.dart` fails with the identical two
+cases (`Expected 20 Actual 22`, `Expected 25 Actual 27`). A red gate that
+predates the work cannot be caused by it, and `git checkout -- .` here would
+have thrown away the fix on the strength of a number written before it.
+`agreement_comment_test.dart` -> **71 passed, 0 failed** after the update.
+
+**The balloon let the gate run, first time in 5 ticks** (1839 MB available
+against the 900 MB floor, and 1061 MB when the first gate was asked). Shard 8
+passed in **1:24** on its first attempt, so the 6 Oct known bug did not
+reproduce for the second run running; keep the deadline, it is INTERMITTENT.
+
+**Next.** The audit now exits 0 and the pins are current, so the item the last
+two ticks left open is finished: re-run this audit with an `over_ceiling_line`
+check on `worker_profile_screen.dart`, which draws the same gallery for a
+*customer* and was never measured for the same ceiling sentence. That is the
+"second copy of the thing" shape the monogram item and the wilaya-sheet item
+both found, and it is the only place the fixed sentence can still be blind.

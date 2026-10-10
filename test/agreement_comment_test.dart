@@ -771,10 +771,13 @@ void main() {  // --------------------------------------------------------------
       // started reading prose does not change WHICH claim-bearing files call
       // it -- so it changed nothing that was asserted. Pinned here so the
       // difference has to be visible somewhere.
-      expect(census.direct.length, 20,
+      expect(census.direct.length, 22,
           reason: 'the direct call-site set is ${census.direct.length} files; '
-              'it was 20 when measured, and a jump means `calls` started '
-              'matching something other than a call');
+              'it was 20 when first measured and 22 as of 10 Oct, and a jump '
+              'means `calls` started matching something other than a call. '
+              'The +2 is `partial_market_copy.dart` and '
+              '`partial_thread_copy.dart`, both of which started CALLING the '
+              'helper rather than describing it');
     });
 
     test('a quoted example of the helper is not a call site', () {
@@ -782,7 +785,9 @@ void main() {  // --------------------------------------------------------------
       // that writes a QUOTED example of the helper in prose ALSO calls it, so
       // the comment filter in `_routingCensus` was unexercised: measured with
       // the filter removed, `direct` stayed at exactly 20 and the suite stayed
-      // GREEN. A guard that cannot see the case it was written for is the
+      // GREEN. (That measurement was taken when the tree held 20; it holds
+      // today at 22. The shape of the result is what matters here -- the pin
+      // cannot see this mutation -- not the count, which moves.) A guard that cannot see the case it was written for is the
       // blindness this file exists to catch, one level down -- so it is
       // written here.
       //
@@ -875,13 +880,17 @@ String plantMentionOnly() => 'writes an example, calls nothing';
       // count moves -- which is information -- but it must move HERE, where it
       // is a red test somebody has to look at, not in prose nobody re-measures.
       // Before this was pinned the prose said 24 while the tree held 25.
-      expect(census.surface.length, 25,
+      expect(census.surface.length, 27,
           reason: 'the loose surface is ${census.surface.length} sentences; it '
               'was 25 when this was pinned (the doc comment claimed 24 and was '
               'wrong by one, the sentence it did not count being its own '
-              '`3-10 is a broken plural`). A different number means the tree '
-              'gained or lost a claim-shaped sentence: re-measure, then update '
-              'the doc comment and this line together');
+              '`3-10 is a broken plural`) and 27 as of 10 Oct. The +2 is '
+              '`worker_home_screen.dart:2501` ("2 is the dual") and '
+              '`relative_time_hour_floor_test.dart:97` ("2 takes the dual"), '
+              'both measured by tool/agreement_census_audit.py on this tree. '
+              'A different number means the tree gained or lost a '
+              'claim-shaped sentence: re-measure, then update the doc comment '
+              'and this line together');
     });
 
     test('the unread surface is EMPTY outside this file -- the false '
