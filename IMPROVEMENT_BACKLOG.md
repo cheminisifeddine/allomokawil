@@ -7,6 +7,36 @@ the **top unchecked item in phase order**, ships it, and ticks it.
 Rules for what belongs here: a real user-visible improvement or a real
 correctness gap — never a refactor for its own sake. One item per loop.
 
+- [x] **The portfolio-allowance audit judged FIXED Dart as blind — both live
+      hosts stayed red on a defect closed days earlier.**  `d31d250` (remote
+      `7abc6db`, tree IN SYNC, verified by file hash).
+      A live run reported `header_contradicts: True` on **both** hosts and
+      exited **1** — a "server contradiction" on a card that does not
+      contradict itself. The mirror had hard-coded its own model of
+      `portfolioFullLineAr` as one-argument; the 9 Oct tick shipped
+      `portfolioFullLineAr(int limit, int used)` with the count **mandatory**.
+      It emitted no `subline_takes_count`, so `check_ceiling_line` — which
+      already handled that key — got a header without it on **every call** and
+      answered "blind" forever. The fix was invisible to the tool built to
+      measure it. Now READ from the Dart, `None` when absent (an unmeasured
+      question is not a "no"); `_render`'s reason follows its own verdict —
+      it had printed "still takes only a limit" under a `False`, this tool
+      contradicting itself one line under its own answer.
+      *Live, both hosts, 130 rows:* `header_contradicts` True→**False**,
+      ceiling blind True→**False**, **EXIT 1 → 0**, 176 s.
+      **34 passed, 0 failed** (28 + 6). **10 mutations, 10 killed, 0
+      survived** — 3 survived a first pass and each exposed a case asserting
+      the wrong thing: the unreadable-signature guess, and a render test
+      satisfied by any reason merely lacking the word "blind". Two tests that
+      pinned the PRE-FIX state were rewritten, not deleted — one said "if this
+      goes False, something changed the ceiling function, which is the fix,
+      not a test fix", so it now asserts the two states must DIFFER; the
+      half-fix guard still models a blind function and still refuses a
+      subline re-word, so it outlives the fix it was written for.
+      Siblings green: gallery 14, inbox 11, notification 11, reviews 7.
+      No Dart changed; gate denied Dart at **242 MB** against the 900 MB
+      floor, balloon **5766 MB**.
+
 - [x] **Six of the seven numeric fields had a floor and no roof, an over-long
       paste was silently rewritten, and the fold under every money field had
       stopped being tested.**  `2cb14a3` (remote `a8641a7`, tree IN SYNC).
