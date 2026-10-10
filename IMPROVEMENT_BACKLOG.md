@@ -71,7 +71,9 @@ correctness gap — never a refactor for its own sake. One item per loop.
 
 - [x] **The Dart gate ran for the first time in two ticks — the balloon lifted,
       so the count that the push-helper tick owed on its own change is
-      finally banked.** This tick's item is the **carry-over**: the previous
+      finally banked.** `da11e30` (remote `89727d9`, tree IN SYNC, verified by
+      `tool/remote_state.py` -> MATCH on content AND mode). This tick's item
+      is the **carry-over**: the previous
       tick shipped a real fix to `gh_push.py` and recorded, in these words,
       `Gate: NOT RUN ... no Dart count was re-banked ... This tick re-checks
       the gate on the next pass.` A protocol that says "re-check next pass" is
