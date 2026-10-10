@@ -99,23 +99,69 @@ def _renderers(tree):
     return out
 
 
+def _emitted(node):
+    """The string constants this branch EMITS -- body and `else`, not the test.
+
+    **Why the body is separated from the test.** An `if` chooses what to say
+    by comparing against a literal (`if state == "none": ...`), and that
+    literal is in the test, not in the text the reader sees. Counting the whole
+    node would let an arm qualify on a string it never prints. Measured on the
+    real tree: 31 arms either way, 0 test-only arms -- so this costs nothing
+    here and is kept because it is the definition, not because the numbers
+    happened to agree.
+    """
+    in_test = {id(sub) for sub in ast.walk(node.test)}
+    out = []
+    for sub in ast.walk(node):
+        if id(sub) in in_test:
+            continue
+        if sub is node:
+            continue
+        if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+            out.append(sub.value)
+    return out
+
+
 def _arm_lines(fn_node):
     """The reporting arms of a function: every `if` that guards emitted text.
 
     An `else`-arm or an `if` that *selects* a string is where a missing key
     silently becomes a verdict. Both are returned with the literal strings that
     the branch prints, because the wording is the evidence.
+
+    **The length threshold is gone, and it was costing the whole class.**
+    The filter used to require `len(sub.value) > 12` and to skip anything
+    starting `Read-only`/`How ` -- a guess at "that is prose, not a claim",
+    made by a reader with no vocabulary for the tree it grades. Recall was
+    MEASURED, not assumed: a verdict-shaped arm planted in all seven tools'
+    renderers (`if rep.get(k) is None: out.append("none")`) was found in
+    **0 of 7**. A renderer answering an unmeasured read with `"none"` is
+    exactly the defect this file exists to catch, and it printed four letters.
+
+    The replacement rule is **shape**: a string the branch *emits* is an arm,
+    whatever its length, so recall cannot depend on how long the author's
+    sentence is. Precision cost, measured on the real tree before the change:
+    27 arms -> **31**, and all four new ones are genuine arms, not noise:
+    three identical `'  %-42s %s'` arms under `if err:` in
+    `worker_reviews_audit`, `notification_read_audit` and `inbox_read_audit`
+    (the host-error line IS what those branches say), and
+    `numeric_bound_audit` L377, which prints a field row and the sentinel
+    `"unreadable"`. The `Read-only`/`How ` prefix exclusion matched **zero**
+    strings on the whole tree -- it was never doing work, only narrowing.
+
+    **What this rule still cannot see, stated rather than implied.** An `if`
+    that emits no literal at all -- a branch over a computed value only -- is
+    invisible to any literal rule, and the real tree has exactly **one**
+    (`agreement_census_audit` L341, a `negated.search` filter inside
+    `_lineClaims`, which is not a renderer at all). A sweep that printed "no
+    more blind spots" here would be repeating the original sin. So the arm
+    count is a LOWER bound and the report says so.
     """
     out = []
     for node in ast.walk(fn_node):
         if not isinstance(node, ast.If):
             continue
-        strings = []
-        for sub in ast.walk(node):
-            if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
-                # A docstring is not a claim the renderer makes.
-                if len(sub.value) > 12 and not sub.value.startswith(("Read-only", "How ")):
-                    strings.append(sub.value)
+        strings = _emitted(node)
         if strings:
             out.append((node.lineno, strings))
     return out

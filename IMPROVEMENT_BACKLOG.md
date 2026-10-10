@@ -1581,7 +1581,7 @@ future tick can *see*.
       has been, because it can no longer see the number it polices.**
       **SHIPPED — `test/loop_protocol_test.py` now 9/9, the guard reads a
       machine line instead of a sentence.** The demand moved into the fence on
-      one canonical line, `# GATE BASELINE: SUITE PASS — 2609 tests across 14
+      one canonical line, `# GATE BASELINE: SUITE PASS — 2673 tests across 14
       shard(s)`, and the prose paragraph below it now only *describes* that
       line. `stated_baseline` takes the fenced block and reads the marker;
       the paragraph it used to scan is no longer an input at all.
@@ -1969,7 +1969,7 @@ in this file that dies on arrival is how two ticks were lost.
    ```
    /home/hatch/tools/sdk/flutter/bin/flutter analyze   # must print "No issues found!"
    python3 tool/run_tests.py                           # count must be >= the previous count
-   # GATE BASELINE: SUITE PASS — 2609 tests across 14 shard(s)
+   # GATE BASELINE: SUITE PASS — 2673 tests across 14 shard(s)
    ```
 
    **The baseline is 2609 -- the `# GATE BASELINE` line in the fence above is
@@ -33249,9 +33249,51 @@ item for a denied box: a pure-Python coverage defect, which is what this was.
 `test/render_silence_audit_test.py` (+5 cases, 8 -> 13),
 `IMPROVEMENT_BACKLOG.md`.
 
-**Next.** All 27 arms are adjudicated and every tool is now covered, so the
-sweep's remaining weakness is what it always was: it finds arms, it cannot
-read them. Its string filter still drops any arm whose branch prints only
-short strings (`len > 12`), so a verdict-shaped `if` printing `"none"` stays
-invisible — the same threshold that produced this file's two earlier wrong
-answers. Worth a case that measures the filter's recall rather than assuming it.
+- [x] **The arm filter's RECALL was never measured — and it was 0 of 7.**
+  (`63b763e`) All 27 arms were adjudicated and every tool covered, so the
+  sweep's remaining weakness was what it always was: it finds arms, it cannot
+  read them. Its filter required `len(text) > 12` and skipped `Read-only`/`How `
+  strings — a guess at "that is prose, not a claim" made by a reader with no
+  vocabulary for the tree it grades. A verdict-shaped arm planted in all seven
+  renderers (`if rep.get(k) is None: out.append("none")`) was found in **0 of
+  7**: the report said the tool was examined and clean while the arm sat in
+  front of it. The same threshold produced this file's two earlier wrong
+  answers.
+  - **Replaced by a shape rule:** a string the branch **emits** is an arm,
+    whatever its length. Test strings are excluded separately — an `if` picks
+    what to say by comparing against a literal, and that literal is not text a
+    reader reads (31 arms either way, **0 test-only arms** on the real tree).
+  - **Precision cost measured, not assumed:** 27 -> **31** arms, all four new
+    ones genuine — three `'  %-42s %s'` host-error lines under `if err:` and
+    `numeric_bound_audit` L377 printing the `"unreadable"` sentinel. The
+    prefix rule matched **ZERO** strings on the whole tree; it was never doing
+    work, only narrowing.
+  - **The blind spot is stated, not implied:** an `if` emitting no literal at
+    all is invisible to any literal rule and the real tree has exactly **one**.
+    The arm count is a **LOWER bound** and the report says so.
+  - **Mutation-killed both ways.** Restore the length threshold -> **16/17**,
+    recall fails in 6/7 tools *by name*. Restore the prefix rule alone ->
+    **16/17**, the pinned prose arm is eaten. **My first draft of the prefix
+    case asserted a property of the TREE** (no string starts with those
+    prefixes), so it passed against the very mutation meant to kill it — a
+    guard that cannot fail is a sentence in a file, the defect this repo has
+    now filed six times. It plants the exact string the old rule ate instead.
+  - Sweep **17/17** (was 13). Siblings 7/11/11/50/14 green.
+
+**DART GATE OPEN — first run in 9 ticks.** MemAvailable peaked at **1183 MB**
+against the 900 MB floor, ending 8 consecutive denials. `flutter analyze` ->
+**No issues found!**; `tool/run_tests.py` -> **SUITE PASS — 2673 tests across
+14 shard(s), every shard green**, `RUNNER_EXIT=0`, **every shard green on its
+FIRST attempt**, 48 min end to end. **+64 over the 2609 baseline**, and the
+shard 8 deadline scare did **not** reproduce for the second run in a row
+(3:17). 2609 stays on the books as the last count that gated a commit.
+
+**Files:** `tool/render_silence_audit.py`, `test/render_silence_audit_test.py`
+(+4 cases, 13 -> 17), `IMPROVEMENT_BACKLOG.md`.
+
+**Next.** The sweep now has no string filter left to distrust, so its
+weakness has moved: it counts arms but never judges the 31 it finds. It files
+`len > 12` verdicts and a human reads them; nothing machine-checks that a
+verdict an arm emits actually matches the measurement it claims. Worth a case
+that measures whether the sweep's own output can be falsified by the tree it
+graded.

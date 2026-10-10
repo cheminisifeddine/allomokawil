@@ -46,6 +46,7 @@ import sys
 import tempfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_TOOL = os.path.join(REPO, "tool")
 sys.path.insert(0, os.path.join(REPO, "tool"))
 
 import inbox_read_audit as inbox  # noqa: E402
@@ -105,10 +106,17 @@ def _sweep_fires():
         assert hit == 1, "control mutated %d code lines, expected 1" % hit
         open(path, "w", encoding="utf-8").write("\n".join(lines))
         hits = _inverted_hits(tmp)
-        assert len(hits) == 1, (
-            "the sweep cannot see an inverted guard -- %d found in a tree that "
-            "has one" % len(hits))
-        assert hits[0]["tool"] == "inbox_read_audit"
+        # ONCE PER TOOL, not once per arm. `guard_polarity` is a property of the
+        # module (there is one call site), and the sweep stamps it onto every
+        # arm it files from that renderer -- so this count tracked the renderer's
+        # ARM count and broke for the right reason the wrong way when a fix made
+        # a second arm visible. A test that counts arms and means tools will
+        # report the next recall fix as a regression. Asserted on distinct
+        # tools, so a SECOND tool gaining an inverted guard is still caught.
+        tools = [h["tool"] for h in hits]
+        assert sorted(set(tools)) == ["inbox_read_audit"], (
+            "the sweep cannot see an inverted guard -- tools carrying an "
+            "inverted verdict: %s (arms: %d)" % (sorted(set(tools)), len(hits)))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -268,6 +276,169 @@ def _half_the_shape_is_not_a_renderer():
     # ...and the full shape is accepted, so the case is not vacuous.
     full = _ast.parse(src.replace("return sorted(out)", "return out"))
     assert len(sweep_mod._renderers(full)) == 1, "the full shape was rejected"
+
+
+# ---------------------------------------------- the arm filter's RECALL
+
+
+def _plant_short_arm(tmpdir, tool):
+    """Copy `tool` and plant a verdict-shaped arm whose emitted string is short.
+
+    The plant is the defect this sweep exists to catch: a branch that answers
+    an absent measurement with a confident four-letter word. `none` is 4
+    characters, so any length-based filter hides it -- and hiding it is the
+    whole failure, because the report would then say the tool was examined and
+    found clean.
+    """
+    src = os.path.join(REPO, "tool", tool + ".py")
+    dst = os.path.join(tmpdir, tool + ".py")
+    text = open(src, encoding="utf-8").read()
+    lines = text.splitlines()
+    tree = sweep_mod.ast.parse(text)
+    import ast as _ast
+    renderer = sweep_mod._renderers(tree)[0]
+    rets = [s for s in _ast.walk(renderer) if isinstance(s, _ast.Return)]
+    target = rets[-1]
+    indent = " " * target.col_offset
+    plant = ["%sif rep.get(\'measured\') is None:" % indent,
+             "%s    out.append(\"none\")" % indent]
+    open(dst, "w", encoding="utf-8").write(
+        "\n".join(lines[:target.lineno - 1] + plant + lines[target.lineno - 1:]))
+
+
+@case("the arm filter finds SHORT verdict arms in every tool (recall, measured)")
+def _short_arms_are_found():
+    """Recall measured on all seven tools, not asserted on one fixture.
+
+    Before the fix this case failed **7 of 7**: `len(sub.value) > 12` dropped
+    every planted arm, so the sweep reported those tools as examined and clean
+    while the arm it was built to find sat in front of it.
+    """
+    import ast as _ast
+    missed, examined = [], []
+    with tempfile.TemporaryDirectory() as tmp:
+        for tool in sweep_mod.SIBLINGS:
+            _copy_tree(tmp)
+            _plant_short_arm(tmp, tool)
+            try:
+                _ast.parse(open(os.path.join(tmp, tool + ".py"),
+                                encoding="utf-8").read())
+            except SyntaxError as exc:
+                raise AssertionError("plant for %s does not parse: %s" % (tool, exc))
+            before = {h.get("line") for h in sweep_mod.sweep(REPO_TOOL)}
+            hits = sweep_mod.sweep(tmp)
+            planted_line = None
+            tree2 = _ast.parse(open(os.path.join(tmp, tool + ".py"),
+                                    encoding="utf-8").read())
+            for fn in sweep_mod._renderers(tree2):
+                if fn.name == sweep_mod._renderers(
+                        _ast.parse(open(os.path.join(REPO_TOOL, tool + ".py"),
+                                        encoding="utf-8").read()))[0].name:
+                    for node in _ast.walk(fn):
+                        if isinstance(node, _ast.If):
+                            planted_line = node.lineno
+                            break
+                    break
+            got = [h for h in hits
+                   if h["tool"] == tool and h.get("line") == planted_line]
+            if not got:
+                missed.append(tool)
+            else:
+                examined.append(tool)
+            del before
+    assert missed == [], (
+        "the filter dropped short verdict arms in: %s -- recall is not 7/7" % missed)
+    assert len(examined) == len(sweep_mod.SIBLINGS), examined
+
+
+@case("an arm qualifying only on a string in its TEST is not an arm")
+def _test_literal_is_not_emitted_text():
+    """The body/test split, pinned against a fixture that proves it is not vacuous.
+
+    Without the split, `if state == "none":` would qualify the branch on a
+    string it never prints -- a name the renderer matched against, not text a
+    reader reads.
+    """
+    import ast as _ast
+    src = ('def r():\n'
+           '    out = []\n'
+           '    if state == "MISSING SENTINEL":\n'
+           '        out.append(format_only)\n'
+           '    return out\n')
+    tree = _ast.parse(src)
+    assert sweep_mod._arm_lines(sweep_mod._renderers(tree)[0]) == [], (
+        "a string in the TEST was counted as emitted text")
+    real = ('def r():\n'
+            '    out = []\n'
+            '    if state == "none":\n'
+            '        out.append("MISSING SENTINEL")\n'
+            '    return out\n')
+    assert len(sweep_mod._arm_lines(sweep_mod._renderers(_ast.parse(real))[0])) == 1, (
+        "the same string in the BODY was rejected")
+
+
+@case("the arm count is a LOWER bound: literal-free branches are not counted")
+def _literal_free_branch_is_named():
+    """What the filter still cannot see, pinned so it stays visible.
+
+    An `if` that emits no literal -- a branch over computed values only --
+    cannot be found by any literal rule. The real tree has exactly one. The
+    sweep's docstring claims the count is a lower bound; this case makes the
+    claim testable instead of decorative.
+    """
+    import ast as _ast
+    src = ('def r():\n'
+           '    out = []\n'
+           '    if n > 3:\n'
+           '        out.append(count)\n'
+           '    return out\n')
+    fn = sweep_mod._renderers(_ast.parse(src))[0]
+    assert sweep_mod._arm_lines(fn) == [], "a literal-free branch was counted"
+    free = 0
+    for tool in sweep_mod.SIBLINGS:
+        tree = _ast.parse(open(os.path.join(REPO_TOOL, tool + ".py"),
+                               encoding="utf-8").read())
+        for r in sweep_mod._renderers(tree):
+            for node in _ast.walk(r):
+                if isinstance(node, _ast.If) and not sweep_mod._emitted(node):
+                    free += 1
+    assert free == 1, (
+        "the literal-free branch count moved (%d) -- the sweep's own report "
+        "would now be stale" % free)
+
+
+@case("a prose-looking arm is still an arm (the removed prefix rule, pinned)")
+def _prefix_exclusion_is_not_needed():
+    """The removed heuristic, and why a fixture and not a tree assertion.
+
+    The filter used to drop any string starting `Read-only`/`How ` -- a guess
+    at "that is prose, not a claim". On the real tree it excluded **ZERO**
+    strings, so it narrowed recall to defend against nothing.
+
+    **The first draft of this case asserted that property of the tree** (no
+    arm anywhere starts with those prefixes). It passed against the very
+    mutation meant to kill it: the tree has no such string, so the assertion
+    held whether or not the filter existed. A guard that cannot fail is a
+    sentence in a file -- the defect this repo has filed five times, now in my
+    own new case. So the fixture below plants the exact string the old rule
+    would have eaten and asserts it is STILL counted. That pins the filter's
+    behaviour instead of the tree's contents.
+    """
+    import ast as _ast
+    src = ('def r():\n'
+           '    out = []\n'
+           '    if rep.get("count") is None:\n'
+           '        out.append("How it was measured: none")\n'
+           '    out.append("Read-only probe")\n'
+           '    return out\n')
+    fn = sweep_mod._renderers(_ast.parse(src))[0]
+    arms = sweep_mod._arm_lines(fn)
+    assert len(arms) == 1, "a prose-prefixed arm was dropped: %d arms" % len(arms)
+    assert "How it was measured: none" in arms[0][1], arms[0]
+    # And the sentence the sweep would file for it must survive the truncation
+    # in `sweep()` -- a short arm must not vanish from the printed report.
+    emitted = [t for _, strs in arms for t in strs]
+    assert any(len(t) <= 12 or t.startswith("How ") for t in emitted), emitted
 
 
 def main():
