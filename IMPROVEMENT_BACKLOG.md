@@ -7,6 +7,62 @@ the **top unchecked item in phase order**, ships it, and ticks it.
 Rules for what belongs here: a real user-visible improvement or a real
 correctness gap — never a refactor for its own sake. One item per loop.
 
+- [x] **Six of the seven numeric fields had a floor and no roof, an over-long
+      paste was silently rewritten, and the fold under every money field had
+      stopped being tested.**  `2cb14a3` (remote `a8641a7`, tree IN SYNC).
+      The gated three-part fix the item below owed, in ONE commit as ordered.
+      **(a) ROOFS.** `bid_days` got `maxDurationDays` 3650 and every money field
+      `maxAmountDzd` 900,000,000,000. `bid_days` is the one that reaches a
+      customer: `quoteDurationLineAr` prints `estimated_days` verbatim on the
+      card a customer picks a tradesman from, so 999999999999 was a lie next to
+      his name and price. And a number now earns the sentence about the end it
+      broke -- a 13-digit amount was answered «at least 1000 دج», a rule about
+      the SMALLEST legal bid, for a number 900 billion times bigger. One
+      `_bidAmountError` names all four arms, so the sheet and the detail screen
+      cannot disagree. **(b) FORMATTER.** `digits.substring(0, maxDigits)` kept
+      the head, dropped the tail with no error, and the parser then validated
+      the TRUNCATED number and shipped it -- so the value on screen was not the
+      value sent, while a fractional paste on the row above was refused loudly.
+      Refused the same way now. **(c) KNOB.** `tryParse` takes `maxDigits`, so a
+      narrowed box narrows the validator too; each field passes the same
+      constant its box was built with (`durationDigits` 4, `experienceDigits` 2,
+      `amountDigits` 12).
+
+      **And a defect the fix exposed, in the guard that watches the fold.**
+      Removing the truncation meant `DzNumberInputFormatter` no longer reaches a
+      string's first character, so its excuse in
+      `first_char_measurement_test.dart` correctly died -- **and because that
+      case walked `_allowed` rather than `_folds`, `DzNumber.digits` stopped
+      being EXECUTED.** The fold under **every money field in the app** went
+      from run on every suite to not run at all, and nothing said so: the
+      staleness arm caught a *dead entry* and reported that, while the real loss
+      was quiet. The loop now iterates the fold registry, and a new `_standing`
+      table says in one place why a fold is run with no excuse on it. The
+      "every fold must be named by an excuse" half of the tie is what turned
+      red here, and it is now asserted against `_standing` instead.
+
+      *Evidence.* `flutter analyze` -> **No issues found!** (11.2s).
+      `tool/run_tests.py` -> **13 of 14 shards PASS on first attempt**
+      (shard 8, the known intermittent hang, passed in **1:28**); **shard 1
+      failed on `agreement_comment_test.dart` ONLY -- 2 count pins, both
+      PRE-EXISTING** (reproduced at HEAD with this work `git stash`ed: 20 vs
+      22 and 25 vs 27, files untouched here). Mutant check: reverting
+      `DzNumber.digits`' Arabic-Indic fold turns the restored case red **by
+      name** ("DzNumber.digits answered nothing for ...").
+
+      *Not claimed:* no APK, no release, no tag, no web render -- nothing here
+      is visual.
+
+      **NEXT TICK: the two stale count pins in `agreement_comment_test.dart`,
+      and they are the tree's only red.** Both were set by `95bf7f4` (9 Oct
+      04:30) and **two real `arabicCounted(...)` call sites landed after it** --
+      `partial_market_copy.dart` (`7e70c21`) and `partial_thread_copy.dart`
+      (`45dd762`), both verified by reading the call, not by pattern match, so
+      the census is RIGHT and the pin is stale (+2 on each). The pin exists to
+      catch the census matching prose instead of calls, so the number must be
+      re-measured and the surrounding comment updated **together**, never
+      relaxed.
+
 - [x] **Six of the seven numeric fields have a floor and no roof, and an
       over-long paste is silently rewritten instead of refused.**  `bd34a19`
       (remote `4a3bff2`).
