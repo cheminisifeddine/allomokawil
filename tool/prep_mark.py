@@ -20,9 +20,14 @@ Padding does double duty — it slides the artwork and widens the canvas, so the
 centre it is measured against moves half as far as the ink does. The offset is
 therefore applied twice:  want cx + p == (w + p) / 2  ->  p == 2 * (w/2 - cx).
 
-Idempotent by construction: once centred, both steps are no-ops.
+Idempotent by construction: once centred, both steps are no-ops. **`--check`
+exists to let you BELIEVE that without performing it** — it runs the same two
+steps in memory, writes nothing, and exits 1 if the mark is not already prepped.
 
-Run: python3 tool/prep_mark.py assets/brand/mark.png [--write]
+Run: python3 tool/prep_mark.py assets/brand/mark.png [--write | --check]
+
+Exit codes: 0 ok (and, under `--check`, already prepped) · 1 stale, only under
+`--check` · 2 refused — the file is missing, unreadable, or has no visible ink.
 """
 from __future__ import annotations
 
@@ -34,6 +39,16 @@ from PIL import Image
 # Alpha at or below this is invisible on any screen; it is shadow halo, not art.
 VISIBLE_ALPHA = 32
 
+DEFAULT_MARK = Path("assets/brand/mark.png")
+
+EXIT_OK = 0
+EXIT_STALE = 1
+EXIT_REFUSED = 2
+
+
+class Refused(Exception):
+    """A reason the mark cannot be prepared, in words a human can act on."""
+
 
 def loaded_alpha(im: Image.Image):
     alpha = im.split()[3]
@@ -41,12 +56,36 @@ def loaded_alpha(im: Image.Image):
     return alpha, w, h, [int(v) for v in alpha.get_flattened_data()]
 
 
+def load_mark(path: Path) -> Image.Image:
+    """Open the mark fully decoded, or refuse it by name.
+
+    A bare `Image.open` is lazy: a missing file raises a raw `FileNotFoundError`
+    traceback out of this module, and a truncated file raises the same way much
+    later, from inside a crop. `load()` forces the decode here so both are one
+    decision with one message, on the channel a human reads.
+    """
+    if not path.is_file():
+        raise Refused("no such file: %s" % path)
+    try:
+        im = Image.open(path)
+        im.load()
+        return im.convert("RGBA")
+    except Refused:
+        raise
+    except Exception as exc:
+        raise Refused("cannot read %s: %s: %s"
+                      % (path, type(exc).__name__, exc))
+
+
 def trim_to_ink(im: Image.Image, thr: int = VISIBLE_ALPHA) -> Image.Image:
     alpha, w, h, data = loaded_alpha(im)
     cols = [x for x in range(w) if any(data[y * w + x] > thr for y in range(h))]
     rows = [y for y in range(h) if any(data[y * w + x] > thr for x in range(w))]
     if not cols or not rows:
-        raise SystemExit("nothing visible in this image")
+        raise Refused("nothing visible in this image: every pixel is at or "
+                      "below alpha %d, so there is no ink to trim or centre "
+                      "(trim would have nothing to keep, and the centroid has "
+                      "no weight to average)" % VISIBLE_ALPHA)
     return im.crop((cols[0], rows[0], cols[-1] + 1, rows[-1] + 1))
 
 
@@ -71,7 +110,9 @@ def max_ink_radius(im: Image.Image) -> float:
 
     This is what decides how large the mark may be inside a circular icon mask:
     the bounding box of a portrait mark overstates it, because its corners are
-    empty.
+    empty. The canvas centre is the right origin and not the ink's own centroid
+    — `gen_icons.place_by_radius` pastes the mark centred by its box, so the
+    canvas centre is what a circular mask actually shares with the artwork.
     """
     alpha, w, h, data = loaded_alpha(im)
     cx, cy = w / 2, h / 2
@@ -87,15 +128,20 @@ def max_ink_radius(im: Image.Image) -> float:
     return best
 
 
-def prep(path: Path, write: bool) -> int:
-    im = Image.open(path).convert("RGBA")
-    w0, h0 = im.size
-    print(f"{path.name}: {w0}x{h0}")
+def plan(im: Image.Image):
+    """Run both steps in memory. Returns (prepared, lines) and writes nothing.
 
+    `lines` is what the operator reads, and it is built from measurements taken
+    here — never from a guess about what the steps must have done.
+    """
+    lines = []
+    w0, h0 = im.size
     trimmed = trim_to_ink(im)
     if trimmed.size != (w0, h0):
-        print(f"  trim   {w0}x{h0} -> {trimmed.size[0]}x{trimmed.size[1]} "
-              f"(visible ink was {100 * trimmed.size[0] / w0:.0f}% wide)")
+        lines.append(
+            "  trim   %dx%d -> %dx%d (visible ink was %.0f%% wide)"
+            % (w0, h0, trimmed.size[0], trimmed.size[1],
+               100 * trimmed.size[0] / w0))
 
     w, h = trimmed.size
     cx, cy = centroid(trimmed)
@@ -105,7 +151,8 @@ def prep(path: Path, write: bool) -> int:
     dy = 0.0 if abs(dy) < 0.5 else dy
 
     if not dx and not dy:
-        print(f"  centred already (residual {cx - w / 2:+.2f},{cy - h / 2:+.2f}px)")
+        lines.append("  centred already (residual %+.2f,%+.2fpx)"
+                     % (cx - w / 2, cy - h / 2))
     else:
         pad_l = max(0, int(round(dx)))
         pad_r = max(0, int(round(-dx)))
@@ -116,25 +163,87 @@ def prep(path: Path, write: bool) -> int:
         canvas.paste(trimmed, (pad_l, pad_t))
         trimmed = canvas
         cx2, cy2 = centroid(trimmed)
-        print(f"  centre pad=({pad_l},{pad_r},{pad_t},{pad_b}) "
-              f"-> {trimmed.size[0]}x{trimmed.size[1]} "
-              f"residual ({cx2 - trimmed.size[0] / 2:+.2f},"
-              f"{cy2 - trimmed.size[1] / 2:+.2f})px")
+        lines.append(
+            "  centre pad=(%d,%d,%d,%d) -> %dx%d residual (%+.2f,%+.2f)px"
+            % (pad_l, pad_r, pad_t, pad_b, trimmed.size[0], trimmed.size[1],
+               cx2 - trimmed.size[0] / 2, cy2 - trimmed.size[1] / 2))
+    return trimmed, lines
 
-    if write:
-        trimmed.save(path)
-        print(f"  written  {trimmed.size[0]}x{trimmed.size[1]}")
-    else:
+
+def differs(prepared: Image.Image, original: Image.Image) -> bool:
+    """True if saving `prepared` would not reproduce `original` exactly.
+
+    Compared as DECODED PIXELS, not re-encoded PNG bytes: the question is
+    whether the artwork changes, and re-encoding would report a difference
+    every run for the same untouched file.
+    """
+    return (prepared.size != original.size
+            or prepared.tobytes() != original.tobytes())
+
+
+def prep(path: Path, write: bool, check: bool) -> int:
+    im = load_mark(path)
+    w0, h0 = im.size
+    print("%s: %dx%d" % (path.name, w0, h0))
+
+    prepared, lines = plan(im)
+    for line in lines:
+        print(line)
+
+    stale = differs(prepared, im)
+    if check:
+        if stale:
+            print("  STALE   --check wrote nothing; %s would change "
+                  "(%dx%d -> %dx%d). Pass --write to apply."
+                  % (path.name, w0, h0, prepared.size[0], prepared.size[1]))
+            return EXIT_STALE
+        print("  prepped already; --check wrote nothing")
+        return EXIT_OK
+
+    if not write:
         print("  (dry run — pass --write to save)")
-    return 0
+        return EXIT_OK
+
+    if not stale:
+        # The steps are no-ops on an already-prepped mark. Saving anyway would
+        # rewrite byte-identical artwork and print `written`, which reads as
+        # work done. Say what is actually true: nothing changed.
+        print("  already prepped — %s left untouched (%dx%d)"
+              % (path.name, w0, h0))
+        return EXIT_OK
+
+    prepared.save(path)
+    print("  written  %dx%d" % (prepared.size[0], prepared.size[1]))
+    return EXIT_OK
 
 
 def main() -> int:
-    write = "--write" in sys.argv
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    for a in args or ["assets/brand/mark.png"]:
-        prep(Path(a), write)
-    return 0
+    argv = sys.argv[1:]
+    write = "--write" in argv
+    check = "--check" in argv
+    unknown = [a for a in argv
+               if a.startswith("--") and a not in ("--write", "--check")]
+    if unknown:
+        print("prep_mark: unknown option(s): %s" % ", ".join(unknown),
+              file=sys.stderr)
+        print("usage: prep_mark.py [FILE ...] [--write | --check]",
+              file=sys.stderr)
+        return EXIT_REFUSED
+    if write and check:
+        print("prep_mark: --write and --check are opposites; pass one.",
+              file=sys.stderr)
+        return EXIT_REFUSED
+
+    paths = [a for a in argv if not a.startswith("--")]
+    worst = EXIT_OK
+    for a in paths or [str(DEFAULT_MARK)]:
+        try:
+            rc = prep(Path(a), write=write, check=check)
+        except Refused as why:
+            print("prep_mark: refusing -- %s" % why, file=sys.stderr)
+            rc = EXIT_REFUSED
+        worst = max(worst, rc)
+    return worst
 
 
 if __name__ == "__main__":
