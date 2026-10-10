@@ -1779,6 +1779,74 @@ future tick can *see*.
       1304/3/0. Not visual: a timestamp string in a list row was changed, not a
       layout, so no screenshot is claimed and none should be.
 
+- [x] **The census audit measured the pin's mutation as two mutations — and
+      both halves of it came back invisible while the pin it polices was
+      blind to nothing.**  `3e72594` (remote `473c67`).
+      A non-build tick, the fourth in a row: `tool/build_gate.py` answered
+      **NO ROOM** at **729 MB** against the 900 MB floor, worse than the 736 MB
+      measured minutes earlier, with the host holding a **5426 MB** balloon no
+      process in this namespace owns. `--reap` did not move it and no local
+      action can. So this is the Python half of the loop's own instruments,
+      which is exactly what Phase 6 is for, and **zero Dart files changed** — so
+      the banked **2609** is untouched.
+
+      **The finding.** `test/agreement_comment_test.dart:768` says the
+      `census.direct.length` pin exists to police a census that «stopped asking
+      for a parenthesis **and** started reading prose». That is ONE change built
+      from two filters. `tool/agreement_census_audit.py` measured each filter
+      separately and reported:
+
+          comment filter removed (prose counted as calls): delta +0 -> PIN CANNOT SEE IT
+          `calls` widened to the bare name               : delta +0 -> PIN CANNOT SEE IT
+
+      Both zero. On this tree the **conjunction is +16** (22 -> 38). The pin
+      sees the real change perfectly well. The tool was measuring a mutation
+      nobody made and printing a clean bill of health beside it — and the two
+      lines above a reader is told to act on are the misleading ones.
+
+      **Why each half measures zero, which is the trap and not a coincidence.**
+      A prose-only file names the helper *without* a parenthesis, so the paren
+      filter rejects it outright; and the comment filter has already deleted
+      every prose-only file before a bare name could match one. **Each hides
+      exactly the files the other would have caught.** 16 such files, named in
+      the report: `reviews_section_copy.dart`, `portfolio_allowance.dart`,
+      `review_count.dart`, `stats_freshness_copy.dart`, `pending_request_copy.dart`
+      and 11 test files. That is not noise — `reviews_section_copy.dart` is the
+      exact file the neighbouring plant in the Dart suite exists to describe.
+
+      *Shipped.* `measure()` publishes `combined_delta` / `combined_files`
+      (both filters off together). `verdict()` adds
+      `direct_pin_falsifiable_for_combined` and
+      `isolated_deltas_hide_a_real_combined_movement`, so the misleading pair is
+      flagged rather than published as agreement. `render()` names the
+      conjunction, and when the isolated deltas under-report it says so **in the
+      output** — the render path is not optional here, because the previous two
+      batteries in this file both found mutations that were right in a dict and
+      absent from the text a reader actually sees.
+
+      *Evidence.* `python3 test/agreement_census_audit_test.py` -> **71 passed**
+      (54 + 17 new). **5 mutations, 5 killed, 0 survived, 0 skipped** — the
+      harness refuses to report a patch that did not apply, the defect carried
+      over from the 9 Oct tick. Both filter *orderings* are in the battery
+      (bare-only and paren-only), so it pins the conjunction and not merely its
+      magnitude. Siblings green: `portfolio_allowance_audit_test` **28**,
+      `portfolio_gallery_audit_test` **14**.
+
+      *Measured on why, and it cost a real mistake.* My first hand-check of the
+      drift said **21** direct files against the tool's 22, and the difference
+      was `project_photo_count_copy.dart` — which calls `arabicCount`, **not**
+      `arabicCounted`. The tool was right and the ad-hoc scan was wrong: the
+      pin's own `calls` regex is `arabicCount(?:ed)?\s*\(`, so it counts both
+      helpers by design. Worth recording because the instinct on a disagreement
+      is to believe the one I just typed.
+
+      **Not claimed:** no `flutter analyze`, no `tool/run_tests.py` — the gate
+      refused. **The two stale pins are still red and still Dart's to change**:
+      the tree holds **22** direct files and **27** claim-shaped sentences
+      against pins of **20** and **25**, and this tick confirmed the tool exits
+      **1** on that drift. Updating them needs a Dart gate to re-measure, so
+      they carry to a tick that has room.
+
 
 ## Loop protocol (read this before every cycle)
 
