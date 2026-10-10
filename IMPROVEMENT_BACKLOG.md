@@ -33364,3 +33364,75 @@ report in the original defect. No key is statically orphaned today (every one is
 set by some producer on some path), so the useful case is a **return-path**
 one, and the first attempt at writing it crashed on my own harness rather than
 on the tree — which is the honest state to hand the next tick.
+
+## Tick (this one) — the Dart gate opened and the SUITE could not complete: a
+## foreign Chrome session starved it, and the runner cannot tell that apart
+## from a hang
+
+The gate opened at 1119 MB — first time in 9 ticks — so `flutter analyze` ran
+(**No issues found!**, 19.9 s) and `tool/run_tests.py` was started. **Zero Dart
+was touched by this tick**, so the 2673 count could not have moved; it is
+untouched by construction and this is not a lost commit. But the suite did not
+finish, and the reason is worth more than the count would have been.
+
+**Five consecutive shards hit their 300 s deadline and were killed: 1, 2, 3, 4
+and 5.** Not one assertion failed — there are no FAIL lines at all. Shard 1 was
+187 tests, shard 2 115, shard 3 127, shard 4 63. The last file the reporter
+named each time was a normal Dart test, not a Flutter-platform file of its own
+making.
+
+**The box is not short of memory, so the documented cause is wrong.**
+MemAvailable during the run: 1655 MB, then 1764 MB, then 1722 MB — all well
+over the 900 MB floor and the 1177 MB the suite was measured to bottom out at.
+The KNOWN BUG above attributes deadline overruns to the 30 Sep stall, "every
+thread in `epoll_wait` at 0 % CPU". **That signature is not what happened
+here.** These shards were being starved, not stalled.
+
+**What is actually eating the box** — measured, not inferred:
+- **load average 7.03 / 6.90 / 7.30 on a 2-core machine.** `nproc` = 2.
+- A **puppeteer Chrome** at PID 24022, **uptime 2852 s, CPU time 16:57**,
+  started **~33 minutes before the suite** and not by this loop. 14 chrome
+  processes total; two have PPID 1.
+- Its parent chain is `node server.js` (PID 23861) -> chrome (23950) -> the
+  busy renderer (24022), i.e. a **live HTTP/CDP client session**, which
+  `build_gate` correctly refuses to classify as a leak (a browser with a client
+  attached is a server, not a leak).
+- At the moment of sampling the suite's own `flutter_tester` had **58 % CPU**
+  and that chrome had **50 %** — on two cores, with nothing idle.
+
+**Not killed, deliberately.** The rule is never to signal a process this loop
+did not start, and `--reap` only ever touches pids the survey has already
+proved *leaked* (PPID 1 with no client). This one has a client. So the loop
+declined to free the memory even though it is the thing starving the suite, and
+said so here instead. **Killing it would have turned a 5-shard timeout into a
+green run, which is exactly why the rule exists** — the next tick that kills a
+foreign process because its own tests are slow has turned an environment
+measurement into an unrepeatable result.
+
+**The real defect this exposes, and it is the loop's own instrument.**
+`run_tests.py` reports a starved shard exactly as it reports a deadlocked one:
+`shard N/14: HUNG in 5:00 (2 attempt(s), 187 test(s))`. The runner's exit code
+2 means "a shard I started stopped answering", and **5 shards answering slowly
+look identical to 5 shards not answering.** The 30 Sep stall was a hang; this
+was 300 s of wall clock with the box at load 7 and the work progressing
+(`58 % CPU` on `flutter_tester` proves it was running, not blocked). Both print
+`HUNG`.
+
+The distinction is measurable and it is the same species of error as the
+`BUSY=2` vs `BUSY=3` bug this file already fixed on 9 Oct: a refusal that
+collapses into the code for a stall, so a tick spends its report hunting a
+deadlock in a tree whose tests are merely slow. **A load-aware verdict is the
+right next item** — sample `/proc/loadavg` across the shard and say
+`STARVED (load N on M cores)` distinctly from `HUNG`. Until that exists, treat
+any multi-shard deadline sweep on this box as **inconclusive, not red**, and do
+not gate a Dart change on it.
+
+**Verdict recorded honestly: no Dart count was produced this tick.** The
+Python work is committed, gated and pushed; the Dart gate is unchanged and
+untouched. If a Dart change lands while this session is alive, it must gate on
+the next run that completes, not on this one.
+
+**Also banked:** `build_gate_test` printed `28/32 SOME FAILED` mid-tick and
+`32/32 ALL PASS` after a `git stash` refreshed the caches — the stale-`.pyc`
+defect this file filed earlier, redisplaying itself on a box whose mtimes moved.
+Same fix, same verdict: not a regression, and not ignorable either.
