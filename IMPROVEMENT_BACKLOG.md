@@ -33083,3 +33083,100 @@ report the same way. A **read-only sweep that greps each render path for a
 `else`-arm that can be reached with a key the producing function never set**
 is one tick, needs no Dart, and would say in one pass whether this defect stops
 at one file or is a house style.
+
+## Tick 10 Oct 2026 (3rd) — the render-silence sweep: the class is HOUSE STYLE, and
+## two renderers were already lying. `59e1703` -> remote `fe6d5b9`.
+
+**The handoff question, answered in one pass: does "did not look" arriving as
+"looked and found it fine" stop at one file? No.** It is house style, and the
+sweep found **two** live instances in files nobody had re-read since they
+shipped. Both were found by reading the render path against the producer, and
+both are reproduced by execution, not by inference.
+
+**Defect 1 — `inbox_read_audit.py` refused with an inverted build guard.**
+`_another_writer_is_building()` answers "is a build I can SEE in flight"; both
+siblings refuse on `True`. This file read `if not _another_writer_is_building():`,
+so it refused **precisely when nothing was building** and ran precisely when a
+real build was in flight — the exact opposite of the rule the comment block
+directly above it argues for. That comment block is the part that makes it
+damning: it documents refusing on an *invented* reason, and the line beneath it
+invented one on **every single call**.
+
+*Present since birth* (`git log -L` -> 941b7b6), not introduced by a later tick.
+*Measured:* gate prints `NO ROOM … nothing is building` (real exit **1**), the
+helper returns `False`, `not False` -> refuse. Live run:
+`python3 tool/inbox_read_audit.py --threads 2` -> `REFUSED - another writer is
+building on this box`, **INBOX_EXIT=3** — a refusal whose stated reason was false
+on the run that printed it. **That audit has never once measured anything.**
+
+**Defect 2 — `worker_reviews_audit._render` printed five `None`s as a result.**
+`_check_gap` returns `(None, reason)` on every failure path and `main()` did
+`gap_rep = {}`, **throwing the measured reason away**. The renderer then drew:
+
+    directory: None claiming, None checked, None empty, None short of the header, None LONGER than it
+
+Five absent measurements in the grammar of five measured ones, indistinguishable
+from a real result in a scrolled log — and the sibling `ids` line had the same
+hole. Both silences now print as silences (`NOT MEASURED -- <the reason>`), and
+`main()` carries `gap_error` through instead of discarding it.
+
+**The sweep itself was wrong twice before it was right, and both are recorded
+rather than quietly fixed** — they are the finding, not an embarrassment:
+1. A `src.find("if ")` string scan matched the **comment** quoting the guard
+   line, so every tree read "correct". The *named, never opened* shape this repo
+   has now filed five times, in my own new file.
+2. Then the AST match required `test` to be a **bare** `Call`, so the
+   `UnaryOp(Not, …)` shape — the only one the sweep exists to find — fell through
+   `continue` and every tree read "not checked".
+
+Both were caught by a control that **asked for a red tree and refused to produce
+one**; the sweep now unwraps `Not` before deciding. A detector that has never
+been seen red is a sentence in a file.
+
+**Evidence (real output)**
+- `python3 test/render_silence_audit_test.py` -> **8/8 passed**.
+- **Mutations, both killed, both parseable.** (a) inverted guard restored -> **3
+  cases red**, one naming the exact tool and line. (b) silence arms neutralised
+  as `if False and …` -> **2 cases red**, one printing the defect line verbatim.
+  The *first* attempt at (b) was a sed that produced an `IndentationError`: a
+  mutation that does not parse is not a mutation, so it was redone.
+- **Controls green both ways**, which is what stops this being a fix that
+  silences everything: a healthy gap read still renders `3 claiming … 1 short of
+  the header`, is not silenced by the new arm, and keeps the `404` ids arm.
+- **Live:** `tool/inbox_read_audit.py --threads 3` -> **INBOX_EXIT=0**,
+  `UNCAPPED -- 3 made, 3 rows, 772 B`, order/stable/paging all read. The same
+  command exited 3 with a false reason minutes earlier.
+- Siblings green: `worker_reviews_audit_test` **7**, `notification_read_audit_test`
+  **11**, `inbox_read_audit_test` **11**, `portfolio_allowance_audit_test` **50**,
+  `portfolio_gallery_audit_test` **14**.
+- **Files:** `tool/render_silence_audit.py` (new sweep), 
+  `test/render_silence_audit_test.py` (new, 8 cases), `tool/inbox_read_audit.py`
+  (polarity), `tool/worker_reviews_audit.py` (two render arms + carried reason).
+
+**Protocol note — a tick that trusted `git status` would have re-reported a
+divergence that does not exist.** `origin/main` read as 88 commits behind at
+first fetch because `FETCH_HEAD` was **stale** (dated 02:11, before this loop's
+own 03:47 commit). A fresh `git fetch` moved the tip to `9da4358` and the trees
+were then **byte-identical**. `gh_push.py` mints a new commit object per push, so
+`ahead 101, behind 93` is permanent and counts *commits, not content* — the
+protocol already says so, and this is the second time it has cost a tick its
+whole budget before the first line of real work.
+
+**Dart gate denied for the 7th tick running** — 561 MB available against a 900 MB
+floor, `Balloon: 5588 MB` held by the hypervisor and by nothing in this PID
+namespace. **Zero Dart touched**, so `flutter analyze` / `tool/run_tests.py`
+correctly did not run and the **2609 baseline is untouched**. Right item for a
+denied box: a pure-Python renderer defect, which is exactly what this was.
+
+**Commits.** `59e1703` -> remote `fe6d5b9`, **4/4 MATCH on blob and mode** via
+`tool/remote_state.py --files`, trees identical (`a0e0df4`).
+
+**Next.** The sweep reads `_render` arms by AST string, which is a *floor*, not a
+proof: it cannot tell an arm that prints a silence from one that prints a
+measurement of a key the producer never set — only a human reading the 14 arms it
+found can. **14 arms across 7 tools were listed; none has been adjudicated yet.**
+That adjudication is the next read-only item, and it needs no Dart. It also owes
+`agreement_census_audit` and `numeric_bound_audit`, which report **NO RENDERER**
+and were therefore never read by the sweep — two of seven tools are unexamined
+because their reports are built outside a `_render`, which is the same blind spot
+one level up.
