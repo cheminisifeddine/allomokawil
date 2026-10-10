@@ -7,6 +7,91 @@ the **top unchecked item in phase order**, ships it, and ticks it.
 Rules for what belongs here: a real user-visible improvement or a real
 correctness gap — never a refactor for its own sake. One item per loop.
 
+- [x] **The notification centre's "you have more than this list" band was
+      gated off by the very condition it exists to report — and shipping it
+      first proved a defect nobody had run.**  `1d67787` (remote `d73b55a`,
+      all TEN files verified MATCH on content AND mode by
+      `tool/remote_state.py`).
+
+      **The carry-over.** The tree arrived dirty with a complete
+      notification-shortfall feature (194 lines of screen + a new copy file + a
+      12-case battery) that a previous tick never committed. The band's Arabic
+      copy closed «اسحب للأسفل للتحميل» — *pull down to load* — on a screen
+      whose job is being the app's memory of what happened while it was
+      closed. `tool/notification_read_audit.py` had already measured that the
+      gesture cannot work: `?limit=200`, `?limit=500&page=1`, `?page=2`,
+      `?offset=100` and `?all=1` all return **the same 100 rows,
+      byte-identical**. Every existing case passed because they assert
+      `contains('40')` and `isNotEmpty`, both satisfied by a sentence ending in
+      an instruction that does nothing. That copy is corrected, and a case now
+      asserts the **absence** of `اسحب` / `تحديث` / `للتحميل` / `المعتبر`.
+
+      **The defect, found by running it rather than by reading it.**
+      `NotificationShortfall.rows` was doing **two jobs**: the subtraction in
+      `hidden`, and the *"is the centre empty"* guard in `worthReporting`. The
+      guard is about how many rows are **drawn**; the field was being fed the
+      **unread** count. Executed on the real source, before the fix, in the
+      state the production audit walked into:
+
+          NotificationShortfall(serverUnread: 40, rows: 0)
+            hidden = 40   stranded = true
+            worthReporting = FALSE      line = ""
+
+      **The band was suppressed by the exact condition it exists to report** —
+      a user who had read every visible row saw nothing at all, which is the
+      same silent claim the button had been making one layer up. Split into
+      `unreadDrawn` (the subtrahend) and `drawn` (is anything on screen).
+
+      **The duplicate read, and a guard that could not see it.** The centre's
+      new `GET /api/unread` made the bell's own read of that endpoint a second
+      round-trip per visit, breaking the invariant
+      `unread_round_trip_test.dart` pins. The screen now **publishes** the
+      number through `NotificationCountTrust.publish` and the bell takes it.
+      Repairing that test honestly was the hard part: its `expect(requests, 2)`
+      was an **absolute** count and went red on a legitimate extra reader, so
+      it became a delta — and **the delta survived a mutation** that made the
+      pop-back trust a stale published count, because a tally cannot tell a
+      read from an echo of one already in hand. Those two cases hold every
+      read open behind a gate, so the centre never publishes in them. Hence
+      `notification_count_publish_test.dart`: **4 mutations, 4 killed**.
+
+      **Three guards of this repo caught this tick's own work**, which is the
+      part worth recording: `app_source_scope_test` reported the new file was
+      never `git add`-ed (exactly the hole it exists for);
+      `agreement_comment_test`'s census pin moved 22 -> 23, the new file being a
+      genuine `arabicCounted` call site, reason named in the pin; and
+      `no_empty_text_site_test` reported both new copy functions answer `''`,
+      so both were registered **and proved from their own premise**.
+
+      **A visual item, rendered and looked at.** The band is user-visible, so
+      `shortfall_band_shot_test.dart` renders the real screen through the real
+      Cairo font and counts pixels in raw RGBA — the method the repo's stale-band
+      shot already uses. Measured: `infoWash` **207442 px**, **8620 px** of
+      `info` ink **inside** the band, **14888 px** of row ink **below** it, and
+      the ordering assertion (band above `notification-1`, not overlapping)
+      because a count cannot tell a header from a banner that ate the list. The
+      mutation that reinstates the single-field defect is caught. **A first
+      draft read the written PNG and saw an all-white frame** — the same round
+      trip does not carry these pixels, which is precisely why the repo's own
+      shot reads raw RGBA; recorded because it is the kind of error that ships a
+      "verified visually" claim backed by nothing.
+
+      *Evidence.* `dart analyze` -> **No issues found!** package-wide.
+      `notification_shortfall_test` **21/21**; `notification_count_publish_test`
+      **6/6**; `shortfall_band_shot_test` green with its mutation caught; **56/56**
+      across every notification family; `notification_read_audit_test.py`
+      **11/11**. Full suite: **SUITE PASS — 2701 tests across 14 shard(s), every
+      shard green, RUNNER_EXIT=0**, 14 shards green on their FIRST attempt,
+      **+28 over the 2673 baseline**. Screenshot: `/tmp/shots/22_notifications_shortfall_band.png`.
+      Trees in sync, all ten files MATCH on content AND mode.
+
+      **Still needs you:** the job prompt says `Repo: /home/renia/allomokawil`,
+      which does not exist on this host — I worked in `/home/hatch/allomokawil`
+      (the Loop protocol table is right; the prompt is not). Only you can
+      repoint it. And note the push helper **silently drops files**: two calls
+      in a row left 5 of 10 files unpushed while printing a green line, which
+      is why `remote_state.py` is checked per file and not per push.
+
 - [x] **The tap-target audit had been exiting 1 on the live tree since
       before the loop started reading it: all NINE of its hand-measured rows
       were STALE, and it is the only one of the app's nine audit tools with
@@ -2138,17 +2223,19 @@ in this file that dies on arrival is how two ticks were lost.
    ```
    /home/hatch/tools/sdk/flutter/bin/flutter analyze   # must print "No issues found!"
    python3 tool/run_tests.py                           # count must be >= the previous count
-   # GATE BASELINE: SUITE PASS — 2673 tests across 14 shard(s)
+   # GATE BASELINE: SUITE PASS — 2701 tests across 14 shard(s)
    ```
 
-   **The baseline is 2673 -- the `# GATE BASELINE` line in the fence above is
+   **The baseline is 2701 -- the `# GATE BASELINE` line in the fence above is
    the one the guard reads, not this paragraph: re-wording this paragraph
    cannot move it.** This sentence is itself guarded now: a case pins it to
    the marker line, so it can no longer drift away from the number the fence
-   states. **2673** was banked 10 Oct (`ee05f7`) by the arm-filter recall
-   tick, `SUITE PASS - 2673 tests across 14 shard(s), every shard green`,
-   `RUNNER_EXIT=0`, every shard green on its FIRST attempt, 48 min end to
-   end, **+64 over 2609**. **2609** remains the last count that *gated a
+   states. **2701** was banked 10 Oct (`d73b55a`) by the notification
+   shortfall-band tick, `SUITE PASS - 2701 tests across 14 shard(s), every
+   shard green`, `RUNNER_EXIT=0`, every shard green on its FIRST attempt,
+   **+28 over 2673**. **2673** was banked 10 Oct (`ee05f7`) by the
+   arm-filter recall tick, `SUITE PASS - 2673 tests across 14 shard(s), every
+   shard green`, `RUNNER_EXIT=0`, 48 min end to end, **+64 over 2609**. **2609** remains the last count that *gated a
    commit*, and the one below is quoted for its provenance, not for its
    number: it was banked 9 Oct by the gated bid-sheet tick
    (`0f70dbd`, +4); the 2605 run quoted below it is the one that closed the
