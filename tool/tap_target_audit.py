@@ -137,9 +137,13 @@ OWN_ARGS = re.compile(r"\bchild:|\bchildren:")
 # next loop to fix a control that is fine". These entries are the other way
 # round: every number in the sum is written down in the source (by token, never
 # a copied literal), so the effective minimum dimension is arithmetic. Each row
-# is (file, line, anchor, verdict, arithmetic). The anchor is re-checked against
-# that source line on every run: if the construct has moved, the entry is
-# reported STALE and the tool exits 1, so the table can never rot in silence.
+# is (file, probe, verdict, arithmetic). The probe -- a slice of the construct
+# itself -- is re-checked on every run and the line is RESOLVED from it, because
+# a line number is not an identity: every edit above a construct moves it. If the
+# construct has moved the row follows it; if it is gone the entry is reported
+# STALE and the tool exits 1, so the table can neither rot in silence nor expire
+# on the next unrelated edit above it. A probe that stops being unique is
+# reported too -- a probe matching two sites does not identify one.
 FAIL_, PASS_ = "FAIL", "PASS"
 MEASURED = [
     # Refreshed 2026-09-13: every line below was re-read at its new
@@ -150,7 +154,7 @@ MEASURED = [
     # a `SizedBox(height: AppTheme.tapMin)`, which R7 now reads as 56 and proves
     # on its own. The pill below sits in a `Wrap`, so nothing stretches it and
     # only its own padding can settle it.
-    ("lib/src/screens/project/project_new_screen.dart", 1412, "InkWell(", PASS_,
+    ("lib/src/screens/project/project_new_screen.dart", "child: InkWell(\n        onTap: onTap,\n        borderRadius: BorderRadius.circular(AppTheme.rPill),\n        // The 56 dp floor is `AppTheme.tapMin`, so it is *stated* rather than\n        // reached by arithmetic: the padding below is 16 (on the grid, which\n        // the old 19 was not) and this constraint is what keeps the pill\n        // tappable. Before, v19 x2 + the 18.9 dp row = 56.9", PASS_,
      "BoxConstraints(minHeight: tapMin 56) wins over 16x2 + max(17, 13.5x1.4=18.9) = 50.9"),
     # Checkbox is 48 dp padded (kMinInteractiveDimension) and the row adds v6.
     # Anchors moved 582 -> 592 and 589 -> 599 on 6 Oct: the R4 auth slice put
@@ -164,9 +168,9 @@ MEASURED = [
     # shifted these two constructs down two lines. Re-pinned again, NOT
     # re-decided — the vertical `6` on the remember row is untouched by that
     # slice, so the 48 + 6x2 = 60 arithmetic below is still the same sum.
-    ("lib/src/screens/auth/auth_screen.dart", 594, "InkWell(", PASS_,
+    ("lib/src/screens/auth/auth_screen.dart", "child: InkWell(\n          borderRadius: BorderRadius.circular(AppTheme.rSm),\n          onTap: () => onChanged(!value),\n          child: Padding(\n            padding: const EdgeInsets.only(top: 6, bottom: 6),\n            child: Row(\n              children: [\n                Checkbox(", PASS_,
      "48 (Checkbox, padded) + 6x2 = 60.0"),
-    ("lib/src/screens/auth/auth_screen.dart", 601, "Checkbox(", PASS_,
+    ("lib/src/screens/auth/auth_screen.dart", "child: Row(\n              children: [\n                Checkbox(\n                  value: value,\n                  semanticLabel: S.rememberMe,", PASS_,
      "48 inside the 60 dp row above"),
     # **This row was a FAIL and is now a PASS, for a change measured, not
     # argued.** It is the row that made `tool/tap_target_audit.py` exit 1 with
@@ -196,7 +200,7 @@ MEASURED = [
     # eighteen chips against `AppTheme.tapMin`, so this row is the *floor* and
     # that test is the proof: the row cannot rot silently again, because the
     # test fails on the widget, not on a stale line number.
-    ("lib/src/widgets/trade_filter_bar.dart", 281, "InkWell(", PASS_,
+    ("lib/src/widgets/trade_filter_bar.dart", "child: InkWell(\n          borderRadius: BorderRadius.circular(AppTheme.rPill),\n          onTap: onTap,\n          child: AnimatedContainer(", PASS_,
      "strip height tapMin + s4*2 = 64 - s4*2 = 56.0 (golden ink y138..y193 = 56 px)"),
     # Re-pinned 7 Oct after eight STALE rows: every one of these constructs is
     # still the widget the row was written for, and each arithmetic below is
@@ -208,48 +212,119 @@ MEASURED = [
     # height: AppTheme.tapMin)` around a 24 dp icon, so 56x56 exactly. R7
     # proved this one on its own the day it was written; the row still earns
     # its place because it is the audit's own record that the floor holds.
-    ("lib/src/screens/chat/chat_screen.dart", 1401, "InkWell(", PASS_,
+    ("lib/src/screens/chat/chat_screen.dart", "child: InkWell(\n          onTap: onTap,\n          child: SizedBox(\n            width: AppTheme.tapMin,\n            height: AppTheme.tapMin,\n            child: Icon(icon, size: 24", PASS_,
      "SizedBox(width/height: tapMin 56) = 56.0"),
-    ("lib/src/screens/customer/customer_home_screen.dart", 1239, "InkWell(", PASS_,
+    ("lib/src/screens/customer/customer_home_screen.dart", "child: InkWell(\n        onTap: onTap,\n        borderRadius: BorderRadius.circular(AppTheme.rMd),\n        child: Container(\n          constraints: const BoxConstraints(minHeight: AppTheme.tapMin),", PASS_,
      "BoxConstraints(minHeight: tapMin 56) = 56.0"),
-    ("lib/src/screens/customer/customer_home_screen.dart", 1286, "InkWell(", PASS_,
+    ("lib/src/screens/customer/customer_home_screen.dart", "child: InkWell(\n        onTap: onTap,\n        borderRadius: BorderRadius.circular(AppTheme.rLg),\n        child: Padding(\n          padding: const EdgeInsets.all(16),\n          child: Row(\n            children: [\n              Container(\n                width: 56,\n                height: 56,", PASS_,
      "16x2 + 56 dp dot = 88.0"),
     # fieldPad is still `symmetric(horizontal: s16, vertical: 18)` at
     # app_theme.dart:215, and the field still paints `AppTheme.body` inside it.
-    ("lib/src/screens/project/project_new_screen.dart", 905, "InkWell(", PASS_,
+    ("lib/src/screens/project/project_new_screen.dart", "child: InkWell(\n        onTap: onTap,\n        borderRadius: BorderRadius.circular(AppTheme.rMd),\n        child: Container(\n          padding: AppTheme.fieldPad,", PASS_,
      "18x2 + 15.5x1.65=25.6 = 61.6"),
-    ("lib/src/screens/worker/worker_home_screen.dart", 1899, "InkWell(", PASS_,
+    ("lib/src/screens/worker/worker_home_screen.dart", "child: InkWell(\n        borderRadius: BorderRadius.circular(AppTheme.rPill),\n        onTap: onTap,\n        child: Center(", PASS_,
      "enclosing SizedBox(height: tapMin 56) = 56.0"),
-    ("lib/src/widgets/app_tab_bar.dart", 281, "GestureDetector(", PASS_,
+    ("lib/src/widgets/app_tab_bar.dart", "child: GestureDetector(\n        key: Key('tab-$i'),\n        behavior: HitTestBehavior.opaque,", PASS_,
      "Container(height: 60) bar = 60.0"),
     # Re-read at the call sites, not from the old note: `auth_screen.dart` passes
     # 92 and 92, `category_grid.dart` passes `double.infinity` twice. The default
     # is 104 and still is. No call site passes anything else, so the row's claim
     # ("92 or infinity") is the whole set, not a sample of it.
-    ("lib/src/widgets/ui.dart", 380, "InkWell(", PASS_,
+    ("lib/src/widgets/ui.dart", "child: InkWell(\n        borderRadius: BorderRadius.circular(AppTheme.rMd),\n        onTap: onTap,\n        child: AnimatedContainer(\n        duration: AppMotion.fast,", PASS_,
      "call sites pass 92 (auth) or double.infinity (grid)"),
 ]
+
+
+def _strip_line(ln):
+    """Drop a trailing // comment that is not inside a string literal."""
+    i = ln.find("//")
+    if i >= 0 and ln[:i].count("'") % 2 == 0 and ln[:i].count('"') % 2 == 0:
+        return ln[:i]
+    return ln
+
+
+def _norm(text):
+    """Whitespace-insensitive, comment-stripped form of a source slice.
+
+    A hand measurement is about the CONSTRUCT, and a comment is prose about the
+    construct, so the probe is compared without comments and without
+    formatting. Two edits differing only in spacing, or only in an explanatory
+    sentence, are the same construct and must resolve to the same site -- the
+    opposite of the line number this table used to carry.
+    """
+    return re.sub(r"\s+", " ",
+                  " ".join(_strip_line(ln) for ln in text.split("\n"))).strip()
+
+
+def locate(root, rel, probe):
+    """1-based line of the UNIQUE construct matching `probe`, else (None, why).
+
+    A line number is not an identity. Every edit above a construct moves it,
+    which is why the MEASURED table below was re-pinned by hand on 13 Sep, 6 Oct
+    and 7 Oct and was STALE on all nine of its rows the first time the loop
+    read this tool's exit code instead of its prose. `probe` is a slice of the
+    construct itself, so it survives any amount of movement above it.
+
+    UNIQUE is the load-bearing word: a probe that matches two sites does not
+    identify one, and is reported rather than guessed at.
+    """
+    try:
+        body = open(os.path.join(root, rel), encoding="utf-8").read()
+    except OSError:
+        return None, "the file is gone"
+    lines = body.split("\n")
+    # `_norm` is the ONE normaliser. It was duplicated inline here first, which
+    # left `_norm` itself dead: the comment-stripping mutation survived the
+    # battery twice because it was mutating code nothing called. The proof
+    # that a helper is load-bearing is mutating it and watching a case go red.
+    stripped = [_strip_line(ln) for ln in lines]
+    flat = _norm(body)
+    probe_n = _norm(probe)
+    if not probe_n:
+        return None, "the row carries no probe to look for"
+    hits = flat.count(probe_n)
+    if hits == 0:
+        return None, "the construct is no longer in the file"
+    if hits > 1:
+        return None, ("the probe matches %d sites -- it does not identify one"
+                      % hits)
+    # Walk the flattened text to recover the 1-based line of the match.
+    seen = 0
+    for idx, raw in enumerate(stripped, start=1):
+        piece = re.sub(r"\s+", " ", raw).strip()
+        if not piece:
+            continue
+        if seen + len(piece) + 1 > flat.index(probe_n):
+            return idx, ""
+        seen += len(piece) + 1
+    return None, "the construct matched but its line could not be mapped"
 
 
 def resolve_measured(root, advisory):
     """Split ADVISORY rows into 'a declared number settles this' and the rest.
 
     Returns (settled, stale, remaining advisory). A settled row is
-    (rel, line, verdict, arithmetic); a stale one is (rel, line, anchor, why).
+    (rel, line, verdict, arithmetic); a stale one is (rel, probe_head, why).
+
+    The line is RESOLVED from the row's probe rather than stored in it, for the
+    reason `locate` documents. The second half is why `suppressed` is keyed on
+    the resolved line and not on the table: the MEASURED rows are the only
+    ADVISORY rows this tool is allowed to drop, and a key built from stored
+    coordinates silently stops matching the moment the construct moves -- which
+    printed ui.dart:400 as ADVISORY while its own row sat STALE above it, one
+    table disagreeing with itself in a single run.
     """
     settled, stale = [], []
-    keys = {(f, l) for f, l, _a, _v, _w in MEASURED}
-    for rel, line, anchor, verdict, why in MEASURED:
-        try:
-            body = open(os.path.join(root, rel), encoding="utf-8").read().split("\n")
-        except OSError:
-            stale.append((rel, line, anchor, "the file is gone"))
-            continue
-        if line < 1 or line > len(body) or anchor not in body[line - 1]:
-            stale.append((rel, line, anchor, "the construct is no longer on that line"))
+    suppressed = set()
+    for rel, probe, verdict, why in MEASURED:
+        line, bad = locate(root, rel, probe)
+        if line is None:
+            head = " ".join(probe.split())[:40]
+            stale.append((rel, head, bad))
             continue
         settled.append((rel, line, verdict, why))
-    return settled, stale, [a for a in advisory if (a[0], a[1]) not in keys]
+        suppressed.add((rel, line))
+    return settled, stale, [a for a in advisory if (a[0], a[1]) not in suppressed]
 
 
 def call_body(src, open_idx):
@@ -503,9 +578,9 @@ def main():
         print(f"MEASURED  {f'{rel}:{line}':66} {rule:28} {detail}")
     for rel, line, rule, detail in covered:
         print(f"COVERED   {f'{rel}:{line}':66} {rule:28} {detail}")
-    for rel, line, anchor, why in stale:
-        print(f"STALE     {f'{rel}:{line}':66} {'measurement rotted':28} "
-              f"{anchor} -- {why}")
+    for rel, probe_head, why in stale:
+        print(f"STALE     {rel:66} {'measurement rotted':28} "
+              f"probe {probe_head!r} -- {why}")
 
     print(f"\n{len(fails)} provable fail(s) ({static_fails} from the rules, "
           f"{len(measured_fails)} measured by hand), {len(measured_pass)} "
