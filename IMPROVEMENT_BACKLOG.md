@@ -33892,3 +33892,82 @@ older dirs from 9-10 Oct were left alone — not mine.
       *second* checkout at `/home/hatch/workspace/repos/allomokawil` with no
       `.git` at all and a stale `IMPROVEMENT_BACKLOG.md`. Work this tick was
       done in `/home/hatch/allomokawil`, the one the Loop protocol names.
+
+
+## Tick 10 Oct 2026 (`0edacea`, remote `5436024`, tree IN SYNC) -- the protocol's
+## PATH TABLE had rotted twice with the suite green
+
+**The item.** Backlog balance was **0 unchecked** and the Dart gate denied at
+**454 MB** against the 900 MB floor (balloon **5308 MB** of 7935), so this
+tick took the non-build item the last two ticks had both recorded and neither
+had done: the Loop protocol's **path table** is the first thing a tick reads,
+and `loop_protocol_test.py` guarded step 4's fence with 11 cases while
+reading *nothing* from it.
+
+**Why it is not bookkeeping.** The table has rotted **twice on this host**
+with the suite green both times. `/home/renia/*` stopped existing on 26 Sep,
+and a **second** checkout later appeared at
+`/home/hatch/workspace/repos/allomokawil` with no `.git` and a stale copy of
+this very file (255 files vs 694 here). Both cost real ticks rediscovering
+where the work was, and both were written down in prose nothing executes --
+the same defect the last tick fixed one layer up, with the reader facing the
+other way.
+
+**Shipped.** Cases **12-18**: a control that the table is readable at all
+(asserted **first** -- seventh blind-guard lesson in this file), every tool
+path **exists on this host**, the repo row **is this checkout**, the repo row
+is a **real git checkout**, every path is **absolute**, and each output row's
+owning test **declares** the path it is given.
+
+*Stability over existence, deliberately.* `/tmp/shots` is created by its own
+writer on every run, so a rule demanding it EXIST would turn red on a healthy
+box between ticks -- a guard that cries rot teaches the loop to reword the
+table instead of reading it. Output rows are therefore content-checked
+against the file that owns them, and only tool rows get the existence rule.
+
+*The stale checkout is the case that mattered.* It **passes** every existence
+check in the table -- it is a full file tree -- and it is missing exactly one
+thing, `.git`. Two mutations against it, both killed: repointing the repo row
+takes it to **16/18** (identity + git-checkout), and repointing the SDK row at
+the dead `/home/renia` path takes it to **17/18**.
+
+**Two holes in my own first version, both found by mutation, both closed.**
+1. The owner check passed on **46 files**: 46 of them write `/tmp/shots`, so
+   "the path appears in this file" asserted nothing about which one owns the
+   row. It now requires a **declared** path -- an assigned constant or the
+   argument to the `Directory(...).createSync` that makes it.
+2. The row-coverage check computed `set(rows) - out | out == set(rows)`,
+   which **holds by algebra for any input whatsoever** -- a case that cannot
+   fail. Replaced with an absolute-path check that can (M4, killed).
+Plus one live bug the guard's own output caught: the owner path is
+repo-relative as the table writes it, and I first joined it onto `test/`,
+opening `test/test/...`, reading empty, and reporting FAIL for a file that
+matched perfectly. The reader now prints WHICH subject it could not open.
+
+**9 mutations run, 8 killed, 1 correctly green.** Table deleted -> 11/12;
+header renamed -> 11/12; a new dead row added -> 17/18; output row pointed at
+a directory nothing creates -> 17/18; owner test deleted -> 17/18; repo row
+-> stale checkout -> 16/18; SDK row -> dead path -> 17/18; relative row ->
+16/18; row -> a different writer of the same dir -> **18/18, and that is
+correct**: `wilaya_trap_shot_test.dart:122` genuinely declares
+`Directory('/tmp/shots').createSync(recursive: true)`. `/tmp/shots` is a
+*shared* output dir, so repointing the row there is a truthful rewording, not
+rot. Recorded so a later tick does not re-run it as a defect and "fix" a
+correct table.
+
+**Green.** `python3 test/loop_protocol_test.py` -> **18/18 ALL PASS, exit 0**
+(11 -> 18). Siblings `stash_verdict_test`, `remote_state_test`,
+`push_helper_test`, `run_tests_busy_code_test`,
+`agreement_census_audit_test` all exit 0. A dead helper I introduced
+(`repo_from_table`, called by nothing) was deleted rather than shipped.
+
+**Not papered over.** **Zero Dart changed**, so `flutter analyze` and
+`run_tests.py` are correctly skipped and the **2673** count cannot have moved
+-- no suite count is claimed this tick. The gate denied at 454 MB because the
+hypervisor holds 5308 MB of this box, which is more than the 446 MB it is
+short; nothing in this PID namespace can clear that, and the denial was
+re-checked immediately before the commit. **The cron job's own paths are
+still wrong**: `Repo: /home/renia/allomokawil` does not exist and the
+stale second checkout is still on disk. This tick's case 14 would now fail the
+table if it were repointed at it, but the job's prompt still says
+`/home/renia` -- repointing the job is the only fix, and it is the founder's.
