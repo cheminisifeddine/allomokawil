@@ -48,8 +48,52 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-HELPER_DIR = "/home/hatch/workspace/repos"
+
+#: The tracked copy. 10 Oct: this battery pointed at
+#: `/home/hatch/workspace/repos`, which is **not a git repository** -- the
+#: helper lived there and nowhere a commit could reach, so the 35 cases guarded
+#: a file no rollback could restore. It is now `tool/gh_push.py`, tracked, and
+#: the Loop protocol's path table points here.
+HELPER_DIR = os.path.join(ROOT, "tool")
 HELPER = os.path.join(HELPER_DIR, "gh_push.py")
+
+#: A directory that is deliberately **not** a checkout, and is not where the
+#: helper is kept. Two things were conflated in one constant and the fix has to
+#: keep them apart:
+#:
+#:   * `HELPER_DIR` decides which *file* is imported, and
+#:   * the cwd of a `walk()` decides what `ROOT="."` resolves to.
+#:
+#: Pointing both at the repo would have quietly destroyed case 1: it asserts
+#: that `ROOT="."` is REFUSED from a directory that is not a checkout, and from
+#: inside `ROOT` that same walk succeeds -- so the case would go red for the
+#: right reason at the wrong place, and the next tick would "fix" it by
+#: deleting the assertion. Measured before the edit, not assumed.
+#:
+#: "Not a checkout" is NOT the same as "not inside one". The first guess at this
+#: constant was `<repo>/test`, which is inside the checkout, and `git ls-files`
+#: walks **up** the tree to find `.git` -- so the walk SUCCEEDED and case 1 went
+#: red with `got='ok'`. A directory qualifies only when no ancestor has a
+#: `.git`, which is why this is created under the system temp dir and proven
+#: rather than assumed.
+def _not_a_checkout():
+    import atexit
+    import shutil
+    import tempfile
+    path = tempfile.mkdtemp(prefix="push_helper_no_repo_")
+    probe = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                           cwd=path, capture_output=True)
+    if probe.returncode == 0:
+        shutil.rmtree(path, ignore_errors=True)
+        raise SystemExit("refusing to run: the temp dir is inside a checkout "
+                         "(%s), so ROOT='.' would resolve and case 1 would "
+                         "prove nothing" % probe.stdout.decode().strip())
+    atexit.register(shutil.rmtree, path, True)
+    return path
+
+
+NOT_A_CHECKOUT = _not_a_checkout()
+
 BACKLOG = os.path.join(ROOT, "IMPROVEMENT_BACKLOG.md")
 
 sys.path.insert(0, HELPER_DIR)
@@ -81,6 +125,13 @@ def walk(root, cwd):
     """
     import importlib
     saved = os.getcwd()
+    # A cwd that is not there used to raise an uncaught FileNotFoundError out
+    # of os.chdir, so the reader got a traceback naming line 85 of the harness
+    # instead of the sentence saying the helper is missing. That is the same
+    # shape as the two "green exit code" stories this file already exists to
+    # kill: the failure is real, but it arrives unreadable.
+    if not os.path.isdir(cwd):
+        return "refused", 1, "no such directory: %s" % cwd
     try:
         os.chdir(cwd)
         gh_push = importlib.import_module("gh_push")
@@ -186,10 +237,26 @@ def load_helper():
 def main():
     print("push_helper: ROOT decides the walk, and a refusal exits non-zero")
 
-    # 1. The documented trap, from the helper's own directory: ROOT="." does
-    #    not name a checkout and is refused rather than guessed at.
-    kind, code, msg = walk(".", HELPER_DIR)
-    check("ROOT='.' from the helper's dir is refused",
+    # 0. PREFLIGHT. The helper is tracked in this repo now, so losing it is a
+    #    git-level event, but the path is still named in a constant and a
+    #    rebuild can still take it. Refuse in a sentence, up front, and name
+    #    both the file and what to restore -- instead of failing 35 cases deep
+    #    with a traceback. Checked before anything imports from HELPER_DIR.
+    if not os.path.isfile(HELPER):
+        print("REFUSING: the push helper is not at %s" % HELPER)
+        print("It is tracked in this repo as tool/gh_push.py. Restore it with "
+              "`git checkout -- tool/gh_push.py` before running this battery.")
+        return 1
+    if subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                      cwd=NOT_A_CHECKOUT, capture_output=True).returncode == 0:
+        print("REFUSING: %s is inside a checkout, so cases 1 and 3 would not "
+              "be testing ROOT resolution at all." % NOT_A_CHECKOUT)
+        return 1
+
+    # 1. The documented trap, from a directory that is NOT a checkout:
+    #    ROOT="." does not name one and is refused rather than guessed at.
+    kind, code, msg = walk(".", NOT_A_CHECKOUT)
+    check("ROOT='.' from a non-checkout dir is refused",
           kind, "refused")
     check("  ...and the refusal names the ROOT it could not walk",
           msg.startswith("git ls-files returned nothing for ."), True)
@@ -204,9 +271,11 @@ def main():
 
     # 3. An ABSOLUTE ROOT works from anywhere -- including a directory that
     #    is not a checkout at all. This is the form the protocol should
-    #    state, because it has no cwd dependency to get wrong.
-    kind, code, n = walk(ROOT, HELPER_DIR)
-    check("absolute ROOT from the helper's dir walks the tree", kind, "ok")
+    #    state, because it has no cwd dependency to get wrong. The cwd is
+    #    NOT_A_CHECKOUT, which is what makes the claim real: HELPER_DIR
+    #    became a checkout on 10 Oct, when the helper was tracked.
+    kind, code, n = walk(ROOT, NOT_A_CHECKOUT)
+    check("absolute ROOT from a non-checkout dir walks the tree", kind, "ok")
     check("  ...same file count as from inside the repo", n, walk(".", ROOT)[2])
     kind, code, n = walk(ROOT, "/tmp")
     check("absolute ROOT from an unrelated dir (/tmp) walks the tree",
@@ -245,6 +314,17 @@ def main():
           any(p.rstrip("/") == ROOT for p in table), True)
     check("  the helper row points at a real file, not a directory",
           os.path.isfile(HELPER), True)
+    check("  the helper is TRACKED, so a commit can restore it",
+          subprocess.run(["git", "ls-files", "--error-unmatch",
+                          os.path.relpath(HELPER, ROOT)],
+                         cwd=ROOT, capture_output=True).returncode, 0)
+    # The table states ABSOLUTE paths (it is a command table for a human), so
+    # this compares an absolute path with an absolute path. The first version
+    # compared it with a repo-relative one and went red on a table that was
+    # already correct -- which is the shape of a guard that gets "fixed" by
+    # deleting it. Compare the two the table and git actually speak.
+    check("  ...and the table's helper row is that tracked path",
+          any(p.rstrip("/") == os.path.realpath(HELPER) for p in table), True)
     check("  the SDK row is executable",
           os.access("/home/hatch/tools/sdk/flutter/bin/flutter", os.X_OK), True)
     check("  /tmp/shots is a recreated scratch dir, exempt from the rule",

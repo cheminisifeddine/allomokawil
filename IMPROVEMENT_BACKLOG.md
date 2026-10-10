@@ -135,10 +135,11 @@ correctness gap — never a refactor for its own sake. One item per loop.
       "no wall-clock read in any tracked `.py`" rule will hold the moment the
       file becomes tracked.
 
-- [ ] **The push helper is in no git repository — the loop's only instrument
+- [x] **The push helper is in no git repository — the loop's only instrument
       for reaching the founder's repo cannot be rolled back, and the battery
-      guarding it guards a file no commit can restore.** FOUND 10 Oct, in the
-      tick that finally re-ran the gate. Measured, not assumed:
+      guarding it guards a file no commit can restore.** FIXED 10 Oct,
+      `26c24df`. The helper is now `tool/gh_push.py`, tracked, and the battery
+      runs against it. FOUND 10 Oct, in the tick that finally re-ran the gate. Measured, not assumed:
       `/home/hatch/workspace/repos` is **not** a checkout
       (`git rev-parse --show-toplevel` -> *not a git repository*); the file is
       **not tracked by `allomokawil`** (`git ls-files` finds no `gh_push`, and
@@ -168,6 +169,67 @@ correctness gap — never a refactor for its own sake. One item per loop.
       an `authd` surrogate at call time and is never persisted. Release
       signing, deploy credentials and secrets stay untouched, and no APK,
       release or tag is in scope.
+
+      **SHIPPED `26c24df`.** `tool/gh_push.py` is tracked at `100644` (the mode
+      every other `tool/*.py` carries, read from `git ls-files -s` rather than
+      assumed), byte-identical to the copy the loop has been pushing through.
+      The Loop protocol's path table points at it, so a tick reads the tracked
+      path first. `test/push_helper_test.py` moved `HELPER_DIR` to `<repo>/tool`
+      and now asserts two new facts: the helper is **git-tracked**, and the
+      table's helper row is that path. Without the second, the table could
+      drift back to an unreachable path with every row still green.
+
+      **The guard the item predicted, both halves fixed.** A missing helper
+      used to exit 1 with an uncaught `FileNotFoundError` out of `os.chdir` --
+      naming line 85 of the harness instead of the thing that was missing.
+      Reproduced first on a scratch copy, then replaced by a preflight that
+      refuses in a sentence and names the `git checkout` that restores it. The
+      same refusal is proven live: run against a tree with no helper it prints
+      `REFUSING: the push helper is not at ...` and exits 1.
+
+      **What the fix had to unwind, and it is the interesting half.** One
+      constant was doing **two jobs**: `HELPER_DIR` chose both the file to
+      import and the cwd case 1 runs from to prove `ROOT="."` is REFUSED from a
+      non-checkout. Repointing both at the repo would have quietly destroyed
+      that case, and the next tick would have "fixed" the red by deleting the
+      assertion. They are separate constants now.
+
+      **And "not a checkout" is not "not inside one."** The first spelling of
+      the new cwd was `<repo>/test`, which is *inside* the checkout, and `git
+      ls-files` walks **up** to find `.git` -- so the walk **SUCCEEDED** and
+      case 1 went red with `got='ok'`, failing for a reason the constant's own
+      name denied. It is now a temp directory **proven** non-checkout at
+      startup, with a refusal if that proof fails. Measured before the edit, not
+      assumed -- which is how a red suite avoided becoming a deleted assertion.
+
+      **Evidence.**
+      * `dart analyze` -> **No issues found!**
+      * `python3 tool/run_tests.py` -> **`SUITE PASS — 2701 tests across 14
+        shard(s), every shard green`**, `2693 passed, 8 skipped`, **elapsed
+        36:04**, `shards: 14 run, 14 green, 0 not green, 0 never started`, all
+        14 green on their FIRST attempt, **zero FAIL/HUNG/STARVED/BUSY lines**.
+        Shard 8 -- the 6 Oct intermittent -- passed in 2:53.
+      * `python3 test/push_helper_test.py` -> **all push_helper cases pass**,
+        **38 cases** (was 35), exit 0.
+      * `python3 test/loop_protocol_test.py` -> **29/29 ALL PASS**, so the path
+        table this tick rewrote is still read correctly by its own guard.
+      * **The count is unchanged at 2701, and that is the correct outcome** --
+        zero `.dart` files changed, so nothing new gates on it. But this run is
+        not idle: `tool/gh_push.py` is now inside
+        `tool_clock_seam_test.dart`'s `git ls-files '*.py'` input set, so the
+        no-wall-clock sweep **read the helper for the first time** and stayed
+        green. That was the one risk in this item, predicted statically with
+        Python's own `tokenize` as the oracle (**zero** clock identifiers among
+        2984 tokens) and then confirmed by a real green run rather than left on
+        the argument.
+      * **3 mutations, 3 killed**, each on its named case: hardcoded `100644`
+        reinstated; `main()` no longer gating on `verify_push`; table row
+        repointed at the unreachable path.
+      * **The rollback, demonstrated.** After the first mutation,
+        `git checkout -- tool/gh_push.py` restored the file **byte-identical**
+        (`diff` clean against the pre-existing copy). That is the entire item in
+        one command -- an assertion that was true before this tick and is now
+        an executed fact.
 
 - [x] **The notification centre's "you have more than this list" band was
       gated off by the very condition it exists to report — and shipping it
@@ -2364,7 +2426,7 @@ in this file that dies on arrival is how two ticks were lost.
 | --- | --- |
 | repo | `/home/hatch/allomokawil` |
 | Flutter SDK | `/home/hatch/tools/sdk/flutter/bin/flutter` (3.47.2 / Dart 3.13.2) |
-| push helper | `/home/hatch/workspace/repos/gh_push.py` (needs repo ROOT **absolute**, not `.`) |
+| push helper | `/home/hatch/allomokawil/tool/gh_push.py` (**tracked**, 10 Oct; needs repo ROOT **absolute**, not `.`) |
 | design shots | `/tmp/shots/` (written by `test/design_shots_test.dart`) |
 | JDK (APK builds only) | `/home/hatch/tools/jdk17/bin/javac` (17.0.20.1) |
 | Android SDK (APK builds only) | `/home/hatch/tools/android-sdk` (platform android-36, build-tools 36.0.0) |
