@@ -441,6 +441,273 @@ def _prefix_exclusion_is_not_needed():
     assert any(len(t) <= 12 or t.startswith("How ") for t in emitted), emitted
 
 
+# ------------------------------- the guard states: a deleted refusal is not
+# ------------------------------- a healthy one
+
+def _delete_guard_statement(path):
+    """Remove the WHOLE `if _another_writer_is_building():` statement and body.
+
+    The first draft of this helper replaced the `if` line with `pass` and left
+    the body orphaned, which is an IndentationError -- the mutated tree read
+    `UNREADABLE` and the mutation looked like it had "not fired". It had not
+    fired because the tree was broken, which is the least convincing negative
+    result available. The mutation has to leave a tree that PARSES.
+    """
+    import ast as _ast
+    text = open(path, encoding="utf-8").read()
+    tree = _ast.parse(text)
+    lines = text.split("\n")
+    spans = []
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.If):
+            continue
+        if any(isinstance(c, _ast.Call) and isinstance(c.func, _ast.Name)
+               and c.func.id == "_another_writer_is_building"
+               for c in _ast.walk(node.test)):
+            spans.append((node.lineno,
+                          max(getattr(x, "lineno", node.lineno) for x in node.body)))
+    for a, b in sorted(spans, reverse=True):
+        del lines[a - 1:b]
+    open(path, "w", encoding="utf-8").write("\n".join(lines))
+    return len(spans)
+
+
+def _state_of(tmpdir, tool):
+    import ast as _ast
+    return sweep_mod._guard_state(
+        _ast.parse(open(os.path.join(tmpdir, tool + ".py"),
+                        encoding="utf-8").read()))
+
+
+@case("the real tree's guards all do their job (control)")
+def _real_guards_healthy():
+    states = {}
+    for tool in sweep_mod.SIBLINGS:
+        states[tool] = _state_of(REPO_TOOL, tool)[0]
+    sick = {t: s for t, s in states.items() if s in ("INVERTED", "NEVER CALLED", "UNREACHABLE")}
+    assert sick == {}, "a build guard is not working: %s" % sick
+    # The census tools parse Dart and build nothing; they are expected to carry
+    # no guard, and the sweep must SAY so rather than leave it to inference.
+    assert states.get("agreement_census_audit") == "NONE", states
+    assert states.get("numeric_bound_audit") == "NONE", states
+
+
+@case("a DELETED refusal is NEVER CALLED, not healthy (the mutation)")
+def _deleted_guard_is_caught():
+    """The defect. The old check asked "is the call site inverted?" and "does
+    one exist?". A tool with its refusal REMOVED answers the second question
+    correctly and was reported as clean.
+
+    Measured before the fix: the real tree and this mutation both printed
+    `0 inverted guards` in the header, byte-identical.
+    """
+    tmp = tempfile.mkdtemp(prefix="rendersilence-delguard-")
+    try:
+        _copy_tree(tmp)
+        path = os.path.join(tmp, "inbox_read_audit.py")
+        removed = _delete_guard_statement(path)
+        assert removed == 1, "control deleted %d guard statements, expected 1" % removed
+        _ast_mod = __import__("ast")
+        _ast_mod.parse(open(path, encoding="utf-8").read())   # must still parse
+        state, _line = _state_of(tmp, "inbox_read_audit")
+        assert state == "NEVER CALLED", (
+            "a removed refusal reads as healthy: state=%r" % state)
+        bad = [h for h in sweep_mod.sweep(tmp)
+               if h["tool"] == "inbox_read_audit"
+               and h.get("guard_polarity") == "NEVER CALLED"]
+        assert bad, "the sweep filed nothing for a tool whose refusal is gone"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@case("a guard that can never fire is UNREACHABLE, not correct")
+def _unreachable_guard_is_caught():
+    """`if False and _another_writer_is_building():` keeps the call site, so
+    every question asked OF THE CALL SITE answers `correct`. The refusal is
+    dead code and the tool builds during a real build."""
+    tmp = tempfile.mkdtemp(prefix="rendersilence-deadguard-")
+    try:
+        _copy_tree(tmp)
+        path = os.path.join(tmp, "worker_reviews_audit.py")
+        text = open(path, encoding="utf-8").read()
+        hits = 0
+        for line in text.split("\n"):
+            pass
+        new = []
+        for line in text.split("\n"):
+            if re.match(r"^\s*if _another_writer_is_building\(\):\s*$", line):
+                line = line.replace("if _another_writer_is_building():",
+                                    "if False and _another_writer_is_building():")
+                hits += 1
+            new.append(line)
+        assert hits == 1, "control neutered %d call sites, expected 1" % hits
+        open(path, "w", encoding="utf-8").write("\n".join(new))
+        state, _line = _state_of(tmp, "worker_reviews_audit")
+        assert state == "UNREACHABLE", (
+            "a dead refusal reads as correct: state=%r" % state)
+        bad = [h for h in sweep_mod.sweep(tmp)
+               if h["tool"] == "worker_reviews_audit"
+               and h.get("guard_polarity") == "UNREACHABLE"]
+        assert bad, "the sweep filed nothing for a guard that can never fire"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@case("removing EVERY refusal in the tree is caught 5 of 5")
+def _every_guard_deleted_is_caught():
+    """The mutation run against all seven tools at once, because a guard check
+    that only ever sees one module is the 'named, never opened' shape."""
+    tmp = tempfile.mkdtemp(prefix="rendersilence-allguards-")
+    try:
+        _copy_tree(tmp)
+        total = 0
+        for tool in sweep_mod.SIBLINGS:
+            total += _delete_guard_statement(os.path.join(tmp, tool + ".py"))
+        assert total == 5, "expected 5 guard statements in the tree, deleted %d" % total
+        import ast as _ast
+        for tool in sweep_mod.SIBLINGS:
+            _ast.parse(open(os.path.join(tmp, tool + ".py"),
+                            encoding="utf-8").read())
+        states = {t: _state_of(tmp, t)[0] for t in sweep_mod.SIBLINGS}
+        sick = {t: s for t, s in states.items() if s == "NEVER CALLED"}
+        assert len(sick) == 5, (
+            "removing every refusal was caught in %d of 5: %s" % (len(sick), states))
+        filed = {h["tool"] for h in sweep_mod.sweep(tmp)
+                 if h.get("guard_polarity") == "NEVER CALLED"}
+        assert len(filed) == 5, "the sweep filed %d of 5: %s" % (len(filed), sorted(filed))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@case("ONE inverted guard is still caught (the regression this must not break)")
+def _inversion_still_caught():
+    """The case that already existed, re-asserted against the six-state judge:
+    a fix for 'a missing refusal' must not cost the detection of 'a wrong one'."""
+    tmp = tempfile.mkdtemp(prefix="rendersilence-invert-")
+    try:
+        _copy_tree(tmp)
+        path = os.path.join(tmp, "inbox_read_audit.py")
+        new = []
+        hits = 0
+        for line in open(path, encoding="utf-8").read().split("\n"):
+            if re.match(r"^\s*if _another_writer_is_building\(\):\s*$", line):
+                line = line.replace("if _another_writer_is_building():",
+                                    "if not _another_writer_is_building():")
+                hits += 1
+            new.append(line)
+        assert hits == 1, "control inverted %d call sites, expected 1" % hits
+        open(path, "w", encoding="utf-8").write("\n".join(new))
+        bad = [h for h in sweep_mod.sweep(tmp)
+               if h["tool"] == "inbox_read_audit"
+               and h.get("guard_polarity") == "INVERTED"]
+        assert bad, "the inversion detector regressed"
+        # ...and it must be INVERTED, not one of the new states.
+        assert _state_of(tmp, "inbox_read_audit")[0] == "INVERTED", _state_of(tmp, "inbox_read_audit")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@case("a helper called into a name is INDIRECT, not guessed either way")
+def _indirect_guard_is_its_own_state():
+    """`busy = _another_writer_is_building()` then `if busy:` is a legal
+    refusal this AST pass cannot follow. Filing it INVERTED would invent a
+    defect; filing it `correct` would assert a measurement nobody made."""
+    import ast as _ast
+    src = ('def _another_writer_is_building():\n'
+           '    return False\n'
+           'def main():\n'
+           '    busy = _another_writer_is_building()\n'
+           '    if busy:\n'
+           '        print("REFUSED")\n')
+    state, _line = sweep_mod._guard_state(_ast.parse(src))
+    assert state == "INDIRECT", state
+    src2 = src.replace("    if busy:", "    if not busy:")
+    assert sweep_mod._guard_state(_ast.parse(src2))[0] == "INDIRECT", \
+        "the indirect shape must stay unjudged in both polarities"
+
+
+@case("the sweep REPORTS the guard state, not just computes it (mutation D)")
+def _guard_state_is_reported():
+    """A judge whose verdict is computed and thrown away is a guard that cannot
+    fail, which is the defect this repo has filed six times and this tick once
+    more -- my first draft of these six cases scored `_guard_state` directly
+    and called that sufficient. Measured, not assumed: mutating `sweep()` so
+    the non-`correct` states are never FILES made all 23 cases pass.
+
+    So this case asserts the thing the mutation actually removes: that the
+    state reaches the REPORT. It reads `sweep()`'s output on a mutated tree,
+    where the arms are unchanged and the guard is not.
+    """
+    tmp = tempfile.mkdtemp(prefix="rendersilence-report-")
+    try:
+        _copy_tree(tmp)
+        path = os.path.join(tmp, "worker_reviews_audit.py")
+        assert _delete_guard_statement(path) == 1
+        hits = sweep_mod.sweep(tmp)
+        row = [h for h in hits if h["tool"] == "worker_reviews_audit"]
+        assert row, "the mutated tool vanished from the sweep entirely"
+        states = {h.get("guard_polarity") for h in row}
+        assert "NEVER CALLED" in states, (
+            "the state was computed and never filed -- the report cannot show "
+            "it: %s" % states)
+        # The header line, not just the JSON: this is what a human reads.
+        import io
+        import contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            sweep_mod.main(["--dir", tmp])
+        text = buf.getvalue()
+        assert "NEVER CALLED" in text, (
+            "the printed sweep is missing the dead refusal:\n%s"
+            % text.split("\n")[0])
+        # The header carries the COUNT, and the count must match the mutation:
+        # `_delete_guard_statement` removed one from `worker_reviews_audit`
+        # only, so exactly one tool is not doing its job. Asserting the number
+        # rather than "> 0" is deliberate -- "0 guard(s)" and "7 guard(s)" both
+        # pass a threshold and are the two answers this case exists to separate.
+        assert "1 guard(s) not doing their job" in text, text.split("\n")[0]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@case("one dead guard counts ONCE, not once per arm (mutation E)")
+def _guard_count_is_per_tool():
+    """`guard_polarity` is a property of the MODULE and is stamped onto every
+    arm its renderer files. Filtering `hits` therefore counts a four-arm
+    renderer as four broken guards -- measured: deleting one refusal in
+    `worker_reviews_audit` printed `5 guard(s) not doing their job`.
+
+    Found by planting, not by reading: mutation E (`{h["tool"] ...}` ->
+    `{1 ...}`) turned the header into an opaque constant and **all 24 cases
+    still passed**, because every case asserted a count of zero or asserted
+    the state per tool, never the header's number. This case asserts the exact
+    number for a one-tool mutation, which is the assertion E cannot survive.
+    """
+    tmp = tempfile.mkdtemp(prefix="rendersilence-count-")
+    try:
+        _copy_tree(tmp)
+        path = os.path.join(tmp, "worker_reviews_audit.py")
+        assert _delete_guard_statement(path) == 1
+        import io
+        import contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            sweep_mod.main(["--dir", tmp])
+        header = buf.getvalue().split("\n")[0]
+        assert "1 guard(s) not doing their job" in header, (
+            "one dead guard did not count once: %s" % header)
+        # And the tree-wide mutation counts five, not the sum of their arms.
+        for tool in sweep_mod.SIBLINGS:
+            _delete_guard_statement(os.path.join(tmp, tool + ".py"))
+        buf2 = io.StringIO()
+        with contextlib.redirect_stdout(buf2):
+            sweep_mod.main(["--dir", tmp])
+        header2 = buf2.getvalue().split("\n")[0]
+        assert "5 guard(s) not doing their job" in header2, header2
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main():
     failed = 0
     for name, fn in _results:

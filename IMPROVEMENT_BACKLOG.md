@@ -33297,3 +33297,70 @@ weakness has moved: it counts arms but never judges the 31 it finds. It files
 verdict an arm emits actually matches the measurement it claims. Worth a case
 that measures whether the sweep's own output can be falsified by the tree it
 graded.
+
+- [x] **The build-guard check could not tell a WORKING refusal from a DELETED
+  one — the sweep printed `0 inverted guards` for both.** (`49da82b`)
+  The prior tick's Next: the sweep counts arms but never judges them. The guard
+  half was the part that *claimed* to judge and could not.
+  - **Measured, not asserted.** The old check asked two questions — "is the
+    call site inverted?" and "does one exist?". The real tree and a tree with
+    **every** `if _another_writer_is_building():` statement removed produced
+    the **same header, byte for byte**. So could a tree where each call was
+    neutered to `if False and _another_writer_is_building():` — dead code that
+    answers "correct" to any question asked of the call site, because the call
+    *is* there. A deleted refusal is the exact inverse of the inversion the
+    sweep was built to catch, and it read as a clean tree.
+  - **Six states, replacing two answers:** `correct`, `INVERTED`, `NEVER CALLED`
+    (helper defined, nothing calls it — the refusal was removed), `UNREACHABLE`
+    (call exists, test can never be true), `INDIRECT` (called into a name and
+    tested later — a legal refusal this AST pass cannot follow, so it is neither
+    filed INVERTED nor counted healthy), `NONE` (no guard at all — expected for
+    the two census tools that parse Dart and build nothing, now **said** rather
+    than inferred from silence).
+  - **Five mutations, five kills**, each naming the state it removed:
+    A delete-the-`NEVER CALLED`-branch → 21/25; B drop the reachability check →
+    24/25; C collapse `INDIRECT` → 24/25; D stop **filing** non-`correct`
+    states → 24/25; E count rows instead of tools → 24/25.
+  - **Two of those mutations were found by planting, after my own cases had
+    already passed — the seventh and eighth filings of this defect shape.**
+    * **D survived the first draft of all six new cases.** They scored
+      `_guard_state` directly and called that sufficient; the judge computed the
+      verdict and `sweep()` threw it away, and 23/23 stayed green. Fixed by
+      asserting the state reaches the **printed report**, which needed `main()`
+      to accept `--dir` so the header can be read on a mutated tree.
+    * **E** replaced `{h["tool"] ...}` with `{1 ...}` — an opaque constant — and
+      **all 24 cases still passed**, because every case asserted a count of zero
+      or a state per tool, never the header's number. Fixed by asserting the
+      exact count for a one-tool mutation.
+    * A **third** error, in the line I added beside the existing one: the header
+      counted `hits` rows, so one deleted guard in a four-arm renderer printed
+      `5 guard(s) not doing their job`. Caught by the new reporting case, fixed
+      to count distinct tools — the same arm-count-vs-tool-count regression the
+      sibling test already pins, found again immediately.
+    * My first mutation harness replaced the `if` line with `pass` and orphaned
+      the body, producing an `IndentationError`; the tree read `UNREADABLE` and
+      the mutation *looked* like it had not fired. It had not fired because the
+      tree was broken — the least convincing negative result available. The
+      harness now deletes the whole statement and asserts the result parses.
+  - **Real tree unchanged:** `31 reporting arms, 0 inverted guards, 0 guard(s)
+    not doing their job`. The two census tools now file `GUARD NONE` rather than
+    vanishing from the count. Suite **25/25** (was 17). Siblings 7/11/11/50/14
+    green; `build_gate_test` **32/32** (the `28/32` seen mid-tick was the
+    already-banked stale-`.pyc` defect, not a regression — a `git stash`
+    refreshed the caches and it went green).
+  - **Dart gate OPEN this tick** (1119 MB available): `flutter analyze` →
+    **No issues found!** (19.9s). **Zero Dart touched**, so the suite count is
+    untouched by construction; `tool/run_tests.py` still running at commit time.
+  - **Files:** `tool/render_silence_audit.py`, `test/render_silence_audit_test.py`
+    (+8 cases, 17 → 25), `IMPROVEMENT_BACKLOG.md`.
+
+**Next.** The guard half is judged now. The arm half is not: the sweep files 31
+arms and a human reads them, and 26 of the 31 are `%`-formatted templates whose
+*arguments* nobody checks. An arm can emit a correct sentence around a value
+that was never measured. The machine-checkable version of that is the unguarded
+`.get(k)` with no default — measured **11 arms across 8 tools** reach a dict
+key that no default protects, which is precisely the path `None` took into the
+report in the original defect. No key is statically orphaned today (every one is
+set by some producer on some path), so the useful case is a **return-path**
+one, and the first attempt at writing it crashed on my own harness rather than
+on the tree — which is the honest state to hand the next tick.

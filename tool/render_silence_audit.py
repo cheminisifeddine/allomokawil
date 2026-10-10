@@ -26,6 +26,13 @@ function never set, and formats it in the grammar of a measurement. So each hit
 is reported with the arm's own words, and a human reads them. This tool does not
 claim a defect; it marks where the class can hide.
 
+**Six guard states, because "correct" and "not present" used to look identical.**
+The build guard got two questions -- is it inverted, does it exist -- and the
+real tree and a tree with every refusal deleted printed the same header. The
+states, the mutations that kill each, and the counting rule (per TOOL, not per
+arm) are documented on `_guard_state` and pinned in
+`test/render_silence_audit_test.py`.
+
 **Read-only by construction.** It imports each audit module, reads its AST and
 its `_render` source, and never calls a producer or opens a socket. It cannot
 change a file and it cannot spend the network.
@@ -97,6 +104,95 @@ def _renderers(tree):
         if appended & returned:
             out.append(fn)
     return out
+
+
+def _guard_state(tree):
+    """What the build guard on this module actually DOES. Five states, not two.
+
+    **The defect this fixes, measured.** The sweep asked exactly two things
+    about `_another_writer_is_building`: is the call site inverted, and does one
+    exist at all. Those two questions cannot tell a working refusal from a
+    MISSING one. Measured on the real tree and on two mutations of it:
+
+    | tree | header the sweep printed |
+    | --- | --- |
+    | real | `7 tools, 31 reporting arms, 0 inverted guards` |
+    | every call site DELETED | `... 0 inverted guards` |
+    | every call site neutered (`if False and ...`) | `... 0 inverted guards` |
+
+    Identical. A tool that had its refusal removed -- the one thing this class
+    of defect is about, and the exact inverse of the inversion the sweep *was*
+    built to catch -- renders as a clean tree. "This tool did not look,
+    arriving as this tool looked and found it fine" is this file's own header
+    sentence, and the header could not say it.
+
+    The five states, and what each one costs:
+
+    * `correct`       -- a bare call site; refusal happens on True.
+    * `INVERTED`      -- `if not ...`: refuses when nothing is building.
+    * `NEVER CALLED`  -- the helper is DEFINED and nothing calls it. The
+      refusal was deleted or never wired. Reachable by editing one line and
+      previously indistinguishable from healthy.
+    * `UNREACHABLE`   -- the call exists but cannot fire (`if False and ...`,
+      `if 0 and ...`). Reads as `correct` to any question asked of the call
+      site itself, because the call *is* there.
+    * `INDIRECT`      -- the helper is called into a name (`busy = ...`) and
+      tested later. A legal refusal this analysis cannot follow; its own state,
+      so it is neither filed INVERTED nor counted healthy.
+    * `NONE`          -- the module has no build guard at all. Not a defect on
+      its own: two census tools parse Dart source and build nothing, so
+      refusing during a build would be theatre. Reported, so the count is
+      stated rather than inferred from silence.
+    """
+    defines = any(isinstance(fn, ast.FunctionDef)
+                  and fn.name == "_another_writer_is_building"
+                  for fn in tree.body)
+    if not defines:
+        return "NONE", None
+
+    # Every call of the helper, wherever it sits. A call that is not the whole
+    # test of an `if` cannot be a refusal and must not be judged as one.
+    sites = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "_another_writer_is_building"):
+            sites.append(node)
+    if not sites:
+        return "NEVER CALLED", None
+
+    indirect = None
+    for call in sites:
+        owner = _owning_if(tree, call)
+        if owner is None:
+            # `busy = _another_writer_is_building()` then `if busy:` is a
+            # legal refusal this analysis cannot follow through a name. Recorded
+            # as its own state rather than silently scored: a tool that refuses
+            # correctly this way must not be filed INVERTED, and a tool that
+            # merely CALLS the helper must not be filed healthy.
+            if indirect is None:
+                indirect = call.lineno
+            continue
+        test = owner.test
+        if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+            return "INVERTED", owner.lineno
+        conjuncts = test.values if isinstance(test, ast.BoolOp) else [test]
+        for c in conjuncts:
+            if isinstance(c, ast.Constant) and c.value is False:
+                return "UNREACHABLE", owner.lineno
+    if indirect is not None:
+        return "INDIRECT", indirect
+    return "correct", sites[0].lineno
+
+
+def _owning_if(tree, call):
+    """The `if` whose TEST contains `call`, or None if the call is not a test."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        for sub in ast.walk(node.test):
+            if sub is call:
+                return node
+    return None
 
 
 def _emitted(node):
@@ -199,36 +295,27 @@ def sweep(tool_dir=None):
                                    "that list -- a module with no renderer"})
             continue
 
-        # The polarity check that matters most: the guard's own name says "is a
-        # build in flight", and its three siblings all refuse on True. An
-        # inverted call site is a refusal whose printed reason is false.
-        # **AST, not `src.find("if ")` -- the string scan was caught by its own
-        # negative control.** It searched the raw source, so a *comment* quoting
-        # the guard line (`... both read `if _another_writer_is_building():` `)
-        # matched first and every tree reported "correct". A detector that reads
-        # a name is the "named, never opened" shape this repo has now filed five
-        # times; this one is mine, and it was found because the control asked
-        # for a red tree and refused to produce one.
-        polarity = "not checked"
-        for fn in ast.walk(tree):
-            if not isinstance(fn, ast.If):
-                continue
-            test = fn.test
-            # The guard call can be BARE (`if _another_writer_is_building():`)
-            # or WRAPPED (`if not _another_writer_is_building():`). Matching only
-            # the bare shape was the second defect my own control caught: the
-            # check required `test` to be a Call, so the inverted `UnaryOp` form
-            # -- the only shape the sweep exists to find -- fell straight through
-            # `continue` and every tree read "not checked". Unwrap first, then
-            # decide, so the two shapes cannot be confused again.
-            inverted = isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not)
-            inner = test.operand if inverted else test
-            if not (isinstance(inner, ast.Call)
-                    and isinstance(inner.func, ast.Name)
-                    and inner.func.id == "_another_writer_is_building"):
-                continue
-            polarity = "INVERTED (refuses when NOT building)" if inverted else "correct"
-            break
+        # The guard's own name says "is a build in flight", and every sibling
+        # refuses on True. SIX states, measured -- see `_guard_state`, which
+        # replaced a two-question version that could not tell a working refusal
+        # from a deleted one: a tree with every call site removed printed
+        # `0 inverted guards`, byte-identical to this clean one.
+        polarity, guard_line = _guard_state(tree)
+        if polarity != "correct":
+            hits.append({
+                "tool": name, "verdict": "GUARD " + polarity,
+                "line": guard_line, "guard_polarity": polarity,
+                "detail": {
+                    "NEVER CALLED": "the helper is defined and nothing calls it"
+                                    " -- the refusal was removed",
+                    "UNREACHABLE": "the call site exists but its test can never be"
+                                   " true, so the refusal never happens",
+                    "INDIRECT": "the helper is called into a name, not tested"
+                                " directly -- not judged either way",
+                    "NONE": "this module has no build guard",
+                }.get(polarity, ""),
+            })
+
 
         for fn in renderers:
             for lineno, strings in _arm_lines(fn):
@@ -240,19 +327,36 @@ def sweep(tool_dir=None):
     return hits
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--json", action="store_true")
-    args = ap.parse_args()
-    hits = sweep()
-    inverted = [h for h in hits if h.get("guard_polarity") == "INVERTED (refuses when NOT building)"]
+    ap.add_argument("--dir", default=None,
+                    help="sweep this tool_dir instead of the real one")
+    args = ap.parse_args(argv)
+    hits = sweep(args.dir)
+    # COUNT TOOLS, not rows. `guard_polarity` is a property of the module and
+    # is stamped onto every arm the renderer files, so filtering `hits` counts
+    # a four-arm renderer as four broken guards -- measured: one deleted
+    # refusal in `worker_reviews_audit` printed `5 guard(s) not doing their
+    # job`. The same shape as the arm-count regression this file's sibling
+    # test already pins, found again in the line I added beside it.
+    def _tools_with(state):
+        return sorted({h["tool"] for h in hits if h.get("guard_polarity") == state})
+
+    inverted = _tools_with("INVERTED")
+    unguarded = sorted({h["tool"] for h in hits
+                        if h.get("guard_polarity") in ("NEVER CALLED", "UNREACHABLE")})
     if args.json:
-        print(json.dumps({"swept": list(SIBLINGS), "arms": len(hits),
-                          "inverted_guards": len(inverted), "hits": hits},
-                         ensure_ascii=False, indent=2))
+        print(json.dumps({"swept": list(SIBLINGS),
+                          "arms": len([h for h in hits if h.get("verdict") == "ARM"]),
+                          "inverted_guards": len(inverted),
+                          "guards_not_working": len(unguarded),
+                          "hits": hits}, ensure_ascii=False, indent=2))
         return 0
-    print("render-silence sweep: %d tools, %d reporting arms, %d inverted guards"
-          % (len(SIBLINGS), len(hits), len(inverted)))
+    print("render-silence sweep: %d tools, %d reporting arms, %d inverted guards,"
+          " %d guard(s) not doing their job"
+          % (len(SIBLINGS), len([h for h in hits if h.get("verdict") == "ARM"]),
+             len(inverted), len(unguarded)))
     for h in hits:
         print("  %-28s %-12s L%-5s %s" % (h["tool"], h["verdict"],
                                            h.get("line", "-"), h.get("detail", "")[:80]))
