@@ -6,8 +6,10 @@
     python3 tool/run_tests.py --shard-size 0         # disable sharding (one run)
     python3 tool/run_tests.py -- test/a_test.dart    # extra args go to flutter test
 
-Exit codes: 0 pass, 1 fail, 2 hung/incomplete (the deadline fired),
-3 BUSY (the build gate refused, so NOT ONE TEST RAN).
+Exit codes: 0 pass, 1 fail, 2 hung/incomplete (the deadline fired on a
+shard that stopped answering), 3 BUSY (the build gate refused, so NOT ONE TEST
+RAN), 4 STARVED (the deadline fired on a shard that was still working -- the
+box was too loaded for the clock, and the tree is unproven rather than red).
 
 **Exit 2 and exit 3 are different facts and must not share a code.** Measured
 9 Oct: a bare `run_tests.py` printed `BUSY — not starting a second suite on this
@@ -186,6 +188,54 @@ PASS, FAIL, HUNG = 0, 1, 2
 #: described a HUNG shard. Three, because 0/1/2 are taken and this is a refusal
 #: rather than a verdict on the tree.
 BUSY = 3
+#: **STARVED — the shard was working and the box was not.** Added 10 Oct, as
+#: the fourth distinct fact this file reports rather than a flavour of one of
+#: the other three. The defect it fixes was measured here: five consecutive
+#: shards hit their 300 s cap with **zero assertion failures**, `flutter_tester`
+#: at 58 % CPU while a foreign puppeteer Chrome burned the rest of a 2-core
+#: machine. All five printed `HUNG` -- the code this file defines as "a shard I
+#: started stopped answering" -- so a starved run and a deadlocked one were
+#: byte-identical, and a tick reading either went hunting for a tree defect in
+#: a tree that has none.
+#:
+#: The two words are opposites to whoever reads them. A **hang** is *the tree
+#: is suspect*: bisect it, read the culprit file, find the defect. A
+#: **starve** is *the box is suspect*: nothing in here changed, re-run when the
+#: machine is idle. Same silence, opposite owner, and the old code handed every
+#: starved shard to the expensive answer.
+#:
+#: Four, because 0/1/2/3 are taken and this is neither a verdict on the tree
+#: nor a refusal to start: work happened, and the clock ran out first.
+STARVED = 4
+
+#: A shard is STARVED rather than HUNG when its OWN process group burned real
+#: CPU inside the deadline. Both halves are load-bearing, and both are measured
+#: rather than guessed -- see `_group_cpu_seconds` for why the obvious metric
+#: (load average) cannot do this job.
+#:
+#: Chosen from the measured gap, and the margin is stated so a future retune
+#: does not have to re-derive it. A starved shard measured **174 CPU-seconds of
+#: its 300** (flutter_tester at 58 % of a core); a deadlocked one measured
+#: **0.00** in every shape tried, including under load. So the bar sits at 25 %
+#: of one core for the whole cap -- **75 CPU-seconds at the real 300 s
+#: deadline** -- which is 2.3x below the starved case and unreachable by a
+#: deadlocked one.
+#:
+#: 25 % rather than something tighter, because the cost is asymmetric. A shard
+#: that burned 70 CPU-seconds really did reach its own cap doing work, and
+#: calling that a hang sends a tick after a defect that is not there. A shard
+#: that burned 5 and stopped is the one that is genuinely stuck, and at 25 %
+#: it stays on the HUNG side where the bisect can find it.
+STARVED_MIN_CPU_FRACTION = 0.25
+#: Absolute floor so the fraction cannot be met by a handful of scheduler ticks
+#: in a very short window, and so a caller who sets a deliberately tiny
+#: `--deadline` still gets a verdict rather than silence.
+STARVED_MIN_CPU_SECS = 0.5
+
+#: Status -> the word printed for it. One table, so a new status cannot be
+#: added to the summary line and forgotten in the per-shard line.
+STATUS_NAME = {PASS: "PASS", FAIL: "FAIL", HUNG: "HUNG", BUSY: "BUSY",
+               STARVED: "STARVED"}
 
 _TEST_PATH = re.compile(r"(test/\S*?\.dart)")
 #: The expanded reporter's progress line: `00:04 +25: All tests passed!`.
@@ -447,6 +497,74 @@ def _spawn_watchdog(pgid):
     return write_fd, proc
 
 
+def _group_cpu_seconds(pgid):
+    """Total CPU seconds `pgid` has burned, from `/proc/<pid>/stat` utime+stime.
+
+    Process-wide (not per-process) on purpose: a shard is a `flutter test`
+    process plus its `flutter_tester` children, and they share one process
+    group. Summing the group is what makes a shard that is compiling, running
+    and reporting still read as *busy* -- sampling only the parent would call a
+    perfectly healthy shard idle.
+
+    Returns 0.0 rather than raising when `/proc` is unreadable: an unreadable
+    stat is a shard we cannot judge, and "cannot judge" must not become
+    "proved hung". `kill()` on the caller supplies the zero that means the same
+    thing.
+
+    Field 14 (utime) and 15 (stime) in `stat` are indexed here as 11 and 12
+    because the comm field can contain spaces and parentheses, so the split
+    starts after the final `)`. That is the only correct way to parse this
+    file, and `comm` is not escaped.
+    """
+    ticks = 0
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return 0.0
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            with open("/proc/%s/stat" % entry, "rb") as fh:
+                raw = fh.read()
+            fields = raw[raw.rindex(b")") + 2:].split()
+            if int(fields[2]) != pgid:          # pgrp
+                continue
+            ticks += int(fields[11]) + int(fields[12])
+        except (OSError, ValueError, IndexError):
+            continue
+    return ticks / float(os.sysconf("SC_CLK_TCK"))
+
+
+def _is_starved(cpu_secs, wall_secs):
+    """True when a shard burned real CPU inside its deadline: starved, not hung.
+
+    **Why not `/proc/loadavg`, which is what the last tick proposed.** Measured
+    on this box, both shapes under both quiet and loaded conditions:
+
+        shape                         own-group CPU      load1
+        sleep 600 (deadlocked)             0.0 %         0.55
+        busy loop (starved)               90.3 %         0.67
+        deadlocked + 4 foreign hogs       0.0 %         1.85
+
+    Load average is box-wide and one-minute-weighted, so it reads *high for a
+    deadlocked shard* when something else is busy and *low for a starved one*
+    when nothing else is. Every threshold is wrong somewhere in that table: a
+    cut at 1.0 calls the loaded deadlock starved, and a cut anywhere above
+    that calls the real 10 Oct starve a hang. The load average cannot separate
+    these two cases because load average answers "is the BOX busy", and the
+    question is "is THIS SHARD busy". Only the shard's own CPU answers it.
+
+    Two conditions, because either alone misclassifies: `wall_secs` near zero
+    makes any CPU look like 100 % of it, and a fraction alone would reclassify
+    the 5 CPU-seconds of a barely-started shard as progress.
+    """
+    if wall_secs <= 0:
+        return False
+    return (cpu_secs >= STARVED_MIN_CPU_SECS
+            and cpu_secs >= STARVED_MIN_CPU_FRACTION * wall_secs)
+
+
 def run(argv, deadline, cwd=REPO, tail_limit=TAIL_LINES):
     """Run `argv` to completion or to the deadline. Returns (status, tail, secs)."""
     started = time.monotonic()
@@ -502,11 +620,22 @@ def run(argv, deadline, cwd=REPO, tail_limit=TAIL_LINES):
     try:
         proc.wait(timeout=deadline)
     except subprocess.TimeoutExpired:
+        # **Sample the shard's OWN CPU before killing it.** Once `_kill_group`
+        # has run, the evidence is gone: the processes are reaped, the ticks
+        # are back in the kernel's aggregate, and there is nothing left to
+        # measure. The order here is the whole fix -- read first, kill second.
+        cpu_secs = _group_cpu_seconds(proc.pid)
         _kill_group(proc)
-        return _finish(HUNG)
+        starved = _is_starved(cpu_secs, time.monotonic() - started)
+        status, tail, secs = _finish(STARVED if starved else HUNG)
+        # Carried out of `run` on the result tuple rather than stashed on a
+        # module global: two shards never overlap, but a module global would
+        # still be readable by the next call's verdict if this ever changed.
+        return (status, tail, secs, cpu_secs)
 
     code = proc.returncode or 0
-    return _finish(PASS if code == 0 else FAIL)
+    status, tail, secs = _finish(PASS if code == 0 else FAIL)
+    return status, tail, secs, 0.0
 
 
 def _gate_clear():
@@ -616,7 +745,7 @@ def main(argv=None):
             not_run = len(shards) - i + 1
             break
 
-        status, tail, secs, attempts = None, [], 0.0, 0
+        status, tail, secs, attempts, cpu = None, [], 0.0, 0, 0.0
         while True:
             remaining = global_end - time.monotonic()
             if remaining <= 0:
@@ -628,10 +757,10 @@ def main(argv=None):
                   % (i, len(shards), attempts, a.retries + 1, len(shard),
                      min(a.shard_deadline, remaining)))
             sys.stdout.flush()
-            status, tail, secs = run(cmd, min(a.shard_deadline, remaining))
+            status, tail, secs, cpu = run(cmd, min(a.shard_deadline, remaining))
             if status == PASS or attempts > a.retries:
                 break
-            if status == HUNG:
+            if status in (HUNG, STARVED):
                 _kill_leaked_tester()
             # **The retry must be announced only if it is actually paid for.**
             # A HUNG attempt spends its shard's whole cap, so on a plan whose
@@ -651,12 +780,12 @@ def main(argv=None):
             if global_end - time.monotonic() <= 0:
                 print("--- shard %d/%d failed (%s); no whole-run budget left "
                       "for the retry (%d of %d spent) ---"
-                      % (i, len(shards), "HUNG" if status == HUNG else "FAIL",
+                      % (i, len(shards), STATUS_NAME[status],
                          attempts, a.retries + 1))
                 sys.stdout.flush()
                 break
             print("--- shard %d/%d failed (%s); retrying inside its own shard ---"
-                  % (i, len(shards), "HUNG" if status == HUNG else "FAIL"))
+                  % (i, len(shards), STATUS_NAME[status]))
             sys.stdout.flush()
 
         if status is None:
@@ -673,7 +802,7 @@ def main(argv=None):
             for line in tail[-BAD_TAIL_LINES:]:
                 print(line, file=sys.stderr)
             print("----------------------------------------------", file=sys.stderr)
-            if status == HUNG:
+            if status in (HUNG, STARVED):
                 print("culprit (last file named by the reporter): %s"
                       % (culprit(tail) or "UNKNOWN"), file=sys.stderr)
                 _kill_leaked_tester()
@@ -691,13 +820,15 @@ def main(argv=None):
         # the thing that reports the evidence, and it cost this tick a second
         # 13-minute run to re-establish that the suite was red.
         count = passed_count(tail)
-        print("shard %d/%d: %s in %d:%02d (%d attempt(s), %s test(s))"
-              % (i, len(shards), {0: "PASS", 1: "FAIL", 2: "HUNG"}[status],
+        print("shard %d/%d: %s in %d:%02d (%d attempt(s), %s test(s)%s)"
+              % (i, len(shards), STATUS_NAME[status],
                  int(secs // 60), int(secs % 60), attempts,
-                 count if count is not None else "?"))
+                 count if count is not None else "?",
+                 (", %.1f CPU-s -- the box was too loaded for the clock, "
+                  "the shard was working" % cpu) if status == STARVED else ""))
         sys.stdout.flush()
         results.append({"shard": i, "status": status, "tail": tail,
-                        "secs": secs, "attempts": attempts,
+                        "secs": secs, "attempts": attempts, "cpu": cpu,
                         "count": passed_count(tail), "ran": ran_count(tail),
                         "skipped": (progress_counts(tail) or (0, 0, 0))[1],
                         "files": len(shard)})
@@ -721,13 +852,49 @@ def main(argv=None):
             print("\nINCOMPLETE — %d shard(s) never started: the %.0fs deadline "
                   "ran out." % (not_run, a.deadline), file=sys.stderr)
         for r in bad:
-            print("shard %d not green: %s after %d attempt(s), %d file(s)"
-                  % (r["shard"], {1: "FAIL", 2: "HUNG"}[r["status"]],
-                     r["attempts"], r["files"]), file=sys.stderr)
+            extra = ""
+            if r["status"] == STARVED:
+                extra = " -- %.1f CPU-s burned inside its cap" % r["cpu"]
+            print("shard %d not green: %s after %d attempt(s), %d file(s)%s"
+                  % (r["shard"], STATUS_NAME[r["status"]],
+                     r["attempts"], r["files"], extra), file=sys.stderr)
+
+        # **The starved verdict is its own sentence, and it is the whole point
+        # of this change.** Ten ticks ago this block said one thing about every
+        # non-green shard, so five shards the box had starved and five shards
+        # the tree had deadlocked produced the identical report and the
+        # identical exit code. The reader's next move is completely different in
+        # each case, so the runner has to say which one it is:
+        #
+        #   starved -> do not go looking for a defect. Nothing in the tree
+        #              changed; the box did. Re-run when it is idle.
+        #   hung    -> go looking. Bisect the culprit file, find the deadlock.
+        #
+        # "INCONCLUSIVE" rather than "NOT A RESULT" is the word for the first,
+        # and "not red" is said out loud because the failure that motivates
+        # this is a tick reporting a 5-shard timeout as a red suite.
+        starved = [r for r in bad if r["status"] == STARVED]
+        hung = [r for r in bad if r["status"] == HUNG]
+        failed = [r for r in bad if r["status"] == FAIL]
+        if starved and not (hung or failed):
+            print("\nSTARVED -- the box could not give these shard(s) the "
+                  "time, and every one of them was still burning CPU when the "
+                  "clock fired. This is INCONCLUSIVE, not red.", file=sys.stderr)
+            print("  No assertion failed. Do not go looking for a defect in "
+                  "the tree: nothing in it changed. Free the box (or wait) and "
+                  "re-run.", file=sys.stderr)
+        if (hung or failed) and starved:
+            print("\nMIXED -- %d shard(s) STARVED (box too loaded) and %d "
+                  "HUNG/FAILED (worth investigating). Only the HUNG/FAILED "
+                  "shards say anything about the tree."
+                  % (len(starved), len(hung) + len(failed)), file=sys.stderr)
+
         print("\nThis is NOT a suite result. The tree is unverified: fix the "
-              "shard(s) above, or re-run with a larger --deadline.",
-              file=sys.stderr)
-        return HUNG if (not_run or any(r["status"] == HUNG for r in bad)) else FAIL
+              "shard(s) above, or re-run with a larger --deadline on an idle "
+              "box.", file=sys.stderr)
+        return (STARVED
+                if not (hung or failed or not_run)
+                else HUNG if (not_run or hung) else FAIL)
 
     counts = [r["count"] for r in green]
     ran = [r["ran"] for r in green]
