@@ -557,11 +557,15 @@ def _render(reports):
                         gal.get("app_rows"), gal.get("list_is_complete")))
         lines.append("    header: %s" % head.get("count_line"))
         lines.append("            %s" % head.get("subline"))
-        lines.append("    header_contradicts: %s (used %s > limit %s) | "
+        if head.get("verdict") == "NO_LIMIT_STATED":
+            contra = "NOT MEASURED -- no ceiling stated to contradict"
+        else:
+            contra = "%s (used %s > limit %s)" % (
+                head.get("header_contradicts"), head.get("used"),
+                head.get("limit"))
+        lines.append("    header_contradicts: %s | "
                      "rows dropped by app parse: %s"
-                     % (head.get("header_contradicts"), head.get("used"),
-                        head.get("limit"),
-                        gal.get("rows_dropped_by_app_parse")))
+                     % (contra, gal.get("rows_dropped_by_app_parse")))
         # The line the pending Dart copy fix has to change, and how far past it
         # the gallery is. Printed on its own row because it is the check that
         # survives the fix: `header_contradicts` goes False once the two
@@ -571,8 +575,29 @@ def _render(reports):
         # "still takes only a limit" beside `False` would be a report
         # contradicting itself one line under its own verdict -- the exact
         # failure this tool exists to catch, caught in the tool.
+        # TWO silences, not one, and they are reached by different branches.
+        # `NO_LIMIT_STATED` returns from `_check_header` before
+        # `over_ceiling_line` is ever set, so the dict holds no measurement at
+        # all -- and the chain below used to fall through to its last arm and
+        # print, in the present tense, "`portfolioFullLineAr` is handed the
+        # count and names both" for a ceiling this tool never read. Four `None`s
+        # sat on the row above it.
+        #
+        # That is the same defect as the unreadable-declaration branch one
+        # screen lower (`subline_takes_count is None`), reached one branch
+        # higher. Both are "this tool did not look" arriving as "this tool
+        # looked and found the screen fine" -- the reader-narrower-than-the-tree
+        # shape of 1/9/10 Oct, and the fourth occurrence.
+        #
+        # The distinction is worth its line because a stated ceiling is still
+        # named: `NOT STATED` must not swallow the healthy hosts, which is what
+        # `test/portfolio_allowance_audit_test.py` pins on the other side.
+        no_ceiling = head.get("verdict") == "NO_LIMIT_STATED"
         blind = bool(head.get("over_ceiling_line"))
-        if head.get("subline_takes_count") is None:
+        if no_ceiling:
+            why = ("no ceiling was stated by the plan -- this sentence was "
+                   "not measured")
+        elif head.get("subline_takes_count") is None:
             why = "`portfolioFullLineAr` NOT READ -- no verdict"
         elif blind:
             why = "`portfolioFullLineAr` still takes only a limit"

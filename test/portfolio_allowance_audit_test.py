@@ -1114,6 +1114,108 @@ def _dart_file_as(src):
         os.unlink(path)
 
 
+# --- the NO_LIMIT_STATED branch reported a Dart verdict it never measured --
+#
+# The unreadable-vs-blind fix (10 Oct, second tick) taught this tool that a
+# reader which cannot see must say so. It repaired ONE branch with a third
+# state. `NO_LIMIT_STATED` is the other branch that ends early, one screen
+# higher, and it carries the same defect in the same words.
+#
+# Measured on this tree. `_check_header` returns after the `isinstance(limit,
+# int)` guard with only `verdict`, `used`, `limit` and `subline_takes_count` in
+# the dict -- and `_render` then prints, for that host:
+#
+#   header_contradicts: None (used 7 > limit None) | ...
+#   ceiling sentence is blind to the count: None (over by None) --
+#     `portfolioFullLineAr` is handed the count and names both
+#
+# Four `None`s, then a full-sentence claim about the SHIPPED Dart, in the
+# present tense, as though it had been read. It was not: the branch returned
+# before `over_ceiling_line` existed, so there is no measurement in the dict to
+# read the sentence from. `check_ceiling_line` agrees -- it returns `False`
+# (not blind) from a dict that never had the key.
+#
+# This is the reader-narrower-than-the-tree defect for the FOURTH time, and the
+# difference from 10 Oct is the point: there the reader had a third state and
+# its CALLER threw it away. Here the measurement was never taken at all, and
+# `_render` invents the verdict from a missing key.
+
+
+@case("an UNSTATED ceiling yields no verdict, not a confident one")
+def t_no_limit_renders_no_verdict():
+    def body(api):
+        wire = audit.Wire(api.HOST)
+        acct = _acct()
+        api.current = {"plan": "free_trial"}      # no `portfolio_limit`
+        plan, _ = audit._read_limit(wire, acct)
+        gal, _ = audit._fill_past_the_limit(wire, acct, rows=9)
+        head, _ = audit._check_header(wire, acct, {"plan": plan, "gallery": gal})
+        assert head["verdict"] == "NO_LIMIT_STATED", head
+        lines = audit._render({"h": ({"plan": plan, "gallery": gal,
+                                     "header": head}, None)})
+        ceiling = [ln for ln in lines if "ceiling sentence" in ln]
+        assert len(ceiling) == 1, lines
+        # Nothing was measured, so the report must not name a verdict.
+        assert "names both" not in ceiling[0], (
+            "a ceiling this tool never read is not a sentence it can "
+            "describe: %s" % ceiling[0])
+        assert "no ceiling was stated" in ceiling[0], ceiling[0]
+        assert "not measured" in ceiling[0], ceiling[0]
+        # And the four `None`s beside it are the same silence, one row up.
+        contra = [ln for ln in lines if "header_contradicts" in ln][0]
+        assert "None" not in contra, (
+            "an unmeasured contradiction must print no verdict at all: %s"
+            % contra)
+    _run(body)
+
+
+@case("a REAL stated ceiling is still reported by name")
+def t_limit_still_rendered_by_name():
+    """The control, and the whole risk of the fix above.
+
+    Reading "did not read it" instead of "the report is broken" would also
+    silence every host that DID state a ceiling, which is the case this tool
+    exists to judge. If the new branch were too wide, this one fails.
+    """
+    def body(api):
+        wire = audit.Wire(api.HOST)
+        acct = _acct()
+        api.current = {"plan": "free_trial", "portfolio_limit": 5}
+        plan, _ = audit._read_limit(wire, acct)
+        gal, _ = audit._fill_past_the_limit(wire, acct, rows=9)
+        head, _ = audit._check_header(wire, acct, {"plan": plan, "gallery": gal})
+        # `.get`, not `[]`: the healthy branch never carries a `verdict` key at
+        # all -- its whole meaning is that there was nothing to excuse.
+        assert head.get("verdict") != "NO_LIMIT_STATED", head
+        assert head["header_contradicts"] is False, head
+        ceiling = [ln for ln in audit._render(
+            {"h": ({"plan": plan, "gallery": gal, "header": head}, None)})
+            if "ceiling sentence" in ln][0]
+        assert "no ceiling was stated" not in ceiling, ceiling
+        assert "names both" in ceiling or "takes only a limit" in ceiling, ceiling
+    _run(body)
+
+
+@case("the exit code ignores an unstated ceiling, as it ignores a healthy one")
+def t_no_limit_never_exits_one():
+    """`None` must not reach the exit decision the way a contradiction would.
+
+    `main` reads `head.get("header_contradicts")`, which is absent on this
+    branch. Pinned here so a future `bool(...)` coercion cannot turn a silent
+    host into a red audit against two live ones.
+    """
+    def body(api):
+        wire = audit.Wire(api.HOST)
+        acct = _acct()
+        api.current = {"plan": "free_trial"}
+        plan, _ = audit._read_limit(wire, acct)
+        gal, _ = audit._fill_past_the_limit(wire, acct, rows=9)
+        head, _ = audit._check_header(wire, acct, {"plan": plan, "gallery": gal})
+        assert not head.get("header_contradicts"), head
+        assert "verdict" in head and head["verdict"] == "NO_LIMIT_STATED", head
+    _run(body)
+
+
 def main():
     passed = failed = 0
     for name, fn in _results:
