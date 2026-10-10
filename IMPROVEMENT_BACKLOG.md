@@ -32988,3 +32988,98 @@ disagree about what an unmeasured field should do, and the census tool says
 unreadable file must. Those two policies are not reconciled, and reconciling
 them is the next thing worth doing — it is one decision, in one place, about
 what an audit reports when it cannot measure.
+
+---
+
+## Tick 10 Oct 2026 (3rd) — an UNSTATED ceiling was reported as a confident
+## verdict: the sibling branch of the fix an hour earlier
+
+**The premise of the open thread was WRONG, and measuring it found a real
+defect instead.** The previous tick closed by naming the "policy conflict"
+between two audits — the census emits `handover` and does not touch its exit
+code, the allowance audit now says an unreadable file must not file a
+contradiction — and proposed reconciling them as *one decision about what an
+audit reports when it cannot measure*. That reconciliation is a matter of
+taste between two tools that are **not actually in conflict**: the census's
+`unreadInLib` is measured **by the Dart and handed in**, so the Python side has
+nothing to assert and never claims to; the allowance audit reads the Dart
+itself and an unreadable file means its own reader failed. Different inputs,
+different owners, no shared rule to reconcile. **Closed as unfounded** rather
+than papered over with a doctrine.
+
+**What measuring it actually found — the same defect, one branch over.** The
+unreadable-declaration fix an hour before repaired `_check_header`'s
+`takes_count is None` arm. `_check_header` has a **second** early return, and
+`_render` never learned about either:
+
+`if not isinstance(limit, int): out["verdict"] = "NO_LIMIT_STATED"; return`
+
+That branch returns before `over_ceiling_line` is ever set, so the header dict
+holds **no measurement at all**. `_render` then fell through its chain to the
+last arm and printed, in the present tense:
+
+```
+header_contradicts: None (used 7 > limit None) | ...
+ceiling sentence is blind to the count: None (over by None) --
+  `portfolioFullLineAr` is handed the count and names both
+```
+
+**Four `None`s, then a full-sentence claim about the SHIPPED Dart**, as though
+it had been read. `check_ceiling_line` agrees with the report and disagrees
+with the truth: it returns `False` ("not blind") from a dict that never had
+the key.
+
+**Reachable, not a fixture artefact.** `_read_limit` sets `portfolio_limit` to
+`None` whenever the plan payload omits it — which is exactly what a server
+that drops or renames the field produces. Nothing about the Dart has to move.
+
+**Fourth occurrence of one shape** (1 Oct census, 9 Oct mirror, 10 Oct ×2), and
+the sharpest yet: not a reader whose vocabulary is too narrow, but a **renderer
+that turns a missing key into a confident sentence**. "This tool did not look"
+arriving as "this tool looked and found the screen fine."
+
+**Fix.** Both silences print as silences. `NO_LIMIT_STATED` gets its own arm
+above the `NOT READ` one, and the contradiction row says `NOT MEASURED -- no
+ceiling stated to contradict` instead of four `None`s. **The control is what
+stops this from being a fix that silences everything**: a host that DID state a
+ceiling is still named by name, pinned on the other side of the same pair.
+
+**Evidence.**
+- `python3 tool/portfolio_allowance_audit.py` → **AUDIT_EXIT=0** on the live
+  host, verdict unchanged: `blind: False`, *"`portfolioFullLineAr` is handed
+  the count and names both"*, `header_contradicts: False`.
+- `python3 test/portfolio_allowance_audit_test.py` → **50 passed, 0 failed**
+  (47 + 3). The defect case **failed on the unmodified tool**; the control and
+  the exit-code pin were green before and after, which is the point of them.
+- **4 mutations of the fix, 4 killed, 0 survived** — deleting the new arm,
+  inverting it, reverting the contradiction row, and dropping the previous
+  tick's `NOT READ` arm (4 of 5 failing tests). The first M1 attempt was a
+  malformed sed and produced a SyntaxError; it was redone as a real
+  neutralisation (`no_ceiling = False`) and killed properly. A mutation that
+  does not parse is not a mutation.
+- Siblings green: `portfolio_gallery_audit_test` **14**,
+  `agreement_census_audit_test` **81** (`Ran 81 tests … OK`), census live
+  `CENSUS_EXIT=0`.
+
+**Files:** `tool/portfolio_allowance_audit.py` (two render branches),
+`test/portfolio_allowance_audit_test.py` (+3 → 50).
+
+**Commits.** `a3fb01d` → remote `a53b33`, **IN SYNC on blob and mode** via
+`tool/remote_state.py --files`.
+
+**Dart gate denied for the 6th tick running** — 871 MB available against a
+900 MB floor, `Balloon: 4226 MB` held by the hypervisor and by nothing in this
+PID namespace. **Zero Dart touched**, so `flutter analyze` / `tool/run_tests.py`
+correctly did not run and the **2609 baseline is untouched**. Right item for a
+denied box: a pure-Python render defect.
+
+**Next.** Both backlog-named threads are now closed (one as unfounded). The
+open defect class is the **fourth occurrence of "did not look" arriving as
+"looked and found it fine"**, and it has now been found in `_render` twice in
+one day. The untried question is whether the same *renderer* pattern exists in
+the sibling audit tools — `worker_reviews_audit.py`,
+`notification_read_audit.py`, `inbox_read_audit.py` all build a human-facing
+report the same way. A **read-only sweep that greps each render path for a
+`else`-arm that can be reached with a key the producing function never set**
+is one tick, needs no Dart, and would say in one pass whether this defect stops
+at one file or is a house style.
