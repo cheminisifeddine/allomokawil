@@ -5417,6 +5417,88 @@ it is a correctness gap that duplicates a user's data.
 
 ## Completed
 
+## Tick 10 Oct 2026 (3rd) — `band_ink.py` called a readable red band blank
+## paper. **SHIPPED**
+
+**Item.** `tool/band_ink.py` — the next untested tool this loop had already
+named, after `contrast_audit.py` was given a battery on the previous tick — and
+not a read-only one. (tool/band_ink.py, test/band_ink_test.py)
+
+**A non-build tick taken on instruction.** The backlog has **no unchecked item
+left in any phase** (293 `[x]`, 3 `[~]` handoffs), so per this file's own note
+at the Phase 4 cold-start item a future tick should *"say so rather than invent
+work, and take a read-only audit or a handoff write-up."* Taken: the next
+untested tool this loop had already named, `tool/band_ink.py`.
+
+**It is not a read-only tool.** `test/empty_count_line_shot_test.dart` shells
+out to it, and **both** of that file's states assert on the number —
+`expect(bandInk, 0)` for the empty state and `greaterThan(100)` for the state
+that has a count. So a wrong answer is not cosmetic: the `0` assertion is
+satisfied by *anything* that reports nothing, and that is precisely what the
+defect below did.
+
+**Defect 1 — "ink, whatever colour it is" was a per-channel `AND`.** The
+predicate was `r < t and g < t and b < t + 20`. An `and` across three channels
+means any colour with one bright channel is invisible to it. Measured against
+the **real** theme file:
+
+| token | hex | contrast on white | old verdict |
+| --- | --- | --- | --- |
+| `danger` | C33F39 | **5.13:1** | **0 px — blank paper** |
+| `star` | B5790B | 3.68:1 | **0 px — blank paper** |
+| `accent` | E8A33D | 2.16:1 | 0 px — correct, it is a wash |
+
+`danger` at 5.13:1 is *past* the 4.5 body line. A band painted in it read as an
+empty one, and the Dart guard asserting `0` for "empty" could not tell the
+defect from the guard working. **The fix keeps the same boundary and asks a
+better question of each pixel**: relative luminance against white paper, reusing
+the maths `tool/contrast_audit.py` already owns. Grey 170 — the shipped
+default — has relative luminance **0.401978**, and every theme token falls on
+the correct side of it: all body and label text in, every wash / surface /
+hairline out. The old per-channel rule is kept as `--mode channel`, so the
+behaviour the tool had for a fortnight is a **choice, not a silent change**.
+
+**Defect 2 — `x_from` was never clamped; `y0`/`y1` were.** `ya`/`yb` go through
+`max(0, ..)` / `min(height, ..)` and `xa` did not. A negative fraction gave a
+negative `xa`, and Python's negative indexing counted those pixels a **second
+time**: on ink at x0-49 of a 100 px row, `x_from=-0.6` answered **600** where
+the truth is 500. Both axes are clamped now.
+
+*Evidence.* `python3 test/band_ink_test.py` -> **19/19, exit 0**, checking the
+real tool and the real `app_theme.dart`, never a fixture of the tool's own
+opinion: case 11 walks every token at or above 4.5:1 and case 12 every one
+below 3.0:1, so a token added tomorrow is covered by construction.
+**Against the unfixed tool it is 11/16**, exactly the five defect cases.
+**7 mutations, 7 killed, 0 survived**: undo the `x` clamp, swap luminance back
+to the per-channel `and`, drop the `y` clamps, silently ignore `--mode`,
+hardcode the limit instead of reading `threshold`, drop the `y1` clamp, ignore
+`xa` entirely.
+`flutter analyze` -> **No issues found!** (9.6 s). Zero `.dart` changed, so
+the Dart baseline is untouched and **no suite count is claimed**
+(`run_tests.py` is 48 min). Siblings green: pngscan 9/9, label_fit, build_gate
+36/36, loop_protocol 29/29, remote_state, tap_target 15/15, contrast_audit.
+
+**Three of my own errors, all recorded because each one looked like the tool
+passing.**
+1. The first battery asserted `100` for the band `0.0-0.1` of a **10-row**
+   image — one row, so 10. It "failed" a tool that was right: an assertion
+   written against an assumed geometry, which is the exact error class this
+   file keeps recording against others.
+2. The first mutation harness replaced only the **first** occurrence of each
+   pattern. `range(max(0, xa), width)` appears **twice** (once per mode), so
+   M1 mutated the `channel` branch, left the live one alone, and **all 7
+   mutations reported SURVIVED** — the harness lying, not the battery. Fixed to
+   replace every site and print the site count.
+3. Case 10a survived M3 for two rounds because **ink only at the top answers
+   1000 either way** — clamping reads rows 0-9, wrapping reads rows 50-59 and
+   0-9, and the two agree on the ink they share. It only distinguishes them
+   once the rows a wrap *lands on* carry different ink. That is the clamp being
+   tested in the one direction it cannot fail.
+
+**Still needs you:** this job's prompt says `Repo: /home/renia/allomokawil`,
+which does not exist on this host. I worked in `/home/hatch/allomokawil`.
+Repoint the job — only you can.
+
 ## Tick 10 Oct 2026 (2nd) — `contrast_audit.py`, the tool the loop cites ~40 times,
 ## could report GREEN on a palette that fails. **SHIPPED**
 
