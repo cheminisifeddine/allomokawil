@@ -61,6 +61,14 @@ correctness gap — never a refactor for its own sake. One item per loop.
       directly against the edit: **zero** wall-clock reads, not even in prose.
       This tick re-checks the gate on the next pass.
 
+      **The fix shipped and then immediately audited itself.** `9af8dc2` (remote
+      `f067204`) — the first push ever to run through `verify_push`, which
+      printed `VERIFIED: 2 file(s) match the remote on CONTENT and MODE`.
+      Confirmed by the *independent* verifier rather than the helper's own
+      word: `remote_state.py --files` -> `MATCH` on both, blob AND mode, and
+      `remote_state.py` -> `IN SYNC: identical tree`. The push the helper
+      verifies is now the same push its caller can verify.
+
 - [x] **The notification centre's "you have more than this list" band was
       gated off by the very condition it exists to report — and shipping it
       first proved a defect nobody had run.**  `1d67787` (remote `d73b55a`,
