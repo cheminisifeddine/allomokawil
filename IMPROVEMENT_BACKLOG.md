@@ -7,6 +7,67 @@ the **top unchecked item in phase order**, ships it, and ticks it.
 Rules for what belongs here: a real user-visible improvement or a real
 correctness gap — never a refactor for its own sake. One item per loop.
 
+- [x] **The census tool could not see a THIRD pin on the same census — the one
+      that asserts the reader has no hole in it.**  `fa97d02` (remote
+      `dbba21f`, tree IN SYNC, verified by `remote_state.py` on content AND
+      mode).
+      The carry-over from the last two ticks was the two stale pins in
+      `agreement_comment_test.dart`. Measuring them exposed a defect one
+      layer under: `read_pins` read only `census.<field>.length`, and the
+      Dart file carries THREE pins on this census — `direct`=20,
+      `surface`=25, and `expect(census.unreadInLib, 0, …)` — so the third
+      was read by **nothing**, on every run, while the tool printed a
+      confident `pins found in the Dart file: direct=20, surface=25` and
+      went on to judge the other two.
+      Same failure the portfolio-allowance audit shipped on 9 Oct, one
+      layer over: a reader whose vocabulary is narrower than the tree it
+      grades, so what it cannot see reads as ABSENT rather than as
+      UNMEASURED. The stakes are worse here than a stale number, because
+      the unseen pin asserts **no claim-shaped sentence in `lib/` is
+      unreadable** — the single statement that the reader has no hole in
+      it. That number is Dart's to check; this tool exists to predict it
+      and had been blind to the assertion itself.
+      And `read_pins`' own docstring promised "a missing pin is reported
+      rather than ignored" — a promise it structurally could not keep, so
+      the guard's defence was decoration.
+      **Fix.** `VALUE_PIN_RE` reads the plain-field shape for the fields
+      NAMED in `VALUE_FIELDS` and only those; a `.length` pin is never
+      overwritten by the loose pass, so the value cannot depend on regex
+      order.
+      **Measured, not computed here.** `unreadInLib` is registered in
+      `MEASURED_AS` but the tool does **not** fill it: counting it needs
+      `_lineClaims` — eleven claim shapes plus a label reader with a
+      bracket walk — and re-implementing that in Python is the one thing
+      this file must never do, three backlog items having established what
+      a second reader of one vocabulary costs. So the pin is a THIRD
+      verdict, not a kind of drift: `handover`. Neither drift (no number
+      disagrees) nor agreement (no number compared), on its own line, and
+      it does **not** touch the exit code — a pin Dart measures must not
+      make this tool red on a host where Dart cannot run. The report's
+      headline now says "every pin this tool **measures** agrees" under a
+      handover; "every pin agrees" beside a pin never measured is the
+      blindness in its most quotable form.
+      *Live on the real tree:* pins `direct=20, surface=25` →
+      `direct=20, surface=25, unreadInLib=0`; handover
+      `[unreadInLib pinned 0]`; drift still `[direct, surface]`; **EXIT
+      1 → 1** (the two stale Dart pins, untouched, still Dart's to change).
+      `python3 test/agreement_census_audit_test.py` -> **81 passed, 0
+      failed** (71 + 10). **6 mutations, 6 killed, 0 survived**: dropping
+      the plain-field read (the pre-fix state), skipping a 0-valued pin,
+      dropping the field whitelist, never computing the handover, printing
+      "every pin agrees" beside an unmeasured pin, forgetting the field
+      in `MEASURED_AS`. **One of the ten plants caught a wrong test,
+      not a wrong fix** — it asserted `census.routed.length`, a genuine
+      `.length` pin correctly read, while asking about the LOOSE shape;
+      corrected to `census.unread` with the strict-shape half pinned
+      beside it.
+      Siblings green: gallery, inbox, notification, reviews, remote_state,
+      build_gate 32/32, loop_protocol 9/9, push_helper, pngscan, numeric
+      bounds 48. Dart gate denied at **844 MB** against the 900 MB floor,
+      balloon **5095 MB** — No Dart changed, so `flutter analyze` and
+      `run_tests.py` are correctly skipped and the 2609 baseline is
+      untouched.
+
 - [x] **The portfolio-allowance audit judged FIXED Dart as blind — both live
       hosts stayed red on a defect closed days earlier.**  `d31d250` (remote
       `7abc6db`, tree IN SYNC, verified by file hash).
