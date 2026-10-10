@@ -174,6 +174,102 @@ def _ids_silence():
     assert text.count("NOT MEASURED") >= 2, text
 
 
+# ------------------------------------------------- defect 3: named, never seen
+
+
+@case("the real tree examines all seven tools (no renderer is skipped)")
+def _no_tool_is_unread():
+    """The allowlist defect: two of seven tools read `NO RENDERER` forever.
+
+    `agreement_census_audit` and `numeric_bound_audit` both name their
+    renderer `render`, which matched none of `_render`/`_report`/`_lines`.
+    The sweep reported them as having no renderer and moved on -- identical
+    in the output to the five it had read. Coverage that reports itself as
+    coverage while skipping work is the failure this whole file is about.
+    """
+    hits = sweep_mod.sweep(os.path.join(REPO, "tool"))
+    skipped = [h["tool"] for h in hits if h["verdict"] == "NO RENDERER"]
+    assert skipped == [], ("tools the sweep never examined: %s" % skipped)
+    examined = sorted({h["tool"] for h in hits if h["verdict"] == "ARM"})
+    assert examined == sorted(sweep_mod.SIBLINGS), (
+        "only %d of %d tools produced arms; missing %s"
+        % (len(examined), len(sweep_mod.SIBLINGS),
+           sorted(set(sweep_mod.SIBLINGS) - set(examined))))
+    assert len(hits) >= 27, (
+        "expected the arms the two hidden tools contribute (27 after the "
+        "fix, 14 before it); got %d -- discovery silently narrowed again"
+        % len(hits))
+
+
+@case("a renderer named `render` is found, whatever the author called it")
+def _shape_not_name():
+    """Positive control: the fixed sweep sees the name it used to skip."""
+    tmp = tempfile.mkdtemp(prefix="rendersilence-shape-")
+    try:
+        _copy_tree(tmp)
+        hits = sweep_mod.sweep(tmp)
+        for name in ("agreement_census_audit", "numeric_bound_audit"):
+            assert any(h["tool"] == name and h["verdict"] == "ARM" for h in hits), (
+                "%s still reports no renderer" % name)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@case("renaming a renderer to an unknown name does not hide it (the defect)")
+def _rename_is_caught():
+    """The mutation. Rename `_render` -> `weird_name_xyz` and the arms must
+    survive, because discovery reads shape. Under the old allowlist this
+    dropped the tool to NO RENDERER and the arms vanished silently."""
+    tmp = tempfile.mkdtemp(prefix="rendersilence-rename-")
+    try:
+        _copy_tree(tmp)
+        path = os.path.join(tmp, "inbox_read_audit.py")
+        src = open(path, encoding="utf-8").read()
+        assert src.count("def _render(") == 1, "expected one _render definition"
+        open(path, "w", encoding="utf-8").write(
+            src.replace("def _render(", "def zzz_unexpected_name(", 1))
+        hits = [h for h in sweep_mod.sweep(tmp) if h["tool"] == "inbox_read_audit"]
+        assert hits and all(h["verdict"] == "ARM" for h in hits), (
+            "renaming the renderer hid it -- arms=%r" % hits)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@case("a module with no renderer at all still reports NO RENDERER")
+def _genuinely_silent_module():
+    """The other half of the control. The fix must not become 'every tool
+    matches' -- a module that builds no report list is still uncovered, and
+    saying so is the honest output."""
+    tmp = tempfile.mkdtemp(prefix="rendersilence-empty-")
+    try:
+        _copy_tree(tmp)
+        open(os.path.join(tmp, "numeric_bound_audit.py"), "w", encoding="utf-8").write(
+            'def measure(root):\n    return {"a": 1}\n\n'
+            'def verdict(m):\n    return {"ok": True}\n')
+        hits = sweep_mod.sweep(tmp)
+        row = [h for h in hits if h["tool"] == "numeric_bound_audit"]
+        assert row and row[0]["verdict"] == "NO RENDERER", (
+            "a renderer-less module was given arms it does not have: %r" % row)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@case("appends to a list but returns something else is not a renderer")
+def _half_the_shape_is_not_a_renderer():
+    """`loose_surface()` appends to `out` and returns `sorted(...)`. Half the
+    shape must not qualify, or `measure()`/`verdict()` would flood the report."""
+    import ast as _ast
+    src = ('def half_shape():\n'
+           '    out = []\n'
+           '    out.append("a claim long enough to count as an arm")\n'
+           '    return sorted(out)\n')
+    tree = _ast.parse(src)
+    assert sweep_mod._renderers(tree) == [], "half the shape was accepted"
+    # ...and the full shape is accepted, so the case is not vacuous.
+    full = _ast.parse(src.replace("return sorted(out)", "return out"))
+    assert len(sweep_mod._renderers(full)) == 1, "the full shape was rejected"
+
+
 def main():
     failed = 0
     for name, fn in _results:

@@ -59,6 +59,46 @@ SIBLINGS = (
 )
 
 
+def _renderers(tree):
+    """Every renderer in the module, found by SHAPE rather than by name.
+
+    **The defect this fixes.** Discovery was an allowlist of three names:
+    `_render`, `_report`, `_lines`. A tool that names its renderer `render`
+    matched none of them, so the sweep filed `NO RENDERER` and moved on --
+    which is the "this tool did not look" outcome arriving as a coverage
+    report. Two of seven tools (`agreement_census_audit`,
+    `numeric_bound_audit`) were never examined for the entire life of this
+    sweep, and nothing in the output said so: they read exactly like the five
+    tools it *had* read. Same shape as the two defects this file already
+    fixed -- a check that could not see the thing it exists to find, satisfied
+    by the absence of a finding.
+
+    **The shape.** A renderer builds a list of report lines and returns that
+    same list. That is structural: it holds whether the author spelled it
+    `_render`, `render`, `_report` or `lines`, and it does not depend on a
+    spelling this file has to keep in step with someone else's.
+
+    Deliberately NOT "returns a list" -- `measure()` and `verdict()` also
+    return containers, and a hit on those would be noise. The test is the pair:
+    appends to a name, and returns that same name. `loose_surface()` in
+    `agreement_census_audit` passes half of it and is correctly not a renderer.
+    """
+    out = []
+    for fn in tree.body:
+        if not isinstance(fn, ast.FunctionDef):
+            continue
+        appended = set()
+        for sub in ast.walk(fn):
+            if (isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
+                    and sub.func.attr == "append" and isinstance(sub.func.value, ast.Name)):
+                appended.add(sub.func.value.id)
+        returned = {s.value.id for s in ast.walk(fn)
+                    if isinstance(s, ast.Return) and isinstance(s.value, ast.Name)}
+        if appended & returned:
+            out.append(fn)
+    return out
+
+
 def _arm_lines(fn_node):
     """The reporting arms of a function: every `if` that guards emitted text.
 
@@ -104,14 +144,13 @@ def sweep(tool_dir=None):
                          "detail": "syntax error: %s" % exc})
             continue
 
-        renderers = [n for n in tree.body
-                     if isinstance(n, ast.FunctionDef)
-                     and n.name in ("_render", "_report", "_lines")]
+        renderers = _renderers(tree)
         guards = [n for n in tree.body
                   if isinstance(n, ast.FunctionDef) and n.name == "_another_writer_is_building"]
         if not renderers:
             hits.append({"tool": name, "verdict": "NO RENDERER",
-                         "detail": "no _render/_report to read"})
+                         "detail": "no function appends to a list and returns "
+                                   "that list -- a module with no renderer"})
             continue
 
         # The polarity check that matters most: the guard's own name says "is a

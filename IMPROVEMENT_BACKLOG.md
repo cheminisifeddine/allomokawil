@@ -33180,3 +33180,78 @@ That adjudication is the next read-only item, and it needs no Dart. It also owes
 and were therefore never read by the sweep — two of seven tools are unexamined
 because their reports are built outside a `_render`, which is the same blind spot
 one level up.
+
+---
+
+## Loop tick — render-silence sweep, coverage defect (the two tools it never read)
+
+**The item last tick left open.** The sweep shipped reading
+`_render`/`_report`/`_lines`. `agreement_census_audit` and
+`numeric_bound_audit` both name theirs **`render`**, matched none of those
+three, and were reported `NO RENDERER` — printed in the same column, same
+weight and same certainty as the five tools it *had* examined. For the entire
+life of the sweep, **two of seven tools were never read**, and the output said
+"7 tools, 14 reporting arms, 0 inverted guards" exactly as it would have if
+the sweep were complete. Coverage reporting itself as coverage while skipping
+work is the failure this file exists to catch, one level up.
+
+**Fixed by shape, not by another name.** Discovery now accepts *any* function
+that appends to a name and returns that same name:
+
+```python
+if appended & returned:          # _renderers(), structural
+```
+
+Deliberately **not** "returns a list": `measure()` and `verdict()` also return
+containers and would flood the report, and `loose_surface()` in
+`agreement_census_audit` — which appends to `out` and returns `sorted(out)` —
+correctly stays out. The pair is the discriminator, and the case pinning that
+is not vacuous.
+
+**Adjudication of the 13 arms it had never shown anyone — result: both tools
+are clean.** Not "no arms found", read: `agreement_census_audit` prints
+`READ, NOT MEASURED HERE` for pins it cannot count and refuses to invent a
+number beside two it did; `numeric_bound_audit` separates three states that
+are easy to conflate — `PARSER NOT FOUND`, `** BOUND UNREADABLE **` (a roof
+exists and this tool cannot evaluate it, explicitly "NOT reported as a
+defect") and `-- NO ROOF --`. Both index with **strict subscript** (26 and 17
+distinct keys), so an absent key raises instead of printing `None`. No arm in
+either tool prints an absent measurement in the grammar of a measured one. The
+27 arms are now all adjudicated: **0 defects, 2 tools newly covered.**
+
+**Evidence (real output)**
+- `python3 test/render_silence_audit_test.py` -> **13/13 passed** (was 8).
+- **Sweep: 14 arms -> 27 arms**, and the header count now means what it says:
+  `render-silence sweep: 7 tools, 27 reporting arms, 0 inverted guards`. Both
+  blind tools contribute 13; `loose_surface` contributes 0, as it must.
+- **Mutations, both killed, both naming the defect.**
+  (a) revert to the old three-name allowlist -> **3 cases red**, one printing
+  `tools the sweep never examined: ['agreement_census_audit',
+  'numeric_bound_audit']`, another printing a renderer-less module for
+  `inbox_read_audit` after its rename. (b) weaken the rule to "appends to a
+  list" alone -> **1 case red**, `half the shape was accepted`.
+- **Controls green both ways**, which is what stops this being a fix that
+  silences everything: a renderer-less module still reports `NO RENDERER`, a
+  renamed renderer keeps its arms, and the four pre-existing cases
+  (inverted guard, gap silence, ids silence, healthy-numbers control) all hold.
+- Siblings green: `worker_reviews_audit_test` **7**,
+  `notification_read_audit_test` **11**, `inbox_read_audit_test` **11**,
+  `portfolio_allowance_audit_test` **50**, `portfolio_gallery_audit_test`
+  **14**.
+
+**Dart gate denied for the 8th tick running** — 662 MB available against a
+900 MB floor (`Balloon` memory held by the hypervisor, nothing in this PID
+namespace). **Zero Dart touched**, so neither `flutter analyze` nor
+`tool/run_tests.py` was started and the **2609 baseline is untouched**. Right
+item for a denied box: a pure-Python coverage defect, which is what this was.
+
+**Files:** `tool/render_silence_audit.py` (discovery by shape),
+`test/render_silence_audit_test.py` (+5 cases, 8 -> 13),
+`IMPROVEMENT_BACKLOG.md`.
+
+**Next.** All 27 arms are adjudicated and every tool is now covered, so the
+sweep's remaining weakness is what it always was: it finds arms, it cannot
+read them. Its string filter still drops any arm whose branch prints only
+short strings (`len > 12`), so a verdict-shaped `if` printing `"none"` stays
+invisible — the same threshold that produced this file's two earlier wrong
+answers. Worth a case that measures the filter's recall rather than assuming it.
