@@ -76,11 +76,30 @@ takes that branch instead, so the starvation verdict was being judged by a
 line a foreign process could suppress.
 
 A test whose answer depends on what else is running is not testing the thing
-it names, and worse, it fails *and* lies about why. So the suite now
-measures a **baseline** before it spawns anything and neutralises exactly the
-leaks it did not create:
+it names, and worse, it fails *and* lies about why. So the suite neutralises
+exactly the leaks it did not create:
 
-    _FOREIGN = every pid the gate already classifies as a leak at startup
+    foreign = every pid the gate classifies as a leak right now,
+              MINUS every pid this suite has spawned
+
+**The baseline is recomputed before EVERY gate invocation, not once at
+import.** Measured 10 Oct 2026, on the very case below: a first green run
+came back 31/32, failing `no Balloon: field -> still refused`, while a
+*foreign* headless Chrome (pid 21259, port 9333, `/tmp/chrome-cheikh-9333`)
+had started ten seconds before the run and was gone by the next one. The
+snapshot version read `_FOREIGN` at import, so a leak that appeared after
+import was, to the suite's own gate, indistinguishable from a fixture the
+suite had spawned -- and it decided the verdict. "Passed on retry" is not
+"cannot fail for that reason"; a baseline frozen once is a baseline that is
+wrong for every leak born after it.
+
+Recomputing per invocation is what makes the neutralisation honest, and it
+needs the second half: **our own pids are subtracted**, or the live baseline
+would swallow the very leaks the arms under test exist to catch. A
+reparented `flutter_tester` this suite spawned IS a real leak and MUST still
+be named -- so every spawn path (`spawn`, `_armed_browser`, `_spawn_orphan`)
+registers its pid in `_OWNED` and the subtraction is by ownership, not by
+recency.
 
 `_isolated_src()` returns the gate with one guard per leak arm -- return
 False for a pid in `_FOREIGN` -- and every case runs that copy. Nothing else
@@ -154,10 +173,30 @@ def _is_tester_process(mod, pid):
             or comm == 'dart' and 'flutter_tester' in ident)
 
 
+# Every pid THIS SUITE has spawned, in any fixture, for the whole run.
+# Ownership, not recency: the leak arms must still fire on our own orphans,
+# or "neutralise the neighbours" would quietly become "neutralise everything"
+# and the suite would pass with the detectors switched off.
+_OWNED = set()
+
+
+def _owned(pid):
+    if pid is not None:
+        _OWNED.add(int(pid))
+    return pid
+
+
 def _foreign_leaks():
 
-    """Every pid the gate ALREADY calls a leak, before this suite spawns
-    anything -- i.e. another session's process, never ours."""
+    """Every pid the gate ALREADY calls a leak that this suite did NOT start.
+
+    Called immediately before each gate invocation rather than cached at
+    import -- see the module docstring for the run that proved the frozen
+    version wrong. `_OWNED` is subtracted so the arms under test still fire
+    on our own fixtures; without that subtraction the live baseline would
+    be a strictly larger blank cheque than the frozen one and would break
+    cases 4b, 9, 12 and 14.
+    """
     mod = _gate_module()
     out = set()
     for entry in os.listdir('/proc'):
@@ -175,10 +214,14 @@ def _foreign_leaks():
         # thing the tester arm exists to catch.
         if mod._is_leaked_tester(pid) and _is_tester_process(mod, pid):
             out.add(pid)
+    out -= _OWNED
     return out
 
 
-_FOREIGN = _foreign_leaks()
+# Kept only for the closing report line, so the report can say what the box
+# looked like when the suite STARTED. It is deliberately not the set the
+# isolated gate is built from -- that one is live, per invocation.
+_FOREIGN_AT_START = _foreign_leaks()
 # Every fixture this suite writes goes in ITS OWN directory, not in
 # `tempfile.gettempdir()`'s root. That is not tidiness -- it is a correctness
 # fix, and it was found by a suite that had been reporting the same 12
@@ -226,7 +269,9 @@ def _isolated_src():
             head,
             head + "\n    if pid in _FOREIGN_PIDS:\n        return False",
             1)
-    banner = "_FOREIGN_PIDS = frozenset(%r)\n" % (sorted(_FOREIGN),)
+    # LIVE, not the import-time snapshot: this function is called on every
+    # `_run()` (see `_isolated_path`), so the baseline moves with the box.
+    banner = "_FOREIGN_PIDS = frozenset(%r)\n" % (sorted(_foreign_leaks()),)
     return banner + out
 
 
@@ -239,6 +284,11 @@ def _isolated_path():
     green, and a second concurrent run could measure the first run's copy.
     A stale-fixture bug in a test of a *detector* is worse than no test --
     it is a test that certifies a broken detector. Two lines, unconditional.
+
+    Regenerating is what carries the LIVE foreign baseline: `_isolated_src`
+    re-scans for leaks on the way through, so every invocation gets the box
+    as it is at that moment rather than as it was when this file was
+    imported.
     """
     body = _isolated_src()
     with open(_ISOLATED, "w", encoding="utf-8") as fh:
@@ -247,10 +297,19 @@ def _isolated_path():
 
 
 def _foreign_note():
-    if not _FOREIGN:
-        return "box clean at startup"
-    return ("%d foreign leak(s) neutralised: %s"
-            % (len(_FOREIGN), ", ".join(str(p) for p in sorted(_FOREIGN))))
+    """The closing report line: what the box looked like at START, and what
+    is being neutralised NOW. Two numbers, because the gap between them is
+    the thing this cycle fixed -- a baseline frozen at import cannot see a
+    leak that starts later, and that gap is exactly what decided a real
+    case in a real run."""
+    now = _foreign_leaks()
+    parts = []
+    parts.append("box clean at startup" if not _FOREIGN_AT_START
+                 else "%d foreign leak(s) at startup" % len(_FOREIGN_AT_START))
+    parts.append("0 foreign live (baseline recomputed per invocation)"
+                 if not now else "%d foreign leak(s) live: %s"
+                 % (len(now), ", ".join(str(p) for p in sorted(now))))
+    return "; ".join(parts)
 
 
 results = []
@@ -284,9 +343,9 @@ def build_busy_jvm():
     return d
 
 
-def _run():
-    return subprocess.run(["python3", _isolated_path()], capture_output=True,
-                          text=True, cwd=REPO)
+def _run(gate=None):
+    return subprocess.run(["python3", gate or _isolated_path()],
+                          capture_output=True, text=True, cwd=REPO)
 
 
 def _free_port():
@@ -328,8 +387,8 @@ def _in_tree(pid, root):
     return False
 
 
-def check(label, expect):
-    r = _run()
+def check(label, expect, gate=None):
+    r = _run(gate)
     ok = r.returncode == expect
     results.append(ok)
     print(("PASS  " if ok else "**FAIL**  ")
@@ -342,6 +401,9 @@ def check(label, expect):
 def spawn(argv, **kw):
     p = subprocess.Popen(argv, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, **kw)
+    # Registered BEFORE the first `check()`, so a leak that only becomes one
+    # after its parent exits is still ours and never neutralised against us.
+    _owned(p.pid)
     time.sleep(0.8)
     return p
 
@@ -458,6 +520,10 @@ class _armed_browser(object):
             if ("--remote-debugging-port=%d" % self.port) in _cmdline_of(pid):
                 self.pid = pid
                 break
+        # Before any assertion: cases 9 and 12 both assert that the gate
+        # NAMES this browser, and the live foreign baseline subtracts owned
+        # pids precisely so that assertion can survive its own existence.
+        _owned(self.pid)
         return self
 
     def reap(self):
@@ -491,6 +557,85 @@ class _armed_browser(object):
                 shutil.rmtree(self.profile, ignore_errors=True)
         # Never swallow the case's exception: this exists to guarantee the
         # cleanup, not to make a failing case look like a passing one.
+        return False
+
+
+class _foreign_browser(object):
+    """A process the REAL gate classifies as a leaked headless browser, for
+    ~6 MB instead of ~200 MB.
+
+    Cases 9 and 12 spawn a real Chromium, which is right for them: the claim
+    is about a real browser and a real debugging port. This fixture exists for
+    the opposite claim -- *a leak this suite did not start must not decide a
+    verdict* -- and on a box sitting at 730 MB of 7935 with no swap, paying
+    200 MB to prove it is how the suite starves the very gate it is testing.
+    Measured on this box: a real reparented Chromium is 199-200 MB PSS; this
+    is 5.6 MB.
+
+    It is honest about being a stand-in, because it only ever borrows the
+    three things `_is_leaked_browser` reads: `argv[0]` whose basename is in
+    the gate's browser list, a `--remote-debugging-port=` it can parse, and a
+    PPID of 1 from a real double fork. Nothing here asserts the gate can
+    debug-drive a browser -- cases 9 and 12 do that, with the real binary.
+    Verified against the shipped gate before it was trusted: `_debug_port`
+    returns the port, `_looks_like_browser` returns True, `_is_leaked_browser`
+    returns True.
+    """
+
+    def __init__(self, tag, wait=2.0):
+        self.tag = tag
+        self.pid = None
+        self.port = None
+        self.wait = wait
+
+    def __enter__(self):
+        self.port = _free_port()
+        marker = "--remote-debugging-port=%d" % self.port
+        hold = os.path.join(_SUITE_TMP, "foreign_%s_hold.py" % self.tag)
+        with open(hold, "w") as fh:
+            fh.write("import time\ntime.sleep(60)\n")
+        mid = os.path.join(_SUITE_TMP, "foreign_%s_mid.py" % self.tag)
+        with open(mid, "w") as fh:
+            fh.write("import os, sys\n"
+                     "os.setsid()\n"
+                     "pid = os.fork()\n"
+                     "if pid > 0:\n"
+                     "    sys.exit(0)\n"
+                     "os.execv(sys.executable, sys.argv[1:])\n")
+        # argv[0] is the bare name `chrome`: the gate tests
+        # `basename(argv[0])` in its browser list, so this is the one field
+        # that has to be borrowed, and it costs nothing.
+        subprocess.Popen([sys.executable, mid, "chrome", hold, marker],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            for entry in os.listdir('/proc'):
+                if not entry.isdigit():
+                    continue
+                pid = int(entry)
+                cmd = _cmdline_of(pid)
+                if marker in cmd and cmd.split()[:1] == ["chrome"]:
+                    self.pid = pid
+                    break
+            if self.pid:
+                break
+            time.sleep(0.1)
+        # DELIBERATELY NOT registered in `_OWNED`, and the first version of
+        # this fixture got that wrong in the instructive direction: the suite
+        # came back 31/36 with this case failing, because registering it as
+        # owned made `_foreign_leaks()` subtract it -- so the one process
+        # standing in for *another session's* leak was treated as *our* leak
+        # and left to decide the verdict. That is the exact inversion the
+        # `_OWNED` subtraction exists to prevent, reached from the other
+        # side: ownership marks what the arms must still SEE, and this
+        # process is the one thing in the suite that must be neutralised.
+        # It is not ours -- it stands in for a neighbour's -- so it does not
+        # belong in the set whose leaks are ours.
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self.pid is not None:
+            _force_gone(self.pid)
         return False
 
 
@@ -564,6 +709,58 @@ def _ballooned_gate(mem_avail_kb, balloon_kb, tag):
     with open(out_py, "w") as fh:
         fh.write(patched)
     return out_py
+
+
+def _roomy_gate():
+    """The isolated gate on a fixture with memory to spare.
+
+    The mirror of `_starved_gate()`, and it exists for the same reason with
+    the sign flipped. Four cases assert a **global** verdict -- "nothing is
+    building -> CLEAR" -- and on this box the box itself decides them: the
+    floor is 900 MB, the suite's own real Chromium holds ~200 MB, and a run
+    measured at 893/875/801/799 MB available therefore answers NO ROOM, which
+    is the gate being CORRECT and the case failing for a reason that has
+    nothing to do with the arm.
+
+    Measured today, same tree, same code: **32/36** with the live box and
+    **36/36** with this fixture, no logic changed on either side. That is
+    what makes this a fix and not a lowering of the bar -- the assertion
+    still demands exit 0 from the real arms, and the only thing that stops
+    being asserted is the hypervisor's memory.
+
+    This is not a new idea in this file; case 8 already refused the same
+    global on the same grounds ("at that point NO ROOM is the *correct*
+    answer and tells you nothing about leak detection. What this case
+    actually claims is narrower"). Those cases were rewritten to assert the
+    arm; these four assert a verdict, so the honest way to keep them is to
+    remove the box from them rather than delete the claim.
+
+    Written at the TEXT level like every other fixture here, so the real
+    parse path and the real kB units stay in the loop.
+    """
+    if not os.path.exists('/proc/meminfo'):
+        return None
+    fixture = os.path.join(_SUITE_TMP, "gate_meminfo_roomy")
+    raw = open('/proc/meminfo').read()
+    line = [l for l in raw.split("\n") if l.startswith("MemAvailable:")]
+    if not line:
+        return None
+    # 4194304 kB = 4 GB, comfortably over the 900 MB floor.
+    raw = raw.replace(line[0], "MemAvailable:        4194304 kB")
+    with open(fixture, "w") as fh:
+        fh.write(raw)
+    src = _isolated_src()
+    patched = src.replace(
+        "def _read(path):",
+        "def _read(path):\n"
+        "    if path == '/proc/meminfo':\n"
+        "        return open(%r).read()\n" % fixture, 1)
+    if patched == src:
+        return None
+    out = os.path.join(_SUITE_TMP, "gate_roomy_build_gate.py")
+    with open(out, "w", encoding="utf-8") as fh:
+        fh.write(patched)
+    return out
 
 
 def _is_starved(stdout):
@@ -661,15 +858,23 @@ def _spawn_orphan(binary):
             try:
                 if open('/proc/%d/comm' % pid).read().strip() == \
                         'flutter_tester' and ppid_of(pid) == 1:
-                    return pid
+                    return _owned(pid)
             except (IOError, OSError, ValueError):
                 continue
     return None
 
 
 def main():
+    # Built once, used by every case whose claim is a global verdict rather
+    # than an arm. `None` only if this host has no /proc/meminfo to rewrite,
+    # in which case those cases fall back to the live box exactly as before.
+    roomy = _roomy_gate()
+    if roomy is None:
+        print("  (no /proc/meminfo: the global-verdict cases will read the "
+              "live box and may fail on a starved host)")
+
     print("1) clean box")
-    check("no build -> CLEAR", 0)
+    check("no build -> CLEAR", 0, gate=roomy)
 
     print("\n2) an idle JVM (a Gradle daemon parked between builds)")
     # `java` on a missing class starts, complains and exits -- too short to
@@ -679,7 +884,7 @@ def main():
     if os.path.exists(JAVA):
         p = spawn([JAVA, "-cp", "/tmp", "-version"])
         time.sleep(1.2)
-        check("idle JVM -> CLEAR (a daemon is not a build)", 0)
+        check("idle JVM -> CLEAR (a daemon is not a build)", 0, gate=roomy)
         p.kill()
         p.wait()
         time.sleep(0.3)
@@ -777,7 +982,7 @@ def main():
         time.sleep(0.3)
 
     print("\n5) back to clean")
-    check("after cleanup -> CLEAR", 0)
+    check("after cleanup -> CLEAR", 0, gate=roomy)
 
     print("\n6) a starved box with nothing building (2 cores, no swap)")
     starved = _starved_gate()
@@ -877,7 +1082,7 @@ def main():
                 _b9.reap()
                 # The reaped box must come back to CLEAR, or this arm cannot
                 # tell a real leak from a permanent "busy".
-                check("after reaping the browser -> CLEAR", 0)
+                check("after reaping the browser -> CLEAR", 0, gate=roomy)
         time.sleep(0.3)
     else:
         print("  SKIP (no chromium)")
@@ -1390,6 +1595,77 @@ def main():
         results.append(c_ok)
         print(("PASS  " if c_ok else "**FAIL**")
               + "a 64 MB balloon does not explain a 475 MB shortfall")
+
+    print("\n17) a leak born MID-RUN must not decide any case's verdict")
+    # The frozen-baseline bug, kept as a test.
+    #
+    # 10 Oct 2026: a first run came back 31/32, failing `no Balloon: field ->
+    # still refused, host NOT invented`, while a FOREIGN headless Chrome
+    # (pid 21259, port 9333, `/tmp/chrome-cheikh-9333`) had started 10 s
+    # before the run and was gone by the next. It passed standalone and on
+    # re-run, which is the worst possible shape: green on retry, still able
+    # to fail for that reason. `_FOREIGN` was read once at import, so a leak
+    # born after import looked exactly like a fixture this suite had spawned,
+    # and it decided six cases at once.
+    #
+    # The mechanism being tested, precisely: a leak that exists NOW must be
+    # neutralised, and one this suite owns must NOT be. Both halves are
+    # asserted on the same gate copy, because a fix that only re-scans (and
+    # stops excluding our own) would silence every arm in the suite.
+    f17a = _foreign_browser("mid")
+    with f17a:
+        if f17a.pid is None:
+            print("  **FAIL** no foreign stand-in to test with")
+            results.append(False)
+        else:
+            mod17 = _gate_module()
+            # Provenance first: if the real gate does not call this a leak,
+            # the whole case is meaningless, so assert the fixture is real
+            # before asserting anything about the suite's reaction to it.
+            real = mod17._is_leaked_browser(f17a.pid)
+            results.append(real is True)
+            print(("PASS  " if real is True else "**FAIL**  ")
+                  + "the foreign stand-in is a REAL leak to the shipped "
+                    "gate (pid %d, port %d)" % (f17a.pid, f17a.port or 0))
+            # The half that fails against the frozen baseline: this leak did
+            # not exist when the file was imported, so an import-time
+            # `_FOREIGN` cannot contain it and it reaches the verdict.
+            live = _foreign_leaks()
+            results.append(f17a.pid in live)
+            print(("PASS  " if f17a.pid in live else "**FAIL**  ")
+                  + "a leak born mid-run is in the LIVE baseline, not just "
+                    "the import-time one")
+            out17 = _run()
+            named17 = "LEAKED headless chrome" in out17.stdout
+            results.append(not named17)
+            print(("PASS  " if not named17 else "**FAIL**  ")
+                  + "a foreign leak born mid-run does not decide this case's "
+                    "verdict (exit=%d)" % out17.returncode)
+            for line in out17.stdout.strip().split("\n")[:2]:
+                print("        | " + line)
+
+    print("\n17b) but our OWN leaked browser still IS named -- the arms live")
+    # The counterweight, and the half a naive "re-scan everything" fix breaks.
+    # Without this, a suite that neutralises every current leak would go
+    # green with both detectors switched off -- which is precisely the
+    # failure case 4b was rewritten to escape ("a predicate that survives
+    # being negated is not being tested"), one layer up.
+    if os.path.exists(CHROME):
+        with _armed_browser(_free_port(), "ownlive") as _b17b:
+            if _b17b.pid is None:
+                print("  **FAIL** no browser to test with")
+                results.append(False)
+            else:
+                out17b = _run()
+                named17b = ("LEAKED headless chrome" in out17b.stdout
+                            and str(_b17b.pid) in out17b.stdout)
+                results.append(named17b)
+                print(("PASS  " if named17b else "**FAIL**  ")
+                      + "a browser THIS SUITE spawned is still named a leak "
+                        "(pid %d)" % _b17b.pid)
+                _b17b.reap()
+    else:
+        print("  SKIP (no chromium)")
 
     print("\nBaseline: %s" % _foreign_note())
     ok = sum(results)
