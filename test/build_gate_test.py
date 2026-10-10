@@ -109,6 +109,7 @@ Expected: 13/13. A failure here means the gate is lying to the loop.
 """
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -347,6 +348,150 @@ def spawn(argv, **kw):
 
 def ppid_of(pid):
     return int(open("/proc/%d/stat" % pid).read().split(") ")[-1].split()[1])
+
+
+def _force_gone(pid, grace=6.0, poll=0.1):
+    """Block until `/proc/<pid>` is absent. Returns True if it is gone.
+
+    The bounded wait matters for the same reason `build_gate.reap`'s does:
+    `os.kill` returning only proves the *signal was sent*, and the memory a
+    browser holds is still held until the kernel has torn the tree down. A
+    caller that assumes otherwise measures the same box twice and concludes
+    the cleanup is broken.
+
+    SIGTERM first, deliberately. A Chrome root has ~13 forked children and
+    dies as a group when it does; escalating to SIGKILL here would orphan
+    the renderer tree and trade a 200 MB leak for a smaller permanent one.
+    SIGKILL is used ONLY for a root that ignored SIGTERM inside its own
+    grace, and it is aimed at the tree root, which is what reaps the group.
+    """
+    if pid is None or not os.path.exists("/proc/%d" % pid):
+        return True
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+    deadline = time.monotonic() + grace
+    while time.monotonic() < deadline:
+        if not os.path.exists("/proc/%d" % pid):
+            return True
+        time.sleep(poll)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+    deadline = time.monotonic() + grace
+    while time.monotonic() < deadline:
+        if not os.path.exists("/proc/%d" % pid):
+            return True
+        time.sleep(poll)
+    return not os.path.exists("/proc/%d" % pid)
+
+
+def _cmdline_of(pid):
+    """argv of `pid`, or "" if it is gone. Never raises."""
+    try:
+        return open("/proc/%d/cmdline" % pid).read().replace("\x00", " ")
+    except (IOError, OSError):
+        return ""
+
+
+class _armed_browser(object):
+    """A reparented headless browser that is REAPED even if the case dies.
+
+    MEASURED 10 Oct 2026, on this box, and it is the loop's own
+    loop-starvation rather than a service nobody can touch. The gate
+    answered `NO ROOM - nothing is building, but only 740 MB is reclaimable`
+    and named pid 15189: a headless Chrome, PPID 1, ~199 MB of PSS, holding
+    a box with no swap under a 900 MB floor. Its `--user-data-dir` was
+    `gate_chrome_livesyklbhy0` -- a `mkdtemp` prefix that appears NOWHERE in
+    the repository except `test/build_gate_test.py` case 12. So the process
+    starving every tick was one *this very file* had spawned, and the gate's
+    own report ("this loop's render") was naming our fixture rather than a
+    real render.
+
+    The mechanism is visible in the case: it forks a browser to init and
+    reaps it with `mod.reap(...)` as the **last statement of a 50-line block
+    with no `try`/`finally`**. Any raise in between -- and there are four
+    `results.append` calls, a `socket.create_connection` and a `recv` that
+    can time out on a loaded box -- skips the reap and leaves a ~200 MB
+    orphan parented to init. Two such profile directories were still on disk
+    from 9 Oct and 10 Oct, so this has fired at least twice.
+
+    Case 12 is *supposed* to leave a leak behind: it is testing the leak
+    arm, so its browser must exist and must be provably dead. Making it
+    survive its own assertions is the bug. Every reparented browser this
+    suite spawns now goes through this context manager, which kills the root
+    on the way out **however** the case exits, and the reap is verified
+    rather than assumed. Killing our own fixture is unambiguously safe: its
+    ppid is 1 by construction, so by the gate's own definition no live
+    session owns it, and its port was allocated by `_free_port()` for this
+    case alone.
+    """
+
+    def __init__(self, port, tag, wait=4.0):
+        self.port = port
+        self.tag = tag
+        self.pid = None
+        self.profile = None
+        self.wait = wait
+
+    def __enter__(self):
+        self.profile = tempfile.mkdtemp(prefix="gate_chrome_%s" % self.tag)
+        code = (
+            "import os\n"
+            "pid = os.fork()\n"
+            "if pid:\n"
+            "    os._exit(0)\n"
+            "os.setsid()\n"
+            "os.execv(%r, [%r, '--headless', '--no-sandbox', '--disable-gpu',"
+            " '--remote-debugging-port=%d', '--user-data-dir=' + %r,"
+            " 'about:blank'])\n"
+            % (CHROME, CHROME, self.port, self.profile))
+        subprocess.run([sys.executable, "-c", code],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(self.wait)     # the browser takes a moment to bind the port
+        for entry in os.listdir('/proc'):
+            if not entry.isdigit():
+                continue
+            pid = int(entry)
+            if ("--remote-debugging-port=%d" % self.port) in _cmdline_of(pid):
+                self.pid = pid
+                break
+        return self
+
+    def reap(self):
+        """Kill the root and wait for the kernel to release the memory.
+
+        `mod.reap` is still the real gate's own routine, so the case under
+        test still exercises the shipped code path rather than a private
+        copy -- but it is followed by the hard wait, because "we sent it a
+        signal" and "the box came back" are two different claims and only
+        the second one is worth anything to the next case.
+        """
+        if self.pid is None:
+            return True
+        mod = _gate_module()
+        try:
+            mod.reap([(self.pid, "probe", None)])
+        except Exception:
+            pass
+        gone = _force_gone(self.pid)
+        if not gone:
+            results.append(False)
+            print("**FAIL**  browser %d survived this case's own cleanup"
+                  % self.pid)
+        return gone
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            self.reap()
+        finally:
+            if self.profile:
+                shutil.rmtree(self.profile, ignore_errors=True)
+        # Never swallow the case's exception: this exists to guarantee the
+        # cleanup, not to make a failing case look like a passing one.
+        return False
 
 
 def _starved_gate():
@@ -703,64 +848,36 @@ def main():
     if have_chrome:
         # A leak is made the way the kernel actually makes one: a double
         # fork, which reparents the browser to init with no live owner.
-        d = tempfile.mkdtemp(prefix="gate_chrome_leak")
-        code = (
-            "import os\n"
-            "pid = os.fork()\n"
-            "if pid:\n"
-            "    os._exit(0)\n"
-            "os.setsid()\n"
-            "os.execv(%r, [%r, '--headless', '--no-sandbox', '--disable-gpu',"
-            " '--remote-debugging-port=9398', '--user-data-dir=' + %r,"
-            " 'about:blank'])\n" % (CHROME, CHROME, d))
-        r = subprocess.Popen([sys.executable, "-c", code],
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
-        r.wait()
-        time.sleep(4.0)   # the browser takes a moment to bind the port
-        leaked = None
-        for entry in os.listdir('/proc'):
-            if not entry.isdigit():
-                continue
-            pid = int(entry)
-            if ppid_of(pid) != 1:
-                continue
-            try:
-                cmd = open("/proc/%d/cmdline" % pid).read().replace("\x00", " ")
-            except (IOError, OSError):
-                continue
-            if "remote-debugging-port=9398" in cmd:
-                leaked = pid
-                break
-        if leaked is None:
-            print("  **FAIL** no reparented browser to test with")
-            results.append(False)
-        else:
-            print("   leaked pid=%d ppid=%d" % (leaked, ppid_of(leaked)))
-            out = _run()
-            # The two claims that are about the ARM, and hold whatever the
-            # memory does: the leak is named, and the gate fails closed. The
-            # "reclaimable" sentence is deliberately not asserted -- it is
-            # gated on MIN_AVAILABLE_MB, so a box with room to spare prints
-            # neither it nor the STARVED line, and asserting it would make
-            # the case fail for the box being healthy.
-            ok = (out.returncode == 1
-                  and "LEAKED headless chrome" in out.stdout
-                  and str(leaked) in out.stdout)
-            results.append(ok)
-            print(("PASS  " if ok else "**FAIL**  ")
-                  + "reparented browser -> named as a leak, exit 1")
-            for line in out.stdout.strip().split("\n")[:4]:
-                print("        | " + line)
-            try:
-                os.kill(leaked, 9)
-            except OSError:
-                pass
-            time.sleep(0.5)
-            # The reaped box must come back to CLEAR, or this arm cannot
-            # tell a real leak from a permanent "busy".
-            check("after reaping the browser -> CLEAR", 0)
-        shutil.rmtree(d, ignore_errors=True)
+        # `with`, for the reason case 12's docstring spells out -- this case
+        # died leaving a ~200 MB orphan once, and the gate then blamed
+        # "this loop's render" for a browser this file had started.
+        with _armed_browser(_free_port(), "leak") as _b9:
+            leaked = _b9.pid
+            if leaked is None:
+                print("  **FAIL** no reparented browser to test with")
+                results.append(False)
+            else:
+                print("   leaked pid=%d ppid=%d" % (leaked, ppid_of(leaked)))
+                out = _run()
+                # The two claims that are about the ARM, and hold whatever
+                # the memory does: the leak is named, and the gate fails
+                # closed. The "reclaimable" sentence is deliberately not
+                # asserted -- it is gated on MIN_AVAILABLE_MB, so a box with
+                # room to spare prints neither it nor the STARVED line, and
+                # asserting it would make the case fail for the box being
+                # healthy.
+                ok = (out.returncode == 1
+                      and "LEAKED headless chrome" in out.stdout
+                      and str(leaked) in out.stdout)
+                results.append(ok)
+                print(("PASS  " if ok else "**FAIL**  ")
+                      + "reparented browser -> named as a leak, exit 1")
+                for line in out.stdout.strip().split("\n")[:4]:
+                    print("        | " + line)
+                _b9.reap()
+                # The reaped box must come back to CLEAR, or this arm cannot
+                # tell a real leak from a permanent "busy".
+                check("after reaping the browser -> CLEAR", 0)
         time.sleep(0.3)
     else:
         print("  SKIP (no chromium)")
@@ -827,59 +944,61 @@ def main():
     if have_chrome12:
         mod = _gate_module()
         port = _free_port()
-        d12 = tempfile.mkdtemp(prefix="gate_chrome_live")
-        code = (
-            "import os\n"
-            "pid = os.fork()\n"
-            "if pid:\n"
-            "    os._exit(0)\n"
-            "os.setsid()\n"
-            "os.execv(%r, [%r, '--headless', '--no-sandbox', '--disable-gpu',"
-            " '--remote-debugging-port=%d', '--user-data-dir=' + %r,"
-            " 'about:blank'])\n" % (CHROME, CHROME, port, d12))
-        subprocess.run([sys.executable, "-c", code],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(4.0)
-        pid12 = None
-        for entry in os.listdir('/proc'):
-            if not entry.isdigit():
-                continue
-            if ("--remote-debugging-port=%d" % port) in mod._cmdline(int(entry)):
-                pid12 = int(entry)
-                break
-        if pid12 is None:
-            print("  **FAIL** no reparented browser to test with")
-            results.append(False)
-        else:
-            # Branch A: reparented, nobody talking -> a real leak.
-            idle_verdict = mod._is_leaked_browser(pid12)
-            # Branch B: a client connects over CDP -> a live render, and the
-            # gate must not call that a leak or `--reap` kills a screenshot
-            # somebody is in the middle of taking.
-            import socket
-            sock = socket.create_connection(("127.0.0.1", port), timeout=5)
-            sock.sendall(b"GET /json/version HTTP/1.0\r\n\r\n")
-            sock.recv(128)
-            time.sleep(0.3)
-            live_verdict = mod._is_leaked_browser(pid12)
-            sock.close()
-            ok = (idle_verdict is True) and (live_verdict is False)
-            results.append(ok)
-            print(("PASS  " if ok else "**FAIL**")
-                  + "ppid=1 alone is not a leak: idle=%s, driven=%s"
-                  % (idle_verdict, live_verdict))
-            # And the port parsing that feeds it, both argv spellings.
-            parsed = (mod._debug_port("chrome --remote-debugging-port=%d" % port)
-                      == port
-                      and mod._debug_port("chrome --remote-debugging-port %d" % port)
-                      == port
-                      and mod._debug_port("chrome --headless") is None)
-            results.append(parsed)
-            print(("PASS  " if parsed else "**FAIL**")
-                  + "debug port parsed in both argv spellings")
-            mod.reap([(pid12, "probe", None)])
-            time.sleep(0.3)
-            shutil.rmtree(d12, ignore_errors=True)
+        # `with`, not a bare spawn: this case must still hold a real,
+        # provably-dead leak while it asserts, but it must not survive its
+        # own assertions. See `_armed_browser` -- an earlier version of
+        # this block reaped as its LAST statement with no `finally`, and
+        # the orphans it left are what starved the gate on this box for
+        # two days, under the label "this loop's render".
+        # `with`, not a bare spawn: this case must still hold a real,
+        # provably-dead leak while it asserts, but it must not survive its
+        # own assertions. See `_armed_browser` -- an earlier version of
+        # this block reaped as its LAST statement with no `finally`, and
+        # the orphans it left are what starved the gate on this box for
+        # two days, under the label "this loop's render".
+        with _armed_browser(port, "live") as _b12:
+            pid12 = _b12.pid
+            if pid12 is None:
+                print("  **FAIL** no reparented browser to test with")
+                results.append(False)
+            else:
+                # Branch A: reparented, nobody talking -> a real leak.
+                idle_verdict = mod._is_leaked_browser(pid12)
+                # Branch B: a client connects over CDP -> a live render, and
+                # the gate must not call that a leak or `--reap` kills a
+                # screenshot somebody is in the middle of taking.
+                import socket
+                sock = None
+                live_verdict = None
+                try:
+                    sock = socket.create_connection(("127.0.0.1", port),
+                                                    timeout=5)
+                    sock.sendall(b"GET /json/version HTTP/1.0\r\n\r\n")
+                    sock.recv(128)
+                    time.sleep(0.3)
+                    live_verdict = mod._is_leaked_browser(pid12)
+                finally:
+                    # This socket is what makes the browser read as
+                    # "driven". Left open it stays in ESTABLISHED, which
+                    # `_port_in_use` counts as a live session -- so the
+                    # next case on this box would find our own fixture
+                    # looking like somebody's in-flight screenshot.
+                    if sock is not None:
+                        sock.close()
+                ok = (idle_verdict is True) and (live_verdict is False)
+                results.append(ok)
+                print(("PASS  " if ok else "**FAIL**")
+                      + "ppid=1 alone is not a leak: idle=%s, driven=%s"
+                      % (idle_verdict, live_verdict))
+                # And the port parsing that feeds it, both argv spellings.
+                parsed = (mod._debug_port("chrome --remote-debugging-port=%d" % port)
+                          == port
+                          and mod._debug_port("chrome --remote-debugging-port %d" % port)
+                          == port
+                          and mod._debug_port("chrome --headless") is None)
+                results.append(parsed)
+                print(("PASS  " if parsed else "**FAIL**")
+                      + "debug port parsed in both argv spellings")
     else:
         print("  SKIP (no chromium)")
 
