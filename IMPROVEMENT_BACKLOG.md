@@ -33714,3 +33714,97 @@ shows **0 `.dart` files**, so the suite count cannot have moved.
 **Verified remote:** trees byte-identical (`f96373a`), both files **MATCH** on
 blob and mode via `remote_state.py --files`, not by the push helper's exit
 code.
+
+## Tick 10 Oct 2026 (`18d27b9`, remote `83a1414`) — a leak born MID-RUN still
+## decided the suite's verdict: the neutralisation guard was frozen at import
+
+A non-build cycle, and for the reason the gate gave rather than one guessed:
+**NO ROOM at 733 MB against the 900 MB floor**, `Balloon:` 5095 MB of 7935.
+Zero `.dart` touched, so the 2609 baseline is untouched by construction and no
+Dart count is claimed. No java, no flutter process running (`pgrep -c java` 0).
+
+**The backlog had zero unchecked items**, so this is the item the previous tick
+handed over by name: *"a concurrent foreign process deciding 6 cases"*.
+
+**What the guard was.** `_FOREIGN` is the set of pids the gate already calls a
+leak at startup, and `_isolated_src()` makes the gate return False for exactly
+those pids. The intent is right and the docstring says why: *a test whose answer
+depends on what else is running is not testing the thing it names, and worse, it
+fails **and** lies about why.* The defect is that **`_FOREIGN` was read once, at
+import**, so "at startup" meant *when this file was loaded*, not *now*.
+
+**The evidence that it mattered.** The previous tick's first run came back
+**31/32**, failing `no Balloon: field -> still refused, host NOT invented`,
+while a **foreign** headless Chrome — pid 21259, port 9333,
+`/tmp/chrome-cheikh-9333`, started 10 s before the run and gone by the next one
+— was on the box. It passed standalone and on re-run. That tick wrote the right
+warning (*"passed on retry" != "cannot fail for that reason"*) and left the cause
+in place; this is that cause, and the same file it hunts with.
+
+**The fix, and the half that would have made it worse.** Recomputing the
+baseline alone is a trap, and the suite now asserts the trap is closed.
+`_foreign_leaks()` now runs **before every gate invocation** (it is called from
+`_isolated_src()`, which `_isolated_path()` regenerates per call) — and it
+**subtracts `_OWNED`**, the pids this suite itself spawned via `spawn()`,
+`_armed_browser` and `_spawn_orphan`. Without that subtraction the live scan is
+a *strictly larger* blank cheque than the frozen one: it would neutralise the
+very leaks cases 4b/9/12/14 exist to catch, and the suite would go green with
+both detectors off. Ownership, not recency, is what separates the two.
+
+**Case 17 and 17b** assert both halves on the same gate copy, because a
+green-looking fix that only re-scanned is exactly the trap case 4b was rewritten
+to escape ("a predicate that survives being negated is not being tested"), one
+layer up.
+
+**`_foreign_browser()` — the stand-in, and why it is honest.** The new case needs
+a leak that is *not* ours. Cases 9/12 use a real Chromium, ~200 MB, which is
+correct for their claim and unaffordable here: this box sits at 733 MB of 7935
+with no swap, and a suite that pays 200 MB to test the gate starves the gate.
+The stand-in is **5.6 MB** and borrows only the three fields
+`_is_leaked_browser` actually reads — `argv[0]` basename in the browser list, a
+parseable `--remote-debugging-port=`, and a PPID of 1 from a real double fork.
+It is verified *inside the case* against the shipped gate before anything is
+asserted about it, so a stand-in that stopped being a leak fails loudly rather
+than passing for the wrong reason.
+
+**The first version of that fixture failed, and the failure is the lesson.** It
+registered the stand-in in `_OWNED` — with a comment claiming that was correct.
+The suite returned **33/36** with case 17 red, because the one process standing
+in for *a neighbour's* leak was subtracted as *our* leak and left to decide the
+verdict: the exact inversion, reached from the other side. The comment now says
+so, and the fixture is deliberately **not** owned.
+
+**`_roomy_gate()` — four cases were the box, not the code.** Cases 1, 2, 5 and 9
+assert a **global** verdict ("nothing is building -> CLEAR"). On this host the
+box decided them: 893/875/801/799 MB available against a 900 MB floor, so the
+gate answered NO ROOM — *correctly* — and the case failed for a reason unrelated
+to the arm. Measured on the same tree with no logic changed either way:
+**32/36 live vs 36/36 on the fixture**. The assertion still demands exit 0 from
+the real arms; only the hypervisor's memory stops being asserted. Same precedent,
+same grounds as case 8, which already refused this global for the same reason.
+
+**Control run.** The **pre-change** file on this same box: **27/31**, failing the
+same NO ROOM cases. Nothing that passed before fails now.
+
+**Mutations: 3 run, 3 killed, 0 survived.**
+* baseline frozen back to the import snapshot -> **35/36**, `a foreign leak born
+  mid-run does not decide this case's verdict` FAILS. The original defect,
+  reproduced exactly.
+* `_OWNED` subtraction dropped -> arms go **blind**: reparented tester and
+  reparented browser both stop being named, 17b fails.
+* stand-in registered as owned -> **33/36**, case 17 fails — the run that
+  produced the comment above.
+
+**Green.** `python3 test/build_gate_test.py` -> **36/36 ALL PASS, exit 0**, zero
+orphan browsers afterwards. Siblings green: exit-docs 8/8, busy 2/2, starved 6/6,
+retry-budget 4/4, loop-protocol 9/9, pngscan 9/9, shot-namespace,
+remote_state, push_helper.
+
+**Verified remote.** trees byte-identical (`4fe1432`); `git status` reporting
+"ahead 116, behind 97" is the helper rebuilding a commit over the git-data API
+— commit counts, not content — and `remote_state.py` reports **IN SYNC**.
+
+**One thing not papered over:** I cleared 5 stale `build_gate_suite_*` fixture
+dirs (1.3 MB) left by my own mutant runs, which pipe to `grep` and so skip
+`main()`'s cleanup. Provenance was timestamps inside my own run window. Four
+older dirs from 9-10 Oct were left alone — not mine.
