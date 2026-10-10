@@ -771,13 +771,18 @@ void main() {  // --------------------------------------------------------------
       // started reading prose does not change WHICH claim-bearing files call
       // it -- so it changed nothing that was asserted. Pinned here so the
       // difference has to be visible somewhere.
-      expect(census.direct.length, 22,
+      expect(census.direct.length, 23,
           reason: 'the direct call-site set is ${census.direct.length} files; '
-              'it was 20 when first measured and 22 as of 10 Oct, and a jump '
-              'means `calls` started matching something other than a call. '
-              'The +2 is `partial_market_copy.dart` and '
-              '`partial_thread_copy.dart`, both of which started CALLING the '
-              'helper rather than describing it');
+              'it was 20 when first measured, 22 as of 10 Oct and 23 as of '
+              'this tick, and an UNEXPECTED jump means `calls` started '
+              'matching something other than a call. Each step is accounted '
+              'for: +2 was `partial_market_copy.dart` and '
+              '`partial_thread_copy.dart` starting to CALL the helper rather '
+              'than describe it, and +1 is '
+              '`notification_shortfall_copy.dart`, which routes the hidden '
+              'count through the helper because that number is printed to '
+              'the user and must agree («40 إشعار», accusative singular). '
+              'A jump with no file to name is what this pin is for');
     });
 
     test('a quoted example of the helper is not a call site', () {

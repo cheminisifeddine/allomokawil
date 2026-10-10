@@ -223,14 +223,20 @@ void main() {
 
     // Open the centre while that read is still open, and clear it.
     await tester.tap(find.byKey(const Key('notifications-bell')));
-    await _until(tester, () => find
-        .byKey(const Key('notifications-mark-all'))
-        .evaluate()
-        .isNotEmpty);
+    await _until(
+        tester,
+        () => find
+            .byKey(const Key('notifications-mark-all'))
+            .evaluate()
+            .isNotEmpty);
     expect(find.byKey(const Key('notifications-mark-all')), findsOneWidget);
     await tester.tap(find.byKey(const Key('notifications-mark-all')));
     await _until(tester, () => h.unread == 0);
     expect(h.unread, 0, reason: 'the server cleared everything');
+
+    // The baseline is taken HERE, while the pop-back read is still held open by
+    // the gate, so it counts reads that the server has actually answered.
+    final servedBeforePop = h.served;
 
     // Back to the home header. This is the ask the guard throws away.
     await tester.tap(find.byType(BackButton));
@@ -240,11 +246,30 @@ void main() {
     // Only now does the slow read answer — with the number from before the
     // write, because that is what it was asked, and the flag the pop-back set
     // is what makes the pip **not** flash that number on the way past.
+    // **No count here, and that is the correction.**
+    //
+    // This line was `expect(h.requests, 2)` -- an absolute request count. It
+    // went red the moment the centre started reading `/api/unread` for itself,
+    // which is the capped-list fix: the band and «تعليم الكل كمقروء» need the
+    // server's count, and one more read of that endpoint per visit is the
+    // honest price of asking a question this screen used to infer from a list
+    // the server had already capped.
+    //
+    // The replacement I tried first counted the same requests as a DELTA, and
+    // that survived a mutation making the pop-back trust the centre's
+    // published PRE-WRITE count: the tally moved by one either way, because a
+    // cache hit and a real read are indistinguishable in a count of requests.
+    // **A tally cannot tell a read from an echo of one already in hand.**
+    //
+    // So no count is claimed here. The claim is asserted where it is actually
+    // observable -- in what the user ends up seeing, below: the pip must be
+    // absent, which holds only if the pop-back's own read reached the server
+    // and came back with the post-write 0. The `served` bookkeeping the rest of
+    // this case keeps is what makes that reachable without a blind pump.
     h.release();
-    await _until(tester, () => h.requests >= 2);
-    expect(h.requests, 2,
-        reason: 'the pop-back must spend the read the guard deleted');
-    await _until(tester, () => h.requests >= 2);
+    await _until(tester, () => h.served > servedBeforePop);
+    expect(h.served, greaterThan(servedBeforePop),
+        reason: 'the pop-back must land a read the server actually answers');
 
     expect(find.byKey(const Key('notifications-badge')), findsNothing,
         reason: 'the in-flight read held the pre-write number and it is known '
@@ -254,7 +279,8 @@ void main() {
     // And the number it ends on is the server's, not the phone's memory.
     await _until(tester, () => h.served == 0);
     expect(find.byKey(const Key('notifications-badge')), findsNothing,
-        reason: 'he emptied the centre, so the pip he comes home to is nothing');
+        reason:
+            'he emptied the centre, so the pip he comes home to is nothing');
     expect(find.text('0'), findsNothing);
   });
 
@@ -263,7 +289,8 @@ void main() {
   // answer — spending a second request only risks the slower one landing last
   // and painting a badge that goes backwards. If the fix dropped this test's
   // sibling in `notification_center_test`, this is what it broke.
-  testWidgets('two resumes in one frame still spend one request', (tester) async {
+  testWidgets('two resumes in one frame still spend one request',
+      (tester) async {
     final h = _Held([_row(id: 1)]);
 
     await _pump(tester, h);
@@ -274,8 +301,10 @@ void main() {
     await tester.pump();
 
     h.release();
-    await _until(tester, () =>
-        find.byKey(const Key('notifications-badge')).evaluate().isNotEmpty);
+    await _until(
+        tester,
+        () =>
+            find.byKey(const Key('notifications-badge')).evaluate().isNotEmpty);
     expect(find.text('1'), findsOneWidget);
     expect(h.requests, 1, reason: 'the same question is not asked twice');
   });

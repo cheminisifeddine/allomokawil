@@ -12,6 +12,7 @@ import '../../data/notification_copy.dart';
 import '../../data/notification_body_copy.dart';
 import '../../data/notification_count_trust.dart';
 import '../../data/notification_read_outcome.dart';
+import '../../data/notification_shortfall_copy.dart';
 import '../../data/repository.dart';
 import '../../data/stale_notifications_copy.dart';
 import '../../models/chat.dart';
@@ -89,6 +90,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   late final NotificationCountTrust _trust;
 
   List<AppNotification> _items = const [];
+
+  /// `GET /api/unread` as last read, beside [_items] -- **null means the phone
+  /// has no server count at all**, which is not the same as zero.
+  ///
+  /// Added 10 Oct 2026 to close the defect `tool/notification_read_audit.py`
+  /// measured on production: the centre draws at most 100 rows while the server
+  /// holds more, so counting the unread out of [_items] made `_unread` reach 0
+  /// on a set that was not empty, and `if (_unread > 0)` then removed
+  /// «تعليم الكل كمقروء» -- the app claiming nothing was unread about 100 of
+  /// 140 rows. See `notification_shortfall_copy.dart` for the measurement.
+  ///
+  /// Two arms because the count is a second request that can fail on its own,
+  /// and its failure must not cost the rows: a centre whose list loaded fine
+  /// says so about the list and says nothing about the count.
+  int? _serverUnread;
 
   /// The failure, when one is being shown.
   ///
@@ -187,6 +203,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         _items = list;
         _error = null;
       });
+      // The server's own count, fetched **after** the rows landed and read only
+      // once this read is still the current generation. Two reasons it is not
+      // folded into the same future:
+      //
+      //   * the rows are the screen, the count is a qualifier on them. A joined
+      //     read that failed on the count would throw away a list that arrived
+      //     perfectly, and a failed re-read is exactly the state this screen
+      //     already has a banner for -- it would turn "I could not check the
+      //     number" into "your list is stale", which is a different lie.
+      //   * the generation guard has to be checked on this arm too. A late
+      //     count would otherwise land on a list it was never asked about, and
+      //     the band would claim a gap against rows the user has already
+      //     replaced.
+      unawaited(_readServerUnread(token));
       // Armed where the first stamp lands, not from `initState`: before this
       // runs there are no rows and nothing to age, and `_load` re-arms rather
       // than arms so a pull-to-refresh cannot leave two live timers behind.
@@ -216,6 +246,47 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       // that could not run — so a plain pull-to-refresh was the odd one out.
       _trust.withdraw();
     }
+  }
+
+  /// Reads `/api/unread` for the band, and never disturbs the rows.
+  ///
+  /// A failure here leaves [_serverUnread] **null**, which is the honest state:
+  /// the app cannot say the centre is short, so the band is not drawn and the
+  /// button falls back to what it can prove. Silently keeping the *previous*
+  /// count would be worse than null -- that number was true of an older list,
+  /// and pairing it with fresh rows states a gap the wire never confirmed.
+  ///
+  /// On success this is also the only read in the app that restores
+  /// [_trust]: `notification_count_trust.dart` is one-directional because a
+  /// successful `GET /api/notifications` proves a row is read and says nothing
+  /// about the size of the unread set the header pip paints. This endpoint
+  /// answers that question directly, so the screen that owns the number is the
+  /// one place that can put the pip back to being the server's.
+  Future<void> _readServerUnread(int token) async {
+    int n;
+    try {
+      n = await _repo.unreadCount();
+    } catch (_) {
+      // Not an error the screen reports: the list is fine and the user is not
+      // being asked to do anything about a number they never saw. The band is
+      // simply not drawn.
+      if (!mounted || token != _loadToken) return;
+      setState(() => _serverUnread = null);
+      return;
+    }
+    // The same guard the rows get. See [_loadToken].
+    if (!mounted || token != _loadToken) {
+      return;
+    }
+    setState(() => _serverUnread = n);
+    // **Publish, do not merely restore.** The bell reads the same endpoint on
+    // every resume, and publishing the number here lets that read be answered
+    // by this one instead of the header asking again — a duplicated round-trip
+    // on a box with no swap, and a violation of the invariant
+    // `unread_round_trip_test.dart` pins ("the same question is not asked
+    // twice"), which this screen's own read used to break with a third
+    // request per visit.
+    _trust.publish(n);
   }
 
   /// Starts the once-a-minute tick that re-labels the rows.
@@ -248,6 +319,60 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   int get _unread => _items.where((n) => n.isRead == 0).length;
+
+  /// The server's count beside the rows, as of the last read that had both.
+  ///
+  /// **Two numbers, not one, and conflating them is what made this feature
+  /// unable to fire.** [NotificationShortfall.drawn] is the size of the list —
+  /// the question *"is there anything on screen for a band to sit on?"* — and
+  /// [NotificationShortfall.unreadDrawn] is the subtraction. Passing
+  /// `rows: _unread` answered both with the unread count, so a user who read
+  /// every visible row (the exact state the server audit walked into) left
+  /// `drawn == 0` and `worthReporting` false: **the band was gated off by the
+  /// very condition it exists to report.** Both are read from [_items], and
+  /// they differ precisely when the user has done their job.
+  NotificationShortfall get _shortfall => NotificationShortfall(
+        serverUnread: _serverUnread,
+        unreadDrawn: _unread,
+        drawn: _items.length,
+      );
+
+  /// Whether «تعليم الكل كمقروء» is offered.
+  ///
+  /// **Was `_unread > 0`, and that was a claim about rows the phone had not
+  /// read.** The list is capped at 100 server-side while the unread set is not,
+  /// so `_unread` reaches 0 on a set that still holds rows -- and the gate then
+  /// *removed the button*, which is how a capped read turned into a silent
+  /// claim that the user's inbox was empty. Measured end to end on production
+  /// by `tool/notification_read_audit.py`: 140 made, 100 drawn, 40 unread on
+  /// the server, 0 on screen.
+  ///
+  /// **The rule is one line: only a server count of zero retires the button.**
+  /// Every other state shows it, and that asymmetry is the point rather than an
+  /// oversight:
+  ///
+  ///   * the write behind it is `POST /api/notifications/read` with no ids,
+  ///     which clears everything and is **idempotent** -- pressing it when
+  ///     there is genuinely nothing unread costs the user one tap and the
+  ///     server nothing;
+  ///   * *hiding* it when the server still holds unread rows is the defect,
+  ///     and it is invisible: no error, no band, a control that was simply not
+  ///     there any more.
+  ///
+  /// So the cost is deliberately pushed onto the harmless branch. A count that
+  /// could not be read ([_serverUnread] null) leaves the button in place rather
+  /// than falling back to `_unread`, because "the phone cannot rule out more"
+  /// and "there is nothing more" are different facts and only one of them is
+  /// ever the truth here.
+  bool get _canMarkAll {
+    final server = _shortfall.serverUnread;
+    // The server's answer, and the only fact that removes the control.
+    if (server != null && server == 0 && _unread == 0) return false;
+    // Nothing drawn and nothing measured: there is no list to clear and no
+    // evidence that anything is waiting behind it.
+    if (_items.isEmpty && server == null) return false;
+    return true;
+  }
 
   /// Marks [ids] read. The rows flip immediately so the tap feels answered,
   /// then the list is reloaded from the server — so a write that fails cannot
@@ -290,9 +415,19 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _markAllRead() async {
-    if (_unread == 0) {
+    // Was `if (_unread == 0) return;`, which made the *button's own* gate the
+    // authority on whether there is anything to clear -- and that number comes
+    // from a capped list. It is now the same [_canMarkAll] the button is drawn
+    // from, so the two cannot disagree: there is no state where the control is
+    // on screen and pressing it is a silent no-op.
+    if (!_canMarkAll) {
       return;
     }
+    // The optimistic flip paints the rows the user can see, and **only** those
+    // rows -- it never invents a row for the ones the cap is holding back. The
+    // band below stays on screen through the write, because the gap is the
+    // server's answer and the write has not replaced that answer yet; the
+    // `_load` on the far side re-reads both.
     setState(() {
       _items = [for (final n in _items) n.asRead()];
     });
@@ -456,7 +591,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       appBar: AppBar(
         title: const Text(S.notifications, style: AppTheme.bar),
         actions: [
-          if (_unread > 0)
+          if (_canMarkAll)
             TextButton(
               key: const Key('notifications-mark-all'),
               onPressed: _markAllRead,
@@ -496,18 +631,44 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     // Reached only when [_stale]: a first read that failed has no rows and was
     // already answered by the full-screen error above.
     final stale = _stale;
+    // The two banners answer two different questions and **can both be true**:
+    // `stale` is "the rows in front of you may be older than the server", and
+    // `short` is "the server says there are unread rows that are not in front of
+    // you". A list that failed to re-read is exactly when the gap is most
+    // likely to be misreported, so neither is folded into the other.
+    //
+    // Ordered stale-first because it is the more urgent half: it qualifies the
+    // rows themselves, the second qualifies their completeness.
+    final short = _shortfall.worthReporting
+        ? notificationShortfallLineAr(_shortfall)
+        : '';
+    // Plain arithmetic, not a collection-`if`: this is an expression in a
+    // statement position and `if` has no value there, so the analyzer read the
+    // `(if ...)` as a parenthesised type and then blamed the arithmetic that
+    // followed for being `double`. The count is written out once and used for
+    // the list length AND the row offset -- deriving it in two places is how
+    // the off-by-one below came to exist.
+    final headers = (stale ? 1 : 0) + (short.isEmpty ? 0 : 1);
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-      itemCount: _items.length + (stale ? 1 : 0),
+      itemCount: _items.length + headers,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       // Rows fade up on first build (AppMotion.reveal). The list is short, so
       // every row reveals together — no stagger, no row left waiting on a timer.
       itemBuilder: (_, i) {
-        if (stale && i == 0) {
-          return _StaleNotificationsBanner(line: staleNotificationsLineAr(
-              _error ?? S.errUnexpected));
+        // `i` indexes the *header* block first, so the row offset is every
+        // header drawn, not just the stale one. It was `stale ? 1 : 0`, which
+        // with a shortfall band alone would have drawn the banner and then
+        // shifted every row up by one -- the last notification off the list and
+        // an off-by-one crash on the tile below it.
+        if (i < headers) {
+          if (stale && (i == 0 || short.isEmpty)) {
+            return _StaleNotificationsBanner(
+                line: staleNotificationsLineAr(_error ?? S.errUnexpected));
+          }
+          return _ShortfallBanner(line: short);
         }
-        return Reveal(child: _tile(_items[i - (stale ? 1 : 0)]));
+        return Reveal(child: _tile(_items[i - headers]));
       },
     );
   }
@@ -722,6 +883,52 @@ class _StaleNotificationsBanner extends StatelessWidget {
               key: const Key('stale-notifications-line'),
               style: AppTheme.body.copyWith(
                 color: AppTheme.accentDeep,
+                height: AppTheme.lhProse,
+                fontWeight: AppTheme.wControl,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The band above a centre that is not showing the whole unread set.
+///
+/// A **sibling** of [_StaleNotificationsBanner], and deliberately not a reuse
+/// of it: that one is `AppTheme.accentDeep` over `accentWash` because what it
+/// protects is the *same* doubt the unread pip already wears. This one is the
+/// neutral `infoWash`/`info` pair, because nothing here is in doubt — the
+/// server stated a count and the app is reporting it. Two bands in the same
+/// colour would read as one doubled warning and teach the user that amber
+/// means «something is broken», which is exactly what the stale band's tone is
+/// already carrying on seven other screens.
+class _ShortfallBanner extends StatelessWidget {
+  const _ShortfallBanner({required this.line});
+
+  /// The composed sentence from [notificationShortfallLineAr].
+  final String line;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      key: const Key('short-notifications'),
+      color: AppTheme.infoWash,
+      borderColor: AppTheme.info,
+      padding: AppTheme.cardPadRail,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.mark_email_unread_outlined,
+              size: AppTheme.s20, color: AppTheme.info),
+          const SizedBox(width: AppTheme.s8),
+          Expanded(
+            child: Text(
+              line,
+              key: const Key('short-notifications-line'),
+              style: AppTheme.body.copyWith(
+                color: AppTheme.info,
                 height: AppTheme.lhProse,
                 fontWeight: AppTheme.wControl,
               ),

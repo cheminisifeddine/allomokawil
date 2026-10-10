@@ -20,6 +20,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:allomokawil/src/data/notification_copy.dart';
+import 'package:allomokawil/src/data/notification_shortfall_copy.dart';
 import 'package:allomokawil/src/data/partial_market_copy.dart';
 import 'package:allomokawil/src/data/partial_thread_copy.dart';
 import 'package:allomokawil/src/data/quote_status_copy.dart';
@@ -37,6 +38,17 @@ const _emptyReturning = <String>{
   // The `partial_*` family, added 9 Oct 2026 — the list had gone stale for
   // weeks and the sweep below was policing 19 functions out of 23.
   'lostPagesAr',
+  // Added 10 Oct 2026 with `notification_shortfall_copy.dart`. Both of its
+  // functions answer '' and BOTH were reported by this guard one after the
+  // other, which is the guard working: the file was registered, the next entry
+  // turned up on the following run.
+  //   * `notificationHiddenCountAr` is '' for `n <= 0` -- there is no noun to
+  //     print.
+  //   * `notificationShortfallLineAr` is '' in the three states the phone
+  //     cannot claim: no server count, an empty centre, or no gap.
+  // Both are proved from the real functions below rather than described.
+  'notificationHiddenCountAr',
+  'notificationShortfallLineAr',
   'partialMarketLineAr',
   'partialThreadLineAr',
   'photosAr',
@@ -115,10 +127,9 @@ bool _isGuarded(List<String> before) => before.any((l) =>
 /// pass. That is why the predicate's real claim is proved at runtime in
 /// ['a predicate that bails before the draw is a real guard'] rather than
 /// trusted from the text.
-bool _bailsBeforeDraw(String src, int drawStart, int blockStart) =>
-    RegExp(r'return\s+(?:const\s+)?(?:SizedBox\.shrink\(\)|<\s*Widget\s*>\[\s*\])\s*;')
-        .hasMatch(src.substring(blockStart, drawStart));
-
+bool _bailsBeforeDraw(String src, int drawStart, int blockStart) => RegExp(
+        r'return\s+(?:const\s+)?(?:SizedBox\.shrink\(\)|<\s*Widget\s*>\[\s*\])\s*;')
+    .hasMatch(src.substring(blockStart, drawStart));
 
 /// The span of the block enclosing [index] — the nearest `{` before it and its
 /// match. This is what makes a local name *local*: a name declared in one
@@ -193,8 +204,8 @@ void main() {
       0, 1, 59, 60, 61, 119, 120, 300, 1440, 5000, 60000, 900000, //
     ];
     for (final minutes in ages) {
-      final said = relativeTimeAr(now.subtract(Duration(minutes: minutes)),
-          now: now);
+      final said =
+          relativeTimeAr(now.subtract(Duration(minutes: minutes)), now: now);
       expect(said.isNotEmpty, isTrue, reason: 'a $minutes-minute-old row');
     }
     // A future timestamp is the other null-free input, and it answers «الآن».
@@ -246,6 +257,25 @@ void main() {
     expect(partialMarketMayClaimNoResults(lost: -1, total: 5), isTrue);
     expect(partialThreadLineAr(undrawn: -1, drawn: 100), '');
     expect(partialMarketLineAr(lost: -1, total: 100), '');
+    // `notification_shortfall_copy.dart` — `notificationHiddenCountAr` is ''
+    // for `n <= 0`, and the band that draws it only exists when `hidden > 0`.
+    // Proved from the real function, not asserted about the guard: the band
+    // builder is given a shortfall whose `hidden` is already known positive,
+    // so a zero count is unreachable from the drawing site rather than merely
+    // filtered there.
+    expect(notificationHiddenCountAr(0), '');
+    expect(notificationHiddenCountAr(-1), '');
+    expect(notificationHiddenCountAr(1), isNotEmpty);
+    // The band refuses every state that would print a zero-count noun, so the
+    // '' cannot reach a `Text()` even if a caller passed one.
+    expect(
+        notificationShortfallLineAr(const NotificationShortfall(
+            serverUnread: 5, unreadDrawn: 5, drawn: 5)),
+        '');
+    expect(
+        notificationShortfallLineAr(
+            const NotificationShortfall(serverUnread: 0)),
+        '');
     // And the count words themselves stay silent at zero — the guard is not
     // merely hiding an empty string behind a predicate.
     expect(undrawnMessagesAr(0), '');
@@ -261,8 +291,8 @@ void main() {
       for (final m in RegExp(r'\bText\s*\(\s*(\w+)\s*\(').allMatches(src)) {
         if (!_emptyReturning.contains(m.group(1))) continue;
         final line = src.substring(0, m.start).split('\n').length;
-        if (_isGuarded(lines.sublist(
-            (line - 3).clamp(0, lines.length), line))) {
+        if (_isGuarded(
+            lines.sublist((line - 3).clamp(0, lines.length), line))) {
           continue;
         }
         // The window above is three lines; the predicate shape is not. See
@@ -303,14 +333,13 @@ void main() {
       // name -> the span of the block that declares it, so the search for its
       // uses is confined to that function.
       final locals = <String, List<int>>{};
-      for (final m
-          in RegExp(r'(?:final|var)\s+(\w+)\s*=\s*(\w+)\s*\(').allMatches(src)) {
+      for (final m in RegExp(r'(?:final|var)\s+(\w+)\s*=\s*(\w+)\s*\(')
+          .allMatches(src)) {
         if (!_emptyReturning.contains(m.group(2))) continue;
         locals[m.group(1)!] = _enclosingBlock(src, m.start);
       }
       if (locals.isEmpty) continue;
-      for (final m
-          in RegExp(r'\bText\s*\(\s*(\w+)\s*[,)]').allMatches(src)) {
+      for (final m in RegExp(r'\bText\s*\(\s*(\w+)\s*[,)]').allMatches(src)) {
         final name = m.group(1)!;
         final span = locals[name];
         if (span == null) continue;
@@ -325,13 +354,16 @@ void main() {
         // emptiness before it was drawn* — or it is measuring line distance.
         final declared = locals[name]!;
         final between = lines
-            .sublist((src.substring(0, declared[0]).split('\n').length - 1)
-                .clamp(0, lines.length), line)
+            .sublist(
+                (src.substring(0, declared[0]).split('\n').length - 1)
+                    .clamp(0, lines.length),
+                line)
             .join('\n');
-        final tested = RegExp('$name\\s*\\.\\s*is\\s*(Not)?Empty')
-            .hasMatch(between);
-        if (tested || _isGuarded(lines.sublist(
-            (line - 3).clamp(0, lines.length), line))) {
+        final tested =
+            RegExp('$name\\s*\\.\\s*is\\s*(Not)?Empty').hasMatch(between);
+        if (tested ||
+            _isGuarded(
+                lines.sublist((line - 3).clamp(0, lines.length), line))) {
           continue;
         }
         offenders.add('${f.path}:$line  ${lines[line - 1].trim()}');

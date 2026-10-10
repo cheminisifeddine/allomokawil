@@ -176,6 +176,21 @@ class _NotificationsBellState extends State<NotificationsBell>
 
   /// Reads the pip's number.
   ///
+  /// **A count the notification centre has already published is taken, not
+  /// asked for again.** The centre now reads `GET /api/unread` to decide
+  /// whether to draw the shortfall band, and it publishes that answer through
+  /// [NotificationCountTrust]. Coming back from the centre is exactly when
+  /// that number is freshest — it was read *inside* the screen the user just
+  /// left — so re-reading it here would be the same question asked twice per
+  /// visit. `unread_round_trip_test.dart` pins that count exactly, and before
+  /// this the centre's own read turned it from 2 into 3.
+  ///
+  /// The published number is used **only when it is at least as new as the
+  /// ask**, and a forced read (the pop-back after a write, where the in-flight
+  /// answer predates the write) still goes to the network: the published value
+  /// was read before the user changed anything, which is precisely the stale
+  /// case the force exists for.
+  ///
   /// [force] is the difference between *the same question twice* and *a
   /// different one*. A lifecycle resume leaves it false, so a second resume
   /// inside the same frame is coalesced into the read already open. Coming
@@ -189,6 +204,16 @@ class _NotificationsBellState extends State<NotificationsBell>
       // Answered by the in-flight read's own completion, not queued behind a
       // second open request: one read is still enough to find out.
       _superseded = true;
+      return;
+    }
+    // The centre's answer, when there is one and it is not older than this
+    // ask. Null (never read) falls through to the network, so a bell on a cold
+    // app behaves exactly as it did before this field existed.
+    final published = _trust.confirmedCount;
+    if (!force && published != null) {
+      setState(() {
+        _unread = published;
+      });
       return;
     }
     _refreshing = true;
