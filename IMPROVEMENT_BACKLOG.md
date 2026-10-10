@@ -5475,7 +5475,7 @@ hardcode the limit instead of reading `threshold`, drop the `y1` clamp, ignore
 `xa` entirely.
 `flutter analyze` -> **No issues found!** (9.6 s). Zero `.dart` changed, so
 the Dart baseline is untouched and **no suite count is claimed**
-(`run_tests.py` is 48 min). Siblings green: pngscan 9/9, label_fit, build_gate
+(`run_tests.py` is 48 min). **Commit `f1d22c6`** -> remote `032abbce`. Siblings green: pngscan 9/9, label_fit, build_gate
 36/36, loop_protocol 29/29, remote_state, tap_target 15/15, contrast_audit.
 
 **Three of my own errors, all recorded because each one looked like the tool
