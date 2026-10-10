@@ -2043,9 +2043,16 @@ in this file that dies on arrival is how two ticks were lost.
    # GATE BASELINE: SUITE PASS — 2673 tests across 14 shard(s)
    ```
 
-   **The baseline is 2609 -- the `# GATE BASELINE` line in the fence above is
+   **The baseline is 2673 -- the `# GATE BASELINE` line in the fence above is
    the one the guard reads, not this paragraph: re-wording this paragraph
-   cannot move it.** 2609 was banked 9 Oct by the gated bid-sheet tick
+   cannot move it.** This sentence is itself guarded now: a case pins it to
+   the marker line, so it can no longer drift away from the number the fence
+   states. **2673** was banked 10 Oct (`ee05f7`) by the arm-filter recall
+   tick, `SUITE PASS - 2673 tests across 14 shard(s), every shard green`,
+   `RUNNER_EXIT=0`, every shard green on its FIRST attempt, 48 min end to
+   end, **+64 over 2609**. **2609** remains the last count that *gated a
+   commit*, and the one below is quoted for its provenance, not for its
+   number: it was banked 9 Oct by the gated bid-sheet tick
    (`0f70dbd`, +4); the 2605 run quoted below it is the one that closed the
    carry-over this loop had been carrying since the balloon landed. `python3
    tool/run_tests.py` with no flags -> `SUITE PASS - 2605 tests across 14
@@ -33808,3 +33815,80 @@ remote_state, push_helper.
 dirs (1.3 MB) left by my own mutant runs, which pipe to `grep` and so skip
 `main()`'s cleanup. Provenance was timestamps inside my own run window. Four
 older dirs from 9-10 Oct were left alone — not mine.
+
+- [x] **The guard read both numbers and still let the protocol contradict
+      itself -- the paragraph under the fence was 64 tests behind it, and no
+      case compared them.**  **SHIPPED -- `test/loop_protocol_test.py` now
+      11/11, prose and fence both state 2673.** Backlog balance 0 open.
+      Non-build tick: `build_gate.py` answered **CLEAR** at **1384 MB**
+      against the 900 MB floor, so `flutter analyze` did run and printed
+      **No issues found!** (12.3 s); zero `.dart` changed, so the **2673**
+      count is untouched by construction and **no suite count is claimed**.
+
+      *The defect, on the live tree.* Step 4's fence states
+      **SUITE PASS -- 2673 tests across 14 shard(s)** on its baseline marker
+      line. The
+      sentence **two lines below it** read `**The baseline is 2609 --**`.
+      Both were true about something -- 2673 was banked green on 10 Oct
+      (`ee05f7`), 2609 was the last count that *gated a commit* -- and the
+      suite was **9/9 ALL PASS** throughout, because `stated_baseline` reads
+      the marker line, `newest_green` reads the tick write-ups, and **nothing
+      read the prose**. The fence is what a tick *copies*; that sentence is
+      what a tick *reads*, and the two disagreed by 64.
+
+      *Why it survived the last three ticks.* This is the guard's own history
+      repeating one layer up. Case 5 went blind once already when the demand
+      lived in a *sentence* a tick could re-word, and was fixed by moving it
+      to a marker line -- correctly, and the fix is what created the gap: the
+      marker is machine-read, so from then on the prose beside it is read by
+      nobody. The file that has now filed six blind guards grew a seventh.
+
+      *Shipped, and the second half is the point.* The number is corrected
+      **and** the sentence is pinned to the marker by `prose_baseline`
+      (the reader keys off the `GATE BASELINE` marker, never off a
+      sentence), plus
+      a `control` case asserting the reader finds the sentence on the real
+      tree. Present-tense only (`baseline is N`): the file carries dozens of
+      historical `banked 2609` mentions and a history sweep fails on all of
+      them.
+
+      *The control earned its line the hard way.* My first reader took the
+      fenced `body`, which contains **no fence markers and no prose at all**,
+      so it returned `None` on the real tree and the agreement case passed
+      **vacuously** -- reporting `agrees (says None)` on a file that said
+      2609 under a fence saying 2673. Named here because it is the sixth
+      time this repo has shipped a guard that could not fail, and it is the
+      reason `control` is asserted **before** the agreement verdict rather
+      than beside it: *a new reader returning `None` on the real tree is not
+      a lenient reader, it is a blind one.* The reader now takes the
+      protocol text plus the closing-fence index, and prints `2673` from both
+      sides.
+
+      *Mutations: 4 run, 4 killed, 0 survived.*
+      * the live rot restored (prose 2609, fence 2673) -> **10/11**, and the
+        FAIL prints **both** numbers, so the tick is told which is wrong;
+      * the prose sentence **deleted** -> **9/11**, control goes red, so a
+        protocol with no claim at all cannot pass as a protocol that agrees;
+      * the exact shape that blinded case 5 -- `is **now**, at last, 2673`
+        -> **9/11**, control goes red: a re-word that hides the sentence from
+        the reader is now a failure, not a silent pass;
+      * control removed and the agreement case made lenient (the "reasonable"
+        version) -> green on the corrected tree and **9/10 on the live rot**,
+        which is the demonstration that the control is the case doing the
+        work rather than the comparison.
+
+      *Green.* `python3 test/loop_protocol_test.py` -> **11/11 ALL PASS,
+      exit 0**; fence balance still 0 open, and the two regions still cannot
+      see each other. Siblings `stash_verdict_test.py` 7/7,
+      `remote_state_test.py`, `push_helper_test.py`,
+      `run_tests_busy_code_test.py` all exit 0.
+
+      *Two things not papered over.* (1) The Dart gate opened this tick, so
+      the honest thing is that **a full `tool/run_tests.py` was not run** --
+      at 48 min end to end it does not fit a 10-minute tick, and the loop's
+      rule is to never start what cannot be finished. Zero Dart changed, so
+      the count is not owed. (2) **This cron job's paths are still wrong**:
+      `Repo: /home/renia/allomokawil` does not exist, and there is now a
+      *second* checkout at `/home/hatch/workspace/repos/allomokawil` with no
+      `.git` at all and a stale `IMPROVEMENT_BACKLOG.md`. Work this tick was
+      done in `/home/hatch/allomokawil`, the one the Loop protocol names.

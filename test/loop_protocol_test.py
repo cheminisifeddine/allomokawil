@@ -52,6 +52,17 @@ So `main` hands the fence to `stated_baseline` and everything *outside* it to
 `newest_green` also takes the **highest** banked count rather than the last
 one in the file: the backlog is append-only but tick write-ups sit out of
 order, so position is not chronology (2609 was written above a 2605).
+
+**4. The paragraph under the fence, which is what a human reads.** The fence
+was moved to 2673 on 10 Oct and the sentence two lines below it kept saying
+2609. Both numbers were true about *something* -- 2673 was banked and green,
+2609 was the last count that gated a commit -- and the suite stayed 9/9,
+because nothing compared the sentence with the marker. The machine readers
+were both right, which is exactly what makes this the same defect one layer
+up from #3: the guard is not blind, it is *silent about a line it does not
+read*. `prose_baseline` reads only the present-tense claim directly under the
+fence, so the dozens of historical "banked 2609" mentions in the file cannot
+trip it.
 """
 import os
 import re
@@ -110,6 +121,52 @@ def gate_commands(body):
 # marker, so the shape lives here once instead of in two regexes that used to
 # disagree about what a green run looks like.
 BASELINE_MARK = "# GATE BASELINE:"
+
+# The present-tense claim that step 4 makes about itself, e.g.
+# "**The baseline is 2609 -- the `# GATE BASELINE` line ...**". Only the
+# PRESENT-tense form is matched: the same digits appear dozens of times in
+# this file as history ("banked 2609", "+64 over 2609", "2609 stays on the
+# books"), and a reader that swept every mention would fail on all of them.
+# This is why the case below is a *contradiction* reader and not a
+# "find the number" reader.
+CLAIM_RE = re.compile(r"baseline\s+is\s+\**(\d+)", re.IGNORECASE)
+
+
+def prose_baseline(txt, header=HEADER, fence_index=None):
+    """The baseline step 4 claims in prose, or None when it claims none.
+
+    Scans the lines that FOLLOW step 4's closing fence, and to the present
+    tense only, so the dozens of historical "banked 2609" mentions in this
+    file cannot be mistaken for the claim.
+
+    **It takes the whole protocol text, not the fenced body.** The first
+    version of this reader took `body` -- and `body` is only what is *inside*
+    the fence, which contains no fence markers and no prose at all, so the
+    reader looked for a paragraph that was never in its input and returned
+    `None` on the real tree. The case then passed vacuously, reporting
+    "agrees (says None)" on a file whose sentence said 2609 against a fence
+    stating 2673. The same shape as the six previous guards in this file, so
+    it is worth naming: **a new reader that returns `None` on the real tree
+    is not a lenient reader, it is a blind one.** Hence `control` below.
+
+    **Why this exists at all.** `stated_baseline` reads the marker line and
+    `newest_green` reads the tick write-ups, so the guard had no opinion on
+    the one paragraph that is what a human tick actually reads. When the fence
+    moved to 2673 (`ee05f7`) the paragraph below it kept saying 2609 and the
+    suite stayed 9/9: the number in the fence was right, the number in the
+    sentence two lines under it was wrong, and nothing compared them.
+    """
+    lines = txt.split("\n")
+    if fence_index is not None:
+        start = fence_index
+    else:
+        start = next(i for i, l in enumerate(lines)
+                     if l.strip().startswith(header))
+    for line in lines[start:]:
+        m = CLAIM_RE.search(line)
+        if m:
+            return int(m.group(1))
+    return None
 
 
 def stated_baseline(body):
@@ -227,6 +284,22 @@ def main():
     check("the fence states the demand on the %r line (%d found)"
           % (BASELINE_MARK, sum(BASELINE_MARK in l for l in body)),
           any(BASELINE_MARK in l for l in body))
+
+    # The paragraph under the fence must not contradict the fence. This is
+    # the half of step 4 that is *prose*, and prose is what a tick reads --
+    # the fence is what a tick copies. When the two disagreed by 64 the
+    # suite was 9/9, so this is the case that would have caught it.
+    # Control, and it comes FIRST on purpose. A reader that finds nothing on
+    # the real tree would make every agreement assertion below it vacuously
+    # true, so it has to be proven able to see the sentence before its
+    # verdict is allowed to mean anything.
+    claimed = prose_baseline(proto, fence_index=close_i + 1)
+    check("control: the prose reader finds step 4's baseline sentence (%s)"
+          % claimed, claimed is not None)
+    check("the prose below the fence agrees with it (says %s, fence states %s)"
+          % (claimed, stated[0]),
+          claimed is not None and stated[0] is not None
+          and claimed == stated[0])
 
     # And the two readers must not overlap: if the marker line ever leaked
     # into the region case 5 scans, the demand would be able to vouch for
