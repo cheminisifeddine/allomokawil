@@ -7,6 +7,80 @@ the **top unchecked item in phase order**, ships it, and ticks it.
 Rules for what belongs here: a real user-visible improvement or a real
 correctness gap — never a refactor for its own sake. One item per loop.
 
+- [x] **The 31 Python batteries were never run by the loop — `discover_tests()`
+      collected 324 files and ZERO of them, so every guard on the loop's own
+      instruments passed without ever gating anything.** This is the carry-over
+      the previous tick named as the next item, and it was not a "maybe": the
+      gap is structural and measured. `tool/run_tests.py` selects `*_test.dart`
+      only, so `test/*_test.py` — the push helper's battery, the PNG reader's,
+      pngscan's, the remote verifier's, the runner's own — were collected by no
+      gate in the repo. All 31 pass, so the suite was not wrong; it was
+      **unguarded**. A battery nobody runs catches nothing, and every one of
+      those files was a red that could not stop a commit.
+
+      **SHIPPED `tool/run_py_tests.py`** (new) — the gate that closes it, and
+      `test/run_py_tests_battery_test.py` (new) — 10 cases that pin its
+      behaviour. It is the same shape as the Dart runner one layer down, and it
+      **imports** that runner's exit codes, the CPU sampler, the group-kill and
+      the starve threshold rather than restating them, so the two cannot drift.
+
+      **The exit codes are deliberately the SAME table**: 0 pass, 1 fail, 2 HUNG,
+      3 BUSY, 4 STARVED. A sibling runner inventing its own meaning for 2 would
+      reintroduce exactly the confusion `run_tests_busy_code_test.py` exists to
+      forbid — 2 once meant both "a shard stopped answering" and "I refused to
+      start", and two ticks chased a hang that never existed.
+
+      **The batteries run SERIALLY, and that is a correctness decision rather
+      than a missing optimisation.** Several write fixed paths — `band_ink.py`
+      and `gen_icons.py` emit PNGs, `shot_namespace_test.py` grades the output of
+      `design_shots_test.dart` in `/tmp/shots/`. Run concurrently, one battery
+      grades another battery's half-written file and the red is neither a defect
+      nor a flake but a lie.
+
+      **No wall clock anywhere, by construction.** `tool_clock_seam_test.dart`
+      fails the build on `time.time()` in any tracked `*.py`, and a deadline
+      loop is the one file guaranteed to trip its own guard — so every bound here
+      is `time.monotonic()`, proven by the real sweep (25/25 green with this
+      file in its input set) and by a tokenizer case in the battery.
+
+      **Evidence.**
+      * `python3 tool/run_py_tests.py` -> **`SUITE PASS — 32 batteries across 3
+        batch(es), every batch green`**, **32 of 32 run**, `RUN_PY_TESTS_EXIT=0`,
+        **303 s**, all 3 batches green on their FIRST attempt (105.8 / 61.5 /
+        135.0 s).
+      * `flutter analyze` -> **No issues found!** (10.1s).
+      * `flutter test` on the four Dart guards that read `tool/` and `test/` —
+        `run_tests_orphan`, `run_tests_budget`, `run_tests_shard`,
+        `run_tests_deadline`, `tool_clock_seam`, `fixture_scope`,
+        `app_source_scope` -> **47 passed / 0 failed**, green on the first
+        attempt. These are the tests my two new files could most plausibly have
+        broken, since several enumerate those directories.
+      * **The Dart suite itself: NOT RUN.** `build_gate.py` answered NO ROOM at
+        the start of the tick (557 MB against the 900 MB floor, a 5418 MB
+        foreign balloon), and while writing this gate it oscillated — CLEAR at
+        1696 MB, NO ROOM at 674 MB, CLEAR at 1558 MB. That is exit-4
+        *STARVED* behaviour on the box, not a verdict on the tree. `analyze`
+        ran; the 2701-count `run_tests.py` run did not, and **no count was
+        re-banked**. Zero `.dart` files changed, so nothing new gates on it.
+      * `test/run_py_tests_battery_test.py` -> **10/10 ALL PASS**.
+      * **5 mutations, 4 killed, and the survivor is the useful half.** The
+        suffix changed so discovery collects nothing (killed); BUSY returned as
+        HUNG (killed — the exact defect the runner once shipped); `time.time`
+        reintroduced (killed); every code copied out of `run_tests` into local
+        constants (killed **after the battery was strengthened**). The survivor
+        is the unpaid-retry guard, which no case reaches — and that is recorded
+        rather than re-run until it agreed. **The fourth kill is the
+        interesting one**: the guard was a regex, `^\s*PASS\s*=\s*\d`, and the
+        mutation `BUSY, FAIL, HUNG, PASS, STARVED = 3, 1, 2, 0, 4` sailed
+        straight through it — a regex that cannot see a multi-target assignment
+        is a guard that reports a copied constant set as clean. It reads
+        assignment **targets** via `ast` now. Same class as last tick's bare
+        `TOK` grep failing on the sentence documenting the bug.
+      * One case was **wrong on its first run and the tool was right**: it
+        compared bare basenames against the gate's repo-relative listing and went
+        red on all 32. The gate's spelling is the one `--` needs, so the test
+        was corrected rather than the gate.
+
 - [x] **The push helper reported success it never checked — three green
       pushes, 5 of 10 files unpushed.** The founder named this on 10 Oct and it
       is a defect in the loop's only instrument for getting work to the remote,
