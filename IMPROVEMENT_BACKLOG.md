@@ -5811,6 +5811,8 @@ it is a correctness gap that duplicates a user's data.
 
 ## Tick 11 Oct 2026 — the gate's own arithmetic had no battery, and the four
 ## reader functions it is summed from had two real defects. **SHIPPED**
+## `a6381cc` (remote `0a0dc87`, verified per file, content and mode)**
+## reader functions it is summed from had two real defects. **SHIPPED**
 
 **Item.** The backlog had **0 unchecked**, and the previous tick named the live
 candidate: three `tool/*.py` without batteries of their own. Two are covered by
