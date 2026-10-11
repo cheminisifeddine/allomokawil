@@ -57,13 +57,20 @@ correctness gap — never a refactor for its own sake. One item per loop.
         `app_source_scope` -> **47 passed / 0 failed**, green on the first
         attempt. These are the tests my two new files could most plausibly have
         broken, since several enumerate those directories.
-      * **The Dart suite itself: NOT RUN.** `build_gate.py` answered NO ROOM at
-        the start of the tick (557 MB against the 900 MB floor, a 5418 MB
-        foreign balloon), and while writing this gate it oscillated — CLEAR at
-        1696 MB, NO ROOM at 674 MB, CLEAR at 1558 MB. That is exit-4
-        *STARVED* behaviour on the box, not a verdict on the tree. `analyze`
-        ran; the 2701-count `run_tests.py` run did not, and **no count was
-        re-banked**. Zero `.dart` files changed, so nothing new gates on it.
+      * **The Dart suite, re-checked and it DID run.** `build_gate.py` answered
+        NO ROOM at the start of the tick (557 MB against the 900 MB floor, a
+        5418 MB foreign balloon) and oscillated all the way through — CLEAR at
+        1696 MB, NO ROOM at 674 MB, CLEAR at 1558 MB — which is the box
+        starving, not a verdict on the tree. It lifted before the commit, and
+        the run is in the log: `python3 tool/run_tests.py` -> **`SUITE PASS —
+        2701 tests across 14 shard(s), every shard green`**, `2693 passed, 8
+        skipped`, `shards: 14 run, 14 green, 0 not green, 0 never started`,
+        **elapsed 20:08**, **all 14 green on their FIRST attempt**
+        (`1 attempt(s)` on every shard). **The count is unchanged at 2701 and
+        that is the correct outcome** — zero `.dart` files changed, so nothing
+        new gates on it. One first attempt was thrown away to a tool timeout
+        at shard 5 and re-launched under `background=true`, which is the only
+        reason a 20-minute suite can finish inside a 10-minute tick at all.
       * `test/run_py_tests_battery_test.py` -> **10/10 ALL PASS**.
       * **5 mutations, 4 killed, and the survivor is the useful half.** The
         suffix changed so discovery collects nothing (killed); BUSY returned as
