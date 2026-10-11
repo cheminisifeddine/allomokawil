@@ -35097,3 +35097,97 @@ is verified; the **job prompt itself** is not. Repoint it to
 `/home/hatch/allomokawil`; only he can. Still outstanding from my memory: **JDK17,
 AndroidSDK, `build_web.sh`, `pngscan.py`, `build_arm64.sh`** are missing, so no
 APK, no web bundle and no screenshot step can run from this loop.
+
+## Tick 10 Oct 2026 (`2d47e28`, remote `1a31579`) — `tool/png_read.py`, the decoder
+## every pixel number in this file is produced by, had NO battery of its own. **SHIPPED**
+
+**This tick finished work the previous one started and then lost to a rate limit.**
+The tree arrived dirty with a complete, uncommitted item: the decoder hardening
+plus a 456-line battery that had never been gated or committed. Protocol step 2
+says finish that first rather than open a new item, so this tick gated it,
+corrected two claims in it that measurement contradicted, and shipped it.
+
+**Why this tool and not a Dart feature.** `read_png` is what `pngscan.py`,
+`px_count.py`, `band_ink.py` and `contrast_audit.py` all read shots through, and
+this backlog is full of numbers that came out of this one function — "984x167 px
+at (96,1610)", "557 sampled colours", "+4.4% adaptive ink radius". It was the
+largest tool in `tool/` with no test of its own: `px_count_test.py` used it as a
+*fixture writer* and never asserted what it returned, and the `pngscan` battery
+(9/9) tests the region finder downstream of it, not the decode.
+
+**Three defects, each measured against the old decoder before being fixed.**
+
+1. **Chunk CRCs were never verified.** The walk over the file stepped past the
+   4-byte CRC after every chunk, and damage inside IHDR is invisible to zlib —
+   it only ever reads the compressed IDAT stream. Measured: a colour-type flip
+   **together with** a bit-depth flip decoded three RGB pixels (red, green,
+   blue) as `[255,255,255, 0,0,0, 0,0,0]` — **white, black, black, returned as a
+   valid image with no refusal anywhere.** Every CRC is now checked and a failure
+   names the chunk that is actually damaged.
+2. **`tRNS` was ignored.** A transparent colour is legal in greyscale and
+   truecolour PNGs and carries no alpha channel at all, so a fully transparent
+   red pixel came back as **opaque red**. Measured: OLD returned
+   `[255,0,0, 0,255,0]`, NEW returns `[255,255,255, 0,255,0]` — the background
+   the eye actually sees, which is the thing these callers tally.
+3. **A short IHDR died in a raw traceback.** `struct.unpack` raised `unpack
+   requires a buffer of 13 bytes`, naming a byte position and **no file**, so
+   every caller's `except PngError` walked straight past the one refusal in the
+   module that was not a `PngError`.
+
+**Two more refusals added on the same evidence, not invented.** An IHDR with no
+IDAT decoded to zero rows, and `pngscan` reports zero rows as "no boxes" — the
+same green a blank screenshot reports, which is the trap `px_count.py` already
+documents from two earlier versions of this same measurement. And an IHDR
+arriving after IDAT was accepted.
+
+**The part worth keeping: two of the tick's own claims were WRONG, and
+measurement said so instead of review.** Both docstrings this item shipped
+asserted that "a single flipped bit" in the colour-type byte silently decoded
+as a valid wrong image. I probed every one of the 13 IHDR bytes and that is
+false. A **single** colour-type flip is refused by the old decoder *by luck*:
+greyscale samples are 1/3 the stride, so the run walks into the row's filter
+byte and dies with `unknown filter type 40 on scanline 1` — blaming a filter
+that is legitimately 0 in every row. And the two single-byte flips the old
+decoder **did** accept (the compression/filter method bytes it ignores) decode
+**correctly**. The corruption needed the *pair*. Both docstrings now say that,
+in the tool and in the battery, because a battery that overstates its own
+defect is the same failure this repo keeps meeting in a new costume.
+
+**Nothing moves for a real file, and that was measured rather than hoped.**
+Every PNG on this tree — **90** of them, 55 tracked plus 35 untracked — was
+decoded with the old module and the new one and compared:
+**90 identical, 0 differing, 0 refused on one side only.** So every number this
+backlog has already recorded still stands. Verified through the live consumers
+too: `pngscan` reads `1176x2550` off a real shot, and `contrast_audit.py shots`
+passes **28/28** pairs on `/tmp/shots`.
+
+**Guards were checked for over-rejection, not just for firing.** A greyscale
+8-bit `tRNS` (the case most at risk of being refused) reads white-then-white,
+and RGBA compositing is untouched: alpha 128 over `[10,20,30]` still lands at
+`[132,137,142]`.
+
+**Evidence.**
+* `flutter analyze` -> **No issues found!** (11.2 s)
+* `python3 tool/run_tests.py` -> **`SUITE PASS — 2701 tests across 14 shard(s),
+  every shard green`**, `2693 passed, 8 skipped`, `RUNNER_EXIT=0`, elapsed
+  **23:23**, `shards: 14 run, 14 green, 0 not green, 0 never started`, every
+  shard green on its FIRST attempt, **zero FAIL/HUNG/STARVED/BUSY lines**.
+  Shard 8 — the known 6 Oct intermittent — passed in **2:24**.
+  **The count is unchanged at 2701, and that is the correct answer** for a tick
+  that changed zero `.dart` files: the new battery is Python and is run
+  directly, exactly like its 14 siblings.
+* `python3 test/png_read_test.py` (new, 16 cases) -> **16 passed / 0 failed**,
+  incl. c15, a pixel-for-pixel comparison against an independent decoder, and
+  c14, a proof the shipped decoder still reads every real PNG in the tree.
+* Siblings all exit 0: `pngscan_test` **9/9**, `px_count_test` **18/18**,
+  `prep_mark_test` **10/10**, `gen_icons_test` **24/24**, `push_helper_test`,
+  `loop_protocol_test` **29/29**.
+* `build_gate.py` -> **CLEAR** before the suite was started.
+* Push verified the way the protocol requires — **not** by exit code and **not**
+  by the commit message: `VERIFIED: 2 file(s) match the remote on CONTENT and
+  MODE`.
+
+**Every phase is ticked and 0 unchecked items remain** (as of `b2a3dc0`, before
+this tick), so the next tick has no queued item and should audit rather than
+fake progress, exactly as this one did not: it took the dirty item it found,
+proved it, and corrected two of its own assertions on the way.
