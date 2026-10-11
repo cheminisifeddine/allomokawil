@@ -702,7 +702,33 @@ class _foreign_browser(object):
 
 def _starved_gate():
     """A copy of the gate whose /proc/meminfo read is redirected to a
-    fixture holding 512 MB available. Returns the path, or None."""
+    fixture holding 512 MB available. Returns the path, or None.
+
+    `Balloon:` is STRIPPED from the fixture, and that is the whole point of
+    this edit (measured 11 Oct 2026, on top of `2e1f994`).
+
+    This fixture only ever rewrote `MemAvailable:` and copied every other
+    line of the live file verbatim -- so on a VM it inherited the real
+    `Balloon:` (5316468 kB measured here). Since the `else` landed, a balloon
+    that covers the shortfall IS the explanation, and the census is now
+    mutually exclusive with it: the host branch fired and the census never
+    ran at all.
+
+    Case 15 asserts `"Largest memory holders" in stdout`. It went red on a box
+    holding 5 GB in the balloon, for a reason that has nothing to do with the
+    census arm: the FIXTURE was choosing which arm ran. The gate was right
+    and the case was measuring the host's memory manager.
+
+    The two fixtures have opposite jobs and must not be one function.
+    `_starved_gate()` is the "a PROCESS holds this" fixture (cases 6, 7, 11,
+    15); `_ballooned_gate()` is the "the HOST took it" fixture (case 16) and
+    sets `Balloon:` explicitly, both present and absent. Stripping it here
+    puts each back in charge of its own arm, and the box can no longer pick.
+
+    Stripped at the TEXT level, not by neutralising `balloon_mb()`: the real
+    parse path stays in the loop, the same rule case 6 established for
+    MemAvailable, for the same reason.
+    """
     fixture = os.path.join(_SUITE_TMP, "gate_meminfo_starved")
     if not os.path.exists('/proc/meminfo'):
         return None
@@ -712,6 +738,10 @@ def _starved_gate():
         return None
     # /proc/meminfo is in kB: 524288 kB is 512 MB.
     raw = raw.replace(line[0], "MemAvailable:        524288 kB")
+    # Drop the hypervisor's own accounting: this fixture claims to be
+    # starved WITHOUT claiming the host took it. See the docstring.
+    raw = "\n".join(l for l in raw.split("\n")
+                    if not l.startswith("Balloon:"))
     with open(fixture, "w") as fh:
         fh.write(raw)
     out = os.path.join(_SUITE_TMP, "gate_starved_build_gate.py")
