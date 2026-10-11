@@ -5961,6 +5961,94 @@ is the tools that were never part of the audit family: `tool/band_ink.py`,
 `tool/px_count.py`, `tool/gen_icons.py`, `tool/gen_communes.py`,
 `tool/publish_release.py` (the last is founder-gated and must never be run
 from this loop).
+
+**Corrected by `e42eb15` -> see the Tick 11 Oct entry below.** Every one of
+those is now covered except `publish_release.py`, which this tick finished --
+and which the note above mis-classified. "Founder-gated, must never be run from
+this loop" is true of *running* the publisher and false of *testing* it.
+## Completed
+
+## Tick 11 Oct 2026 — `publish_release.py` could not be tested because it
+## could not be imported. **SHIPPED**
+
+**Item.** `e42eb15`. Backlog was **0 unchecked**, so this tick audited rather
+than faked progress, and the audit found the last `tool/*.py` in the repo with
+no battery. The reason the backlog itself had recorded — "founder-gated, must
+never run from this loop" — is **true of running the publisher and false of
+testing it**, and that mis-classification is what let the gap sit.
+
+**The defect, measured before any code.**
+`import publish_release` on a box with no token file printed
+`no GitHub token found at /tmp/ghtok` and exited **1**.
+`publish_release.py --help` exited **1** with a token complaint and no usage
+text. One module-scope line, `TOK = token()`, ran before `main()` and before
+`argparse`, so the module was un-importable and therefore untestable. Every
+sibling `tool/*.py` had been fixed already; this one could not be, because
+nothing could load it.
+
+**Three defects fixed.**
+1. The token is read on the first HTTP call (`_tok()`), so `--help` exits 0 with
+   real usage text. The refusal now names **every** path it searched — it said
+   `/tmp/ghtok` while the code also checked `~/.ghtok`, so an operator whose
+   token sat in their home directory was told about a file they had never heard
+   of.
+2. `--file local_path=asset_name` split on the wrong `=`. A `=` is legal in a
+   path: a real file at `.../apk=v1/app.apk` was read as `/tmp/.../apk` and
+   refused as missing, **naming a path the caller never typed**.
+3. The asset name went into the query string raw. `+` reads back as a space and
+   `&` truncates the query, so the publisher could upload under a server-side
+   name nobody asked for. For an Arabic-first app whose assets may carry Arabic
+   names that is the likely case, not the exotic one. Now percent-encoded.
+
+**The interesting half: my first fix was wrong, and the battery caught it.**
+Splitting on the **last** `=` is the obvious correction to defect 2, and it is
+still wrong — measured, `rpartition("=")` on `/tmp/apk=v1/missing.apk` returns
+`('/tmp/apk', 'v1/missing.apk')`, **byte for byte the same wrong answer** the
+original `partition("=")` gave. Moving the split point only moved the error. The
+separator is now decided by whether the left side **exists**: whole-argument
+first, then last-`=` only when the left side is a real file, else the whole
+argument is the path so the refusal names what was typed. String splitting
+cannot answer this question; the filesystem can.
+
+The battery caught that regression while it was still in the tree — which is the
+entire argument for writing the test before trusting the fix.
+
+**A second battery bug, same class.** The token-safety case originally grepped
+for a bare `TOK` and **failed on the sentence that documents the old bug** in a
+docstring. A regex cannot tell prose from code; `ast` can. It now parses the
+module and checks identifiers and module-scope calls.
+
+**Evidence.**
+* `flutter analyze` -> **No issues found!** (11.2s)
+* `python3 tool/run_tests.py` -> **`SUITE PASS — 2701 tests across 14 shard(s),
+  every shard green`**, `2693 passed, 8 skipped`, **elapsed 19:45**, **14 run,
+  14 green, 0 not green, 0 never started**, all 14 green on their FIRST attempt,
+  **zero FAIL/HUNG/STARVED/BUSY**. Shard 8 — the known intermittent — passed
+  again. Count **unchanged at 2701**, which is the correct outcome: zero `.dart`
+  files changed, so nothing new gates on it.
+* `python3 test/publish_release_test.py` -> **28 passed / 0 failed**, exit 0.
+* **7 mutations, 7 killed**, each on its named case: module-scope `TOK`
+  reinstated; raw name in the query; refusal naming only the first token path;
+  `sha256` digesting one chunk only; `partition("=")` (the original bug);
+  `rpartition` unconditional (**my own wrong first fix**); and the injected
+  `exists` bypassed.
+* **One mutation deliberately survived** — shrinking the `sha256` read block
+  from 1 MB to 1 KB. That is an **equivalent mutant**, not a missed defect: any
+  chunk size produces the same digest. It is recorded here rather than quietly
+  re-run, because "7/7 killed" would otherwise be the number people repeat.
+* `loop_protocol` 29/29, `push_helper` pass, `stale_bytecode` 15/15 — the
+  guards that police this repo's own layout, still green over the new file.
+* **No secrets in scope, verified before starting.** No token file was read,
+  created or required; the battery drives `TOKEN_PATHS` at a temp directory and
+  never contacts GitHub. No APK, release or tag is in scope and none was built.
+
+**Next.** `tool/crash_log_check.dart` was measured this tick (`dart run` ->
+**9/9 PASS, exit 0**) and is correct as it stands. Every `tool/*.py` now has a
+battery. The next gap is not another tool — it is that this battery is **Python
+and therefore invisible to `run_tests.py`**, whose `discover_tests()` only
+collects `*_test.dart`. Nine Python batteries run only when a tick remembers
+them; they are not gated by the number the protocol holds at 2701.
+
 ## Completed
 
 ## Tick 9 Oct 2026 (1st) — the LABEL shape: the rule's own header table was
