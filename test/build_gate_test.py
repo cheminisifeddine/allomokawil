@@ -251,6 +251,53 @@ _SUITE_TMP = tempfile.mkdtemp(prefix="build_gate_suite_")
 _ISOLATED = os.path.join(_SUITE_TMP, "gate_isolated.py")
 
 
+def _foreign_tools():
+    """Every pid the gate would classify as a real build tool that this suite
+    did NOT start -- `is_tool`/`is_tester`/`is_java` in `survey()`.
+
+    Deliberately a SEPARATE set from `_FOREIGN_PIDS`. That set means "a leak
+    this suite did not start", which case 17 asserts on by name; folding build
+    tools into it would silently change what `_FOREIGN_PIDS` claims and give
+    that case a weaker premise. Two sets, two claims.
+
+    Measured 11 Oct 2026: a live `flutter test` (this loop's own orphaned
+    14-shard suite) made `survey()` return a non-empty `tools`, so `busy`
+    was true and every starved fixture short-circuited at the BUSY branch.
+    Case 16 then printed "BUSY and starved: another build holds the box"
+    instead of the host verdict it asserts -- and its `no_kill_advice` check
+    went **green for the wrong reason**: the string was absent because the
+    branch under test never ran. A vacuous green is worse than the red it
+    replaced, which is why this is a fix and not a SKIP.
+
+    Recomputed live on every `_isolated_src()`, same as `_FOREIGN_PIDS`, so a
+    build that STARTS mid-suite is neutralised too -- the frozen-snapshot bug
+    case 17 already fixed, not reintroduced here.
+    """
+    mod = _gate_module()
+    out = set()
+    for entry in os.listdir('/proc'):
+        if not entry.isdigit():
+            continue
+        pid = int(entry)
+        if pid in _OWNED:
+            continue
+        cmd = mod._cmdline(pid)
+        comm = mod._comm(pid)
+        if not cmd and not comm:
+            continue
+        ident = cmd or comm
+        is_tool = ('bin/flutter' in cmd or 'flutter_tools' in cmd
+                   or cmd.startswith('dart ') or '/dart ' in cmd
+                   or comm == 'dart' and cmd == '')
+        is_tester = ('flutter_tester' in cmd or comm == 'flutter_tester'
+                     or comm == 'dart' and 'flutter_tester' in ident)
+        is_java = (cmd.startswith('java') or '/bin/java' in cmd
+                   or comm == 'java')
+        if is_tool or is_tester or is_java:
+            out.add(pid)
+    return out
+
+
 def _isolated_src():
     """The gate's source with foreign leaks neutralised.
 
@@ -271,7 +318,21 @@ def _isolated_src():
             1)
     # LIVE, not the import-time snapshot: this function is called on every
     # `_run()` (see `_isolated_path`), so the baseline moves with the box.
-    banner = "_FOREIGN_PIDS = frozenset(%r)\n" % (sorted(_foreign_leaks()),)
+    # Same trick as `mine`: a pid this suite did not start is skipped before
+    # any predicate runs, so the neutralisation cannot be defeated by an arm
+    # firing on it later in the loop.
+    survey_anchor = "        pid = int(entry)\n        if pid in mine:"
+    if survey_anchor not in out:
+        return None
+    out = out.replace(
+        survey_anchor,
+        "        pid = int(entry)\n"
+        "        if pid in _FOREIGN_TOOLS:\n"
+        "            continue\n"
+        "        if pid in mine:",
+        1)
+    banner = ("_FOREIGN_PIDS = frozenset(%r)\n" % (sorted(_foreign_leaks()),)
+              + "_FOREIGN_TOOLS = frozenset(%r)\n" % (sorted(_foreign_tools()),))
     return banner + out
 
 

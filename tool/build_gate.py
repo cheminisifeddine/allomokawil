@@ -983,6 +983,18 @@ def main(argv=None):
             # census first is sent to hunt for a process to kill. The
             # threshold is "could returning it clear the floor", which is a
             # checkable claim about the two numbers we hold.
+            # `elif`, not `if`. This branch is the whole explanation when it
+            # fires, so the census that follows it is residue -- and printing
+            # it anyway is how a reader meets a 332 MB daemon UNDER a verdict
+            # that has already said "no process here owns this". The advice
+            # printed under the census ("if the top holder is a service, take
+            # a non-build item and do not kill it") then contradicts the
+            # line above it and points at a process holding 3% of the deficit.
+            #
+            # Measured 11 Oct 2026: the host-named line was printed and then
+            # UNCONDITIONALLY followed by that advice, because the branch had
+            # no `else`. `test/build_gate_test.py` case 16 has asserted this
+            # since 8 Oct and has been red on every run that reached it.
             if ball is not None and ball >= shortfall:
                 print('THE HOST IS HOLDING %.0f MB OF THIS BOX (`Balloon:` in '
                       '/proc/meminfo, %.0f MB of %s) -- more than the %.0f MB '
@@ -991,34 +1003,35 @@ def main(argv=None):
                       'action clears this denial -- not --reap, not waiting, '
                       'and there is no process here you may usefully kill.'
                       % (ball, ball, _total_mb() or 0.0, shortfall))
-            rows = holder_census()
-            if rows:
-                print('Largest memory holders (PSS, by process tree root):')
-                for pid, mb, npids, comm, cwd in rows:
-                    where = cwd if cwd else 'cwd unreadable'
-                    print('  %-7d %6.0f MB  %2d proc  %-12s %s'
-                          % (pid, mb, npids, comm[:12], where))
-                top = max(r[1] for r in rows)
-                if top >= shortfall:
-                    print('None of these is a build this loop started: --reap only '
-                          'clears processes the survey proves are this loop\'s own '
-                          'leaked renders. If the top holder is a service, this '
-                          'denial is the box being at its floor -- take a non-build '
-                          'item and do not kill it.')
-                else:
-                    # The arm the census did not have. Every holder above the
-                    # floor, combined, is smaller than the deficit, so this
-                    # branch cannot be the cause and must not be offered as
-                    # one -- and this is reachable with no `Balloon:` line at
-                    # all, under a cgroup limit. Naming the largest process on
-                    # a box it cannot account for is the same defect as naming
-                    # no holder: both send the reader after the wrong thing.
-                    print('NO process here accounts for this: the %.0f MB '
-                          'shortfall is larger than every visible holder '
-                          'combined (largest: %d, %.0f MB). Do not signal any '
-                          'of them to free it -- exiting would not help. Take a '
-                          'non-build item and re-check later.' % (
-                              shortfall, top, top))
+            else:
+                rows = holder_census()
+                if rows:
+                    print('Largest memory holders (PSS, by process tree root):')
+                    for pid, mb, npids, comm, cwd in rows:
+                        where = cwd if cwd else 'cwd unreadable'
+                        print('  %-7d %6.0f MB  %2d proc  %-12s %s'
+                              % (pid, mb, npids, comm[:12], where))
+                    top = max(r[1] for r in rows)
+                    if top >= shortfall:
+                        print('None of these is a build this loop started: --reap only '
+                              'clears processes the survey proves are this loop\'s own '
+                              'leaked renders. If the top holder is a service, this '
+                              'denial is the box being at its floor -- take a non-build '
+                              'item and do not kill it.')
+                    else:
+                        # The arm the census did not have. Every holder above the
+                        # floor, combined, is smaller than the deficit, so this
+                        # branch cannot be the cause and must not be offered as
+                        # one -- and this is reachable with no `Balloon:` line at
+                        # all, under a cgroup limit. Naming the largest process on
+                        # a box it cannot account for is the same defect as naming
+                        # no holder: both send the reader after the wrong thing.
+                        print('NO process here accounts for this: the %.0f MB '
+                              'shortfall is larger than every visible holder '
+                              'combined (largest: %d, %.0f MB). Do not signal any '
+                              'of them to free it -- exiting would not help. Take a '
+                              'non-build item and re-check later.' % (
+                                  shortfall, top, top))
 
         else:
             print('CLEAR — no flutter/dart tool, no busy JVM, no leaked tester, '
