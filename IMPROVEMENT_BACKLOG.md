@@ -18,7 +18,9 @@ correctness gap — never a refactor for its own sake. One item per loop.
       **unguarded**. A battery nobody runs catches nothing, and every one of
       those files was a red that could not stop a commit.
 
-      **SHIPPED `tool/run_py_tests.py`** (new) — the gate that closes it, and
+      **SHIPPED `642ad2a` (remote `cc47e68`, tree IN SYNC, verified by
+      `tool/remote_state.py` -> MATCH on content AND mode).**
+      `tool/run_py_tests.py` (new) — the gate that closes it, and
       `test/run_py_tests_battery_test.py` (new) — 10 cases that pin its
       behaviour. It is the same shape as the Dart runner one layer down, and it
       **imports** that runner's exit codes, the CPU sampler, the group-kill and
