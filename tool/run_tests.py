@@ -237,7 +237,20 @@ STARVED_MIN_CPU_SECS = 0.5
 STATUS_NAME = {PASS: "PASS", FAIL: "FAIL", HUNG: "HUNG", BUSY: "BUSY",
                STARVED: "STARVED"}
 
-_TEST_PATH = re.compile(r"(test/\S*?\.dart)")
+#: The `_test.dart` suffix is the fix, and it is not cosmetic. The old
+#: pattern `(test/\S*?\.dart)` also matches a **stack frame inside the
+#: Flutter SDK** -- `package:flutter_tools/src/test/flutter_platform.dart`
+#: contains `test/flutter_platform.dart` -- and `culprit()` scans the tail
+#: BACKWARDS for the last match. On a real wedged isolate (captured in
+#: `test/fixtures/run_tests_tail/truehang.txt`, this tick) it therefore
+#: returned `test/flutter_platform.dart`: a file that is not in this repo,
+#: does not exist on disk, and cannot be bisected. `culprit()` is called on
+#: one path only (HUNG/STARVED) and its entire value is "go look at THIS
+#: file"; the one run where a tick most needs the name is the run that
+#: produced the framework's own name. Every suite this runner launches
+#: is a `*_test.dart` (see `discover_tests`), so requiring the suffix
+#: costs nothing real and removes the impostor.
+_TEST_PATH = re.compile(r"(test/\S*?_test\.dart)")
 #: The expanded reporter's progress line: `00:04 +25: All tests passed!`.
 #: The count is monotonic within a run, so the last match in the tail is the
 #: shard's total. Shards are counted independently and summed, which is only
@@ -288,6 +301,15 @@ _TEST_PATH = re.compile(r"(test/\S*?\.dart)")
 #: by exactly the number the loop most needs to see.
 _PROGRESS = re.compile(r"\+(\d+)(?: ~(\d+))?(?: -(\d+))?:")
 
+#: The line the expanded reporter writes when it has finished a shard:
+#: `All tests passed!` on green, `Some tests failed.` on red. Captured from
+#: this box (`test/fixtures/run_tests_tail/{red,multi}.txt`), not assumed --
+#: it is the only marker that separates "the reporter got to the end" from
+#: "this shard was killed mid-flight", and `progress_counts` is wrong without
+#: it. Both spellings are required: the reporter's red text has been observed
+#: both with and without the trailing period across Dart 3.13/3.14.
+_REPORTER_END = re.compile(r"(?:All tests passed!|Some tests failed\.?)\s*$")
+
 
 def culprit(tail):
     """The last test file named in the reporter tail, or None.
@@ -313,15 +335,57 @@ def progress_counts(tail):
     parse, which is kept distinct from `(0, 0, 0)`: a shard whose count cannot
     be read must not contribute a silent 0 to a total that is about to be
     presented as the suite's number.
+
+    **The reporter and the tests share ONE stdout stream, and the last match
+    wins.** That was not a theoretical concern: measured this tick on a shard
+    SIGKILLed mid-hang (exit 137, so no summary line was written to mask it),
+    a test's own `print` -- `00:00 +4242 -77: ...` -- was read as the shard's
+    tally, and `ran_count` returned **4319** for a shard that ran **2** tests.
+    `ran_count` is what the suite total is summed from.
+
+    **A test can reproduce the reporter's format exactly, so no regex can
+    separate the two.** Measured, not assumed: anchoring the pattern to the
+    line start (`^\\s*\\d+:\\d\\d \\+...`) still read 4242, because the printed
+    line genuinely began `00:00 +4242 -77:`. The `\r` the reporter writes
+    between progress lines does not survive the pipe either -- a raw
+    one-byte-at-a-time read of a real run found **no `\r` anywhere in the
+    output**. So provenance cannot be recovered from the text at all, and any
+    "fix" that pretends to distinguish the two by shape is a fix that only
+    works on inputs nobody writes.
+
+    What *is* recoverable is whether the reporter got to finish. A shard that
+    ends on a clean, green summary (`All tests passed!`) or on a red one
+    (`Some tests failed.`) was written by the reporter, and its tally is the
+    last line before it. A shard that was killed mid-hang never gets one --
+    and that is precisely the tail whose last progress-shaped line may be
+    somebody's `print`. So: read the last progress line that **precedes** the
+    terminal reporter line, and when the tail has no terminal reporter line,
+    return None rather than guessing. None is already handled by the caller
+    (`main` prints "no total is claimed"), so the failure mode is a missing
+    number on exactly the runs that already cannot produce a suite result.
     """
     best = None
+    finished = False
     for line in tail:
         m = _PROGRESS.search(line)
         if m:
             best = (int(m.group(1)),
                     int(m.group(2) or 0),
                     int(m.group(3) or 0))
-    return best
+        if _REPORTER_END.search(line):
+            # The reporter finished the shard here; everything after this line
+            # is the failure listing, not progress.
+            finished = True
+            break
+    # **A tail the reporter never closed has no trustworthy last line**, so it
+    # yields None instead of one. This is the whole repair: the counts are
+    # only the shard's own when the reporter got to write its closing line,
+    # and a shard that was killed mid-hang is exactly the shard whose last
+    # progress-shaped line may be a `print`. None is already a supported
+    # answer here -- `main` prints "at least one shard's reporter wrote no
+    # count, so no total is claimed" -- and it is the honest one on a run
+    # that has no suite result to report anyway.
+    return best if finished else None
 
 
 def passed_count(tail):

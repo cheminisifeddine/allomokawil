@@ -1,0 +1,21 @@
+# TRUTH: 1 ran, 0 passed, 1 failed. A failure MESSAGE containing
+# progress-shaped text must never be read as a tally.
+00:00 +0: loading /tmp/rtprobe/test/msg_test.dart
+00:00 +0: real failure whose message contains progress-shaped text
+00:00 +0 -1: real failure whose message contains progress-shaped text [E]
+  Expected: 'never matches'
+    Actual: 'at 00:00 +99 -7: inside the message'
+     Which: is different.
+            Expected: never matc ...
+              Actual: at 00:00 + ...
+                      ^
+             Differ at offset 0
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  /tmp/rtprobe/test/msg_test.dart 4:5                 main.<fn>
+  
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  /tmp/rtprobe/test/msg_test.dart: real failure whose message contains progress-shaped text

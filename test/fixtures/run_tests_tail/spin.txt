@@ -1,0 +1,8 @@
+00:00 +1: B prints progress-shaped text, then wedges the isolate
+00:00 +4242 -77: THIS IS TEST STDOUT, NOT THE REPORTER
+# TRUTH: 2 tests ran, 1 passed, 1 hung. SIGKILL mid-hang (137):
+# no summary line was ever written, so the stdout line is last.
+00:00 +0: loading /tmp/rtprobe/test/spin_test.dart
+00:00 +0: A passes
+00:00 +1: B prints progress-shaped text, then wedges the isolate
+00:00 +4242 -77: THIS IS TEST STDOUT, NOT THE REPORTER

@@ -1,0 +1,11 @@
+# TRUTH: 6 ran across 3 files; counts are cumulative, not per-file.
+00:00 +0: loading /tmp/rtprobe/test/multi_a_test.dart
+00:00 +0: /tmp/rtprobe/test/multi_a_test.dart: a1
+00:00 +1: /tmp/rtprobe/test/multi_a_test.dart: a2
+00:00 +2: loading /tmp/rtprobe/test/multi_b_test.dart
+00:01 +2: /tmp/rtprobe/test/multi_b_test.dart: b1
+00:01 +3: /tmp/rtprobe/test/multi_b_test.dart: b2
+00:01 +4: loading /tmp/rtprobe/test/multi_c_test.dart
+00:03 +4: /tmp/rtprobe/test/multi_c_test.dart: c1
+00:03 +5: /tmp/rtprobe/test/multi_c_test.dart: c2
+00:03 +6: All tests passed!

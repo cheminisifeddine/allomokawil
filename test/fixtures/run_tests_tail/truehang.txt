@@ -1,0 +1,26 @@
+# TRUTH: 3 ran, 1 passed, 2 failed (1 wedged isolate). The reader
+# pointed culprit() at test/flutter_platform.dart, an SDK file.
+00:00 +0: loading /tmp/rtprobe/test/truehang_test.dart
+00:00 +0: A passes
+00:00 +1: B fails with progress-shaped text in its message
+00:00 +1 -1: B fails with progress-shaped text in its message [E]
+  Expected: 'never matches'
+    Actual: 'at 00:00 +99 -7: inside the message'
+     Which: is different.
+            Expected: never matc ...
+              Actual: at 00:00 + ...
+                      ^
+             Differ at offset 0
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  /tmp/rtprobe/test/truehang_test.dart 5:5            main.<fn>
+  
+00:00 +1 -1: C blocks the isolate forever
+00:31 +1 -2: loading /tmp/rtprobe/test/truehang_test.dart [E]
+  Bad state: Cannot close sink while adding stream.
+  package:stream_channel/src/guarantee_channel.dart 180:7      _GuaranteeSink.close
+  package:flutter_tools/src/test/flutter_platform.dart 765:43  FlutterPlatform._startTest
+  
+One or more uncaught errors occurred shutting down:
+  Bad state: Cannot add event while adding stream.

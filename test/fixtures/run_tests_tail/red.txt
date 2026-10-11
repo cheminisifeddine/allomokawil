@@ -1,0 +1,19 @@
+# TRUTH: 4 ran, 2 passed, 1 skipped, 1 failed.
+00:00 +0: loading /tmp/rtprobe/test/red_test.dart
+00:00 +0: ok one
+00:00 +1: bad one
+00:00 +1 -1: bad one [E]
+  Expected: <3>
+    Actual: <2>
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  /tmp/rtprobe/test/red_test.dart 4:24                main.<fn>
+  
+00:00 +1 -1: ok two
+00:00 +2 -1: skip one
+  Skip: why
+00:00 +2 ~1 -1: Some tests failed.
+
+Failing tests:
+  /tmp/rtprobe/test/red_test.dart: bad one

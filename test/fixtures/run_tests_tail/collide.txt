@@ -1,0 +1,13 @@
+# TRUTH: 2 ran, 1 passed, 1 hung.
+00:00 +0: loading /tmp/rtprobe/test/collide_test.dart
+00:00 +0: A passes
+00:00 +1: B prints progress-shaped text then hangs
+00:00 +99 -7: this is test stdout, not the reporter
+00:30 +1 -1: B prints progress-shaped text then hangs [E]
+  TimeoutException after 0:00:30.000000: Test timed out after 30 seconds. See https://pub.dev/packages/test#timeouts
+  dart:isolate  _RawReceivePort._handleMessage
+  
+00:30 +1 -1: Some tests failed.
+
+Failing tests:
+  /tmp/rtprobe/test/collide_test.dart: B prints progress-shaped text then hangs

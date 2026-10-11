@@ -5809,6 +5809,93 @@ it is a correctness gap that duplicates a user's data.
       *Commit:* local `6e59977`, remote `90298bc`. All five blobs verified
       **MATCH** against the remote tree (`8061d7d`).
 
+## Tick 11 Oct 2026 — the gate's own arithmetic had no battery, and the four
+## reader functions it is summed from had two real defects. **SHIPPED**
+
+**Item.** The backlog had **0 unchecked**, and the previous tick named the live
+candidate: three `tool/*.py` without batteries of their own. Two are covered by
+name (`gh_push` -> `push_helper_test`, `tap_target_audit` ->
+`tap_target_probe_test`). The third was **a set of functions, not a file**:
+`tool/run_tests.py` is 936 lines and the loop gates every commit it ships on one
+line of its output, yet `progress_counts`, `passed_count`, `ran_count` and
+`culprit` had **zero** references from any test. Nine sibling batteries exist for
+that same file's exit codes, starve detection and retry budget. The functions
+the suite total is **summed from** were the ones nobody had ever run.
+
+**Defect 1 — a shard's size could be read out of a test's own `print`.**
+`progress_counts` takes the **last** line matching `\+(\d+)...:` *anywhere in
+the line*, and the reporter and the tests share **one stdout stream**. Measured
+this tick by running a real suite and killing it the way the runner's deadline
+kills it (SIGKILL, so no summary line masks anything): a test printing
+`00:00 +4242 -77: ...` made `ran_count` return **4319** for a shard that ran
+**2** tests. `ran_count` is what `SUITE PASS -- N` is summed from.
+
+**What the repair is NOT, because measurement ruled the obvious ones out.**
+Anchoring the pattern to the line start (`^\s*\d+:\d\d \+...`) still read
+**4242**: the printed line genuinely began `00:00 +4242 -77:`. The `\r` the
+reporter writes between progress lines does not survive the pipe either -- a
+raw byte-at-a-time read of a live run found **no `\r` anywhere** in the output.
+So a test can reproduce the reporter's format exactly and provenance is
+**unrecoverable from the text**. Any fix that claims to separate the two by
+shape works only on inputs nobody writes. The repair is structural instead:
+**if the reporter never wrote its closing line, the shard's count is claimed
+as None, not guessed.** `All tests passed!` / `Some tests failed.` is the only
+marker that distinguishes "the reporter finished" from "this shard was killed"
+(`_REPORTER_END`), and None is already a supported answer -- `main` prints "at
+least one shard's reporter wrote no count, so no total is claimed".
+
+**Defect 2 — `culprit()` pointed a tick at the Flutter SDK.** Its pattern
+`(test/\S*?\.dart)` also matches a stack frame **inside the SDK**
+(`package:flutter_tools/src/test/flutter_platform.dart` contains
+`test/flutter_platform.dart`), and it scans the tail **backwards** for the last
+match. On a real wedged isolate it returned **`test/flutter_platform.dart`** --
+a file not in this repo, not on disk, and not bisectable. `culprit()` is called
+on the HUNG/STARVED path only, and its entire value is "go look at THIS file";
+the one run where a tick most needs the name is the run that produced the
+framework's own name. Fixed by requiring the `_test.dart` suffix every real
+suite carries (`discover_tests` only ever launches those).
+
+**Severity, stated honestly.** The 2701 total **cannot** be corrupted by
+defect 1: the total sums **green shards only**, and a shard that hangs is never
+green. So no commit was ever gated on a wrong number. What *was* wrong is the
+number on exactly the run where a tick reads the output by hand, and the
+culprit name on **every** hung shard -- which is the whole job of that line.
+
+**Evidence.**
+* Fixtures are **real reporter bytes**, captured this tick
+  (`test/fixtures/run_tests_tail/*.txt`, 7 files: green, red, multi-file,
+  skipped, message, collide, and two SIGKILLed mid-hang). Each carries a
+  `# TRUTH:` line stating the answer measured from the run; cases assert
+  against that line, not against a value re-derived with the regex under test.
+* `python3 test/run_tests_tail_reader_test.py` -> **12/12 pass**.
+* **3 mutations, 3 killed**: `_TEST_PATH` loosened (2 cases red), the
+  `finished` guard dropped (2 red), the terminator break removed (6 red).
+* `flutter analyze` -> **No issues found!** (28.2s).
+* `test/run_tests_deadline_test.dart` + `test/run_tests_shard_test.dart` ->
+  **9/9 green**, including the stubbed HUNG/culprit paths whose stubs echo
+  `All tests passed!` -- the terminator change must not break them, and did not.
+* **End-to-end on a real hang** (`live_hang_test.dart`, sync-spin wedge,
+  `--shard-deadline 30`): culprit names `test/live_hang_test.dart`, the shard
+  line prints `? test(s)` and no total is claimed. Exit 4 = STARVED, correctly.
+* 6 sibling batteries touching `run_tests.py` -> all green
+  (`run_py_tests_battery` 10/10, `run_tests_exit_docs` 8/8,
+  `tap_target_probe` 15/15, busy/starved/retry budgets).
+
+**One pre-existing failure found, NOT mine, and not fixed here.**
+`test/build_gate_test.py` -> **35/36**, case 16 *"no advice to act on a service
+that cannot free the memory"*. Reproduced **identically on a clean HEAD export**
+(`/tmp/headcheck`, 35/36, same case) before blaming this tick, and the battery
+never reads `run_tests.py`. It is a real gate defect in `tool/build_gate.py`
+and it is the next candidate.
+
+**Two honest limits.** (1) On the live end-to-end hang, HEAD and the fix print
+the **same** culprit -- the fixture is where they diverge, because the SDK frame
+only appears once the isolate actually wedges; I am not claiming more than the
+two runs show. (2) `build_gate_test.py` (80s) and `gen_icons_test.py` (61s)
+both exceed the 300 s battery deadline **as part of a batch**, which is why
+batch 1 exhausted its retry in the full Python run; each passes comfortably when
+given room (`gen_icons` 61s rc=0, `build_gate` 80s rc=1 -- pre-existing).
+
 ## Tick 10 Oct 2026 (4th) — the shortfall band told the user to pull for
 ## rows the cap makes unreachable. **FIX WRITTEN, GATE DENIED — NOT SHIPPED**
 
