@@ -35451,3 +35451,81 @@ and RGBA compositing is untouched: alpha 128 over `[10,20,30]` still lands at
 this tick), so the next tick has no queued item and should audit rather than
 fake progress, exactly as this one did not: it took the dirty item it found,
 proved it, and corrected two of its own assertions on the way.
+
+## Tick 11 Oct 2026 (44th) — the gate named the host, then told the reader to kill something
+
+**The item.** `test/build_gate_test.py` case 16 had been red since 8 Oct and
+was carried by the 43rd as "the next item". It is now green, 5/5, and the
+suite moved **28/35 -> 31/35** on the same box.
+
+**Two defects, not one. The second is the one that hid the first.**
+
+1. `tool/build_gate.py` — the `THE HOST IS HOLDING` branch had **no `else`**,
+   so it fell through to `holder_census()` and appended its advice. Measured
+   output of the unfixed gate on the `Balloon:` fixture:
+   ```
+   THE HOST IS HOLDING 4800 MB OF THIS BOX ... there is no process here you
+   may usefully kill.
+   Largest memory holders (PSS, by process tree root):
+     17832      795 MB   5 proc  python3      /home/hatch/allomokawil
+     31         183 MB   1 proc  hatch        cwd unreadable
+   None of these is a build this loop started: ... take a non-build item and
+   do not kill it.
+   ```
+   The census is **residue** the moment the balloon covers the shortfall --
+   which is the exact case that branch exists for. Now `else`, so the census
+   runs only while it is still the best explanation available.
+
+2. `test/build_gate_test.py` — **the case could not be measured on a busy
+   box.** `_FOREIGN_PIDS` neutralised leaked browsers and testers but NOT
+   live build tools. This loop's own orphaned 14-shard suite (pid 17832) made
+   `busy` true, so every starved fixture short-circuited at the BUSY branch.
+   Case 16 then failed at a *different* assertion than the one it asserts,
+   and `no_kill_advice` went **green for the wrong reason** -- the string was
+   absent because the branch under test never ran.
+
+   That is why the 43rd's report and this one disagreed about which case-16
+   assertion was red: both runs were true, and neither measured the branch.
+
+   **A vacuous green is worse than the red it replaces**, so this is a fix and
+   not a SKIP. `_foreign_tools()` mirrors the shipped
+   `is_tool`/`is_tester`/`is_java` classification -- the real predicates, not a
+   name list -- and is a SEPARATE set from `_FOREIGN_PIDS`, so case 17's
+   meaning ("a leak this suite did not start") is not quietly widened. Both
+   sets are recomputed live, carrying the lesson case 17 already paid for.
+   This is the same axis `_roomy_gate()` already fixes for *memory*; the
+   *process* axis had no fixture.
+
+**Evidence.** Pristine `git archive HEAD` export and this change, back to back,
+same box: **28/35 -> 31/35**, case 16 **2 failures -> 0**.
+* **2 mutations, 2 killed.** Drop the `else` -> census + "do not kill it"
+  return, case 16 red. Drop the tool skip -> the gate takes the BUSY branch
+  and never names the host. The first mutation initially "survived" because
+  my patch referenced an undefined `rows`; rewritten to remove only the
+  `else`, it reproduced the defect exactly.
+* `loop_protocol_test` **29/29**, `publish_release_test` **28/0**,
+  `png_read_test` / `pngscan_test` / `px_count_test` / `prep_mark_test` exit 0.
+* Zero `.dart` files touched, so the **2701** Dart gate count cannot move.
+
+**Honest about what is still red.** Four failures are shared by BOTH runs
+(cases 1, 2, 5, 14 area: "after cleanup -> CLEAR", "the NO ROOM summary names
+its largest holders"). Every one reports `BUSY (build tool present)` against
+the orphaned suite. Pre-existing, box-caused, reproducible on a clean export,
+**not** touched here: those cases need real processes to die and be reaped,
+which is a different fixture from the one this item was about.
+
+**The box.** `flutter analyze` and `run_tests.py` were **not run**: the 43rd's
+14-shard suite (pid 17832, 48 min, PPID 1) still held the box at ~220 MB free,
+and `run_py_tests.py` refused with its own **exit 3 (BUSY)** -- the code the
+43rd added. This tick was Python-only by the build-safety rule and it is
+reported as such.
+
+**SHIPPED `2e1f994`** -> remote `33f478d`, `VERIFIED: 2 file(s) match the
+remote on CONTENT and MODE`, `remote_state.py` -> **IN SYNC** (both axes).
+
+### Next
+The four box-caused failures are now the obvious next item: `after cleanup ->
+CLEAR` needs a fixture that survives a REAL build tool on the box, the same
+way `_roomy_gate()` survives a real hypervisor. Measure them on a QUIET box
+first, because on a loaded one they are indistinguishable from a defect --
+which is what cost this tick two misleading reports in a row.
