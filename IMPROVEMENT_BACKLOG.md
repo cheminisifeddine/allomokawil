@@ -7,6 +7,17 @@ the **top unchecked item in phase order**, ships it, and ticks it.
 Rules for what belongs here: a real user-visible improvement or a real
 correctness gap — never a refactor for its own sake. One item per loop.
 
+- [x] **The starved gate fixture inherited the host's `Balloon:` and chose which
+      arm of the NO-ROOM summary got measured — so case 15 had been measuring the
+      hypervisor, not the census.**  `21f8736` (remote `c449cfb`, tree IN SYNC,
+      verified by `remote_state.py` on content AND mode). 3 of the 4 failures the
+      43rd/44th called box-caused were never about the box; `_starved_gate()`
+      copied this VM's live `Balloon:` (5316468 kB) into a 388 MB-shortfall
+      fixture, and since the `else` the census and the host branch are mutually
+      exclusive. **35/36 -> 36/36**, 3 mutations 3 killed (a 4th was invalid by
+      construction — weakening an assertion cannot fail a suite, and is recorded
+      as such). `flutter analyze` -> No issues found!, zero `.dart` touched so the
+      2701 Dart count cannot move.
 - [x] **The 31 Python batteries were never run by the loop — `discover_tests()`
       collected 324 files and ZERO of them, so every guard on the loop's own
       instruments passed without ever gating anything.** This is the carry-over
@@ -35529,3 +35540,81 @@ CLEAR` needs a fixture that survives a REAL build tool on the box, the same
 way `_roomy_gate()` survives a real hypervisor. Measure them on a QUIET box
 first, because on a loaded one they are indistinguishable from a defect --
 which is what cost this tick two misleading reports in a row.
+
+## Tick 11 Oct 2026 (5th) — the starved fixture inherited the HOST's
+## `Balloon:` and picked which arm of the summary got measured.
+## **SHIPPED `21f8736`** (remote `c449cfb`, verified per file, content and
+## mode, `remote_state.py` -> **IN SYNC**)
+
+The previous tick left this as the next item: the 4 failures that "report
+`BUSY` against that orphan, need real processes to die and be reaped". **Three
+of the four were never about the box at all**, and the fourth was the one this
+tick fixed. Measuring them on a quiet box first — as the last tick instructed —
+is what separated the two causes, and it is why the tick was worth taking as
+"impossible".
+
+**The box was quiet.** No `java`, no `flutter`, nothing left over from the
+orphaned 14-shard suite. So all four names could be re-measured, which is the
+whole point of the instruction. Result: **35/36**, not 31/35 and not 4 reds.
+
+**The defect.** `_starved_gate()` rewrote only `MemAvailable:` and copied every
+other line of the live `/proc/meminfo` **verbatim** — so on a VM it inherited the
+real `Balloon:` (**5316468 kB** measured here, alongside a 388 MB shortfall).
+Since the last tick's `2e1f994` made the host branch an `else`, a balloon that
+covers the shortfall *is* the explanation and the census is **mutually exclusive**
+with it. So the host line fired, `holder_census()` was never called, and case
+15's `"Largest memory holders" in stdout` was false.
+
+**The gate was right and the case was wrong.** On this box the correct output
+really is `THE HOST IS HOLDING ... Nothing in this PID namespace owns it.` The
+fix did **not** touch `tool/build_gate.py`; the fixture was choosing which arm
+got measured, so the arm under test was never reached. Two ticks misreported
+this as a box-caused red because it *is* box-caused — just not the way either
+one said: nothing had to die and be reaped, the memory had to be **accounted**.
+
+The two fixtures have opposite jobs and must not be one function:
+
+| fixture | the claim | cases |
+| --- | --- | --- |
+| `_starved_gate()` | a **PROCESS** holds the memory | 6, 7, 11, 15 |
+| `_ballooned_gate()` | the **HOST** took it (set explicitly, present AND absent) | 16 |
+
+`Balloon:` is now stripped from the starved fixture **at the TEXT level**, so
+the real parse path stays in the loop — case 6's rule, for the same reason.
+
+**Evidence.** **35/36 -> 36/36**, exit 0.
+* **3 valid mutations, 3 killed.** Restore the inherited `Balloon:` -> case 15
+  red (35/36). Strip `Balloon:` in `_ballooned_gate` too -> case 16 red (35/36).
+  Break the **gate's** census heading -> case 15 red (35/36).
+* **A fourth mutation was mine and invalid, and is recorded as such.** I first
+  weakened the assertion to `r15.returncode == 1` and the suite stayed
+  **36/36** — of course it did; *weakening* an assertion cannot make anything
+  fail, and had I stopped there I would have reported a "survived" mutation as
+  evidence. The valid version breaks the **gate**, not the test (mutation 3
+  above), and it kills the case. A mutation that survives proves nothing unless
+  you check whether it was ever capable of failing.
+* `loop_protocol_test` **29/29**, `publish_release_test` **28/0**,
+  `remote_state_test` all pass.
+* `flutter analyze` -> **No issues found!** (21.8s). It ran because memory
+  freed during the tick; the gate had said NO ROOM (668 MB) at the start.
+* Zero `.dart` touched, so the **2701** Dart count cannot move.
+
+**Method note — a stale artefact nearly produced a wrong root cause.** The first
+manual reproduction said the fixture was fine, and appeared to disprove the
+`Balloon:` theory: running the generated `gate_starved_build_gate.py` by hand
+printed the census *and* the host line. That copy was **from 04:16**; the `else`
+landed in `tool/build_gate.py` at **04:25**. The scratch copies in
+`build_gate_suite_*` are regenerated per run and several survive from older
+runs — **the newest one is not always the one a case used**. Regenerating both
+variants against current code is what produced the real result. Had I trusted
+the first reproduction, this tick would have filed "no defect found" and the red
+would still be there.
+
+### Next
+Case 15 asserts one arm. The gate now has **three** distinct NO-ROOM endings
+(host-named, top-holder-named, no-holder-named) and only the first is
+separately pinned — the second is pinned only through a live-box census whose
+rows depend on whatever the box is running. That is the same shape as this
+tick's bug one level down: a fixture whose contents come from the box instead of
+from the fixture. Pin each ending on its own `_ballooned_gate()`-style fixture
+so none of the three can be reached by accident.
